@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: website-check
+description: "Website-Check: 5 Kriterien deterministisch messen (Script), Befunde ableiten, Report mit den 5 kritischsten Issues"
+
+workspace: |
+  Dateien: messwerte.md (rohe Messwerte des Scripts), findings.md (Befunde
+  mit Evidenz und Schweregrad), report.md (finaler Report mit den 5
+  kritischsten Issues).
+
+agents:
+  auditor:
+    name: Website-Auditor:in
+    model: opus
+    tools: [Read, Write, Edit] # kein Netz: bewertet nur die Messwerte
+    persona: |
+      Du wertest deterministisch gemessene Website-Pruefwerte aus: Du
+      wendest exakt die vorgegebenen Schwellwerte auf messwerte.md an und
+      zitierst die Messzeilen als Evidenz. Du erfindest nichts und
+      bewertest nichts, was keine Messung belegt.
+
+  analyst:
+    name: Report-Analyst:in
+    model: opus
+    tools: [Read, Write, Edit] # kein Netz: arbeitet nur mit findings.md
+    persona: |
+      Du bewertest Website-Befunde nach Business-Impact und Dringlichkeit
+      und schreibst klare, handlungsorientierte Reports fuer
+      Website-Betreiber:innen. Deutsch, praezise, ohne Fachjargon.
+
+steps:
+  - name: messen
+    run: scripts/messen.sh
+    gates:
+      - file_non_empty: messwerte.md
+      - contains: { file: messwerte.md, text: "## HTTPS", label: Messung HTTPS }
+      - contains: { file: messwerte.md, text: "## Security-Header", label: Messung Security-Header }
+      - contains: { file: messwerte.md, text: "## SEO", label: Messung SEO }
+      - contains: { file: messwerte.md, text: "## Performance", label: Messung Performance }
+      - contains: { file: messwerte.md, text: "## Links", label: Messung Links }
+
+  - name: befunden
+    agent: auditor
+    prompt: prompts/befunden.md
+    gates:
+      - file_non_empty: findings.md
+      - contains: { file: findings.md, text: "# Befunde", label: Befunde-Titel }
+      - contains: { file: findings.md, text: "Schweregrad:", label: Schweregrad pro Befund }
+      - contains: { file: findings.md, text: "Evidenz:", label: Evidenz pro Befund }
+
+  - name: berichten
+    agent: analyst
+    prompt: prompts/berichten.md
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "# Website-Check", label: Report-Titel }
+      - contains: { file: report.md, text: "## Zusammenfassung", label: Zusammenfassung }
+      - contains: { file: report.md, text: "## Issue 5", label: fuenf Issues }

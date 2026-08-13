@@ -24,10 +24,13 @@ import { runStamp, type WorkflowDefinition } from "./workflow.js";
  * are treated as file references inside the folder; multiline values stay
  * inline. A single `.yml` file (everything inline) is still supported.
  *
+ * Steps come in two kinds: agent steps (`agent` + `prompt`) and deterministic
+ * script steps (`run`: a bash script, single-line value = file reference).
+ *
  * Validation: structural pass against the JSON Schema (ajv) first, then
  * semantic checks (agent references, duplicate step names, variables,
  * referenced files). The engine appends the envelope contract to every step
- * prompt itself. Not in v1 (roadmap): approval loops, code steps,
+ * prompt itself. Not in v1 (roadmap): approval loops,
  * AGENTS.md-style context files, skills.
  */
 
@@ -47,9 +50,14 @@ async function schemaValidator() {
   return compiledSchema;
 }
 
+const STEP_HINT =
+  "Step: agent-Step {name, agent, prompt, gates?} ODER script-Step {name, run, gates?}";
+
 function formatAjvErrors(errors: ErrorObject[], file: string): string {
-  // oneOf mismatches (gates) explode into per-branch errors; keep it readable.
-  const relevant = errors.filter((e) => e.keyword !== "oneOf" || !e.instancePath.includes("/gates/"));
+  // oneOf mismatches (gates, steps) explode into per-branch errors; keep it readable.
+  const relevant = errors.filter(
+    (e) => e.keyword !== "oneOf" || !/\/gates\/|\/steps\/\d+$/.test(e.instancePath)
+  );
   const lines = relevant.slice(0, 4).map((e) => {
     const where = e.instancePath || "/";
     if (e.keyword === "additionalProperties") {
@@ -61,15 +69,15 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
     return `${where}: ${e.message}`;
   });
   const gateHint = errors.some((e) => e.instancePath.includes("/gates/")) ? `\n${GATE_HINT}` : "";
-  return `${file}: Schema-Validierung fehlgeschlagen\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}`;
+  const stepHint = errors.some((e) => e.keyword === "oneOf" && /\/steps\/\d+$/.test(e.instancePath))
+    ? `\n${STEP_HINT}`
+    : "";
+  return `${file}: Schema-Validierung fehlgeschlagen\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}${stepHint}`;
 }
 
-interface YamlStep {
-  name: string;
-  agent: AgentDefinition;
-  prompt: string;
-  gates: Gate[];
-}
+type YamlStep =
+  | { kind: "agent"; name: string; agent: AgentDefinition; prompt: string; gates: Gate[] }
+  | { kind: "script"; name: string; script: string; gates: Gate[] };
 
 /** A YAML-loaded workflow additionally exposes its roster/steps (for the CLI). */
 export interface LoadedWorkflow extends WorkflowDefinition {
@@ -131,7 +139,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     }
     const content = await readFile(candidate, "utf8").catch(() => null);
     if (content !== null) return content.trim();
-    if (line.includes("/") || /\.(md|txt)$/.test(line)) {
+    if (line.includes("/") || /\.(md|txt|sh)$/.test(line)) {
       return fail(`${field}: referenzierte Datei "${line}" nicht gefunden`);
     }
     return value.trim();
@@ -159,6 +167,21 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     const at = (message: string): never => fail(`steps[${i}]: ${message}`);
     if (seen.has(s.name)) at(`Step-Name "${s.name}" ist doppelt`);
     seen.add(s.name);
+    const gates = (s.gates ?? []).map((g: any, j: number) =>
+      buildGate(g, (message) => fail(`steps[${i}].gates[${j}]: ${message}`))
+    );
+
+    if (s.run !== undefined) {
+      const script = await resolveText(s.run, `steps[${i}].run`);
+      for (const match of script.matchAll(/\$\{\{\s*(\w+)\s*\}\}/g)) {
+        if (match[1] !== "request") {
+          at(`unbekannte Variable \${{ ${match[1]} }} — in run-Steps ist nur \${{ request }} verfuegbar (plus env: REQUEST, RUN_DIR, PHASE)`);
+        }
+      }
+      steps.push({ kind: "script", name: s.name, script, gates });
+      continue;
+    }
+
     const agent = agents.get(s.agent);
     if (!agent) {
       at(`agent "${s.agent}" ist unter agents nicht definiert (vorhanden: ${[...agents.keys()].join(", ")})`);
@@ -169,10 +192,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
         at(`unbekannte Variable \${{ ${match[1]} }} — verfuegbar: ${VARIABLES.join(", ")}`);
       }
     }
-    const gates = (s.gates ?? []).map((g: any, j: number) =>
-      buildGate(g, (message) => fail(`steps[${i}].gates[${j}]: ${message}`))
-    );
-    steps.push({ name: s.name, agent: agent!, prompt, gates });
+    steps.push({ kind: "agent", name: s.name, agent: agent!, prompt, gates });
   }
 
   return {
@@ -199,6 +219,15 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       });
 
       for (const step of steps) {
+        if (step.kind === "script") {
+          await run.scriptPhase({
+            name: step.name,
+            script: step.script.replace(/\$\{\{\s*request\s*\}\}/g, request),
+            gates: step.gates,
+            env: { REQUEST: request },
+          });
+          continue;
+        }
         const prompt = step.prompt
           .replace(/\$\{\{\s*request\s*\}\}/g, request)
           .replace(/\$\{\{\s*agent\s*\}\}/g, step.agent.id);

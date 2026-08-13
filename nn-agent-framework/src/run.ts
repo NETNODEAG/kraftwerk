@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentDefinition } from "./agent.js";
@@ -5,7 +6,7 @@ import type { HarnessId } from "./harness.js";
 import { harnessFor } from "./harnesses/registry.js";
 import { correctionPrompt, parseEnvelope, type Envelope } from "./envelope.js";
 import type { Gate } from "./gates.js";
-import { phaseStatsLine, summaryTable, type PhaseStats } from "./stats.js";
+import { fmtDuration, phaseStatsLine, summaryTable, type PhaseStats } from "./stats.js";
 
 /**
  * The phase runner: agent proposes, code disposes. An agent phase spawns one
@@ -184,6 +185,125 @@ export class Run {
     throw new Error(
       `Phase "${params.name}" failed after ${this.maxGateRetries + 1} attempts`
     );
+  }
+
+  /**
+   * Deterministic script phase: run a bash script in the run directory —
+   * no agent, no LLM. The script sees REQUEST, RUN_DIR, and PHASE as env
+   * vars. It hands over the same envelope as an agent phase: either it
+   * prints the fenced ```json envelope itself (last block on stdout wins),
+   * or the runner synthesizes one from the exit code (status ok, summary =
+   * last stdout line). Gates run afterwards, but there is no correction
+   * loop — a script is deterministic, so a failing gate fails the run.
+   */
+  async scriptPhase(params: {
+    name: string;
+    script: string;
+    gates: Gate[];
+    env?: Record<string, string>;
+  }): Promise<Envelope> {
+    console.log(`\n▸ Phase "${params.name}" — script (bash)`);
+    await this.trace("phase_start", { phase: params.name, kind: "script" });
+    const started = Date.now();
+
+    const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
+      (resolve, reject) => {
+        const child = spawn("bash", ["-c", params.script], {
+          cwd: this.runDir,
+          env: { ...process.env, RUN_DIR: this.runDir, PHASE: params.name, ...params.env },
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk) => {
+          const text = String(chunk);
+          stdout += text;
+          if (this.verbose) {
+            for (const line of text.split("\n")) {
+              if (line.trim()) console.log(`  💬 ${line}`);
+            }
+          }
+        });
+        child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+      }
+    );
+
+    const phaseStats: PhaseStats = {
+      phase: params.name,
+      kind: "script",
+      attempts: 1,
+      durationMs: Date.now() - started,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      costUsd: 0,
+    };
+    await this.trace("script_result", {
+      phase: params.name,
+      exitCode: result.code,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+
+    const fail = async (message: string): Promise<never> => {
+      this.stats.push(phaseStats);
+      await this.trace("phase_end", { phase: params.name, status: "failed", stats: phaseStats });
+      throw new Error(`Phase "${params.name}" (script) failed: ${message}`);
+    };
+
+    if (result.code !== 0) {
+      const tail = result.stderr.trim().split("\n").slice(-5).join("\n");
+      return await fail(`exit code ${result.code}${tail ? `\n${tail}` : ""}`);
+    }
+
+    let envelope: Envelope;
+    if (result.stdout.includes("```json")) {
+      try {
+        envelope = parseEnvelope(result.stdout, params.name);
+      } catch (err) {
+        return await fail((err as Error).message);
+      }
+    } else {
+      const lines = result.stdout.trim().split("\n").filter((l) => l.trim());
+      envelope = {
+        phase: params.name,
+        status: "ok",
+        artifacts: [],
+        summary: lines.at(-1),
+      };
+    }
+    await this.trace("envelope", { phase: params.name, envelope });
+
+    if (envelope.status === "blocked") {
+      return await fail(`blocked: ${envelope.reason ?? "no reason given"}`);
+    }
+
+    const failures: string[] = [];
+    for (const gate of params.gates) {
+      const failure = await gate.check(this.runDir);
+      await this.trace("gate_result", {
+        phase: params.name,
+        gate: gate.name,
+        passed: failure === null,
+        failure,
+      });
+      if (failure) failures.push(`${gate.name}: ${failure}`);
+    }
+    if (failures.length > 0) {
+      for (const failure of failures) console.log(`    - ${failure}`);
+      return await fail(
+        `${failures.length} gate(s) failed — Script-Steps sind deterministisch, keine Korrekturschleife`
+      );
+    }
+
+    this.stats.push(phaseStats);
+    console.log(
+      `  ✔ envelope + ${params.gates.length} gates passed (exit 0 | ${fmtDuration(phaseStats.durationMs)})`
+    );
+    await this.trace("phase_end", { phase: params.name, status: "ok", stats: phaseStats });
+    return envelope;
   }
 
   async codePhase<T>(name: string, fn: () => Promise<T>): Promise<T> {
