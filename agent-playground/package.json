@@ -1,0 +1,19 @@
+{
+  "name": "agent-playground",
+  "version": "0.1.0",
+  "description": "Playground for custom agents/workflows on nn-agent-framework",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "nn-agent-framework": "file:../nn-agent-framework"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
+  }
+}

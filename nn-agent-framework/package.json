@@ -1,0 +1,27 @@
+{
+  "name": "nn-agent-framework",
+  "version": "0.1.0",
+  "description": "Deterministic workflow-as-code framework: agents (persona + model + tools + harness) run in bounded phases on headless CLI harnesses (claude -p, codex exec, pi); code owns the control flow, envelopes + gates judge the results",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "demo": "tsx examples/demo/main.ts",
+    "validate": "tsx src/validate.ts"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.0"
+  }
+}

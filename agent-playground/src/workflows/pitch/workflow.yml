@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: pitch
+description: "Autor:in pitcht, drei Jury-Agents beurteilen mit demselben Prompt-File, Moderation entscheidet, Autor:in ueberarbeitet"
+
+workspace: |
+  Dateien:
+  - pitch.md             der Pitch (schreibt/ueberarbeitet Autor:in)
+  - verdict-<jury>.md    ein Votum pro Jury-Mitglied
+  - decision.md          Entscheid der Moderation mit Auflagen
+
+# The agent/stage split, YAML edition:
+#   author serves TWO steps (pitchen + ueberarbeiten)      -> 1 agent : N steps
+#   three jury agents share ONE prompt file via ${{ agent }} -> M agents : 1 prompt
+agents:
+  author:
+    name: Autor:in
+    model: opus
+    tools: [Read, Write, Edit, WebFetch] # may read URLs mentioned in the request
+    persona: |
+      Du schreibst ueberzeugende, konkrete Projekt-Pitches: klare Idee, Nutzen,
+      naechste Schritte. Kein Marketing-Schaum, keine Superlative.
+
+  skeptic:
+    name: Skeptiker:in
+    model: haiku
+    tools: [Read, Write, Edit]
+    persona: |
+      Du bist berufsbedingt skeptisch. Du suchst Denkfehler, versteckte Annahmen
+      und Risiken. Was schiefgehen kann, benennst du praezise.
+
+  cfo:
+    name: CFO
+    model: haiku
+    tools: [Read, Write, Edit]
+    persona: |
+      Du beurteilst alles wirtschaftlich: Aufwand, Ertrag, Opportunitaetskosten.
+      Ohne plausiblen Business Case ueberzeugt dich nichts.
+
+  customer:
+    name: Kundenstimme
+    model: haiku
+    tools: [Read, Write, Edit]
+    persona: |
+      Du denkst ausschliesslich aus Sicht der Kund:innen: Welches Problem loest
+      das fuer mich, warum sollte ich dafuer zahlen, was nervt mich daran?
+
+  moderator:
+    name: Moderator:in
+    model: haiku
+    tools: [Read, Write, Edit]
+    persona: |
+      Du moderierst Entscheidungsgremien: Du wiegst Voten ab, machst Zielkonflikte
+      explizit und formulierst einen klaren Entscheid mit Auflagen.
+
+steps:
+  - name: pitchen
+    agent: author
+    prompt: prompts/pitchen.md
+    gates:
+      - file_non_empty: pitch.md
+
+  # ONE prompt file, THREE agents — ${{ agent }} steers the output file.
+  - name: assess_skeptic
+    agent: skeptic
+    prompt: prompts/assess.md
+    gates:
+      - file_non_empty: verdict-skeptic.md
+      - contains: { file: verdict-skeptic.md, text: "Empfehlung:", label: Empfehlungszeile }
+
+  - name: assess_cfo
+    agent: cfo
+    prompt: prompts/assess.md
+    gates:
+      - file_non_empty: verdict-cfo.md
+      - contains: { file: verdict-cfo.md, text: "Empfehlung:", label: Empfehlungszeile }
+
+  - name: assess_customer
+    agent: customer
+    prompt: prompts/assess.md
+    gates:
+      - file_non_empty: verdict-customer.md
+      - contains: { file: verdict-customer.md, text: "Empfehlung:", label: Empfehlungszeile }
+
+  - name: entscheiden
+    agent: moderator
+    prompt: prompts/entscheiden.md
+    gates:
+      - file_non_empty: decision.md
+      - contains: { file: decision.md, text: "## Auflagen", label: Abschnitt Auflagen }
+
+  # Same agent as "pitchen", new prompt — session memory included.
+  - name: ueberarbeiten
+    agent: author
+    prompt: prompts/ueberarbeiten.md
+    gates:
+      - file_non_empty: pitch.md
+      - contains: { file: pitch.md, text: "## Aenderungen nach Jury", label: Aenderungs-Changelog }

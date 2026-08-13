@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: tagline
+description: "Tagline Generator: Website lesen, Marke verstehen, Tagline kueren (YAML)"
+
+workspace: |
+  Dateien: brand.md (Markenanalyse), tagline.md (Vorschlaege + gekuerte Tagline).
+
+agents:
+  analyst:
+    name: Markenanalyst:in
+    runs-on: codex
+    model: gpt-5.6-sol
+    tools: [Read, Write, Edit, WebFetch] # may read the website
+    persona: |
+      Du analysierst Marken anhand ihrer Website: Was bietet die Firma,
+      fuer wen, mit welchem Versprechen und in welcher Tonalitaet.
+
+  texter:
+    name: Werbetexter:in
+    runs-on: codex
+    model: gpt-5.6-sol
+    tools: [Read, Write, Edit] # no network: works only with brand.md
+    persona: |
+      Du textest Taglines: maximal acht Woerter, konkret, im Ton der
+      Marke, kein Buzzword-Schaum. Deutsch, ausser die Marke ist englischsprachig.
+    # runs-on: codex   # any agent can run on another harness, GHA-style
+
+steps:
+  - name: analysieren
+    agent: analyst
+    prompt: prompts/analysieren.md
+    gates:
+      - file_non_empty: brand.md
+      - contains: { file: brand.md, text: "## Tonalitaet", label: Abschnitt Tonalitaet }
+
+  - name: texten
+    agent: texter
+    prompt: prompts/texten.md
+    gates:
+      - file_non_empty: tagline.md
+      - contains: { file: tagline.md, text: "# Tagline", label: Tagline-Zeile }
+      - contains: { file: tagline.md, text: "## Vorschlaege", label: Vorschlagsliste }

@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://netnode.ch/schemas/nn-agent-framework/workflow.schema.json",
+  "title": "nn-agent-framework workflow",
+  "description": "A linear workflow of gated agent steps. Folder form: <name>/workflow.yml, where single-line prompt/persona/workspace values may reference files inside the folder (e.g. prompts/step.md).",
+  "type": "object",
+  "required": ["name", "description", "agents", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workflow id used on the CLI: npm start -- <name> \"<request>\""
+    },
+    "description": {
+      "type": "string",
+      "description": "One-liner shown in the CLI workflow listing"
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Workspace context appended to every agent's system prompt (file layout etc.). Single-line value = path to a file inside the workflow folder."
+    },
+    "agents": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Agent roster: id -> definition",
+      "additionalProperties": { "$ref": "#/definitions/agent" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Linear sequence of gated agent steps",
+      "items": { "$ref": "#/definitions/step" }
+    }
+  },
+  "definitions": {
+    "agent": {
+      "type": "object",
+      "required": ["model", "tools", "persona"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name, defaults to the agent id"
+        },
+        "description": {
+          "type": "string",
+          "description": "Informational only"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model id in the harness's naming, e.g. haiku, claude-opus-5, gpt-5.6-sol, deepseek/deepseek-chat"
+        },
+        "effort": {
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Reasoning effort; omit for the model default"
+        },
+        "runs-on": {
+          "enum": ["claude", "codex", "pi"],
+          "description": "Harness that executes this agent (default: claude)"
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Governance: the only tools the agent may use, e.g. [Read, Write, Edit, WebFetch]"
+        },
+        "persona": {
+          "type": "string",
+          "minLength": 1,
+          "description": "System prompt: role, voice, rules. Single-line value = path to a file inside the workflow folder."
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "agent", "prompt"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Step/phase name; also the envelope phase the agent must report"
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Id of an agent defined under agents"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Task prompt. Single-line value = path to a file inside the workflow folder. Variables: ${{ request }}, ${{ agent }}. The envelope contract is appended automatically."
+        },
+        "gates": {
+          "type": "array",
+          "description": "Post-execution file checks; failures trigger an in-session correction",
+          "items": { "$ref": "#/definitions/gate" }
+        }
+      }
+    },
+    "gate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["file_non_empty"],
+          "additionalProperties": false,
+          "properties": {
+            "file_non_empty": {
+              "type": "string",
+              "minLength": 1,
+              "description": "File (relative to the run directory) that must exist and be non-empty"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["slots_filled"],
+          "additionalProperties": false,
+          "properties": {
+            "slots_filled": {
+              "type": "string",
+              "minLength": 1,
+              "description": "File that must not contain unfilled {{...}} template slots"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["contains"],
+          "additionalProperties": false,
+          "properties": {
+            "contains": {
+              "type": "object",
+              "required": ["file", "text"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "text": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "description": "Short label used in the gate name; defaults to text" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
