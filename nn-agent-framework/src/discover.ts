@@ -18,15 +18,17 @@ export interface DiscoveredWorkflow {
   error?: string;
 }
 
-export async function discoverWorkflows(cwd: string): Promise<DiscoveredWorkflow[]> {
-  let root: string | undefined;
+/** First existing workflows root under cwd: src/workflows/ or workflows/. */
+export async function findWorkflowsRoot(cwd: string): Promise<string | undefined> {
   for (const candidate of ["src/workflows", "workflows"]) {
     const stats = await stat(path.join(cwd, candidate)).catch(() => null);
-    if (stats?.isDirectory()) {
-      root = path.join(cwd, candidate);
-      break;
-    }
+    if (stats?.isDirectory()) return path.join(cwd, candidate);
   }
+  return undefined;
+}
+
+export async function discoverWorkflows(cwd: string): Promise<DiscoveredWorkflow[]> {
+  const root = await findWorkflowsRoot(cwd);
   if (!root) return [];
 
   const found: DiscoveredWorkflow[] = [];

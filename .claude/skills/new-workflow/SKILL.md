@@ -7,6 +7,8 @@ description: Scaffold a new nn-agent-framework workflow (agents, prompts, gates,
 
 You are building a workflow on **nn-agent-framework** (the `nn-agent-framework/` package in this repo): deterministic TypeScript owns the control flow, agents work inside bounded phases on headless CLI harnesses. "Agent proposes, code disposes."
 
+Shortcut for YAML workflows: `kraftwerk create "<was der Workflow tun soll>"` prints a self-contained build brief (schema example, gates, harness rules, verify ladder) — follow it. The sections below add the repo-specific references and the TS-workflow path.
+
 ## 1 — Read the living references first
 
 Templates live in code, not in this skill — read them before writing anything:

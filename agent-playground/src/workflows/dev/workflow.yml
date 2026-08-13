@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: tagline
+description: "Tagline Generator: Website lesen, Marke verstehen, Tagline kueren (YAML)"
+
+workspace: |
+  Dateien: brand.md (Markenanalyse), tagline.md (Vorschlaege + gekuerte Tagline).
+
+agents:
+  coder:
+    name: Coder
+    runs-on: codex
+    model: gpt-5.6-sol
+    tools: [Read, Write, Edit, WebFetch] # may read the website
+    persona: |
+      You are an software engineer and very experienced.
+
+  
+steps:
+  - name: load_context
+    agent: coder
+    prompt: prompts/load_context.md
+    gates:
+      - file_non_empty: context.md
+      

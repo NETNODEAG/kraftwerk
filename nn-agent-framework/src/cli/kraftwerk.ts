@@ -5,8 +5,9 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import { Command } from "commander";
 import ora from "ora";
-import { discoverWorkflows } from "../discover.js";
+import { discoverWorkflows, findWorkflowsRoot } from "../discover.js";
 import { loadWorkflow, type LoadedWorkflow } from "../yaml.js";
+import { renderCreateBrief } from "./create-brief.js";
 
 /**
  * kraftwerk — the nn-agent-framework CLI.
@@ -117,6 +118,27 @@ program
     }
 
     await workflow.run({ request, autoApprove: !!opts.yes, verbose: !!opts.verbose });
+  });
+
+// LLM-facing, veloop-style: prints a self-contained brief for the agent
+// that then authors the workflow folder with this CLI.
+program
+  .command("create")
+  .description("Brief fuer einen LLM-Agenten drucken, der aus der Beschreibung einen Workflow baut")
+  .argument("<spec...>", "was der Workflow tun soll (Freitext)")
+  .action(async (specParts: string[]) => {
+    const spec = specParts.join(" ").trim();
+    if (!spec) {
+      console.error(chalk.red('Beschreibung fehlt. Beispiel: kraftwerk create "Ein Workflow, der Release Notes schreibt und reviewt"'));
+      process.exit(1);
+    }
+    const root = await findWorkflowsRoot(process.cwd());
+    console.log(
+      renderCreateBrief({
+        spec,
+        workflowsRoot: root ? path.relative(process.cwd(), root) : undefined,
+      })
+    );
   });
 
 program

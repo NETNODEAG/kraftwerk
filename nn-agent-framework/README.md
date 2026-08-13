@@ -40,11 +40,15 @@ kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
+kraftwerk create "was der Workflow tun soll"   # for LLM agents: prints a build brief
 ```
 
 `run` prompts for whatever is missing (workflow picker, request input);
 invalid workflows show up red in `list` with their validation error
-instead of breaking the listing.
+instead of breaking the listing. `create` is meant to be run BY an LLM
+agent (Claude Code, Codex): it prints a self-contained brief — schema
+example, gates, harness rules, verify ladder — that the agent follows to
+author the workflow folder and validate/smoke it with this CLI.
 
 ## The agent — four axes
 
