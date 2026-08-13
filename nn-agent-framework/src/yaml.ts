@@ -71,11 +71,19 @@ interface YamlStep {
   gates: Gate[];
 }
 
+/** A YAML-loaded workflow additionally exposes its roster/steps (for the CLI). */
+export interface LoadedWorkflow extends WorkflowDefinition {
+  readonly meta: {
+    agents: AgentDefinition[];
+    steps: string[];
+  };
+}
+
 /**
  * Load a workflow from a folder (`<dir>/workflow.yml` + referenced files)
  * or from a single `.yml`/`.yaml` file (everything inline).
  */
-export async function loadWorkflow(givenPath: string): Promise<WorkflowDefinition> {
+export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
   const stats = await stat(givenPath).catch(() => null);
   if (!stats) throw new Error(`${givenPath}: nicht gefunden`);
 
@@ -170,6 +178,10 @@ export async function loadWorkflow(givenPath: string): Promise<WorkflowDefinitio
   return {
     name: raw.name,
     description: raw.description,
+    meta: {
+      agents: [...agents.values()],
+      steps: steps.map((s) => s.name),
+    },
 
     async run({ request, verbose }) {
       const runDir = path.resolve("output", `run-${runStamp()}`);

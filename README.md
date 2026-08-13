@@ -5,16 +5,19 @@ Deterministic workflow-as-code over headless agent harnesses (`claude -p`,
 
 | Folder | What |
 | ------ | ---- |
-| [`nn-agent-framework/`](nn-agent-framework/) | The framework package: agents (persona + model + tools + harness), bounded phases, envelopes, gates, per-harness sessions, YAML workflow folders + JSON Schema, CLI. Start with its [README](nn-agent-framework/README.md). |
-| [`agent-playground/`](agent-playground/) | Consumer with example workflows: `tagline` (YAML folder, runs on codex) and `pitch` (jury pattern: one prompt file, three agents). |
+| [`nn-agent-framework/`](nn-agent-framework/) | The framework package: agents (persona + model + tools + harness), bounded phases, envelopes, gates, per-harness sessions, YAML workflow folders + JSON Schema, the **kraftwerk** CLI. Start with its [README](nn-agent-framework/README.md). |
+| [`agent-playground/`](agent-playground/) | Zero-code consumer: only YAML workflow folders — `tagline` (runs on codex) and `pitch` (jury pattern: one prompt file, three agents via `${{ agent }}`). |
 
 ```bash
 cd agent-playground
 npm install
-npm start                                   # list workflows
-npm start -- tagline "https://nodehive.com"
-npm start -- validate src/workflows/tagline
+npx kraftwerk list                              # discover + list workflows
+npx kraftwerk run tagline "https://nodehive.com"
+npx kraftwerk run                               # interactive picker
+npx kraftwerk validate                          # schema + semantic checks
 ```
+
+(`npm link` inside `nn-agent-framework/` makes `kraftwerk` a global command.)
 
 Scaffold new workflows with the repo skill `/new-workflow`
 ([.claude/skills/new-workflow/](.claude/skills/new-workflow/)).

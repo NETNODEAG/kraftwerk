@@ -1,19 +1,13 @@
 {
   "name": "agent-playground",
   "version": "0.1.0",
-  "description": "Playground for custom agents/workflows on nn-agent-framework",
+  "description": "Zero-code consumer of nn-agent-framework: YAML workflow folders + the kraftwerk CLI, no TypeScript entry file",
   "type": "module",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "start": "kraftwerk"
   },
   "license": "ISC",
   "dependencies": {
     "nn-agent-framework": "file:../nn-agent-framework"
-  },
-  "devDependencies": {
-    "@types/node": "^26.2.0",
-    "tsx": "^4.23.11",
-    "typescript": "^7.0.2"
   }
 }

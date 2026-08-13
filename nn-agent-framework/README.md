@@ -18,9 +18,33 @@ time/token/cost summary table.
 "dependencies": { "nn-agent-framework": "file:../nn-agent-framework" }
 ```
 
+Zero-code consumer (YAML workflows only): that dependency plus workflow
+folders under `src/workflows/` is everything — the **kraftwerk** CLI
+discovers and runs them, no entry file. Programmatic consumer (TS
+workflows, custom gates, approval loops):
+
 ```ts
 import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "nn-agent-framework";
 ```
+
+## CLI — kraftwerk
+
+Ships with the package (`npx kraftwerk …` in any consumer, `npm link` for a
+global command). Workflows are auto-discovered under `src/workflows/` (or
+`workflows/`): every folder with a `workflow.yml` and every top-level
+`.yml` file.
+
+```bash
+kraftwerk list                          # table: workflows, steps, agents (with harness/model)
+kraftwerk run tagline "https://..."     # run; --yes, --verbose
+kraftwerk run                           # interactive: pick workflow, type the request
+kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
+kraftwerk validate src/workflows/pitch  # specific paths
+```
+
+`run` prompts for whatever is missing (workflow picker, request input);
+invalid workflows show up red in `list` with their validation error
+instead of breaking the listing.
 
 ## The agent — four axes
 
@@ -112,6 +136,9 @@ steps:
       - contains: { file: brand.md, text: "## Tonalitaet", label: Tonalitaet }
 ```
 
+Running it needs no code at all — `kraftwerk run tagline "..."` discovers
+the folder. Programmatic registration works too:
+
 ```ts
 const tagline = await loadWorkflow(path.join(import.meta.dirname, "workflows/tagline"));
 runCli({ [tagline.name]: tagline });
@@ -130,8 +157,9 @@ envelope contract to every step prompt itself.
 references, duplicate steps, variables, referenced files):
 
 ```bash
-npm start -- validate src/workflows/tagline    # in any consumer
-npm run validate -- <path>                     # standalone in the framework
+kraftwerk validate                             # all discovered workflows
+kraftwerk validate src/workflows/tagline       # specific paths
+npm start -- validate <path>                   # runCli consumers (TS registry)
 ```
 
 Gates: `file_non_empty: <file>`, `slots_filled: <file>`,

@@ -36,5 +36,6 @@ export {
 } from "./stats.js";
 export { runStamp, type WorkflowDefinition, type WorkflowRunOptions } from "./workflow.js";
 export { runCli } from "./cli.js";
-export { loadWorkflow, loadWorkflowYaml } from "./yaml.js";
+export { loadWorkflow, loadWorkflowYaml, type LoadedWorkflow } from "./yaml.js";
+export { discoverWorkflows, type DiscoveredWorkflow } from "./discover.js";
 export { validateWorkflows } from "./validate.js";

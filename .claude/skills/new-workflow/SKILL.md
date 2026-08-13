@@ -32,12 +32,12 @@ Templates live in code, not in this skill — read them before writing anything:
 **YAML workflow folder** `src/workflows/<name>/`:
 - `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`), `steps:` with gates
 - `prompts/*.md` — one file per long prompt, referenced as `prompt: prompts/<step>.md`; variables `${{ request }}`, `${{ agent }}`
-- Register: `const wf = await loadWorkflow(path.join(import.meta.dirname, "workflows/<name>"));` + one line in `runCli({...})`
+- NO registration needed: the kraftwerk CLI auto-discovers workflow folders under `src/workflows/`. (Programmatic alternative: `loadWorkflow(...)` + `runCli({...})`.)
 
 **TS workflow folder** `src/workflows/<name>/`:
 - `agents.ts` (`defineAgent`), `stages.ts` (workspaceContext + prompts, each ending with `envelopeContract(phase)`), optional `gates.ts` (custom `Gate`s), `workflow.ts` (`WorkflowDefinition`; mkdir the runDir BEFORE the first phase; end with `run.printSummary()`)
 
-**Fresh consumer project** additionally: `package.json` with `"type": "module"`, `"start": "tsx src/index.ts"`, `"dependencies": { "nn-agent-framework": "file:../nn-agent-framework" }`, devDeps typescript/tsx/@types/node; `tsconfig.json` copied from agent-playground; then `npm install`.
+**Fresh consumer project**: YAML-only consumers need just `package.json` with `"type": "module"`, `"start": "kraftwerk"`, and `"dependencies": { "nn-agent-framework": "file:../nn-agent-framework" }` (see agent-playground) — no tsconfig, no devDeps, no entry file. TS consumers additionally: `"start": "tsx src/index.ts"`, devDeps typescript/tsx/@types/node, tsconfig with NodeNext + `"types": ["node"]`.
 
 ## 4 — House rules (enforce these)
 
@@ -50,8 +50,8 @@ Templates live in code, not in this skill — read them before writing anything:
 
 ## 5 — Verify (in this order)
 
-1. `npm run typecheck` in the consumer (and framework if touched).
-2. YAML workflows: `npm start -- validate src/workflows/<name>` — schema + semantic checks without running anything.
-3. `npm start` with no args — the free usage listing proves the import chain.
-4. Cheap smoke: run the workflow with all agents on `model: "haiku"` (or codex, $0 on subscription) before switching to expensive models — check gates pass, the summary table renders, and `output/run-*/trace.jsonl` records the steps.
+1. `npm run typecheck` where TypeScript exists (framework, TS consumers) — YAML-only consumers have nothing to typecheck.
+2. YAML workflows: `kraftwerk validate` (all discovered) or `kraftwerk validate src/workflows/<name>` — schema + semantic checks without running anything.
+3. `kraftwerk list` — free; proves discovery and shows the roster with harness/model per agent.
+4. Cheap smoke: `kraftwerk run <name> "..."` with all agents on `model: "haiku"` (or codex, $0 on subscription) before switching to expensive models — check gates pass, the summary table renders, and `output/run-*/trace.jsonl` records the steps.
 5. Only then a real run with the production roster.
