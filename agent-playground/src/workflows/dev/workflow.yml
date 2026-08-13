@@ -8,8 +8,7 @@ workspace: |
 agents:
   coder:
     name: Coder
-    runs-on: codex
-    model: gpt-5.6-sol
+    model: opus
     tools: [Read, Write, Edit, WebFetch] # may read the website
     persona: |
       You are an software engineer and very experienced.

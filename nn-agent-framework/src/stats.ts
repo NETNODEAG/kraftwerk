@@ -5,7 +5,7 @@
 
 export interface PhaseStats {
   phase: string;
-  kind: "agent" | "code";
+  kind: "agent" | "code" | "script";
   /** Agent id, for agent phases. */
   agent?: string;
   /** Harness id, for agent phases. */
@@ -67,12 +67,12 @@ export function summaryTable(stats: PhaseStats[]): { lines: string[]; total: Run
       s.harness && s.harness !== "claude" ? `${s.harness}:${s.model}` : s.model;
     return {
       phase: s.phase,
-      agent: s.kind === "code" ? "(code)" : s.agent ?? "",
+      agent: s.kind === "agent" ? s.agent ?? "" : `(${s.kind})`,
       model: modelName ? (s.effort ? `${modelName} (${s.effort})` : modelName) : "",
       attempts: String(s.attempts),
       time: fmtDuration(s.durationMs),
-      tokens: s.kind === "code" ? "" : `${fmtTokens(totalIn(s))} / ${fmtTokens(s.outputTokens)}`,
-      cost: s.kind === "code" ? "" : `$${s.costUsd.toFixed(4)}`,
+      tokens: s.kind === "agent" ? `${fmtTokens(totalIn(s))} / ${fmtTokens(s.outputTokens)}` : "",
+      cost: s.kind === "agent" ? `$${s.costUsd.toFixed(4)}` : "",
     };
   });
   const total = stats.reduce<RunTotals>(

@@ -31,10 +31,11 @@ nothing to register.
    collisions, match local conventions).${workflowsRoot ? "" : ` No workflows root exists yet —
    create \`src/workflows/\` first.`}
 2. Design from the requirements — keep it minimal and concrete:
-   - **Steps** in order. Only linear sequences of agent steps fit YAML; if the
-     requirements demand loops, human approval gates, or deterministic code
-     phases (fetching, rendering), STOP and tell the user this needs a
-     TypeScript workflow instead.
+   - **Steps** in order, two kinds: agent steps (\`agent\` + \`prompt\`) and
+     deterministic script steps (\`run\`: a bash script — use these whenever
+     no judgment is needed: fetching, measuring, converting). Only linear
+     sequences fit YAML; if the requirements demand loops or human approval
+     gates, STOP and tell the user this needs a TypeScript workflow instead.
    - **Agents**: one per role — persona (WHO), model + optional effort (WHAT
      thinks), tools (governance), \`runs-on\` (WHERE: claude | codex | pi).
    - **Gates** per step: what file evidence proves the step worked?
@@ -60,6 +61,10 @@ nothing to register.
        tools: [Read, Write, Edit]
        persona: prompts/texter-persona.md   # single line = file in this folder
    steps:
+     - name: messen                         # deterministic step: bash, no agent
+       run: scripts/messen.sh               # single line = file; or inline multiline bash
+       gates:
+         - file_non_empty: messwerte.md
      - name: analysieren
        agent: analyst
        prompt: prompts/analysieren.md       # or inline multiline text
@@ -83,6 +88,13 @@ nothing to register.
      the file layout, because steps on different harnesses share state only
      through these files.
    - Do NOT mention envelopes — the engine appends that contract itself.
+   Script steps (\`run:\`) execute with bash in the run directory: env vars
+   \`REQUEST\`, \`RUN_DIR\`, \`PHASE\` are set and \`\${{ request }}\` is
+   interpolated. Non-zero exit fails the run; gates apply but there is no
+   correction loop (fix the script). A script MAY end its stdout with the
+   same fenced \`\`\`json envelope agents emit (\`{"phase": "$PHASE",
+   "status": "ok", "artifacts": [...], "summary": "..."}\`); otherwise the
+   engine synthesizes one. Keep scripts in \`scripts/*.sh\` inside the folder.
 5. Harness rules:
    - **claude** (default): any Claude model id; needs only the local login.
    - **codex**: ChatGPT login; models from the codex line (e.g.

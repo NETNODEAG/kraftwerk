@@ -29,7 +29,7 @@
     "steps": {
       "type": "array",
       "minItems": 1,
-      "description": "Linear sequence of gated agent steps",
+      "description": "Linear sequence of gated steps: agent steps (agent + prompt) or deterministic script steps (run)",
       "items": { "$ref": "#/definitions/step" }
     }
   },
@@ -73,6 +73,12 @@
       }
     },
     "step": {
+      "oneOf": [
+        { "$ref": "#/definitions/agentStep" },
+        { "$ref": "#/definitions/scriptStep" }
+      ]
+    },
+    "agentStep": {
       "type": "object",
       "required": ["name", "agent", "prompt"],
       "additionalProperties": false,
@@ -95,6 +101,28 @@
         "gates": {
           "type": "array",
           "description": "Post-execution file checks; failures trigger an in-session correction",
+          "items": { "$ref": "#/definitions/gate" }
+        }
+      }
+    },
+    "scriptStep": {
+      "type": "object",
+      "required": ["name", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Step/phase name; also the envelope phase of the script step"
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Deterministic step: bash script executed in the run directory (no agent, no LLM). Single-line value = script file inside the workflow folder (e.g. scripts/check.sh). Env vars: REQUEST, RUN_DIR, PHASE; ${{ request }} is interpolated. Non-zero exit fails the run. Optionally end stdout with the same fenced ```json envelope agents emit; otherwise the engine synthesizes one (status ok, summary = last stdout line)."
+        },
+        "gates": {
+          "type": "array",
+          "description": "Post-execution file checks; script steps have no correction loop — a failing gate fails the run (fix the script)",
           "items": { "$ref": "#/definitions/gate" }
         }
       }
