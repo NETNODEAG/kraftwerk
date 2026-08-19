@@ -312,9 +312,12 @@ To scaffold a new workflow, use the repo-root skill `/new-workflow`.
 
 Source is TypeScript under `src/`; the published package ships compiled
 JavaScript + type declarations under `dist/` (built by `tsc -p
-tsconfig.build.json`). The bin shim `bin/kraftwerk.js` prefers `dist/` and
-falls back to running the TS source via `tsx` (a devDependency) — so an
-`npm link`-ed checkout works without ever building.
+tsconfig.build.json`). The bin shim `bin/kraftwerk.js` runs the TS source
+via `tsx` whenever `src/` is present (dev checkout, `npm link`) — edits
+are always live, a stale `dist/` can never shadow them. Published
+installs contain no `src/`, so they take the compiled `dist/` path.
+`KRAFTWERK_DIST=1 kraftwerk …` forces `dist/` from the checkout, e.g. to
+verify a fresh build.
 
 ```bash
 npm run typecheck   # tsc --noEmit over src/
@@ -322,10 +325,6 @@ npm run validate    # validate the example workflows
 npm run build       # clean + compile src/ -> dist/ (JS + .d.ts)
 npm link            # global `kraftwerk` command from this checkout (no build needed)
 ```
-
-Caveat when linked: if a stale `dist/` exists, the shim runs *that*, not
-your edited source — `rm -rf dist` (or rebuild) after switching between
-publish testing and development.
 
 ### Publishing
 
