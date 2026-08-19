@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450" role="img" aria-label="kraftwerk logo">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#1c1038"/>
+      <stop offset="60%" stop-color="#0d0820"/>
+      <stop offset="100%" stop-color="#060410"/>
+    </radialGradient>
+
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glowSoft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- KRAFTWERK letterforms, drawn as tube strokes (no font dependency) -->
+    <g id="word" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path transform="translate(103,150)" d="M5 0 V100 M45 0 L8 50 L45 100"/>
+      <path transform="translate(171,150)" d="M5 100 V0 H32 Q50 0 50 24 Q50 48 32 48 H5 M30 48 L48 100"/>
+      <path transform="translate(239,150)" d="M2 100 L25 0 L48 100 M11 64 H39"/>
+      <path transform="translate(307,150)" d="M5 100 V0 H48 M5 48 H40"/>
+      <path transform="translate(375,150)" d="M2 0 H48 M25 0 V100"/>
+      <path transform="translate(443,150)" d="M2 0 L13 100 L25 35 L37 100 L48 0"/>
+      <path transform="translate(511,150)" d="M48 0 H5 V100 H48 M5 48 H38"/>
+      <path transform="translate(579,150)" d="M5 100 V0 H32 Q50 0 50 24 Q50 48 32 48 H5 M30 48 L48 100"/>
+      <path transform="translate(647,150)" d="M5 0 V100 M45 0 L8 50 L45 100"/>
+    </g>
+
+  </defs>
+
+  <rect width="800" height="450" fill="url(#bg)"/>
+
+  <!-- perspective floor grid -->
+  <g stroke="#8b2fd6" stroke-width="1.4" opacity="0.4">
+    <line x1="400" y1="342" x2="340" y2="450"/>
+    <line x1="400" y1="342" x2="260" y2="450"/>
+    <line x1="400" y1="342" x2="120" y2="450"/>
+    <line x1="400" y1="342" x2="-100" y2="450"/>
+    <line x1="400" y1="342" x2="460" y2="450"/>
+    <line x1="400" y1="342" x2="540" y2="450"/>
+    <line x1="400" y1="342" x2="680" y2="450"/>
+    <line x1="400" y1="342" x2="900" y2="450"/>
+    <line x1="20" y1="352" x2="780" y2="352"/>
+    <line x1="20" y1="366" x2="780" y2="366"/>
+    <line x1="20" y1="386" x2="780" y2="386"/>
+    <line x1="20" y1="412" x2="780" y2="412"/>
+    <line x1="20" y1="444" x2="780" y2="444"/>
+  </g>
+  <line x1="20" y1="342" x2="780" y2="342" stroke="#2de2e6" stroke-width="2" opacity="0.8" filter="url(#glowSoft)"/>
+
+  <!-- neon sign frame -->
+  <rect x="16" y="16" width="768" height="418" rx="18" fill="none" stroke="#7c3aed" stroke-width="3" opacity="0.75" filter="url(#glowSoft)"/>
+
+  <!-- wordmark: wide neon layer + bright tube core -->
+  <use href="#word" stroke="#ff2d95" stroke-width="9" filter="url(#glow)"/>
+  <use href="#word" stroke="#ffd9ec" stroke-width="2.4"/>
+
+  <!-- tagline -->
+  <text x="404" y="298" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="21" letter-spacing="9" fill="#2de2e6" filter="url(#glowSoft)">AI WORKFLOW AS CODE</text>
+</svg>

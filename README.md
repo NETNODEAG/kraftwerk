@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="kraftwerk" width="640"/>
+</p>
+
 # kraftwerk
 
 Run AI agents as steps in a workflow, with your code in charge. You write the
