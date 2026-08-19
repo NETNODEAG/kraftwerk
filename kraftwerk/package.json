@@ -5,24 +5,26 @@
   "type": "module",
   "files": [
     "bin",
-    "src",
+    "dist",
     "runner",
-    "schema",
-    "tsconfig.json"
+    "schema"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "validate": "tsx src/validate.ts"
+    "validate": "tsx src/validate.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "dependencies": {
@@ -32,7 +34,6 @@
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
     "ora": "^9.4.1",
-    "tsx": "^4.23.12",
     "yaml": "^2.9.0"
   },
   "bin": {

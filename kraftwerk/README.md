@@ -260,3 +260,36 @@ tool. Living example:
   revision loop.
 
 To scaffold a new workflow, use the repo-root skill `/new-workflow`.
+
+## Developer
+
+Source is TypeScript under `src/`; the published package ships compiled
+JavaScript + type declarations under `dist/` (built by `tsc -p
+tsconfig.build.json`). The bin shim `bin/kraftwerk.js` prefers `dist/` and
+falls back to running the TS source via `tsx` (a devDependency) — so an
+`npm link`-ed checkout works without ever building.
+
+```bash
+npm run typecheck   # tsc --noEmit over src/
+npm run validate    # validate the example workflows
+npm run build       # clean + compile src/ -> dist/ (JS + .d.ts)
+npm link            # global `kraftwerk` command from this checkout (no build needed)
+```
+
+Caveat when linked: if a stale `dist/` exists, the shim runs *that*, not
+your edited source — `rm -rf dist` (or rebuild) after switching between
+publish testing and development.
+
+### Publishing
+
+`prepublishOnly` runs the build automatically, so publishing is just:
+
+```bash
+npm publish         # runs npm run build first via prepublishOnly
+```
+
+The tarball is whitelisted via `files`: `bin/`, `dist/`, `runner/`
+(Dockerfile for sandboxed runs), `schema/` (workflow JSON schema) — no
+`src/`, examples, or inspector. Check with `npm pack --dry-run` before a
+release. Runtime deps stay regular `dependencies`; `tsx` and `typescript`
+are dev-only, so consumers install neither.
