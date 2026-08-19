@@ -6,7 +6,7 @@
   "scripts": {
     "start": "kraftwerk"
   },
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "kraftwerk": "file:../kraftwerk",
