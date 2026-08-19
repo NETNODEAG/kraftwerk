@@ -1,0 +1,42 @@
+name: Publish to npm
+
+# Publishes @netnodeag/kraftwerk when a GitHub release is published,
+# or manually via the Actions tab (workflow_dispatch). The version comes
+# from kraftwerk/package.json — bump it there before releasing; a re-run
+# with an already-published version fails (npm rejects duplicates).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kraftwerk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: kraftwerk/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify
+        run: npm view "$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")" version
