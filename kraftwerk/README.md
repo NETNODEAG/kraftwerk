@@ -18,8 +18,8 @@ folders under `workflows/` (or `src/workflows/`) IS a complete consumer —
 no package.json, no install:
 
 ```bash
-npx @netnode/kraftwerk init      # scaffold kraftwerk.yml + workflows/ + example
-npx @netnode/kraftwerk run hello "Was ist kraftwerk?"
+npx @netnodeag/kraftwerk init      # scaffold kraftwerk.yml + workflows/ + example
+npx @netnodeag/kraftwerk run hello "Was ist kraftwerk?"
 ```
 
 For a local checkout / programmatic consumer (TS workflows, custom gates,
@@ -28,7 +28,7 @@ short):
 
 ```jsonc
 // package.json of your workflow project
-"dependencies": { "kraftwerk": "file:../kraftwerk" }   // or: "npm:@netnode/kraftwerk"
+"dependencies": { "kraftwerk": "file:../kraftwerk" }   // or: "npm:@netnodeag/kraftwerk"
 ```
 
 ```ts
@@ -37,7 +37,7 @@ import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "kraftw
 
 ## CLI — kraftwerk
 
-Ships with the package (`npx @netnode/kraftwerk …` anywhere, `npm link` in
+Ships with the package (`npx @netnodeag/kraftwerk …` anywhere, `npm link` in
 the checkout for a global `kraftwerk`). Workflows are auto-discovered under
 `src/workflows/` (or `workflows/`): every folder with a `workflow.yml` and
 every top-level `.yml` file. Every command works from any subdirectory —
@@ -74,7 +74,7 @@ Exit codes: 0 ok, 2 usage/config error (unknown workflow, missing env),
 3 run failed (gate/blocked/harness), 1 unexpected.
 
 ```bash
-KRAFTWERK_YES=1 npx @netnode/kraftwerk run tagline "https://..." --json > result.json
+KRAFTWERK_YES=1 npx @netnodeag/kraftwerk run tagline "https://..." --json > result.json
 ```
 
 Workflows declare the env vars they need via top-level `requires:
@@ -90,7 +90,7 @@ YOUR `output/`, not the cache. Share one workflow library across projects
 without vendoring:
 
 ```bash
-npx @netnode/kraftwerk run --from github:NETNODEAG/workflows tagline "https://..."
+npx @netnodeag/kraftwerk run --from github:NETNODEAG/workflows tagline "https://..."
 ```
 
 Sandbox mode (`--sandbox`) runs the workflow in a `kraftwerk-runner`
