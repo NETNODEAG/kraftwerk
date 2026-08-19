@@ -41,6 +41,15 @@ KRAFTWERK_OUTPUT=/path/to/your-project/output npm run dev
   folder contents, and links to recent runs of that workflow. Broken
   YAML still shows up, flagged with its parse error.
 
+- **Trigger runs** — every workflow page has a "trigger run" panel: enter a
+  request and launch. Default is the **Docker sandbox** (one
+  `kraftwerk-runner` container per run, workflow mounted read-only, run dir
+  bind-mounted back into `output/` so the live timeline works unchanged;
+  build the image once with `kraftwerk runner build`). Optional: forward
+  the SSH agent, or run locally instead. Sandboxed runs show a "sandbox"
+  chip and a stop button while running (`docker stop` under the hood).
+  Env vars for sandboxed runs go into `<project>/runner.env`.
+
 Realtime is plain polling (1.5 s while something runs, 6 s otherwise) —
 no daemon, no socket, works on a plain filesystem.
 

@@ -190,6 +190,31 @@ function analyse(events: TraceEvent[]) {
   return { runStart, summary, phases, steps, status, lastTs };
 }
 
+/**
+ * Sandboxed runs write runner.json (exit code recorded when the container
+ * ends). If the trace looks "running" but the container already exited —
+ * e.g. it crashed before any phase_end — trust the exit code instead of
+ * waiting for the 15-minute stale timeout.
+ */
+async function applyRunnerVerdict(
+  runDir: string,
+  a: ReturnType<typeof analyse>
+): Promise<ReturnType<typeof analyse>> {
+  if (a.status !== "running") return a;
+  try {
+    const meta = JSON.parse(await fs.readFile(path.join(runDir, "runner.json"), "utf8"));
+    if (meta.exitCode != null) {
+      a.status = meta.exitCode === 0 ? "ok" : "failed";
+      if (meta.exitCode !== 0) {
+        for (const p of a.phases) if (p.status === "running") p.status = "failed";
+      }
+    }
+  } catch {
+    /* no runner.json (local run) or unreadable — keep trace-based status */
+  }
+  return a;
+}
+
 function shortenPath(p: string): string {
   const parts = p.split("/");
   return parts.length > 2 ? parts.slice(-2).join("/") : p;
@@ -208,7 +233,10 @@ export async function listRuns(): Promise<RunListItem[]> {
       const st = await fs.stat(runDir).catch(() => null);
       if (!st?.isDirectory()) return null;
       const events = await readTrace(runDir);
-      const { runStart, summary, phases, steps, status, lastTs } = analyse(events);
+      const { runStart, summary, phases, steps, status, lastTs } = await applyRunnerVerdict(
+        runDir,
+        analyse(events)
+      );
       const done = phases.filter((p) => p.status === "ok").length;
       const current = phases.find((p) => p.status === "running")?.phase;
       return {
@@ -240,7 +268,10 @@ export async function getRun(id: string): Promise<RunDetail | null> {
   if (!st?.isDirectory()) return null;
 
   const events = await readTrace(runDir);
-  const { runStart, summary, phases, steps, status, lastTs } = analyse(events);
+  const { runStart, summary, phases, steps, status, lastTs } = await applyRunnerVerdict(
+    runDir,
+    analyse(events)
+  );
 
   const names = await fs.readdir(runDir);
   const files: FileView[] = [];

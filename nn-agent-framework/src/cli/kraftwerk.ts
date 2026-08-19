@@ -83,7 +83,14 @@ program
   .argument("[request...]", "Auftrag: Thema, URL, Projektidee, ...")
   .option("--yes", "Approval-Gates automatisch bestaetigen")
   .option("--verbose", "Agent-Narration mitschreiben")
-  .action(async (name: string | undefined, requestParts: string[], opts: { yes?: boolean; verbose?: boolean }) => {
+  .option("--sandbox", "Im Docker-Sandbox-Container ausfuehren (Image: kraftwerk-runner)")
+  .option("--ssh", "SSH-Agent + known_hosts in die Sandbox weiterreichen (nur mit --sandbox)")
+  .option("--run-id <id>", "Run-Ordnername vorgeben (output/<id>), z.B. fuer externe Trigger")
+  .action(async (
+    name: string | undefined,
+    requestParts: string[],
+    opts: { yes?: boolean; verbose?: boolean; sandbox?: boolean; ssh?: boolean; runId?: string }
+  ) => {
     const spinner = ora("Workflows laden ...").start();
     const found = await discoverWorkflows(process.cwd());
     spinner.stop();
@@ -94,21 +101,22 @@ program
       process.exit(1);
     }
 
-    let workflow = name ? valid.find((e) => e.workflow!.name === name)?.workflow : undefined;
-    if (name && !workflow) {
+    let entry = name ? valid.find((e) => e.workflow!.name === name) : undefined;
+    if (name && !entry) {
       console.error(
         chalk.red(`Workflow "${name}" nicht gefunden.`) +
           ` Vorhanden: ${valid.map((e) => e.workflow!.name).join(", ")}`
       );
       process.exit(1);
     }
-    workflow ??= await select({
+    entry ??= await select({
       message: "Welcher Workflow?",
       choices: valid.map((e) => ({
         name: `${e.workflow!.name} — ${e.workflow!.description}`,
-        value: e.workflow!,
+        value: e,
       })),
     });
+    const workflow = entry.workflow!;
 
     let request = (requestParts ?? []).join(" ").trim();
     if (!request) request = (await input({ message: "Auftrag (Thema, URL, ...):" })).trim();
@@ -117,7 +125,69 @@ program
       process.exit(1);
     }
 
+    if (opts.sandbox) {
+      const { runSandboxed } = await import("../runner/docker.js");
+      const handle = await runSandboxed({
+        projectRoot: process.cwd(),
+        workflowPath: entry.path,
+        workflowName: workflow.name,
+        request,
+        runId: opts.runId,
+        ssh: !!opts.ssh,
+        mode: "attach",
+      });
+      console.log(chalk.dim(`sandbox ${handle.containerName} → ${handle.runDir}`));
+      process.exit(await handle.finished);
+    }
+
+    if (opts.runId) process.env.KRAFTWERK_RUN_DIR = path.resolve("output", opts.runId);
     await workflow.run({ request, autoApprove: !!opts.yes, verbose: !!opts.verbose });
+  });
+
+const runner = program
+  .command("runner")
+  .description("Docker-Sandbox-Runner verwalten (Image bauen, laufende Runs sehen/stoppen)");
+
+runner
+  .command("build")
+  .description("kraftwerk-runner Image bauen/aktualisieren")
+  .action(async () => {
+    const { buildImage, dockerAvailable } = await import("../runner/docker.js");
+    if (!dockerAvailable()) {
+      console.error(chalk.red("Docker-Daemon nicht erreichbar — laeuft Docker?"));
+      process.exit(1);
+    }
+    await buildImage();
+    console.log(chalk.green("✔ Image kraftwerk-runner gebaut"));
+  });
+
+runner
+  .command("ps")
+  .description("Laufende Sandbox-Runs auflisten")
+  .action(async () => {
+    const { listSandboxes } = await import("../runner/docker.js");
+    const rows = listSandboxes();
+    if (rows.length === 0) {
+      console.log(chalk.dim("Keine laufenden Sandbox-Runs."));
+      return;
+    }
+    for (const r of rows) {
+      console.log(`${chalk.cyan(r.runId)}  ${r.workflow}  ${chalk.dim(r.status)}`);
+    }
+  });
+
+runner
+  .command("stop")
+  .description("Einen laufenden Sandbox-Run stoppen")
+  .argument("<runId>", "Run-Id (run-...)")
+  .action(async (runId: string) => {
+    const { stopSandbox } = await import("../runner/docker.js");
+    if (stopSandbox(runId.replace(/^kw-/, ""))) {
+      console.log(chalk.green(`✔ ${runId} gestoppt`));
+    } else {
+      console.error(chalk.red(`Kein laufender Container fuer ${runId}.`));
+      process.exit(1);
+    }
   });
 
 // LLM-facing, veloop-style: prints a self-contained brief for the agent

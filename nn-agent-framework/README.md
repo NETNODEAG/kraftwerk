@@ -41,7 +41,19 @@ kraftwerk run                           # interactive: pick workflow, type the r
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
 kraftwerk create "was der Workflow tun soll"   # for LLM agents: prints a build brief
+kraftwerk runner build                  # build the Docker sandbox image (once)
+kraftwerk run --sandbox website-check "https://..."   # isolated container per run; --ssh forwards the agent
+kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
 ```
+
+Sandbox mode (`--sandbox`) runs the workflow in a `kraftwerk-runner`
+container (see `runner/Dockerfile`): workflow folder mounted read-only,
+the run directory bind-mounted straight into the host `output/` — trace
+and artifacts appear live, no copy-back. Env vars come from
+`<project>/runner.env` (plus `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`
+pass-through); `--run-id` pins the run folder name for external triggers
+(the inspector uses this). `runner.json` in the run dir records
+container, exit code, and timing.
 
 `run` prompts for whatever is missing (workflow picker, request input);
 invalid workflows show up red in `list` with their validation error

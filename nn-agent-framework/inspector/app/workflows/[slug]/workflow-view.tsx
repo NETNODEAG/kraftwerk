@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { WorkflowDetail, AgentInfo, StepInfo } from "@/lib/workflows";
 import type { RunListItem } from "@/lib/runs";
 import { usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "../../shared";
@@ -56,6 +58,8 @@ export function WorkflowView({ slug }: { slug: string }) {
           </div>
         )}
       </div>
+
+      <RunPanel slug={wf.slug} lastRequest={runs[0]?.request} />
 
       <section className="panel" style={{ marginBottom: 18 }}>
         <div className="panel-head">
@@ -119,6 +123,83 @@ export function WorkflowView({ slug }: { slug: string }) {
         </div>
       </div>
     </>
+  );
+}
+
+function RunPanel({ slug, lastRequest }: { slug: string; lastRequest?: string }) {
+  const router = useRouter();
+  const [request, setRequest] = useState("");
+  const [sandbox, setSandbox] = useState(true);
+  const [ssh, setSsh] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const docker = usePoll<{ available: boolean; image: boolean }>(
+    `/api/workflows/${encodeURIComponent(slug)}/run`,
+    false
+  );
+
+  useEffect(() => {
+    if (!request && lastRequest) setRequest(lastRequest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastRequest]);
+
+  const sandboxReady = docker?.available && docker?.image;
+  const sandboxHint = !docker
+    ? ""
+    : !docker.available
+      ? "Docker not running — sandbox unavailable"
+      : !docker.image
+        ? "image missing — run `kraftwerk runner build`"
+        : "isolated container per run";
+
+  async function launch() {
+    if (!request.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/workflows/${encodeURIComponent(slug)}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: request.trim(), sandbox, ssh }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      router.push(`/runs/${data.runId}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel run-panel" style={{ marginBottom: 18 }}>
+      <div className="panel-head">
+        <span className="microlabel">trigger run</span>
+      </div>
+      <div className="run-form">
+        <input
+          type="text"
+          value={request}
+          placeholder="request — topic, URL, host …"
+          onChange={(e) => setRequest(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && launch()}
+        />
+        <button className="run-btn" onClick={launch} disabled={busy || !request.trim() || (sandbox && !sandboxReady)}>
+          {busy ? "starting…" : sandbox ? "▶ run in sandbox" : "▶ run locally"}
+        </button>
+      </div>
+      <div className="run-opts">
+        <label>
+          <input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} />
+          docker sandbox {sandboxHint && <span className="opt-hint">— {sandboxHint}</span>}
+        </label>
+        <label>
+          <input type="checkbox" checked={ssh} onChange={(e) => setSsh(e.target.checked)} disabled={!sandbox} />
+          forward SSH agent
+        </label>
+      </div>
+      {error && <div className="gate-fail-msg">{error}</div>}
+    </section>
   );
 }
 

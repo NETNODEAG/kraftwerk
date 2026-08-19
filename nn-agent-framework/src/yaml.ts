@@ -285,7 +285,11 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     },
 
     async run({ request, verbose }) {
-      const runDir = path.resolve("output", `run-${runStamp()}`);
+      // KRAFTWERK_RUN_DIR lets an outer runner (sandbox, web trigger) pick
+      // the run directory upfront so it can mount/watch it by name.
+      const runDir = process.env.KRAFTWERK_RUN_DIR
+        ? path.resolve(process.env.KRAFTWERK_RUN_DIR)
+        : path.resolve("output", `run-${runStamp()}`);
       await mkdir(runDir, { recursive: true });
 
       const run = new Run({
