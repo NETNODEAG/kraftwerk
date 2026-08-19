@@ -75,18 +75,44 @@ A workflow is pure config. Drop a folder with a `workflow.yml` under
 `src/workflows/` and the CLI finds it, no registration. To scaffold one, use the
 repo skill `/new-workflow`.
 
-## Sandbox
+## Local or sandboxed runs
 
-`--sandbox` runs a workflow inside a throwaway Docker container, one per run. The
-workflow folder mounts read-only and the run directory bind-mounts back to your
-`output/`, so the trace and artifacts show up live with no copy-back step. This
-is how you let an agent clone and pick apart an untrusted repo without handing it
-your machine.
+The same workflow runs either way. The only thing that changes is where the agent
+processes execute, so you develop a workflow locally and later run it isolated
+without touching the workflow itself.
+
+By default a run happens right on your machine, in the consumer project. The agent
+CLIs use your existing logins, commands touch your real files, and output lands in
+`output/`. This is the fast path, and it is what you want for trusted work on your
+own code.
+
+Add `--sandbox` and each run goes into its own throwaway Docker container instead,
+one per run. Inside the container:
+
+- the workflow folder mounts read-only, so the agent cannot rewrite its own
+  instructions
+- the run directory bind-mounts back to your host `output/`, so the trace and
+  artifacts show up live with no copy-back step
+- secrets come from `runner.env`, plus a pass-through of `ANTHROPIC_API_KEY` and
+  `OPENAI_API_KEY`
+- nothing else on your machine is reachable
+
+That isolation is the whole point. It is how you let an agent clone and pick apart
+an untrusted repo without handing it your laptop. The container is thrown away
+when the run ends, and `runner.json` in the run dir keeps the container name, exit
+code, and timing.
 
 ```bash
-npx kraftwerk runner build                                   # build the image once
-npx kraftwerk run --sandbox --ssh repo-audit "git clone git@..."
+npx kraftwerk runner build                                # build the image once
+npx kraftwerk run repo-audit /path/to/local/repo          # local, no container
+npx kraftwerk run --sandbox --ssh repo-audit "git clone git@..."   # isolated container
+npx kraftwerk runner ps                                   # list running sandboxes
+npx kraftwerk runner stop <run-id>                        # stop one
 ```
+
+`--ssh` forwards your SSH agent into the container so it can clone private repos.
+Local paths only work without the sandbox. A sandboxed run needs a git URL, since
+the container has no access to the rest of your disk.
 
 ## Inspector
 
