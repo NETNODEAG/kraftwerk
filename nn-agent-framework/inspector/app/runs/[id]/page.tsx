@@ -1,6 +1,6 @@
-import { RunDetailView } from "./run-detail";
+import { RunsScreen } from "./run-detail";
 
 export default async function RunPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <RunDetailView id={id} />;
+  return <RunsScreen id={id} />;
 }
