@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
 name: tagline
 description: "Tagline Generator: Website lesen, Marke verstehen, Tagline kueren (YAML)"
 

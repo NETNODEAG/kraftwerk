@@ -55,6 +55,6 @@ no daemon, no socket, works on a plain filesystem.
 
 ## Requirements
 
-Traces written by nn-agent-framework ≥ the `run_start` event carry workflow
+Traces written by kraftwerk ≥ the `run_start` event carry workflow
 name, request, and the declared step list; older traces still render, only
 without those labels.

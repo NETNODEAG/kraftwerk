@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
 name: daily-stats
 description: "Daily Stats fuer my.netnode.ch: heute bearbeitete Tickets + Meetings eines Workspace, erhoben ueber das my-CLI"
 workspace: |

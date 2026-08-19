@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
 name: server-check
 description: Collect basic server stats via SSH (script-driven; LLM only extracts the target host)
 workspace: |

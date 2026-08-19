@@ -1,7 +1,7 @@
 {
   "name": "agent-playground",
   "version": "0.1.0",
-  "description": "Zero-code consumer of nn-agent-framework: YAML workflow folders + the kraftwerk CLI, no TypeScript entry file",
+  "description": "Zero-code consumer of kraftwerk: YAML workflow folders + the kraftwerk CLI, no TypeScript entry file",
   "type": "module",
   "scripts": {
     "start": "kraftwerk"
@@ -9,7 +9,7 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "nn-agent-framework": "file:../nn-agent-framework",
+    "kraftwerk": "file:../kraftwerk",
     "zod": "^4.4.3"
   }
 }

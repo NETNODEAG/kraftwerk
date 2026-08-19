@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
+name: repo-audit
+description: "Full-repo security & code audit: deterministic scanners (secrets, risky patterns, dep audit) + agent verification and manual review — HTML report with per-finding fix prompts"
+
+# Request = a git URL (https://... or git@...), a pasted `git clone ...`
+# command, or a local repo path. Local paths only work un-sandboxed; use a
+# URL for sandboxed runs (SSH URLs need --ssh agent forwarding).
+
+workspace: |
+  Files in the run directory:
+    repo/                 the audited repository (read-only for you: never edit it)
+    inventory.json        detected stacks, file/LOC stats, notable files
+    scan/candidates.json  raw scanner findings (secrets, risky patterns, deps,
+                          config) — UNVERIFIED candidates, may contain false
+                          positives
+    scan/coverage.json    which scanners ran / were skipped and why
+    findings.json         the verified audit result (you write this)
+    review_notes.md       manual-review log: files read, what was checked
+    report.html           rendered HTML report (script-generated)
+
+agents:
+  auditor:
+    name: Security Auditor
+    model: sonnet
+    effort: high
+    tools: [Read, Grep, Glob, Write, Edit]
+    persona: |
+      You are a senior application-security reviewer auditing a repository.
+      You only report what you can prove with file evidence: every finding
+      cites file + line and quotes the offending code. You aggressively
+      discard false positives (test fixtures, examples, docs, dead code,
+      placeholder values) — a short verified list beats a long noisy one.
+      You NEVER modify anything under repo/; you only write audit files in
+      the run directory. All output is in English.
+
+steps:
+  - name: prepare
+    run: scripts/prepare.sh
+    gates:
+      - file_non_empty: inventory.json
+      - contains: { file: inventory.json, text: '"stacks"', label: stack detection }
+      - contains: { file: inventory.json, text: '"files_total"', label: file stats }
+
+  - name: scan
+    run: scripts/scan.sh
+    gates:
+      - file_non_empty: scan/candidates.json
+      - file_non_empty: scan/coverage.json
+      - contains: { file: scan/candidates.json, text: '"candidates"', label: candidate list }
+
+  - name: triage
+    agent: auditor
+    prompt: prompts/triage.md
+    gates:
+      - file_non_empty: findings.json
+      - contains: { file: findings.json, text: '"findings"', label: findings array }
+      - contains: { file: findings.json, text: '"dismissed"', label: dismissed array }
+      - contains: { file: findings.json, text: '"summary"', label: audit summary }
+
+  - name: review
+    agent: auditor
+    prompt: prompts/review.md
+    gates:
+      - file_non_empty: review_notes.md
+      - contains: { file: review_notes.md, text: "## Files reviewed", label: review log }
+      - file_non_empty: findings.json
+
+  - name: render report
+    run: scripts/render-report.sh
+    gates:
+      - file_non_empty: report.html
+      - contains: { file: report.html, text: "</html>", label: complete document }
+      - slots_filled: report.html
+
+  - name: output results
+    run: scripts/output.sh

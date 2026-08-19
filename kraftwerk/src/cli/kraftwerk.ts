@@ -10,7 +10,7 @@ import { loadWorkflow, type LoadedWorkflow } from "../yaml.js";
 import { renderCreateBrief } from "./create-brief.js";
 
 /**
- * kraftwerk — the nn-agent-framework CLI.
+ * kraftwerk — the kraftwerk CLI.
  *
  *   kraftwerk list                    discover + list workflows
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
@@ -27,7 +27,7 @@ const pkg = JSON.parse(
 
 const program = new Command()
   .name("kraftwerk")
-  .description("nn-agent-framework CLI: YAML-Workflows entdecken, validieren, ausfuehren")
+  .description("kraftwerk CLI: YAML-Workflows entdecken, validieren, ausfuehren")
   .version(pkg.version);
 
 const agentLabel = (workflow: LoadedWorkflow): string =>
