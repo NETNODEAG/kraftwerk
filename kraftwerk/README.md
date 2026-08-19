@@ -22,6 +22,12 @@ npx @netnodeag/kraftwerk init      # scaffold kraftwerk.yml + workflows/ + examp
 npx @netnodeag/kraftwerk run hello "Was ist kraftwerk?"
 ```
 
+Your own workflows are just more folders under `workflows/` — a
+`workflow.yml` plus prompt files, discovered automatically (see
+[YAML workflows](#yaml-workflows)). Or let a coding agent build one:
+`npx @netnodeag/kraftwerk create "<what it should do>"` prints a
+self-contained brief that Claude Code / Codex follows end to end.
+
 For a local checkout / programmatic consumer (TS workflows, custom gates,
 approval loops), add the dependency (the `kraftwerk` alias keeps imports
 short):

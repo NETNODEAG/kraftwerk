@@ -63,7 +63,84 @@ The playground workflows, roughly simplest to most involved:
   finding and review the code by hand, then renders an HTML report with
   copy-paste fix prompts.
 
-## Quickstart
+## Quickstart — in your own project
+
+kraftwerk is on npm as
+[`@netnodeag/kraftwerk`](https://www.npmjs.com/package/@netnodeag/kraftwerk).
+Any repo becomes a workflow project with one command — no `package.json`, no
+install:
+
+```bash
+cd your-project
+npx @netnodeag/kraftwerk init                    # scaffold kraftwerk.yml + workflows/ + example
+npx @netnodeag/kraftwerk run hello "What is kraftwerk?"
+```
+
+`init` creates:
+
+```
+kraftwerk.yml            # project config: workflows root, output dir
+workflows/
+  hello/                 # example: one agent, one gated step
+    workflow.yml
+    prompts/
+output/                  # run artifacts, gitignored
+```
+
+### Write your own workflow
+
+A workflow is a folder under `workflows/`: a `workflow.yml` with agents and
+gated steps, long prompts as markdown files next to it. The CLI discovers the
+folder automatically — nothing to register:
+
+```yaml
+# workflows/tagline/workflow.yml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: tagline
+description: "Write a tagline from a website"
+workspace: |
+  Files: brand.md (analysis), tagline.md (result).
+agents:
+  analyst:
+    model: haiku                       # runs-on: claude (default) | codex | pi
+    tools: [Read, Write, WebFetch]
+    persona: |
+      You analyze brands based on their website.
+  writer:
+    model: sonnet
+    tools: [Read, Write]
+    persona: prompts/writer-persona.md # single-line value = file in the folder
+steps:
+  - name: analyze
+    agent: analyst
+    prompt: prompts/analyze.md         # prompts may use ${{ request }}
+    gates:
+      - file_non_empty: brand.md
+  - name: write
+    agent: writer
+    prompt: prompts/write.md
+    gates:
+      - file_non_empty: tagline.md
+```
+
+```bash
+npx @netnodeag/kraftwerk validate                # strict schema + semantic checks
+npx @netnodeag/kraftwerk run tagline "https://example.com"
+npx @netnodeag/kraftwerk runs                    # inspect past runs
+```
+
+Prefer not to write it by hand? Run
+`npx @netnodeag/kraftwerk create "<what it should do>"` — it prints a
+self-contained build brief for a coding agent (Claude Code, Codex, ...), which
+then authors, validates, and smoke-tests the workflow folder for you.
+
+Triggering from CI is one line
+(`KRAFTWERK_YES=1 npx @netnodeag/kraftwerk run <name> "..." --json`), and a
+shared workflow library in its own repo runs anywhere via
+`--from github:org/repo`. The full YAML reference, gates, MCP servers, CLI
+grants, and harness details live in [`kraftwerk/README.md`](kraftwerk/README.md).
+
+## Explore the examples
 
 ```bash
 cd agent-playground
@@ -71,12 +148,7 @@ npm install
 npx kraftwerk list                          # discover and list workflows
 npx kraftwerk run tagline "https://nodehive.com"
 npx kraftwerk run                           # interactive picker
-npx kraftwerk validate                      # schema and semantic checks
 ```
-
-A workflow is pure config. Drop a folder with a `workflow.yml` under
-`src/workflows/` and the CLI finds it, no registration. To scaffold one, use the
-repo skill `/new-workflow`.
 
 ## Local or sandboxed runs
 
