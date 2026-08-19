@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
 name: pitch
 description: "Autor:in pitcht, drei Jury-Agents beurteilen mit demselben Prompt-File, Moderation entscheidet, Autor:in ueberarbeitet"
 

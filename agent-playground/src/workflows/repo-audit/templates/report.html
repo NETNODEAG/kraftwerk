@@ -1,0 +1,208 @@
+<!doctype html>
+<!--
+  SLOT DOCUMENTATION — every {{...}} slot is filled by scripts/render-report.sh
+  from findings.json + inventory.json + scan/coverage.json. No LLM touches
+  this file. Literal "{{" inside rendered content is escaped as &#123;&#123;
+  so the slots_filled gate can verify completeness.
+
+  Scalars:
+    {{REPO}}            repo name (last path segment of the source)
+    {{REPO_SUB}}        source + commit + stacks line
+    {{GENERATED_AT}}    e.g. "2026-08-19 10:12"
+    {{VERDICT_CLASS}}   ok | low | medium | high | critical  (worst severity)
+    {{VERDICT_LABEL}}   e.g. "2 high, 3 medium findings" or "no findings"
+    {{SUMMARY_TEXT}}    auditor's posture summary paragraph (escaped)
+    {{CRIT_VALUE}} {{HIGH_VALUE}} {{MED_VALUE}} {{LOW_VALUE}}  counts
+    {{FILES_VALUE}} {{FILES_SUB}}   files total + LOC
+    {{SCAN_VALUE}} {{SCAN_SUB}}     files scanned + candidates count
+
+  {{FINDING_CARDS}} — one <section class="card finding <severity>"> per
+    finding: badge, title, source chip, locations, description, evidence pre,
+    recommendation, per-finding fix-prompt <details> with copy button.
+    When there are no findings: a single all-clear card.
+
+  {{FIX_ALL_SECTION}} — empty when no findings; otherwise a card with the
+    combined copy-paste prompt covering all findings.
+
+  {{DISMISSED_SECTION}} — empty when nothing dismissed; otherwise a
+    <details> listing dismissed candidates with reasons.
+
+  {{COVERAGE_ROWS}} — <tr> rows: scanner name + status note.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo audit — {{REPO}}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --page: #f7f7f4; --surface: #fdfdfc; --line: #e4e4de;
+    --ink: #1d1f1e; --ink-2: #5b5f5c; --ink-3: #8b8f8b;
+    --ok: #0ca30c; --low: #6b7280; --medium: #b98307;
+    --high: #d3620f; --critical: #d03b3b;
+    --ok-bg: #eaf7ea; --low-bg: #eef0f2; --medium-bg: #fdf3dd;
+    --high-bg: #fdeadb; --critical-bg: #fbe7e7;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --page: #161715; --surface: #1e201d; --line: #2e312c;
+    --ink: #e8e9e6; --ink-2: #a2a6a0; --ink-3: #71756f;
+    --ok: #4cc24c; --low: #9aa2ad; --medium: #e0a52c;
+    --high: #ef8340; --critical: #e46464;
+    --ok-bg: #1c2a1c; --low-bg: #22252a; --medium-bg: #2d2617;
+    --high-bg: #302113; --critical-bg: #301a1a;
+  } }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 15px/1.55 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { margin-bottom: 26px; }
+  .kicker { font: 600 11px/1 var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--ink-2); margin-top: 6px; font-size: 13.5px;
+    font-family: var(--mono); word-break: break-all; }
+  .meta { color: var(--ink-3); font-size: 12.5px; margin-top: 4px; }
+  .verdict { display: inline-block; margin-top: 14px; padding: 6px 13px;
+    border-radius: 999px; font-weight: 600; font-size: 13.5px; }
+  .verdict.ok { background: var(--ok-bg); color: var(--ok); }
+  .verdict.low { background: var(--low-bg); color: var(--low); }
+  .verdict.medium { background: var(--medium-bg); color: var(--medium); }
+  .verdict.high { background: var(--high-bg); color: var(--high); }
+  .verdict.critical { background: var(--critical-bg); color: var(--critical); }
+
+  .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
+    margin: 22px 0 28px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 14px; }
+  .tile .v { font: 600 22px/1.2 var(--mono); }
+  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-3); margin-top: 3px; }
+  .tile .s { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
+  .tile.critical .v { color: var(--critical); }
+  .tile.high .v { color: var(--high); }
+  .tile.medium .v { color: var(--medium); }
+  .tile.low .v { color: var(--low); }
+
+  .card { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+  .card.summary { font-size: 14.5px; color: var(--ink-2); }
+  .finding { border-left: 4px solid var(--line); }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .f-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .badge { font: 700 10.5px/1 var(--mono); letter-spacing: .08em;
+    text-transform: uppercase; padding: 4px 8px; border-radius: 5px; }
+  .badge.critical { background: var(--critical-bg); color: var(--critical); }
+  .badge.high { background: var(--high-bg); color: var(--high); }
+  .badge.medium { background: var(--medium-bg); color: var(--medium); }
+  .badge.low { background: var(--low-bg); color: var(--low); }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .f-head h2 { font-size: 16.5px; font-weight: 650; }
+  .chip { font: 500 11px/1 var(--mono); color: var(--ink-3);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; }
+  .locs { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+    margin: 8px 0 0; word-break: break-all; }
+  .desc { margin-top: 10px; font-size: 14px; }
+  pre.evidence { background: var(--page); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; margin-top: 10px;
+    font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre-wrap;
+    word-break: break-all; }
+  .rec { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); }
+  .rec b { color: var(--ink); }
+  details.fixp { margin-top: 12px; }
+  details.fixp summary { cursor: pointer; font-size: 13px; font-weight: 600;
+    color: var(--ink-2); }
+  .fix-body { margin-top: 10px; }
+  pre.prompt { background: var(--page); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; font: 12px/1.55 var(--mono);
+    white-space: pre-wrap; word-break: break-word; max-height: 380px;
+    overflow: auto; margin-top: 8px; }
+  button.copy { font: 600 12.5px/1 inherit; padding: 8px 14px;
+    border-radius: 7px; border: 1px solid var(--line); cursor: pointer;
+    background: var(--ink); color: var(--page); }
+  button.copy.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  h3.sect { font-size: 13px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-3); margin: 30px 0 12px; }
+  table.cov { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.cov td { padding: 7px 10px; border-top: 1px solid var(--line); }
+  table.cov td:first-child { font-family: var(--mono); font-size: 12.5px;
+    white-space: nowrap; }
+  table.cov td:last-child { color: var(--ink-2); }
+  details.dismissed { margin-top: 14px; }
+  details.dismissed summary { cursor: pointer; font-size: 13.5px;
+    color: var(--ink-2); font-weight: 600; }
+  details.dismissed ul { margin: 10px 0 0 18px; font-size: 13px;
+    color: var(--ink-2); }
+  footer { margin-top: 40px; font-size: 12px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Repository audit</div>
+    <h1>{{REPO}}</h1>
+    <div class="sub">{{REPO_SUB}}</div>
+    <div class="meta">Generated {{GENERATED_AT}} · kraftwerk repo-audit</div>
+    <span class="verdict {{VERDICT_CLASS}}">{{VERDICT_LABEL}}</span>
+  </header>
+
+  <div class="tiles">
+    <div class="tile critical"><div class="v">{{CRIT_VALUE}}</div><div class="l">Critical</div></div>
+    <div class="tile high"><div class="v">{{HIGH_VALUE}}</div><div class="l">High</div></div>
+    <div class="tile medium"><div class="v">{{MED_VALUE}}</div><div class="l">Medium</div></div>
+    <div class="tile low"><div class="v">{{LOW_VALUE}}</div><div class="l">Low</div></div>
+    <div class="tile"><div class="v">{{FILES_VALUE}}</div><div class="l">Files</div><div class="s">{{FILES_SUB}}</div></div>
+    <div class="tile"><div class="v">{{SCAN_VALUE}}</div><div class="l">Scanned</div><div class="s">{{SCAN_SUB}}</div></div>
+  </div>
+
+  <section class="card summary">{{SUMMARY_TEXT}}</section>
+
+  <h3 class="sect">Findings</h3>
+  {{FINDING_CARDS}}
+
+  {{FIX_ALL_SECTION}}
+
+  <h3 class="sect">Scanner coverage</h3>
+  <section class="card">
+    <table class="cov">{{COVERAGE_ROWS}}</table>
+    {{DISMISSED_SECTION}}
+  </section>
+
+  <footer>Deterministic scanners + agent-verified triage &amp; manual review.
+    Fix prompts are self-contained — paste one into a coding agent inside the
+    repository.</footer>
+</div>
+<script>
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("button.copy");
+    if (!btn) return;
+    var pre = document.getElementById(btn.getAttribute("data-target"));
+    if (!pre) return;
+    var text = pre.textContent;
+    function done() {
+      var old = btn.textContent;
+      btn.textContent = "Copied ✓"; btn.classList.add("done");
+      setTimeout(function () { btn.textContent = old; btn.classList.remove("done"); }, 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(); });
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+  });
+</script>
+</body>
+</html>

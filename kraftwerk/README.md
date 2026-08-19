@@ -1,4 +1,4 @@
-# nn-agent-framework
+# kraftwerk
 
 Deterministic workflow-as-code over headless agent harnesses, in the spirit of
 [super-simple-software-factory](https://github.com/disler/super-simple-software-factory):
@@ -15,7 +15,7 @@ time/token/cost summary table.
 
 ```jsonc
 // package.json of your workflow project
-"dependencies": { "nn-agent-framework": "file:../nn-agent-framework" }
+"dependencies": { "kraftwerk": "file:../kraftwerk" }
 ```
 
 Zero-code consumer (YAML workflows only): that dependency plus workflow
@@ -24,7 +24,7 @@ discovers and runs them, no entry file. Programmatic consumer (TS
 workflows, custom gates, approval loops):
 
 ```ts
-import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "nn-agent-framework";
+import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "kraftwerk";
 ```
 
 ## CLI — kraftwerk
@@ -139,7 +139,7 @@ src/workflows/tagline/
 ```
 
 ```yaml
-# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
 name: tagline
 description: "Tagline Generator (YAML)"
 workspace: |

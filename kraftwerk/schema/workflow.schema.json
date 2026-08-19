@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://netnode.ch/schemas/nn-agent-framework/workflow.schema.json",
-  "title": "nn-agent-framework workflow",
+  "$id": "https://netnode.ch/schemas/kraftwerk/workflow.schema.json",
+  "title": "kraftwerk workflow",
   "description": "A linear workflow of gated agent steps. Folder form: <name>/workflow.yml, where single-line prompt/persona/workspace values may reference files inside the folder (e.g. prompts/step.md).",
   "type": "object",
   "required": ["name", "description", "steps"],

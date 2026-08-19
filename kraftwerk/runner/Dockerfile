@@ -8,7 +8,9 @@
 # bind-mounts the host run directory, injects env vars, and executes
 # `kraftwerk run` inside. See src/runner/docker.ts.
 
-FROM node:22-slim
+# node >= 24: workflows may ship TypeScript MCP servers that node runs
+# directly (native type stripping).
+FROM node:24-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash python3 curl ca-certificates openssh-client git procps jq \
@@ -28,9 +30,12 @@ RUN ln -s /opt/kraftwerk/bin/kraftwerk.js /usr/local/bin/kraftwerk \
     && chmod +x /opt/kraftwerk/bin/kraftwerk.js
 
 # Consumer project skeleton: the runner mounts the workflow folder into
-# src/workflows/<name> and the run dir into output/<run-id>.
+# src/workflows/<name> and the run dir into output/<run-id>. The MCP SDK +
+# zod are preinstalled so workflow-local MCP servers (mcp/*.ts) resolve
+# their imports, mirroring the consumer's node_modules.
 WORKDIR /work
 RUN mkdir -p src/workflows output \
-    && printf '{"name":"kraftwerk-sandbox","private":true}\n' > package.json
+    && printf '{"name":"kraftwerk-sandbox","private":true}\n' > package.json \
+    && npm install --no-fund --no-audit @modelcontextprotocol/sdk zod
 
 ENV HOME=/root

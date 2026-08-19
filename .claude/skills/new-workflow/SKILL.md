@@ -1,11 +1,11 @@
 ---
 name: new-workflow
-description: Scaffold a new nn-agent-framework workflow (agents, prompts, gates, steps, CLI registration) or a fresh consumer project. Use when the user wants to create or extend a workflow built on nn-agent-framework.
+description: Scaffold a new kraftwerk workflow (agents, prompts, gates, steps, CLI registration) or a fresh consumer project. Use when the user wants to create or extend a workflow built on kraftwerk.
 ---
 
-# Scaffold an nn-agent-framework workflow
+# Scaffold an kraftwerk workflow
 
-You are building a workflow on **nn-agent-framework** (the `nn-agent-framework/` package in this repo): deterministic TypeScript owns the control flow, agents work inside bounded phases on headless CLI harnesses. "Agent proposes, code disposes."
+You are building a workflow on **kraftwerk** (the `kraftwerk/` package in this repo): deterministic TypeScript owns the control flow, agents work inside bounded phases on headless CLI harnesses. "Agent proposes, code disposes."
 
 Shortcut for YAML workflows: `kraftwerk create "<was der Workflow tun soll>"` prints a self-contained build brief (schema example, gates, harness rules, verify ladder) — follow it. The sections below add the repo-specific references and the TS-workflow path.
 
@@ -13,13 +13,13 @@ Shortcut for YAML workflows: `kraftwerk create "<was der Workflow tun soll>"` pr
 
 Templates live in code, not in this skill — read them before writing anything:
 
-- `nn-agent-framework/README.md` — primitives, harness table, YAML folder schema, prerequisites
+- `kraftwerk/README.md` — primitives, harness table, YAML folder schema, prerequisites
 - `agent-playground/src/workflows/tagline/` — the YAML workflow-folder reference (workflow.yml + prompts/, GHA-flavored: steps, runs-on, ${{ request }})
 - `agent-playground/src/workflows/pitch/` — YAML folder with one prompt file shared by three jury steps via ${{ agent }}
 - `agent-playground/src/workflows/rechner/` — MCP reference: `mcp/multiply-server.ts` next to the workflow, top-level `mcp:` map, agent grant `mcp: [calculator]`
 - `agent-playground/src/workflows/website-check/` — script steps (`run: scripts/*.sh`) mixed with agent steps
 - `agent-playground/src/workflows/daily-stats/` — CLI grants: top-level `clis:` map (command prefix → usage hint), agent grant `clis: [my]`
-- `nn-agent-framework/src/index.ts` — the exact public API; `schema/workflow.schema.json` — the YAML contract
+- `kraftwerk/src/index.ts` — the exact public API; `schema/workflow.schema.json` — the YAML contract
 
 ## 2 — Gather from the user (ask if unclear)
 
@@ -43,7 +43,7 @@ Templates live in code, not in this skill — read them before writing anything:
 **TS workflow folder** `src/workflows/<name>/`:
 - `agents.ts` (`defineAgent`), `stages.ts` (workspaceContext + prompts, each ending with `envelopeContract(phase)`), optional `gates.ts` (custom `Gate`s), `workflow.ts` (`WorkflowDefinition`; mkdir the runDir BEFORE the first phase; end with `run.printSummary()`)
 
-**Fresh consumer project**: YAML-only consumers need just `package.json` with `"type": "module"`, `"start": "kraftwerk"`, and `"dependencies": { "nn-agent-framework": "file:../nn-agent-framework" }` (see agent-playground) — no tsconfig, no devDeps, no entry file. TS consumers additionally: `"start": "tsx src/index.ts"`, devDeps typescript/tsx/@types/node, tsconfig with NodeNext + `"types": ["node"]`.
+**Fresh consumer project**: YAML-only consumers need just `package.json` with `"type": "module"`, `"start": "kraftwerk"`, and `"dependencies": { "kraftwerk": "file:../kraftwerk" }` (see agent-playground) — no tsconfig, no devDeps, no entry file. TS consumers additionally: `"start": "tsx src/index.ts"`, devDeps typescript/tsx/@types/node, tsconfig with NodeNext + `"types": ["node"]`.
 
 ## 4 — House rules (enforce these)
 

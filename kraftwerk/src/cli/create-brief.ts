@@ -14,11 +14,11 @@ export function renderCreateBrief({
   workflowsRoot?: string;
 }): string {
   const root = workflowsRoot ?? "src/workflows";
-  return `# Create a new nn-agent-framework workflow
+  return `# Create a new kraftwerk workflow
 
 **Requirements:** ${spec}
 
-You are scaffolding a YAML workflow for nn-agent-framework. A workflow is a
+You are scaffolding a YAML workflow for kraftwerk. A workflow is a
 FOLDER \`${root}/<name>/\` containing \`workflow.yml\` (agents + gated steps)
 and \`prompts/*.md\`. Deterministic code owns the control flow; agents work
 inside bounded steps and are judged afterwards (envelope + file gates, with
@@ -42,7 +42,7 @@ nothing to register.
 3. Write \`${root}/<name>/workflow.yml\`. Complete example of every feature:
 
    \`\`\`yaml
-   # yaml-language-server: $schema=<relative path to>/node_modules/nn-agent-framework/schema/workflow.schema.json
+   # yaml-language-server: $schema=<relative path to>/node_modules/kraftwerk/schema/workflow.schema.json
    name: tagline                # CLI name: kraftwerk run tagline "..."
    description: "One-liner shown in kraftwerk list"
    workspace: |

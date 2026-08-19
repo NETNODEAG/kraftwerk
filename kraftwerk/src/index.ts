@@ -1,5 +1,5 @@
 /**
- * nn-agent-framework — deterministic workflow-as-code over headless agent
+ * kraftwerk — deterministic workflow-as-code over headless agent
  * harnesses. "Agent proposes, code disposes."
  *
  * An agent is persona + model/effort + tools + harness (defineAgent); the

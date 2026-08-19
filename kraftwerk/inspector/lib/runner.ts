@@ -11,7 +11,7 @@ import { PROJECT_ROOT } from "./workflows";
  *
  * Sandbox mode adds --sandbox: one Docker container per run, workflow
  * mounted read-only, run dir bind-mounted back into output/ (see
- * nn-agent-framework/src/runner/docker.ts).
+ * kraftwerk/src/runner/docker.ts).
  */
 
 function stamp(d = new Date()): string {
