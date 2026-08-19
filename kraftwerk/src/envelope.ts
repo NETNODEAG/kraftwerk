@@ -16,27 +16,27 @@ export interface Envelope {
 export function parseEnvelope(text: string, expectedPhase: string): Envelope {
   const fences = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
   if (fences.length === 0) {
-    throw new Error("Envelope fehlt: kein ```json Codeblock in der finalen Antwort");
+    throw new Error("Envelope missing: no ```json code block in the final answer");
   }
 
   let raw: Record<string, unknown>;
   try {
     raw = JSON.parse(fences[fences.length - 1][1]);
   } catch (err) {
-    throw new Error(`Envelope ist kein gueltiges JSON: ${(err as Error).message}`);
+    throw new Error(`Envelope is not valid JSON: ${(err as Error).message}`);
   }
 
   if (raw.phase !== expectedPhase) {
-    throw new Error(`Envelope meldet Phase "${raw.phase}", erwartet war "${expectedPhase}"`);
+    throw new Error(`Envelope reports phase "${raw.phase}", expected "${expectedPhase}"`);
   }
   if (raw.status !== "ok" && raw.status !== "blocked") {
-    throw new Error(`Envelope hat ungueltigen status "${raw.status}" (erlaubt: ok | blocked)`);
+    throw new Error(`Envelope has invalid status "${raw.status}" (allowed: ok | blocked)`);
   }
   if (
     !Array.isArray(raw.artifacts) ||
     raw.artifacts.some((a) => typeof a !== "string")
   ) {
-    throw new Error('Envelope-Feld "artifacts" muss ein String-Array sein');
+    throw new Error('Envelope field "artifacts" must be an array of strings');
   }
 
   return {
@@ -54,25 +54,25 @@ export function parseEnvelope(text: string, expectedPhase: string): Envelope {
  */
 export const envelopeContract = (phase: string) =>
   `
-Beende deine finale Antwort mit GENAU EINEM json-Codeblock (dem Envelope):
+End your final answer with EXACTLY ONE json code block (the envelope):
 
 \`\`\`json
-{"phase": "${phase}", "status": "ok", "artifacts": ["<geschriebene Dateien>"], "summary": "<ein Satz>"}
+{"phase": "${phase}", "status": "ok", "artifacts": ["<files written>"], "summary": "<one sentence>"}
 \`\`\`
 
-Kannst du die Aufgabe nicht erfuellen, setze "status": "blocked" und ergaenze
-ein Feld "reason". Vor dem Codeblock hoechstens ein Satz Text.
+If you cannot complete the task, set "status": "blocked" and add a
+"reason" field. At most one sentence of text before the code block.
 `.trim();
 
 /** Gate failed: correct in the SAME session instead of a cold restart. */
 export const correctionPrompt = (phase: string, failures: string[]) =>
   `
-Der Orchestrator hat deine Phase "${phase}" geprueft. Folgende Checks sind
-fehlgeschlagen:
+The orchestrator checked your phase "${phase}". The following checks
+failed:
 
 ${failures.map((f) => `- ${f}`).join("\n")}
 
-Behebe genau diese Punkte (Dateien direkt bearbeiten).
+Fix exactly these points (edit the files directly).
 
 ${envelopeContract(phase)}
 `.trim();

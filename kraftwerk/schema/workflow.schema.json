@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://netnode.ch/schemas/kraftwerk/workflow.schema.json",
+  "$id": "https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json",
   "title": "kraftwerk workflow",
   "description": "A linear workflow of gated agent steps. Folder form: <name>/workflow.yml, where single-line prompt/persona/workspace values may reference files inside the folder (e.g. prompts/step.md).",
   "type": "object",
@@ -19,6 +19,11 @@
     "workspace": {
       "type": "string",
       "description": "Workspace context appended to every agent's system prompt (file layout etc.). Single-line value = path to a file inside the workflow folder."
+    },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "description": "Environment variables the workflow needs (API tokens etc.). Checked before the run starts; missing variables abort with a clear error instead of failing mid-run."
     },
     "mcp": {
       "type": "object",

@@ -1,5 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { resolveProject } from "./config.js";
 import { loadWorkflow, type LoadedWorkflow } from "./yaml.js";
 
 /**
@@ -7,7 +8,10 @@ import { loadWorkflow, type LoadedWorkflow } from "./yaml.js";
  * file at all — every workflow folder (containing workflow.yml) and every
  * top-level .yml file under the workflows root is picked up automatically.
  *
- * Roots tried in order: src/workflows/, workflows/ (first existing wins).
+ * The project root is resolved by walking up from cwd (kraftwerk.yml or a
+ * workflows root marks it — see config.ts), so discovery works from any
+ * subdirectory. Roots tried in order: src/workflows/, workflows/ (first
+ * existing wins), overridable via `workflows:` in kraftwerk.yml.
  * Load failures are carried per entry instead of thrown, so `list` can show
  * broken workflows alongside valid ones.
  */
@@ -18,13 +22,9 @@ export interface DiscoveredWorkflow {
   error?: string;
 }
 
-/** First existing workflows root under cwd: src/workflows/ or workflows/. */
+/** Workflows root for a cwd (walk-up + kraftwerk.yml aware). */
 export async function findWorkflowsRoot(cwd: string): Promise<string | undefined> {
-  for (const candidate of ["src/workflows", "workflows"]) {
-    const stats = await stat(path.join(cwd, candidate)).catch(() => null);
-    if (stats?.isDirectory()) return path.join(cwd, candidate);
-  }
-  return undefined;
+  return (await resolveProject(cwd)).workflowsRoot;
 }
 
 export async function discoverWorkflows(cwd: string): Promise<DiscoveredWorkflow[]> {

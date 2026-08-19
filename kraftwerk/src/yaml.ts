@@ -7,7 +7,8 @@ import type { McpServerConfig } from "./harness.js";
 import { envelopeContract } from "./envelope.js";
 import { containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
 import { Run } from "./run.js";
-import { runStamp, type WorkflowDefinition } from "./workflow.js";
+import { summaryTable } from "./stats.js";
+import { runStamp, type RunResult, type WorkflowDefinition } from "./workflow.js";
 
 /**
  * YAML-configured workflows (v1: a linear sequence of gated agent steps).
@@ -45,7 +46,7 @@ import { runStamp, type WorkflowDefinition } from "./workflow.js";
  */
 
 const GATE_HINT =
-  "Gates: file_non_empty: <datei> | slots_filled: <datei> | contains: {file, text, label?}";
+  "Gates: file_non_empty: <file> | slots_filled: <file> | contains: {file, text, label?}";
 const VARIABLES = ["request", "agent"];
 
 let compiledSchema: ((data: unknown) => boolean) & { errors?: ErrorObject[] | null };
@@ -61,11 +62,11 @@ async function schemaValidator() {
 }
 
 const STEP_HINT =
-  "Step: agent-Step {name, agent, prompt, gates?} ODER script-Step {name, run, gates?}";
+  "Step: agent step {name, agent, prompt, gates?} OR script step {name, run, gates?}";
 const MCP_HINT =
-  "MCP-Server: {command, args?, env?} (stdio) ODER {url} (remote streamable HTTP)";
+  "MCP servers: {command, args?, env?} (stdio) OR {url} (remote streamable HTTP)";
 const CLI_HINT =
-  "CLIs: <kommando-praefix>: <einzeiliger Hinweis> — Name z.B. git, ddev, npm run (keine Sonderzeichen)";
+  "CLIs: <command prefix>: <one-line usage hint> — name e.g. git, ddev, npm run (no special characters)";
 
 function formatAjvErrors(errors: ErrorObject[], file: string): string {
   // oneOf mismatches (gates, steps, mcp) explode into per-branch errors; keep it readable.
@@ -75,10 +76,10 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
   const lines = relevant.slice(0, 4).map((e) => {
     const where = e.instancePath || "/";
     if (e.keyword === "additionalProperties") {
-      return `${where}: unbekannter Schluessel "${(e.params as any).additionalProperty}"`;
+      return `${where}: unknown key "${(e.params as any).additionalProperty}"`;
     }
     if (e.keyword === "enum") {
-      return `${where}: erlaubt sind ${(e.params as any).allowedValues?.join(", ")}`;
+      return `${where}: allowed values are ${(e.params as any).allowedValues?.join(", ")}`;
     }
     return `${where}: ${e.message}`;
   });
@@ -88,7 +89,7 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
     : "";
   const mcpHint = errors.some((e) => e.instancePath.startsWith("/mcp/")) ? `\n${MCP_HINT}` : "";
   const cliHint = errors.some((e) => e.instancePath.startsWith("/clis")) ? `\n${CLI_HINT}` : "";
-  return `${file}: Schema-Validierung fehlgeschlagen\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}${stepHint}${mcpHint}${cliHint}`;
+  return `${file}: schema validation failed\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}${stepHint}${mcpHint}${cliHint}`;
 }
 
 type YamlStep =
@@ -100,8 +101,15 @@ export interface LoadedWorkflow extends WorkflowDefinition {
   readonly meta: {
     agents: AgentDefinition[];
     steps: string[];
+    /** Environment variables the workflow declares under `requires:`. */
+    requires: string[];
   };
+  run(opts: Parameters<WorkflowDefinition["run"]>[0]): Promise<RunResult>;
 }
+
+/** Names from `requires:` that are missing/empty in the current environment. */
+export const missingEnv = (requires: string[]): string[] =>
+  requires.filter((name) => !process.env[name]);
 
 /**
  * Load a workflow from a folder (`<dir>/workflow.yml` + referenced files)
@@ -109,7 +117,7 @@ export interface LoadedWorkflow extends WorkflowDefinition {
  */
 export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
   const stats = await stat(givenPath).catch(() => null);
-  if (!stats) throw new Error(`${givenPath}: nicht gefunden`);
+  if (!stats) throw new Error(`${givenPath}: not found`);
 
   let yamlPath = givenPath;
   let baseDir: string | undefined;
@@ -121,7 +129,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       if (await stat(path.join(givenPath, c)).catch(() => null)) found.push(c);
     }
     if (found.length === 0) {
-      throw new Error(`${path.basename(givenPath)}/: enthaelt keine workflow.yml`);
+      throw new Error(`${path.basename(givenPath)}/: contains no workflow.yml`);
     }
     yamlPath = path.join(givenPath, found[0]);
   }
@@ -136,7 +144,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
   try {
     raw = parse(await readFile(yamlPath, "utf8"));
   } catch (err) {
-    return fail(`YAML nicht lesbar: ${(err as Error).message}`);
+    return fail(`unreadable YAML: ${(err as Error).message}`);
   }
 
   // 1) Structural validation against the JSON Schema.
@@ -151,12 +159,12 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     if (!baseDir || line.includes("\n")) return value.trim();
     const candidate = path.resolve(baseDir, line);
     if (!candidate.startsWith(path.resolve(baseDir) + path.sep)) {
-      return fail(`${field}: "${line}" liegt ausserhalb des Workflow-Ordners`);
+      return fail(`${field}: "${line}" is outside the workflow folder`);
     }
     const content = await readFile(candidate, "utf8").catch(() => null);
     if (content !== null) return content.trim();
     if (line.includes("/") || /\.(md|txt|sh)$/.test(line)) {
-      return fail(`${field}: referenzierte Datei "${line}" nicht gefunden`);
+      return fail(`${field}: referenced file "${line}" not found`);
     }
     return value.trim();
   };
@@ -185,7 +193,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       if (await stat(candidate).catch(() => null)) {
         resolvedArgs.push(candidate);
       } else if (/\.(ts|mts|cts|js|mjs|cjs|py|sh)$/.test(arg)) {
-        fail(`mcp.${name}: Server-Datei "${arg}" nicht gefunden`);
+        fail(`mcp.${name}: server file "${arg}" not found`);
       } else {
         resolvedArgs.push(arg); // flags like -y, package names like tsx
       }
@@ -210,21 +218,21 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       const def = mcpDefs.get(serverName);
       if (!def) {
         fail(
-          `agents.${id}.mcp: Server "${serverName}" ist unter mcp nicht definiert` +
-            ` (vorhanden: ${[...mcpDefs.keys()].join(", ") || "—"})`
+          `agents.${id}.mcp: server "${serverName}" is not defined under mcp` +
+            ` (available: ${[...mcpDefs.keys()].join(", ") || "—"})`
         );
       }
       mcp[serverName] = def!;
     }
     if (Object.keys(mcp).length > 0 && a["runs-on"] === "pi") {
-      fail(`agents.${id}: runs-on "pi" unterstuetzt kein MCP — claude oder codex verwenden`);
+      fail(`agents.${id}: runs-on "pi" does not support MCP — use claude or codex`);
     }
     const clis: Record<string, string> = {};
     for (const cliName of (a.clis ?? []) as string[]) {
       if (!cliDefs.has(cliName)) {
         fail(
-          `agents.${id}.clis: CLI "${cliName}" ist unter clis nicht definiert` +
-            ` (vorhanden: ${[...cliDefs.keys()].join(", ") || "—"})`
+          `agents.${id}.clis: CLI "${cliName}" is not defined under clis` +
+            ` (available: ${[...cliDefs.keys()].join(", ") || "—"})`
         );
       }
       clis[cliName] = cliDefs.get(cliName)!;
@@ -246,7 +254,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
   const steps: YamlStep[] = [];
   for (const [i, s] of (raw.steps as any[]).entries()) {
     const at = (message: string): never => fail(`steps[${i}]: ${message}`);
-    if (seen.has(s.name)) at(`Step-Name "${s.name}" ist doppelt`);
+    if (seen.has(s.name)) at(`step name "${s.name}" is a duplicate`);
     seen.add(s.name);
     const gates = (s.gates ?? []).map((g: any, j: number) =>
       buildGate(g, (message) => fail(`steps[${i}].gates[${j}]: ${message}`))
@@ -256,7 +264,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       const script = await resolveText(s.run, `steps[${i}].run`);
       for (const match of script.matchAll(/\$\{\{\s*(\w+)\s*\}\}/g)) {
         if (match[1] !== "request") {
-          at(`unbekannte Variable \${{ ${match[1]} }} — in run-Steps ist nur \${{ request }} verfuegbar (plus env: REQUEST, RUN_DIR, PHASE, WORKFLOW_DIR)`);
+          at(`unknown variable \${{ ${match[1]} }} — run steps only support \${{ request }} (plus env: REQUEST, RUN_DIR, PHASE, WORKFLOW_DIR)`);
         }
       }
       steps.push({ kind: "script", name: s.name, script, gates });
@@ -265,16 +273,18 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
 
     const agent = agents.get(s.agent);
     if (!agent) {
-      at(`agent "${s.agent}" ist unter agents nicht definiert (vorhanden: ${[...agents.keys()].join(", ")})`);
+      at(`agent "${s.agent}" is not defined under agents (available: ${[...agents.keys()].join(", ")})`);
     }
     const prompt = await resolveText(s.prompt, `steps[${i}].prompt`);
     for (const match of prompt.matchAll(/\$\{\{\s*(\w+)\s*\}\}/g)) {
       if (!VARIABLES.includes(match[1])) {
-        at(`unbekannte Variable \${{ ${match[1]} }} — verfuegbar: ${VARIABLES.join(", ")}`);
+        at(`unknown variable \${{ ${match[1]} }} — available: ${VARIABLES.join(", ")}`);
       }
     }
     steps.push({ kind: "agent", name: s.name, agent: agent!, prompt, gates });
   }
+
+  const requires: string[] = raw.requires ?? [];
 
   return {
     name: raw.name,
@@ -282,9 +292,17 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     meta: {
       agents: [...agents.values()],
       steps: steps.map((s) => s.name),
+      requires,
     },
 
     async run({ request, verbose }) {
+      const missing = missingEnv(requires);
+      if (missing.length > 0) {
+        throw new Error(
+          `Workflow "${raw.name}" needs environment variables that are missing: ${missing.join(", ")}` +
+            ` (declared under requires: in ${file})`
+        );
+      }
       // KRAFTWERK_RUN_DIR lets an outer runner (sandbox, web trigger) pick
       // the run directory upfront so it can mount/watch it by name.
       const runDir = process.env.KRAFTWERK_RUN_DIR
@@ -296,7 +314,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
         runDir,
         verbose,
         workspaceContext: [
-          `Arbeitsverzeichnis (alle Dateien hier lesen und anlegen): ${runDir}`,
+          `Working directory (read and create all files here): ${runDir}`,
           workspace,
         ]
           .filter(Boolean)
@@ -340,6 +358,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
 
       await run.printSummary();
       console.log(`\nArtifacts: ${runDir}`);
+      return { runDir, phases: run.stats, total: summaryTable(run.stats).total };
     },
   };
 }
@@ -358,6 +377,6 @@ function buildGate(g: any, at: (message: string) => never): Gate {
     case "contains":
       return containsText(value.file, value.text, value.label ?? value.text);
     default:
-      return at(`unbekanntes Gate "${gateName}" — ${GATE_HINT}`);
+      return at(`unknown gate "${gateName}" — ${GATE_HINT}`);
   }
 }

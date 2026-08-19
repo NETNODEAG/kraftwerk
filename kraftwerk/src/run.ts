@@ -104,7 +104,7 @@ export class Run {
     // here instead of repeating them in every step prompt.
     const cliEntries = Object.entries(agent.clis ?? {});
     const cliBlock = cliEntries.length
-      ? "\n\nDiese CLIs stehen dir per Bash zur Verfuegung (freigegeben, ohne Rueckfrage nutzbar):\n" +
+      ? "\n\nThese CLIs are available to you via Bash (pre-approved, usable without asking):\n" +
         cliEntries
           .map(([name, hint]) => `- ${name}${hint.trim() ? ` — ${hint.trim()}` : ""}`)
           .join("\n")
@@ -188,7 +188,7 @@ export class Run {
 
       const retrying = attempt < this.maxGateRetries;
       console.log(
-        `  ✖ ${failures.length} check(s) failed${retrying ? ", Korrektur in derselben Session" : ""}`
+        `  ✖ ${failures.length} check(s) failed${retrying ? ", correcting in the same session" : ""}`
       );
       for (const failure of failures) console.log(`    - ${failure}`);
       prompt = correctionPrompt(params.name, failures);
@@ -308,7 +308,7 @@ export class Run {
     if (failures.length > 0) {
       for (const failure of failures) console.log(`    - ${failure}`);
       return await fail(
-        `${failures.length} gate(s) failed — Script-Steps sind deterministisch, keine Korrekturschleife`
+        `${failures.length} gate(s) failed — script steps are deterministic, no correction loop`
       );
     }
 

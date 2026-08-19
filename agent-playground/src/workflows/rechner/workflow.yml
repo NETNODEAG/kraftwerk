@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
 name: rechner
 description: "MCP-Demo: Multiplikation ueber den calculator-MCP-Server neben dem Workflow"
 workspace: |

@@ -71,6 +71,11 @@ export function imageExists(): boolean {
 
 /** Build (or rebuild) the kraftwerk-runner image. Streams docker output. */
 export async function buildImage(): Promise<void> {
+  if (!existsSync(path.join(frameworkDir, "dist"))) {
+    throw new Error(
+      "dist/ missing — run `npm run build` in the framework checkout first, then build the image."
+    );
+  }
   const dockerfile = path.join(frameworkDir, "runner", "Dockerfile");
   await new Promise<void>((resolve, reject) => {
     const child = spawn(

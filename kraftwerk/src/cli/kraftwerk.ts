@@ -6,20 +6,45 @@ import Table from "cli-table3";
 import { Command } from "commander";
 import ora from "ora";
 import { discoverWorkflows, findWorkflowsRoot } from "../discover.js";
-import { loadWorkflow, type LoadedWorkflow } from "../yaml.js";
+import { isRemoteSpec, resolveRemote } from "../remote.js";
+import { loadWorkflow, missingEnv, type LoadedWorkflow } from "../yaml.js";
 import { renderCreateBrief } from "./create-brief.js";
+import { runDoctor } from "./doctor.js";
+import { runInit } from "./init.js";
+import { listRuns, showRun } from "./runs.js";
 
 /**
  * kraftwerk — the kraftwerk CLI.
  *
- *   kraftwerk list                    discover + list workflows
+ *   kraftwerk init                    scaffold kraftwerk.yml + workflows/ + example
+ *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
+ *   kraftwerk runs [show <id>]        inspect past runs from their traces
+ *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
- * Workflows are auto-discovered under src/workflows/ (or workflows/) in the
- * current directory — YAML folders and single .yml files. No entry file,
- * no registration: a consumer is package.json + workflow folders.
+ * Workflows are auto-discovered under src/workflows/ (or workflows/), from
+ * any subdirectory (walk-up to kraftwerk.yml / workflows root / .git). No
+ * entry file, no registration, no local install needed — a repo with
+ * workflow folders plus `npx kraftwerk` is a complete consumer.
+ *
+ * Machine use (CI, cron, webhooks): `run --json` prints one JSON result on
+ * stdout and moves all narration to stderr; KRAFTWERK_YES=1 = --yes.
+ * Exit codes: 0 ok, 2 usage/config error, 3 run failed, 1 unexpected.
+ *
+ * `--from github:org/repo[@ref]` on list/run executes workflows straight
+ * from a git remote (shallow clone cache in ~/.cache/kraftwerk).
  */
+
+/** Working directory for list/run: local cwd or the --from remote clone. */
+async function resolveBaseDir(from?: string): Promise<string> {
+  if (!from) return process.cwd();
+  if (!isRemoteSpec(from)) {
+    console.error(chalk.red(`--from "${from}" not recognized — expected github:org/repo[@ref] or a git URL.`));
+    process.exit(2);
+  }
+  return (await resolveRemote(from)).dir;
+}
 
 const pkg = JSON.parse(
   await readFile(new URL("../../package.json", import.meta.url), "utf8")
@@ -27,7 +52,7 @@ const pkg = JSON.parse(
 
 const program = new Command()
   .name("kraftwerk")
-  .description("kraftwerk CLI: YAML-Workflows entdecken, validieren, ausfuehren")
+  .description("kraftwerk CLI: discover, validate, and run YAML workflows")
   .version(pkg.version);
 
 const agentLabel = (workflow: LoadedWorkflow): string =>
@@ -41,14 +66,39 @@ const agentLabel = (workflow: LoadedWorkflow): string =>
 
 program
   .command("list")
-  .description("Workflows im aktuellen Projekt entdecken und auflisten")
-  .action(async () => {
-    const spinner = ora("Workflows entdecken ...").start();
-    const found = await discoverWorkflows(process.cwd());
-    spinner.stop();
+  .description("Discover and list the workflows in the current project")
+  .option("--json", "Machine-readable output (JSON on stdout)")
+  .option("--from <source>", "Workflows from a git remote: github:org/repo[@ref] or git URL")
+  .action(async (opts: { json?: boolean; from?: string }) => {
+    const baseDir = await resolveBaseDir(opts.from);
+    const spinner = opts.json ? undefined : ora("Discovering workflows ...").start();
+    const found = await discoverWorkflows(baseDir);
+    spinner?.stop();
 
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          found.map((e) => ({
+            path: e.path,
+            name: e.workflow?.name,
+            description: e.workflow?.description,
+            steps: e.workflow?.meta.steps,
+            requires: e.workflow?.meta.requires,
+            agents: e.workflow?.meta.agents.map((a) => ({
+              id: a.id,
+              model: a.model,
+              harness: a.harness ?? "claude",
+            })),
+            error: e.error,
+          })),
+          null,
+          2
+        )
+      );
+      return;
+    }
     if (found.length === 0) {
-      console.log(chalk.yellow("Keine Workflows gefunden (erwartet: src/workflows/ oder workflows/)."));
+      console.log(chalk.yellow("No workflows found (expected: src/workflows/ or workflows/ — `kraftwerk init` scaffolds a project)."));
       return;
     }
     const table = new Table({
@@ -58,16 +108,18 @@ program
     });
     for (const entry of found) {
       if (entry.workflow) {
+        const requires = entry.workflow.meta.requires;
         table.push([
           chalk.cyan(entry.workflow.name),
-          entry.workflow.description,
+          entry.workflow.description +
+            (requires.length ? chalk.dim(`\nrequires: ${requires.join(", ")}`) : ""),
           String(entry.workflow.meta.steps.length),
           agentLabel(entry.workflow),
         ]);
       } else {
         table.push([
           chalk.red(path.basename(entry.path)),
-          chalk.red(entry.error ?? "unbekannter Fehler"),
+          chalk.red(entry.error ?? "unknown error"),
           "—",
           "—",
         ]);
@@ -78,39 +130,56 @@ program
 
 program
   .command("run")
-  .description("Einen Workflow ausfuehren (fragt interaktiv nach, was fehlt)")
-  .argument("[workflow]", "Workflow-Name aus `kraftwerk list`")
-  .argument("[request...]", "Auftrag: Thema, URL, Projektidee, ...")
-  .option("--yes", "Approval-Gates automatisch bestaetigen")
-  .option("--verbose", "Agent-Narration mitschreiben")
-  .option("--sandbox", "Im Docker-Sandbox-Container ausfuehren (Image: kraftwerk-runner)")
-  .option("--ssh", "SSH-Agent + known_hosts in die Sandbox weiterreichen (nur mit --sandbox)")
-  .option("--run-id <id>", "Run-Ordnername vorgeben (output/<id>), z.B. fuer externe Trigger")
+  .description("Run a workflow (prompts interactively for anything missing)")
+  .argument("[workflow]", "Workflow name from `kraftwerk list`")
+  .argument("[request...]", "The request: topic, URL, project idea, ...")
+  .option("--yes", "Auto-confirm approval gates (also: KRAFTWERK_YES=1)")
+  .option("--verbose", "Stream the agent narration")
+  .option("--json", "Non-interactive: JSON result on stdout, narration on stderr")
+  .option("--quiet", "Suppress narration (result/errors only)")
+  .option("--from <source>", "Workflows from a git remote: github:org/repo[@ref] or git URL")
+  .option("--sandbox", "Run inside the Docker sandbox container (image: kraftwerk-runner)")
+  .option("--ssh", "Forward the SSH agent + known_hosts into the sandbox (only with --sandbox)")
+  .option("--run-id <id>", "Pin the run folder name (output/<id>), e.g. for external triggers")
   .action(async (
     name: string | undefined,
     requestParts: string[],
-    opts: { yes?: boolean; verbose?: boolean; sandbox?: boolean; ssh?: boolean; runId?: string }
+    opts: {
+      yes?: boolean;
+      verbose?: boolean;
+      json?: boolean;
+      quiet?: boolean;
+      from?: string;
+      sandbox?: boolean;
+      ssh?: boolean;
+      runId?: string;
+    }
   ) => {
-    const spinner = ora("Workflows laden ...").start();
-    const found = await discoverWorkflows(process.cwd());
-    spinner.stop();
+    const machine = !!opts.json;
+    const fail = (code: number, message: string): never => {
+      if (machine) console.log(JSON.stringify({ ok: false, error: message }));
+      console.error(chalk.red(message));
+      process.exit(code);
+    };
+
+    const baseDir = await resolveBaseDir(opts.from);
+    const spinner = machine ? undefined : ora("Loading workflows ...").start();
+    const found = await discoverWorkflows(baseDir);
+    spinner?.stop();
 
     const valid = found.filter((e) => e.workflow);
-    if (valid.length === 0) {
-      console.error(chalk.red("Keine gueltigen Workflows gefunden."));
-      process.exit(1);
-    }
+    if (valid.length === 0) fail(2, "No valid workflows found.");
 
     let entry = name ? valid.find((e) => e.workflow!.name === name) : undefined;
     if (name && !entry) {
-      console.error(
-        chalk.red(`Workflow "${name}" nicht gefunden.`) +
-          ` Vorhanden: ${valid.map((e) => e.workflow!.name).join(", ")}`
+      fail(
+        2,
+        `Workflow "${name}" not found. Available: ${valid.map((e) => e.workflow!.name).join(", ")}`
       );
-      process.exit(1);
     }
+    if (!entry && machine) fail(2, "No workflow given (--json is non-interactive).");
     entry ??= await select({
-      message: "Welcher Workflow?",
+      message: "Which workflow?",
       choices: valid.map((e) => ({
         name: `${e.workflow!.name} — ${e.workflow!.description}`,
         value: e,
@@ -119,16 +188,19 @@ program
     const workflow = entry.workflow!;
 
     let request = (requestParts ?? []).join(" ").trim();
-    if (!request) request = (await input({ message: "Auftrag (Thema, URL, ...):" })).trim();
-    if (!request) {
-      console.error(chalk.red("Kein Auftrag angegeben."));
-      process.exit(1);
+    if (!request && machine) fail(2, "No request given (--json is non-interactive).");
+    if (!request) request = (await input({ message: "Request (topic, URL, ...):" })).trim();
+    if (!request) fail(2, "No request given.");
+
+    const missing = missingEnv(workflow.meta.requires);
+    if (missing.length > 0) {
+      fail(2, `Workflow "${workflow.name}" needs environment variables that are missing: ${missing.join(", ")}`);
     }
 
     if (opts.sandbox) {
       const { runSandboxed } = await import("../runner/docker.js");
       const handle = await runSandboxed({
-        projectRoot: process.cwd(),
+        projectRoot: baseDir,
         workflowPath: entry.path,
         workflowName: workflow.name,
         request,
@@ -140,35 +212,102 @@ program
       process.exit(await handle.finished);
     }
 
-    if (opts.runId) process.env.KRAFTWERK_RUN_DIR = path.resolve("output", opts.runId);
-    await workflow.run({ request, autoApprove: !!opts.yes, verbose: !!opts.verbose });
+    if (opts.runId) {
+      process.env.KRAFTWERK_RUN_DIR = path.resolve("output", opts.runId);
+    } else if (!process.env.KRAFTWERK_RUN_DIR) {
+      // Root the run dir explicitly: at the project's output dir (honors
+      // kraftwerk.yml `output:` and works from subdirs); for remote runs at
+      // the caller's cwd — never inside the clone cache.
+      const { runStamp } = await import("../workflow.js");
+      const { resolveProject } = await import("../config.js");
+      const outBase = opts.from ? path.resolve("output") : (await resolveProject(baseDir)).outputDir;
+      process.env.KRAFTWERK_RUN_DIR = path.join(outBase, `run-${runStamp()}`);
+    }
+
+    // Machine/quiet mode: workflow narration must not pollute stdout — the
+    // engine logs via console.log, so reroute it for the duration of the run.
+    const realLog = console.log;
+    if (machine) console.log = (...args: unknown[]) => console.error(...args);
+    else if (opts.quiet) console.log = () => {};
+
+    const autoApprove = !!opts.yes || process.env.KRAFTWERK_YES === "1";
+    try {
+      const result = await workflow.run({ request, autoApprove, verbose: !!opts.verbose });
+      console.log = realLog;
+      if (machine) {
+        console.log(JSON.stringify({ ok: true, workflow: workflow.name, request, ...result }, null, 2));
+      } else if (opts.quiet && result) {
+        console.log(`ok ${workflow.name} → ${result.runDir}`);
+      }
+    } catch (err) {
+      console.log = realLog;
+      const message = (err as Error).message;
+      if (machine) console.log(JSON.stringify({ ok: false, workflow: workflow.name, request, error: message }));
+      console.error(chalk.red(message));
+      process.exit(3);
+    }
+  });
+
+program
+  .command("init")
+  .description("Scaffold the project: kraftwerk.yml, workflows/ with an example, .gitignore")
+  .action(async () => {
+    await runInit(process.cwd());
+  });
+
+program
+  .command("doctor")
+  .description("Preflight: harness CLIs, docker, workflows, declared environment variables")
+  .action(async () => {
+    await runDoctor(process.cwd());
+  });
+
+const runs = program
+  .command("runs")
+  .description("Inspect past runs (from output/*/trace.jsonl)");
+
+runs
+  .command("list", { isDefault: true })
+  .description("List runs (newest first)")
+  .option("--json", "Machine-readable output")
+  .action(async (opts: { json?: boolean }) => {
+    await listRuns(process.cwd(), opts);
+  });
+
+runs
+  .command("show")
+  .description("Show one run in detail: phases, gates, cost")
+  .argument("<runId>", "Folder name under output/, see `kraftwerk runs`")
+  .option("--json", "Machine-readable output (all trace events)")
+  .action(async (runId: string, opts: { json?: boolean }) => {
+    await showRun(process.cwd(), runId, opts);
   });
 
 const runner = program
   .command("runner")
-  .description("Docker-Sandbox-Runner verwalten (Image bauen, laufende Runs sehen/stoppen)");
+  .description("Manage the Docker sandbox runner (build the image, see/stop running runs)");
 
 runner
   .command("build")
-  .description("kraftwerk-runner Image bauen/aktualisieren")
+  .description("Build/update the kraftwerk-runner image")
   .action(async () => {
     const { buildImage, dockerAvailable } = await import("../runner/docker.js");
     if (!dockerAvailable()) {
-      console.error(chalk.red("Docker-Daemon nicht erreichbar — laeuft Docker?"));
+      console.error(chalk.red("Docker daemon not reachable — is Docker running?"));
       process.exit(1);
     }
     await buildImage();
-    console.log(chalk.green("✔ Image kraftwerk-runner gebaut"));
+    console.log(chalk.green("✔ Image kraftwerk-runner built"));
   });
 
 runner
   .command("ps")
-  .description("Laufende Sandbox-Runs auflisten")
+  .description("List running sandbox runs")
   .action(async () => {
     const { listSandboxes } = await import("../runner/docker.js");
     const rows = listSandboxes();
     if (rows.length === 0) {
-      console.log(chalk.dim("Keine laufenden Sandbox-Runs."));
+      console.log(chalk.dim("No running sandbox runs."));
       return;
     }
     for (const r of rows) {
@@ -178,14 +317,14 @@ runner
 
 runner
   .command("stop")
-  .description("Einen laufenden Sandbox-Run stoppen")
+  .description("Stop a running sandbox run")
   .argument("<runId>", "Run-Id (run-...)")
   .action(async (runId: string) => {
     const { stopSandbox } = await import("../runner/docker.js");
     if (stopSandbox(runId.replace(/^kw-/, ""))) {
-      console.log(chalk.green(`✔ ${runId} gestoppt`));
+      console.log(chalk.green(`✔ ${runId} stopped`));
     } else {
-      console.error(chalk.red(`Kein laufender Container fuer ${runId}.`));
+      console.error(chalk.red(`No running container for ${runId}.`));
       process.exit(1);
     }
   });
@@ -194,12 +333,12 @@ runner
 // that then authors the workflow folder with this CLI.
 program
   .command("create")
-  .description("Brief fuer einen LLM-Agenten drucken, der aus der Beschreibung einen Workflow baut")
-  .argument("<spec...>", "was der Workflow tun soll (Freitext)")
+  .description("Print a brief for an LLM agent that builds a workflow from the description")
+  .argument("<spec...>", "What the workflow should do (free text)")
   .action(async (specParts: string[]) => {
     const spec = specParts.join(" ").trim();
     if (!spec) {
-      console.error(chalk.red('Beschreibung fehlt. Beispiel: kraftwerk create "Ein Workflow, der Release Notes schreibt und reviewt"'));
+      console.error(chalk.red('Description missing. Example: kraftwerk create "A workflow that writes and reviews release notes"'));
       process.exit(1);
     }
     const root = await findWorkflowsRoot(process.cwd());
@@ -213,16 +352,16 @@ program
 
 program
   .command("validate")
-  .description("Workflows validieren ohne sie auszufuehren (Schema + Semantik + Dateien)")
-  .argument("[paths...]", "workflow.yml-Dateien oder Workflow-Ordner; ohne Angabe: alle entdeckten")
+  .description("Validate workflows without executing them (schema + semantics + files)")
+  .argument("[paths...]", "workflow.yml files or workflow folders; without paths: all discovered")
   .action(async (paths: string[]) => {
     let targets = paths;
     if (targets.length === 0) {
-      const spinner = ora("Workflows entdecken ...").start();
+      const spinner = ora("Discovering workflows ...").start();
       targets = (await discoverWorkflows(process.cwd())).map((e) => e.path);
       spinner.stop();
       if (targets.length === 0) {
-        console.log(chalk.yellow("Keine Workflows gefunden."));
+        console.log(chalk.yellow("No workflows found."));
         return;
       }
     }

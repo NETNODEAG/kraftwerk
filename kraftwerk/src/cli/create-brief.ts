@@ -6,6 +6,8 @@
  * workflow.yml, gates, variables, harness rules, verify ladder) is inline —
  * no other files required reading.
  */
+import { SCHEMA_URL } from "../config.js";
+
 export function renderCreateBrief({
   spec,
   workflowsRoot,
@@ -42,11 +44,12 @@ nothing to register.
 3. Write \`${root}/<name>/workflow.yml\`. Complete example of every feature:
 
    \`\`\`yaml
-   # yaml-language-server: $schema=<relative path to>/node_modules/kraftwerk/schema/workflow.schema.json
+   # yaml-language-server: $schema=${SCHEMA_URL}
    name: tagline                # CLI name: kraftwerk run tagline "..."
    description: "One-liner shown in kraftwerk list"
+   requires: [BRAND_API_TOKEN]  # optional: env vars checked before the run starts
    workspace: |
-     Dateien: brand.md (Analyse), tagline.md (Ergebnis).
+     Files: brand.md (analysis), tagline.md (result).
    mcp:                         # optional: MCP servers stored with the workflow
      calculator:
        command: node            # stdio server; relative files resolve in the folder
@@ -54,36 +57,36 @@ nothing to register.
      linear:
        url: https://mcp.linear.app/mcp   # remote streamable HTTP
    clis:                        # optional: CLI grants, command prefix -> usage hint
-     git: "Versionierung: nach jedem Schritt committen"
+     git: "Version control: commit after every step"
    agents:
      analyst:
-       name: Markenanalyst:in   # display name (optional)
+       name: Brand analyst      # display name (optional)
        model: haiku             # model id in the harness's naming
        tools: [Read, Write, Edit, WebFetch]
        persona: |
-         Du analysierst Marken anhand ihrer Website ...
-     texter:
+         You analyze brands based on their website ...
+     writer:
        runs-on: codex           # optional: claude (default) | codex | pi
        model: gpt-5.6-sol
        effort: high             # optional: low | medium | high | xhigh | max
        tools: [Read, Write, Edit]
        clis: [git]              # optional: CLI grant — hint lands in the persona
        mcp: [calculator]        # optional: MCP grant (governance, like tools)
-       persona: prompts/texter-persona.md   # single line = file in this folder
+       persona: prompts/writer-persona.md   # single line = file in this folder
    steps:
-     - name: messen                         # deterministic step: bash, no agent
-       run: scripts/messen.sh               # single line = file; or inline multiline bash
+     - name: measure                        # deterministic step: bash, no agent
+       run: scripts/measure.sh              # single line = file; or inline multiline bash
        gates:
-         - file_non_empty: messwerte.md
-     - name: analysieren
+         - file_non_empty: metrics.md
+     - name: analyze
        agent: analyst
-       prompt: prompts/analysieren.md       # or inline multiline text
+       prompt: prompts/analyze.md           # or inline multiline text
        gates:
          - file_non_empty: brand.md
-         - contains: { file: brand.md, text: "## Tonalitaet", label: Tonalitaet }
-     - name: texten
-       agent: texter
-       prompt: prompts/texten.md
+         - contains: { file: brand.md, text: "## Tone of voice", label: tone }
+     - name: write
+       agent: writer
+       prompt: prompts/write.md
        gates:
          - file_non_empty: tagline.md
          - slots_filled: tagline.md         # no unfilled {{...}} slots

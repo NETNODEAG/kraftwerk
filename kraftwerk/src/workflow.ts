@@ -4,16 +4,25 @@
  * framework only provides the phase runner and the CLI dispatch.
  */
 
+import type { PhaseStats, RunTotals } from "./stats.js";
+
 export interface WorkflowRunOptions {
   request: string;
   autoApprove: boolean;
   verbose: boolean;
 }
 
+/** Machine-readable outcome of a run (also what `run --json` prints). */
+export interface RunResult {
+  runDir: string;
+  phases: PhaseStats[];
+  total: RunTotals;
+}
+
 export interface WorkflowDefinition {
   name: string;
   description: string;
-  run(opts: WorkflowRunOptions): Promise<void>;
+  run(opts: WorkflowRunOptions): Promise<RunResult | void>;
 }
 
 /** Local-time run-folder stamp: "2026-08-13-1432-07" (sortable, no colons). */

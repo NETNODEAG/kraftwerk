@@ -19,13 +19,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Agent harness CLIs used by workflows (headless: claude -p, codex exec).
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
-# The framework itself, installed from the build context.
+# The framework itself, installed from the build context. Ships the
+# compiled dist/ (tsx is a devDependency and not installed here) — run
+# `npm run build` before building the image from a dev checkout.
 WORKDIR /opt/kraftwerk
 COPY package.json ./
 RUN npm install --omit=dev
 COPY bin ./bin
 COPY schema ./schema
-COPY src ./src
+COPY dist ./dist
 RUN ln -s /opt/kraftwerk/bin/kraftwerk.js /usr/local/bin/kraftwerk \
     && chmod +x /opt/kraftwerk/bin/kraftwerk.js
 

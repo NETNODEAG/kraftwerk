@@ -35,8 +35,15 @@ export {
   type PhaseStats,
   type RunTotals,
 } from "./stats.js";
-export { runStamp, type WorkflowDefinition, type WorkflowRunOptions } from "./workflow.js";
+export {
+  runStamp,
+  type RunResult,
+  type WorkflowDefinition,
+  type WorkflowRunOptions,
+} from "./workflow.js";
 export { runCli } from "./cli.js";
-export { loadWorkflow, loadWorkflowYaml, type LoadedWorkflow } from "./yaml.js";
-export { discoverWorkflows, type DiscoveredWorkflow } from "./discover.js";
+export { loadWorkflow, loadWorkflowYaml, missingEnv, type LoadedWorkflow } from "./yaml.js";
+export { discoverWorkflows, findWorkflowsRoot, type DiscoveredWorkflow } from "./discover.js";
 export { validateWorkflows } from "./validate.js";
+export { resolveProject, SCHEMA_URL, type Project, type ProjectConfig } from "./config.js";
+export { isRemoteSpec, resolveRemote, type RemoteSource } from "./remote.js";

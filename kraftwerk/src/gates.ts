@@ -21,9 +21,9 @@ export const fileNonEmpty = (file: string): Gate => ({
   async check(runDir) {
     try {
       const stats = await stat(path.join(runDir, file));
-      return stats.size > 0 ? null : `${file} existiert, ist aber leer`;
+      return stats.size > 0 ? null : `${file} exists but is empty`;
     } catch {
-      return `${file} wurde nicht geschrieben`;
+      return `${file} was not written`;
     }
   },
 });
@@ -34,7 +34,7 @@ export const slotsFilled = (file: string): Gate => ({
   async check(runDir) {
     const content = await readFile(path.join(runDir, file), "utf8").catch(() => "");
     return content.includes("{{")
-      ? `${file} enthaelt noch unausgefuellte {{...}} Slots`
+      ? `${file} still contains unfilled {{...}} slots`
       : null;
   },
 });
@@ -46,6 +46,6 @@ export const containsText = (file: string, needle: string, label: string): Gate 
     const content = await readFile(path.join(runDir, file), "utf8").catch(() => "");
     return content.includes(needle)
       ? null
-      : `${file} enthaelt "${needle}" nicht mehr — der fixe Template-Teil wurde veraendert`;
+      : `${file} no longer contains "${needle}" — the fixed template part was changed`;
   },
 });

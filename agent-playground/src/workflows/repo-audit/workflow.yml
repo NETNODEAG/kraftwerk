@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
 name: repo-audit
 description: "Full-repo security & code audit: deterministic scanners (secrets, risky patterns, dep audit) + agent verification and manual review — HTML report with per-finding fix prompts"
 

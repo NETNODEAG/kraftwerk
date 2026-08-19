@@ -13,15 +13,23 @@ time/token/cost summary table.
 
 ## Consume
 
-```jsonc
-// package.json of your workflow project
-"dependencies": { "kraftwerk": "file:../kraftwerk" }
+Zero-setup consumer (YAML workflows only): a repo containing workflow
+folders under `workflows/` (or `src/workflows/`) IS a complete consumer —
+no package.json, no install:
+
+```bash
+npx @netnode/kraftwerk init      # scaffold kraftwerk.yml + workflows/ + example
+npx @netnode/kraftwerk run hello "Was ist kraftwerk?"
 ```
 
-Zero-code consumer (YAML workflows only): that dependency plus workflow
-folders under `src/workflows/` is everything — the **kraftwerk** CLI
-discovers and runs them, no entry file. Programmatic consumer (TS
-workflows, custom gates, approval loops):
+For a local checkout / programmatic consumer (TS workflows, custom gates,
+approval loops), add the dependency (the `kraftwerk` alias keeps imports
+short):
+
+```jsonc
+// package.json of your workflow project
+"dependencies": { "kraftwerk": "file:../kraftwerk" }   // or: "npm:@netnode/kraftwerk"
+```
 
 ```ts
 import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "kraftwerk";
@@ -29,21 +37,60 @@ import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "kraftw
 
 ## CLI — kraftwerk
 
-Ships with the package (`npx kraftwerk …` in any consumer, `npm link` for a
-global command). Workflows are auto-discovered under `src/workflows/` (or
-`workflows/`): every folder with a `workflow.yml` and every top-level
-`.yml` file.
+Ships with the package (`npx @netnode/kraftwerk …` anywhere, `npm link` in
+the checkout for a global `kraftwerk`). Workflows are auto-discovered under
+`src/workflows/` (or `workflows/`): every folder with a `workflow.yml` and
+every top-level `.yml` file. Every command works from any subdirectory —
+the CLI walks up to the project root (marked by `kraftwerk.yml`, a
+workflows root, or `.git`).
 
 ```bash
-kraftwerk list                          # table: workflows, steps, agents (with harness/model)
+kraftwerk init                          # make this repo a consumer: kraftwerk.yml, workflows/, example
+kraftwerk list                          # table: workflows, steps, agents (with harness/model); --json
 kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
+kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
+kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
 kraftwerk create "was der Workflow tun soll"   # for LLM agents: prints a build brief
 kraftwerk runner build                  # build the Docker sandbox image (once)
 kraftwerk run --sandbox website-check "https://..."   # isolated container per run; --ssh forwards the agent
 kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
+```
+
+### Project config — kraftwerk.yml
+
+Optional, at the project root (also the root marker for the walk-up); all
+fields optional: `workflows:` (workflows root) and `output:` (run-artifact
+directory, default `output/`).
+
+### Triggering from CI / cron / webhooks
+
+`run --json` is the machine mode: non-interactive, one JSON result object
+on stdout (`ok`, `runDir`, per-phase stats, totals), all narration on
+stderr. `KRAFTWERK_YES=1` equals `--yes`, `--quiet` silences narration.
+Exit codes: 0 ok, 2 usage/config error (unknown workflow, missing env),
+3 run failed (gate/blocked/harness), 1 unexpected.
+
+```bash
+KRAFTWERK_YES=1 npx @netnode/kraftwerk run tagline "https://..." --json > result.json
+```
+
+Workflows declare the env vars they need via top-level `requires:
+[MATOMO_TOKEN, ...]` — checked before anything spawns, listed by
+`kraftwerk list` and `kraftwerk doctor`.
+
+### Remote workflows — --from
+
+`list` and `run` accept `--from github:org/repo[@ref]` (or any git URL):
+the repo is shallow-cloned to `~/.cache/kraftwerk/remotes/` (refreshed per
+call, cached offline) and its workflows run locally — artifacts land in
+YOUR `output/`, not the cache. Share one workflow library across projects
+without vendoring:
+
+```bash
+npx @netnode/kraftwerk run --from github:NETNODEAG/workflows tagline "https://..."
 ```
 
 Sandbox mode (`--sandbox`) runs the workflow in a `kraftwerk-runner`
@@ -139,7 +186,7 @@ src/workflows/tagline/
 ```
 
 ```yaml
-# yaml-language-server: $schema=../../../node_modules/kraftwerk/schema/workflow.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
 name: tagline
 description: "Tagline Generator (YAML)"
 workspace: |
