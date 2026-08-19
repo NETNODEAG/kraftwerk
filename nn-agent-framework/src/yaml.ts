@@ -3,6 +3,7 @@ import path from "node:path";
 import { Ajv, type ErrorObject } from "ajv";
 import { parse } from "yaml";
 import type { AgentDefinition } from "./agent.js";
+import type { McpServerConfig } from "./harness.js";
 import { envelopeContract } from "./envelope.js";
 import { containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
 import { Run } from "./run.js";
@@ -26,6 +27,15 @@ import { runStamp, type WorkflowDefinition } from "./workflow.js";
  *
  * Steps come in two kinds: agent steps (`agent` + `prompt`) and deterministic
  * script steps (`run`: a bash script, single-line value = file reference).
+ *
+ * MCP servers live alongside the workflow: a top-level `mcp:` map (stdio
+ * command/args/env or remote url), agents opt in via `mcp: [names]` —
+ * governance like tools. Relative server files (e.g. mcp/multiply-server.ts)
+ * are resolved inside the folder.
+ *
+ * CLIs work the same way: a top-level `clis:` map (command prefix -> one-line
+ * usage hint), agents opt in via `clis: [names]`. The hint is injected into
+ * the agent's persona once — step prompts never repeat it.
  *
  * Validation: structural pass against the JSON Schema (ajv) first, then
  * semantic checks (agent references, duplicate step names, variables,
@@ -52,11 +62,15 @@ async function schemaValidator() {
 
 const STEP_HINT =
   "Step: agent-Step {name, agent, prompt, gates?} ODER script-Step {name, run, gates?}";
+const MCP_HINT =
+  "MCP-Server: {command, args?, env?} (stdio) ODER {url} (remote streamable HTTP)";
+const CLI_HINT =
+  "CLIs: <kommando-praefix>: <einzeiliger Hinweis> — Name z.B. git, ddev, npm run (keine Sonderzeichen)";
 
 function formatAjvErrors(errors: ErrorObject[], file: string): string {
-  // oneOf mismatches (gates, steps) explode into per-branch errors; keep it readable.
+  // oneOf mismatches (gates, steps, mcp) explode into per-branch errors; keep it readable.
   const relevant = errors.filter(
-    (e) => e.keyword !== "oneOf" || !/\/gates\/|\/steps\/\d+$/.test(e.instancePath)
+    (e) => e.keyword !== "oneOf" || !/\/gates\/|\/steps\/\d+$|^\/mcp\//.test(e.instancePath)
   );
   const lines = relevant.slice(0, 4).map((e) => {
     const where = e.instancePath || "/";
@@ -72,7 +86,9 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
   const stepHint = errors.some((e) => e.keyword === "oneOf" && /\/steps\/\d+$/.test(e.instancePath))
     ? `\n${STEP_HINT}`
     : "";
-  return `${file}: Schema-Validierung fehlgeschlagen\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}${stepHint}`;
+  const mcpHint = errors.some((e) => e.instancePath.startsWith("/mcp/")) ? `\n${MCP_HINT}` : "";
+  const cliHint = errors.some((e) => e.instancePath.startsWith("/clis")) ? `\n${CLI_HINT}` : "";
+  return `${file}: Schema-Validierung fehlgeschlagen\n${lines.map((l) => `  - ${l}`).join("\n")}${gateHint}${stepHint}${mcpHint}${cliHint}`;
 }
 
 type YamlStep =
@@ -148,8 +164,71 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
   // 2) Semantic checks + resolution.
   const workspace = raw.workspace ? await resolveText(raw.workspace, "workspace") : "";
 
+  // MCP servers stored alongside the workflow. Stdio args that resolve to a
+  // file relative to the folder become absolute (the server process is later
+  // spawned from the run directory); absolute paths and URLs pass through —
+  // that's the external-MCP case.
+  const mcpBase = baseDir ?? path.dirname(yamlPath);
+  const mcpDefs = new Map<string, McpServerConfig>();
+  for (const [name, cfg] of Object.entries<any>(raw.mcp ?? {})) {
+    if ("url" in cfg) {
+      mcpDefs.set(name, { url: cfg.url });
+      continue;
+    }
+    const resolvedArgs: string[] = [];
+    for (const arg of (cfg.args ?? []) as string[]) {
+      if (path.isAbsolute(arg)) {
+        resolvedArgs.push(arg);
+        continue;
+      }
+      const candidate = path.resolve(mcpBase, arg);
+      if (await stat(candidate).catch(() => null)) {
+        resolvedArgs.push(candidate);
+      } else if (/\.(ts|mts|cts|js|mjs|cjs|py|sh)$/.test(arg)) {
+        fail(`mcp.${name}: Server-Datei "${arg}" nicht gefunden`);
+      } else {
+        resolvedArgs.push(arg); // flags like -y, package names like tsx
+      }
+    }
+    mcpDefs.set(name, {
+      command: cfg.command,
+      ...(resolvedArgs.length > 0 ? { args: resolvedArgs } : {}),
+      ...(cfg.env ? { env: cfg.env } : {}),
+    });
+  }
+
+  // CLIs available to agents: command prefix -> one-line usage hint (may be
+  // empty). Purely declarative; agents opt in below.
+  const cliDefs = new Map<string, string>(
+    Object.entries<any>(raw.clis ?? {}).map(([name, hint]) => [name, String(hint ?? "")])
+  );
+
   const agents = new Map<string, AgentDefinition>();
-  for (const [id, a] of Object.entries<any>(raw.agents)) {
+  for (const [id, a] of Object.entries<any>(raw.agents ?? {})) {
+    const mcp: Record<string, McpServerConfig> = {};
+    for (const serverName of (a.mcp ?? []) as string[]) {
+      const def = mcpDefs.get(serverName);
+      if (!def) {
+        fail(
+          `agents.${id}.mcp: Server "${serverName}" ist unter mcp nicht definiert` +
+            ` (vorhanden: ${[...mcpDefs.keys()].join(", ") || "—"})`
+        );
+      }
+      mcp[serverName] = def!;
+    }
+    if (Object.keys(mcp).length > 0 && a["runs-on"] === "pi") {
+      fail(`agents.${id}: runs-on "pi" unterstuetzt kein MCP — claude oder codex verwenden`);
+    }
+    const clis: Record<string, string> = {};
+    for (const cliName of (a.clis ?? []) as string[]) {
+      if (!cliDefs.has(cliName)) {
+        fail(
+          `agents.${id}.clis: CLI "${cliName}" ist unter clis nicht definiert` +
+            ` (vorhanden: ${[...cliDefs.keys()].join(", ") || "—"})`
+        );
+      }
+      clis[cliName] = cliDefs.get(cliName)!;
+    }
     agents.set(id, {
       id,
       name: a.name ?? id,
@@ -158,6 +237,8 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       tools: a.tools,
       persona: await resolveText(a.persona, `agents.${id}.persona`),
       harness: a["runs-on"],
+      ...(Object.keys(clis).length > 0 ? { clis } : {}),
+      ...(Object.keys(mcp).length > 0 ? { mcp } : {}),
     });
   }
 
@@ -175,7 +256,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       const script = await resolveText(s.run, `steps[${i}].run`);
       for (const match of script.matchAll(/\$\{\{\s*(\w+)\s*\}\}/g)) {
         if (match[1] !== "request") {
-          at(`unbekannte Variable \${{ ${match[1]} }} — in run-Steps ist nur \${{ request }} verfuegbar (plus env: REQUEST, RUN_DIR, PHASE)`);
+          at(`unbekannte Variable \${{ ${match[1]} }} — in run-Steps ist nur \${{ request }} verfuegbar (plus env: REQUEST, RUN_DIR, PHASE, WORKFLOW_DIR)`);
         }
       }
       steps.push({ kind: "script", name: s.name, script, gates });
@@ -218,13 +299,27 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
           .join("\n\n"),
       });
 
+      await run.trace("run_start", {
+        workflow: raw.name,
+        description: raw.description,
+        request,
+        steps: steps.map((s) =>
+          s.kind === "script"
+            ? { name: s.name, kind: "script" }
+            : { name: s.name, kind: "agent", agent: s.agent.id, model: s.agent.model }
+        ),
+      });
+
       for (const step of steps) {
         if (step.kind === "script") {
           await run.scriptPhase({
             name: step.name,
             script: step.script.replace(/\$\{\{\s*request\s*\}\}/g, request),
             gates: step.gates,
-            env: { REQUEST: request },
+            env: {
+              REQUEST: request,
+              ...(baseDir ? { WORKFLOW_DIR: path.resolve(baseDir) } : {}),
+            },
           });
           continue;
         }

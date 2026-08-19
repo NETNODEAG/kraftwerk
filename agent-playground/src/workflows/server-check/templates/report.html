@@ -1,0 +1,244 @@
+<!doctype html>
+<!--
+  SLOT DOCUMENTATION — replace every {{...}} slot, change nothing else.
+
+  Scalars:
+    {{SERVER}}           hostname
+    {{GENERATED_AT}}     e.g. "2026-08-17 15:05"
+    {{STATUS_CLASS}}     one of: ok | warning | serious | critical  (overall verdict)
+    {{STATUS_LABEL}}     short verdict, e.g. "Storage needs action"
+    {{UPTIME_VALUE}}     e.g. "16 h 47 m"      {{UPTIME_SUB}}  e.g. "boot 2026-08-16 22:18"
+    {{LOAD_VALUE}}       e.g. "3.37"           {{LOAD_SUB}}    e.g. "15 m avg · 8 cores · 42 %"
+    {{MEM_VALUE}}        e.g. "50 %"           {{MEM_SUB}}     e.g. "11.9 / 24.0 GB · no swap"
+    {{PROC_VALUE}}       e.g. "225"            {{PROC_SUB}}    e.g. "processes"
+
+  {{DISK_ROWS}} — one block per real filesystem, template:
+    <div class="disk">
+      <div class="disk-head"><span>/dev/sda1 · /</span><span class="disk-pct">84 %</span></div>
+      <div class="meter warning"><div class="meter-fill" style="--v:84"></div></div>
+      <div class="disk-sub">16 G of 19 G · 3.0 G free</div>
+    </div>
+    meter class = ok (<70) | warning (70-84) | serious (85-94) | critical (>=95)
+
+  Chart slots ({{LOAD_COLS}}, {{CPU_COLS}}, {{MEM_COLS}}, {{NET_COLS}}, the
+  matching {{*_CHART_SUB}} subtitles and {{*_TICKS}} time axes) are filled
+  by a script AFTER the LLM step. Copy these slots through UNCHANGED — they
+  are the only {{...}} markers allowed to remain in the output.
+
+  {{PROC_ROWS}} — top CPU + memory processes, one row each:
+    <tr><td>next-server</td><td class="num">72.7 %</td><td class="num">7.7 %</td></tr>
+  {{IO_ROWS}} — top I/O writers:
+    <tr><td>mariadbd</td><td class="num">22.3</td><td class="num">2665.3</td></tr>
+
+  Prose (HTML, <p>/<strong> allowed):
+    {{ASSESSMENT_HTML}}  the overall assessment paragraph(s)
+    {{REBOOT_HTML}}      what the pre-reboot data shows (or that no recent reboot occurred)
+
+  Recommendation lists — <li><strong>Short title.</strong> Detail sentence(s).</li>:
+    {{IMMEDIATE_ITEMS}}  {{INVESTIGATE_ITEMS}}  {{LONGTERM_ITEMS}}
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server health — {{SERVER}}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --page: #f9f9f7; --surface: #fcfcfb;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --series: #2a78d6; --series-soft: #9ec5f4;
+    --ok: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --ok-track: #d3eed3; --warning-track: #fdeecd; --serious-track: #fbe2d7; --critical-track: #f5d8d8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #0d0d0d; --surface: #1a1a19;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --ring: rgba(255,255,255,0.10);
+      --series: #3987e5; --series-soft: #1c5cab;
+      --ok-track: #14350f; --warning-track: #3d3009; --serious-track: #3d2013; --critical-track: #391212;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d; --surface: #1a1a19;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --ring: rgba(255,255,255,0.10);
+    --series: #3987e5; --series-soft: #1c5cab;
+    --ok-track: #14350f; --warning-track: #3d3009; --serious-track: #3d2013; --critical-track: #391212;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 32px 16px 64px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; display: grid; gap: 16px; }
+  header.report { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding: 0 4px; }
+  header.report h1 { font-size: 20px; font-weight: 650; overflow-wrap: anywhere; }
+  header.report .when { color: var(--muted); font-size: 13px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; font-weight: 600; color: var(--ink-2);
+    border: 1px solid var(--ring); border-radius: 999px; padding: 3px 12px;
+    background: var(--surface);
+  }
+  .badge::before { content: ""; width: 9px; height: 9px; border-radius: 50%; }
+  .badge.ok::before { background: var(--ok); }
+  .badge.warning::before { background: var(--warning); }
+  .badge.serious::before { background: var(--serious); }
+  .badge.critical::before { background: var(--critical); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 10px; padding: 18px 20px;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .tile .label { font-size: 13px; color: var(--ink-2); }
+  .tile .value { font-size: 30px; font-weight: 600; line-height: 1.2; margin: 2px 0; }
+  .tile .sub { font-size: 12.5px; color: var(--muted); }
+
+  .disk { margin-bottom: 14px; }
+  .disk:last-child { margin-bottom: 0; }
+  .disk-head { display: flex; justify-content: space-between; font-size: 13.5px; color: var(--ink-2); margin-bottom: 5px; }
+  .disk-head .disk-pct { font-weight: 600; color: var(--ink); }
+  .meter { height: 10px; border-radius: 5px; overflow: hidden; }
+  .meter-fill { height: 100%; width: calc(var(--v) * 1%); border-radius: 0 5px 5px 0; }
+  .meter.ok       { background: var(--ok-track); }       .meter.ok .meter-fill       { background: var(--ok); }
+  .meter.warning  { background: var(--warning-track); }  .meter.warning .meter-fill  { background: var(--warning); }
+  .meter.serious  { background: var(--serious-track); }  .meter.serious .meter-fill  { background: var(--serious); }
+  .meter.critical { background: var(--critical-track); } .meter.critical .meter-fill { background: var(--critical); }
+  .disk-sub { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+
+  .charts { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  .chart h3 { font-size: 14px; font-weight: 600; }
+  .chart .chart-sub { font-size: 12.5px; color: var(--muted); margin: 1px 0 12px; }
+  .cols {
+    display: flex; align-items: flex-end; gap: 1px;
+    height: 110px; padding-top: 14px;
+    border-bottom: 1px solid var(--baseline);
+    background: linear-gradient(to top, transparent 0, transparent calc(50% - 1px), var(--grid) calc(50% - 1px), var(--grid) 50%, transparent 50%);
+  }
+  .col {
+    flex: 1 1 0; position: relative;
+    height: calc(var(--v) * 1%); min-height: 2px;
+    background: var(--series); border-radius: 2px 2px 0 0;
+  }
+  .col:hover { background: var(--series-soft); }
+  .col.peak::after {
+    content: attr(data-v); position: absolute; top: -16px; left: 50%; translate: -50% 0;
+    font-size: 11px; font-weight: 600; color: var(--ink-2); white-space: nowrap;
+  }
+  .ticks { position: relative; height: 40px; overflow: hidden; }
+  .ticks i { position: absolute; top: 0; left: calc(var(--x) * 1%); width: 1px; height: 5px; background: var(--baseline); }
+  .ticks span {
+    position: absolute; top: 8px; left: calc(var(--x) * 1%);
+    font-size: 10.5px; color: var(--muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    transform: rotate(45deg); transform-origin: top left;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 8px 6px 0; border-bottom: 1px solid var(--grid); }
+  td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: 0; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 32px; }
+
+  .prose p { margin-bottom: 10px; color: var(--ink); }
+  .prose p:last-child { margin-bottom: 0; }
+
+  .rec h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  .rec h3:first-of-type { margin-top: 0; }
+  .rec h3 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .rec ol { padding-left: 22px; display: grid; gap: 6px; }
+  .rec li::marker { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="report">
+    <h1>{{SERVER}}</h1>
+    <span class="badge {{STATUS_CLASS}}">{{STATUS_LABEL}}</span>
+    <span class="when">generated {{GENERATED_AT}}</span>
+  </header>
+
+  <section class="card">
+    <div class="tiles">
+      <div class="tile"><div class="label">Uptime</div><div class="value">{{UPTIME_VALUE}}</div><div class="sub">{{UPTIME_SUB}}</div></div>
+      <div class="tile"><div class="label">Load</div><div class="value">{{LOAD_VALUE}}</div><div class="sub">{{LOAD_SUB}}</div></div>
+      <div class="tile"><div class="label">Memory</div><div class="value">{{MEM_VALUE}}</div><div class="sub">{{MEM_SUB}}</div></div>
+      <div class="tile"><div class="label">Processes</div><div class="value">{{PROC_VALUE}}</div><div class="sub">{{PROC_SUB}}</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Filesystems</h2>
+    {{DISK_ROWS}}
+  </section>
+
+  <section class="card">
+    <h2>Last 24 hours</h2>
+    <div class="charts">
+      <div class="chart">
+        <h3>Load (1 m avg)</h3><div class="chart-sub">{{LOAD_CHART_SUB}}</div>
+        <div class="cols">{{LOAD_COLS}}</div>
+        <div class="ticks">{{LOAD_TICKS}}</div>
+      </div>
+      <div class="chart">
+        <h3>CPU busy %</h3><div class="chart-sub">{{CPU_CHART_SUB}}</div>
+        <div class="cols">{{CPU_COLS}}</div>
+        <div class="ticks">{{CPU_TICKS}}</div>
+      </div>
+      <div class="chart">
+        <h3>Memory used %</h3><div class="chart-sub">{{MEM_CHART_SUB}}</div>
+        <div class="cols">{{MEM_COLS}}</div>
+        <div class="ticks">{{MEM_TICKS}}</div>
+      </div>
+      <div class="chart">
+        <h3>Network kB/s (rx + tx)</h3><div class="chart-sub">{{NET_CHART_SUB}}</div>
+        <div class="cols">{{NET_COLS}}</div>
+        <div class="ticks">{{NET_TICKS}}</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Top processes</h2>
+    <div class="tables">
+      <table>
+        <thead><tr><th>Process</th><th class="num">CPU</th><th class="num">Mem</th></tr></thead>
+        <tbody>{{PROC_ROWS}}</tbody>
+      </table>
+      <table>
+        <thead><tr><th>I/O writer</th><th class="num">read kB/s</th><th class="num">write kB/s</th></tr></thead>
+        <tbody>{{IO_ROWS}}</tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card prose">
+    <h2>Assessment</h2>
+    {{ASSESSMENT_HTML}}
+  </section>
+
+  <section class="card prose">
+    <h2>Last reboot</h2>
+    {{REBOOT_HTML}}
+  </section>
+
+  <section class="card rec">
+    <h2>Recommendation</h2>
+    <h3><span class="dot" style="background: var(--critical)"></span>Needs immediate action</h3>
+    <ol>{{IMMEDIATE_ITEMS}}</ol>
+    <h3><span class="dot" style="background: var(--warning)"></span>Investigate</h3>
+    <ol>{{INVESTIGATE_ITEMS}}</ol>
+    <h3><span class="dot" style="background: var(--ok)"></span>Long term improvement</h3>
+    <ol>{{LONGTERM_ITEMS}}</ol>
+  </section>
+</div>
+</body>
+</html>

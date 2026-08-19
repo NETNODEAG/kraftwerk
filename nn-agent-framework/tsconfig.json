@@ -6,9 +6,13 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src", "examples"]
+  "include": [
+    "src"
+  ]
 }

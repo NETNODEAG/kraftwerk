@@ -1,4 +1,4 @@
-import type { HarnessId } from "./harness.js";
+import type { HarnessId, McpServerConfig } from "./harness.js";
 
 /**
  * An agent is exactly four things:
@@ -30,6 +30,22 @@ export interface AgentDefinition {
   persona: string;
   /** Governance: the only tools this agent is allowed to use. */
   tools: string[];
+  /**
+   * CLIs this agent may call via Bash: command prefix -> one-line usage
+   * hint. The hints are injected into the persona ONCE, so step prompts
+   * never repeat them. On claude each name additionally becomes a scoped
+   * `Bash(<name>:*)` allowlist entry; codex runs commands in its sandbox
+   * anyway (hint only); pi has no per-command scoping and gets the plain
+   * bash tool instead.
+   */
+  clis?: Record<string, string>;
+  /**
+   * MCP servers this agent may use, keyed by server name (part of the
+   * governance boundary, like tools). Stdio servers can live right next to
+   * the workflow; `url` entries point at remote streamable-HTTP servers.
+   * Supported on the claude and codex harnesses, not on pi.
+   */
+  mcp?: Record<string, McpServerConfig>;
   /** Which runtime executes this agent. Default: "claude". */
   harness?: HarnessId;
 }

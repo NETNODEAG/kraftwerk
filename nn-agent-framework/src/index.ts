@@ -14,6 +14,7 @@ export {
   type AgentResult,
   type Harness,
   type HarnessId,
+  type McpServerConfig,
   type TokenUsage,
 } from "./harness.js";
 export { harnessFor } from "./harnesses/registry.js";

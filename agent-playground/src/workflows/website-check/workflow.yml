@@ -1,57 +1,33 @@
 # yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
 name: website-check
-description: "Website-Check: 5 Kriterien deterministisch messen (Script), Befunde ableiten, Report mit den 5 kritischsten Issues"
+description: "Website audit: 8 meta checks (title, description, H1, favicon, lang, structure, status, indexability) — fully deterministic scripts, HTML report"
 
 workspace: |
-  Dateien: messwerte.md (rohe Messwerte des Scripts), findings.md (Befunde
-  mit Evidenz und Schweregrad), report.md (finaler Report mit den 5
-  kritischsten Issues).
-
-agents:
-  auditor:
-    name: Website-Auditor:in
-    model: opus
-    tools: [Read, Write, Edit] # kein Netz: bewertet nur die Messwerte
-    persona: |
-      Du wertest deterministisch gemessene Website-Pruefwerte aus: Du
-      wendest exakt die vorgegebenen Schwellwerte auf messwerte.md an und
-      zitierst die Messzeilen als Evidenz. Du erfindest nichts und
-      bewertest nichts, was keine Messung belegt.
-
-  analyst:
-    name: Report-Analyst:in
-    model: opus
-    tools: [Read, Write, Edit] # kein Netz: arbeitet nur mit findings.md
-    persona: |
-      Du bewertest Website-Befunde nach Business-Impact und Dringlichkeit
-      und schreibst klare, handlungsorientierte Reports fuer
-      Website-Betreiber:innen. Deutsch, praezise, ohne Fachjargon.
+  Files: audit.json (structured check results), audit_summary.txt (one-line
+  summary), report.html (rendered HTML report), fix_prompt.txt (copy-paste
+  prompt for a coding agent, only when findings exist), body.html / hops.txt /
+  robots.txt (raw fetch artifacts).
 
 steps:
-  - name: messen
-    run: scripts/messen.sh
+  - name: audit
+    run: scripts/audit.sh
     gates:
-      - file_non_empty: messwerte.md
-      - contains: { file: messwerte.md, text: "## HTTPS", label: Messung HTTPS }
-      - contains: { file: messwerte.md, text: "## Security-Header", label: Messung Security-Header }
-      - contains: { file: messwerte.md, text: "## SEO", label: Messung SEO }
-      - contains: { file: messwerte.md, text: "## Performance", label: Messung Performance }
-      - contains: { file: messwerte.md, text: "## Links", label: Messung Links }
+      - file_non_empty: audit.json
+      - contains: { file: audit.json, text: '"status_code"', label: check status code }
+      - contains: { file: audit.json, text: '"title"', label: check title tag }
+      - contains: { file: audit.json, text: '"meta_description"', label: check meta description }
+      - contains: { file: audit.json, text: '"h1"', label: check h1 }
+      - contains: { file: audit.json, text: '"favicon"', label: check favicon }
+      - contains: { file: audit.json, text: '"lang"', label: check language tag }
+      - contains: { file: audit.json, text: '"structure"', label: check html structure }
+      - contains: { file: audit.json, text: '"indexable"', label: check indexability }
 
-  - name: befunden
-    agent: auditor
-    prompt: prompts/befunden.md
+  - name: render report
+    run: scripts/render-report.sh
     gates:
-      - file_non_empty: findings.md
-      - contains: { file: findings.md, text: "# Befunde", label: Befunde-Titel }
-      - contains: { file: findings.md, text: "Schweregrad:", label: Schweregrad pro Befund }
-      - contains: { file: findings.md, text: "Evidenz:", label: Evidenz pro Befund }
+      - file_non_empty: report.html
+      - contains: { file: report.html, text: "</html>", label: complete document }
+      - slots_filled: report.html
 
-  - name: berichten
-    agent: analyst
-    prompt: prompts/berichten.md
-    gates:
-      - file_non_empty: report.md
-      - contains: { file: report.md, text: "# Website-Check", label: Report-Titel }
-      - contains: { file: report.md, text: "## Zusammenfassung", label: Zusammenfassung }
-      - contains: { file: report.md, text: "## Issue 5", label: fuenf Issues }
+  - name: output results
+    run: scripts/output.sh

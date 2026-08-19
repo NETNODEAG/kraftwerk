@@ -8,6 +8,8 @@
   },
   "license": "ISC",
   "dependencies": {
-    "nn-agent-framework": "file:../nn-agent-framework"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "nn-agent-framework": "file:../nn-agent-framework",
+    "zod": "^4.4.3"
   }
 }

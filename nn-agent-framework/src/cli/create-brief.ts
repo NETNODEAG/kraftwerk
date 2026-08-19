@@ -47,6 +47,14 @@ nothing to register.
    description: "One-liner shown in kraftwerk list"
    workspace: |
      Dateien: brand.md (Analyse), tagline.md (Ergebnis).
+   mcp:                         # optional: MCP servers stored with the workflow
+     calculator:
+       command: node            # stdio server; relative files resolve in the folder
+       args: [mcp/multiply-server.ts]
+     linear:
+       url: https://mcp.linear.app/mcp   # remote streamable HTTP
+   clis:                        # optional: CLI grants, command prefix -> usage hint
+     git: "Versionierung: nach jedem Schritt committen"
    agents:
      analyst:
        name: Markenanalyst:in   # display name (optional)
@@ -59,6 +67,8 @@ nothing to register.
        model: gpt-5.6-sol
        effort: high             # optional: low | medium | high | xhigh | max
        tools: [Read, Write, Edit]
+       clis: [git]              # optional: CLI grant — hint lands in the persona
+       mcp: [calculator]        # optional: MCP grant (governance, like tools)
        persona: prompts/texter-persona.md   # single line = file in this folder
    steps:
      - name: messen                         # deterministic step: bash, no agent
@@ -95,7 +105,21 @@ nothing to register.
    same fenced \`\`\`json envelope agents emit (\`{"phase": "$PHASE",
    "status": "ok", "artifacts": [...], "summary": "..."}\`); otherwise the
    engine synthesizes one. Keep scripts in \`scripts/*.sh\` inside the folder.
-5. Harness rules:
+5. MCP servers (only if the requirements need custom tools): store the
+   server next to the workflow (e.g. \`mcp/multiply-server.ts\` using
+   \`@modelcontextprotocol/sdk\` — its deps must be in the consumer's
+   package.json; \`command: node\` runs TypeScript directly on node >= 24),
+   declare it under top-level \`mcp:\`, grant it per agent via
+   \`mcp: [name]\`. External servers: absolute \`command\` path or
+   \`url:\` for remote streamable HTTP. Works on claude and codex;
+   \`runs-on: pi\` rejects MCP at validation time.
+   For EXISTING command-line tools use \`clis:\` instead of an MCP
+   server: top-level map command prefix -> one-line usage hint, granted
+   per agent via \`clis: [name]\`. The hint is injected into the persona
+   once — NEVER repeat CLI usage in step prompts. claude scopes its Bash
+   allowlist to \`Bash(<name>:*)\`; codex runs commands in its sandbox
+   anyway; pi gets the plain bash tool.
+6. Harness rules:
    - **claude** (default): any Claude model id; needs only the local login.
    - **codex**: ChatGPT login; models from the codex line (e.g.
      \`gpt-5.6-sol\`); a WebFetch/WebSearch grant in \`tools\` enables sandbox
@@ -104,14 +128,14 @@ nothing to register.
      \`deepseek/...\`, \`openrouter/...\` need the vendor key — check with
      \`pi auth check --provider <p>\`).
    - Expensive models only where judgment matters; cheap models elsewhere.
-6. Validate: \`kraftwerk validate ${root}/<name>\` — fix until it passes
+7. Validate: \`kraftwerk validate ${root}/<name>\` — fix until it passes
    (strict schema: unknown keys are errors; semantic checks cover agent
    references, variables, referenced files).
-7. Smoke: \`kraftwerk run <name> "<realistic request>"\` with all agents on a
+8. Smoke: \`kraftwerk run <name> "<realistic request>"\` with all agents on a
    cheap model first (\`haiku\`, or codex which is free on subscription) —
    check every gate passes and the summary table renders. Then set the
    intended models.
-8. Confirm to the user: workflow name, steps, roster (model/harness per
+9. Confirm to the user: workflow name, steps, roster (model/harness per
    agent), gates, and the artifact files a run produces.
 
 ## Notes

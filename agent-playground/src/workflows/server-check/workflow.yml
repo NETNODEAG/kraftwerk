@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: server-check
+description: Collect basic server stats via SSH (script-driven; LLM only extracts the target host)
+workspace: |
+  Files: target.txt (target hostname), server_state.yml (collected stats),
+  recommendation.md (health report), report_template.html (HTML template),
+  report.html (rendered HTML report)
+
+agents:
+  extractor:
+    name: Target Extractor
+    model: haiku
+    tools: [Write]
+    persona: |
+      You extract structured values from user requests. You write exactly
+      what is asked for — no commentary, no markdown, no extra formatting.
+
+  sysop:
+    name: System Operator
+    model: opus
+    tools: [Read, Write]
+    persona: |
+      You are a system operator with extensive knowledge of Linux server
+      administration. You assess server health from collected stats and
+      give pragmatic, prioritized advice. You never run commands yourself.
+
+  reporter:
+    name: Report Renderer
+    model: sonnet
+    tools: [Read, Write]
+    persona: |
+      You render HTML reports by filling template slots. You copy template
+      markup exactly and replace only the {{...}} slots, following the slot
+      documentation comment at the top of the template to the letter. You
+      compute bar heights precisely and never invent data.
+
+steps:
+  - name: extract target
+    agent: extractor
+    prompt: |
+      User request: ${{ request }}
+      Extract the hostname (or IP address) of the server the user wants
+      checked and write it to target.txt — a single line containing only
+      the hostname, nothing else.
+    gates:
+      - file_non_empty: target.txt
+
+  - name: collect server stats
+    run: scripts/collect.sh
+    gates:
+      - file_non_empty: server_state.yml
+      - contains: { file: server_state.yml, text: "uptime:", label: Uptime }
+      - contains: { file: server_state.yml, text: "cpu_count:", label: CPU count }
+      - contains: { file: server_state.yml, text: "load_15m:", label: Load }
+      - contains: { file: server_state.yml, text: "memory:", label: Memory }
+      - contains: { file: server_state.yml, text: "disk_root:", label: Disk }
+      - contains: { file: server_state.yml, text: "top_cpu_processes:", label: Top processes }
+      - contains: { file: server_state.yml, text: "load_today_hourly:", label: Load history }
+      - contains: { file: server_state.yml, text: "disk_io:", label: Disk I/O }
+      - file_non_empty: chart_data.tsv
+
+  - name: recommend next steps
+    agent: sysop
+    prompt: |
+      Read server_state.yml (uptime, cpu count, load 1/5/15m, memory, swap,
+      all filesystems, top CPU/memory processes, top disk consumers on /,
+      journal size, last boot; plus sysstat history: hourly CPU/load/memory/
+      network trends for today, last-24h extremes (avg + peak with time),
+      real-device disk I/O, top I/O processes,
+      and — if the boot was recent — load/memory in the 90 min before boot).
+      Rate load relative to cpu_count. Use the hourly trends to distinguish
+      sustained pressure from a spike. If pre_reboot_load/pre_reboot_memory
+      are present, state what they show about the reboot cause (e.g. memory
+      climbing toward 100% suggests OOM; unremarkable values suggest a
+      planned reboot). Name the actual top consumers when recommending
+      cleanup or investigation — don't suggest commands to find what the
+      data already shows.
+      Assess the server's health and write recommendation.md (always in English):
+      - "## State" - most relevant stats, easy to read
+      - "## Assessment" — one short paragraph on the overall state
+      - "## Recommendation" — all concrete, prioritized next actions
+        "Needs immediate action"
+        "Investigate"
+        "Long term improvement"
+      Keep it brief. If all values look healthy, say so explicitly.
+    gates:
+      - file_non_empty: recommendation.md
+      - contains: { file: recommendation.md, text: "## Recommendation", label: Recommendation }
+
+  - name: prepare report template
+    run: scripts/prepare-template.sh
+    gates:
+      - file_non_empty: report_template.html
+
+  - name: generate html report
+    agent: reporter
+    prompt: |
+      Read report_template.html, server_state.yml and recommendation.md.
+      Write report.html: an exact copy of the template with every {{...}}
+      slot filled from the collected data and the recommendation, following
+      the slot documentation comment at the top of the template — EXCEPT
+      the chart slots ({{LOAD_COLS}}, {{CPU_COLS}}, {{MEM_COLS}},
+      {{NET_COLS}}, {{LOAD_CHART_SUB}}, {{CPU_CHART_SUB}}, {{MEM_CHART_SUB}},
+      {{NET_CHART_SUB}}), which you copy through unchanged; a later script
+      step renders them. Strip the documentation comment from the output.
+      The date/time for GENERATED_AT is in the run directory name
+      (run-YYYY-MM-DD-HHMM-SS). Do not alter, restyle or reorder any markup
+      outside the slots. Write the report in English.
+    gates:
+      - file_non_empty: report.html
+      - contains: { file: report.html, text: "</html>", label: Complete HTML }
+      - contains: { file: report.html, text: "{{LOAD_COLS}}", label: Chart slots preserved }
+
+  - name: render charts
+    run: scripts/render-charts.sh
+    gates:
+      - slots_filled: report.html
+      - contains: { file: report.html, text: "class=\"col peak\"", label: Peak labels }
+
+  - name: Output results
+    run: scripts/output.sh

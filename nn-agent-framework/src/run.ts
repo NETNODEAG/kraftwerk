@@ -78,6 +78,8 @@ export class Run {
       harness: harness.id,
       model: agent.model,
       effort: agent.effort ?? null,
+      clis: agent.clis ? Object.keys(agent.clis) : [],
+      mcp: agent.mcp ? Object.keys(agent.mcp) : [],
       resume: this.sessions.get(harness.id) ?? null,
     });
 
@@ -98,15 +100,27 @@ export class Run {
     };
     const started = Date.now();
 
+    // CLI grants are persona-level knowledge: inject the usage hints once
+    // here instead of repeating them in every step prompt.
+    const cliEntries = Object.entries(agent.clis ?? {});
+    const cliBlock = cliEntries.length
+      ? "\n\nDiese CLIs stehen dir per Bash zur Verfuegung (freigegeben, ohne Rueckfrage nutzbar):\n" +
+        cliEntries
+          .map(([name, hint]) => `- ${name}${hint.trim() ? ` — ${hint.trim()}` : ""}`)
+          .join("\n")
+      : "";
+
     let prompt = params.prompt;
     for (let attempt = 0; attempt <= this.maxGateRetries; attempt++) {
       const result = await harness.invoke({
         prompt,
-        systemPrompt: `${agent.persona.trim()}\n\n${this.workspaceContext.trim()}`,
+        systemPrompt: `${agent.persona.trim()}${cliBlock}\n\n${this.workspaceContext.trim()}`,
         cwd: this.runDir,
         model: agent.model,
         effort: agent.effort,
         tools: agent.tools,
+        clis: cliEntries.map(([name]) => name),
+        mcpServers: agent.mcp,
         resume: this.sessions.get(harness.id),
         onToolUse: (tool, target) => {
           console.log(`  ⚙ ${tool} ${target}`.trimEnd());
@@ -189,8 +203,8 @@ export class Run {
 
   /**
    * Deterministic script phase: run a bash script in the run directory —
-   * no agent, no LLM. The script sees REQUEST, RUN_DIR, and PHASE as env
-   * vars. It hands over the same envelope as an agent phase: either it
+   * no agent, no LLM. The script sees REQUEST, RUN_DIR, PHASE, and (in
+   * folder mode) WORKFLOW_DIR as env vars. It hands over the same envelope as an agent phase: either it
    * prints the fenced ```json envelope itself (last block on stdout wins),
    * or the runner synthesizes one from the exit code (status ok, summary =
    * last stdout line). Gates run afterwards, but there is no correction

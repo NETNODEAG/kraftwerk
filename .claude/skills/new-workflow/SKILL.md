@@ -14,9 +14,11 @@ Shortcut for YAML workflows: `kraftwerk create "<was der Workflow tun soll>"` pr
 Templates live in code, not in this skill — read them before writing anything:
 
 - `nn-agent-framework/README.md` — primitives, harness table, YAML folder schema, prerequisites
-- `nn-agent-framework/examples/demo/` — minimal complete TS workflow (agents.ts, workflow.ts, main.ts)
 - `agent-playground/src/workflows/tagline/` — the YAML workflow-folder reference (workflow.yml + prompts/, GHA-flavored: steps, runs-on, ${{ request }})
 - `agent-playground/src/workflows/pitch/` — YAML folder with one prompt file shared by three jury steps via ${{ agent }}
+- `agent-playground/src/workflows/rechner/` — MCP reference: `mcp/multiply-server.ts` next to the workflow, top-level `mcp:` map, agent grant `mcp: [calculator]`
+- `agent-playground/src/workflows/website-check/` — script steps (`run: scripts/*.sh`) mixed with agent steps
+- `agent-playground/src/workflows/daily-stats/` — CLI grants: top-level `clis:` map (command prefix → usage hint), agent grant `clis: [my]`
 - `nn-agent-framework/src/index.ts` — the exact public API; `schema/workflow.schema.json` — the YAML contract
 
 ## 2 — Gather from the user (ask if unclear)
@@ -24,16 +26,18 @@ Templates live in code, not in this skill — read them before writing anything:
 1. Workflow name + one-line description (shows up in the CLI listing).
 2. Steps in order — for each: **agent step** (judgment/writing) or **code phase** (deterministic work: fetching, rendering, templating — never an agent; TS only).
 3. Agents: persona (WHO), model + optional effort (WHAT thinks), tools (governance), harness (WHERE: `claude` default | `codex` | `pi`).
-4. Gates per agent step — what file evidence proves the step worked?
-5. Human approval loop needed? (engineer gate + revision cycle — TS only for now)
-6. New workflow in an existing consumer (e.g. agent-playground) or a fresh project?
-7. **YAML or TS?** Linear sequence of gated agent steps → a workflow FOLDER (`<name>/workflow.yml` + `prompts/*.md`, loaded with `loadWorkflow`; envelope handled by the engine). Loops, code phases, approval gates, custom gates → TS workflow.
+4. Custom tools needed? → MCP servers: stored next to the workflow (`mcp/*.ts`, declared in the top-level `mcp:` map) or external (absolute path / `url:`); granted per agent via `mcp: [name]`. claude + codex only — not pi. EXISTING CLIs (git, ddev, my, ...) need no MCP: top-level `clis:` map (command prefix → one-line usage hint), granted per agent via `clis: [name]` — the hint is injected into the persona once, never repeated in step prompts.
+5. Gates per agent step — what file evidence proves the step worked?
+6. Human approval loop needed? (engineer gate + revision cycle — TS only for now)
+7. New workflow in an existing consumer (e.g. agent-playground) or a fresh project?
+8. **YAML or TS?** Linear sequence of gated agent/script steps → a workflow FOLDER (`<name>/workflow.yml` + `prompts/*.md`, loaded with `loadWorkflow`; envelope handled by the engine). Loops, approval gates, custom gates → TS workflow.
 
 ## 3 — Scaffold
 
 **YAML workflow folder** `src/workflows/<name>/`:
-- `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`), `steps:` with gates
+- `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`/`mcp`), `steps:` with gates
 - `prompts/*.md` — one file per long prompt, referenced as `prompt: prompts/<step>.md`; variables `${{ request }}`, `${{ agent }}`
+- optional `scripts/*.sh` (script steps) and `mcp/*.ts` (stdio MCP servers; SDK deps go into the consumer's package.json — see agent-playground: `@modelcontextprotocol/sdk` + `zod`)
 - NO registration needed: the kraftwerk CLI auto-discovers workflow folders under `src/workflows/`. (Programmatic alternative: `loadWorkflow(...)` + `runCli({...})`.)
 
 **TS workflow folder** `src/workflows/<name>/`:
@@ -48,6 +52,8 @@ Templates live in code, not in this skill — read them before writing anything:
 - Gates are post-execution checks on files in the runDir — verify claims, never predictions. Prefer several small gates with precise failure messages (they go verbatim into the correction prompt).
 - Sessions are per harness: same-harness steps share conversational context via resume; cross-harness state must live in run files (so the workspace context must describe the file layout).
 - Harness guidance: `claude` needs nothing extra. `codex` needs ChatGPT login; no system-prompt flag (the adapter prepends the persona), governance = workspace-write sandbox, a WebFetch/WebSearch grant enables sandbox network access, models from the codex line (e.g. `gpt-5.6-sol`). `pi` uses `provider/id` model names (`anthropic/...` rides the Claude OAuth; `deepseek/...`, `openrouter/...` need the vendor key — `pi auth check --provider <p>`); mixing model families across steps catches different failure modes.
+- MCP: claude gets the servers via `--mcp-config` + `--strict-mcp-config` (allowlist `mcp__<name>`), codex via `-c mcp_servers.*` + `--approve-for-me` (headless MCP approvals). pi rejects MCP — validation catches `runs-on: pi` + `mcp` early.
+- CLIs: claude scopes its Bash allowlist to `Bash(<name>:*)` (granted prefixes run headless, other mutating commands stay denied); codex needs nothing (sandbox); pi gets the plain `bash` tool — no scoping.
 - Expensive models only where judgment matters; `effort` low..max per agent.
 
 ## 5 — Verify (in this order)
