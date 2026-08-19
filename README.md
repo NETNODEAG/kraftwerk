@@ -59,7 +59,6 @@ The playground workflows, roughly simplest to most involved:
 - `pitch` runs a three-agent jury over one shared prompt file.
 - `rechner` ships its own MCP server next to the workflow.
 - `website-check` is all script steps, no model, and produces an HTML audit.
-- `daily-stats` grants an agent one CLI, the `my` tool, with a usage hint.
 - `repo-audit` clones a repo, runs security scanners, has an agent verify each
   finding and review the code by hand, then renders an HTML report with
   copy-paste fix prompts.

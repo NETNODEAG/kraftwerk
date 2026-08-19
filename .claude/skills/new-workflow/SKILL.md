@@ -18,7 +18,7 @@ Templates live in code, not in this skill — read them before writing anything:
 - `agent-playground/src/workflows/pitch/` — YAML folder with one prompt file shared by three jury steps via ${{ agent }}
 - `agent-playground/src/workflows/rechner/` — MCP reference: `mcp/multiply-server.ts` next to the workflow, top-level `mcp:` map, agent grant `mcp: [calculator]`
 - `agent-playground/src/workflows/website-check/` — script steps (`run: scripts/*.sh`) mixed with agent steps
-- `agent-playground/src/workflows/daily-stats/` — CLI grants: top-level `clis:` map (command prefix → usage hint), agent grant `clis: [my]`
+- CLI grants (no in-repo example): top-level `clis:` map (command prefix → usage hint), agent grant `clis: [name]` — see the `clis:` section in kraftwerk/README.md
 - `kraftwerk/src/index.ts` — the exact public API; `schema/workflow.schema.json` — the YAML contract
 
 ## 2 — Gather from the user (ask if unclear)

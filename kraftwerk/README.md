@@ -292,15 +292,13 @@ without approval, everything else keeps claude's default judgment
 (read-only commands auto-approve, mutating ones are denied). **codex**
 needs nothing (the workspace-write sandbox runs commands anyway).
 **pi** has no per-command scoping — a grant enables the plain `bash`
-tool. Living example:
-[`../agent-playground/src/workflows/daily-stats/`](../agent-playground/src/workflows/daily-stats/).
+tool.
 
 ## Used by
 
 - [`../agent-playground/`](../agent-playground/) — the in-repo consumer with
   the YAML example workflows (`tagline`, `pitch`, `rechner` with its own
-  MCP server, `website-check` with script steps, `daily-stats` with CLI
-  grants).
+  MCP server, `website-check` with script steps).
 - `nn-content-workflow-2` (in the local `langgraph/` experiments folder,
   outside this repo) — the netnode.ch content board and Matomo report
   generator; the full ADW pattern including the engineer approval gate and
