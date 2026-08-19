@@ -14,11 +14,19 @@ import type { AgentInvocation, AgentResult, Harness, TokenUsage } from "../harne
  *    (`--sandbox workspace-write`: only the run directory is writable).
  *    The agent's `tools` list is not enforced per tool — but a WebFetch/
  *    WebSearch grant maps to enabling network access in the sandbox
- *    (otherwise outbound requests like curl are blocked).
+ *    (otherwise outbound requests like curl are blocked). CLI grants need
+ *    no flags either (the sandbox runs commands anyway) — their usage
+ *    hints travel inside the prompt like the persona.
  *
  * `--ignore-user-config` keeps the run hermetic (no ~/.codex/config.toml
  * defaults leak in; auth still works), which is why the model and effort
  * must always be passed explicitly.
+ *
+ * MCP: servers are injected as `-c mcp_servers.<name>.*` TOML overrides
+ * (stdio: command/args/env, remote: url). In headless exec mode codex
+ * auto-cancels MCP tool approvals, so MCP phases run with `--approve-for-me`
+ * (workspace-write sandbox + codex's automatic reviewer deciding approval
+ * requests) instead of the plain `--sandbox workspace-write`.
  *
  * JSONL events (verified against codex-cli 0.147.0):
  *   thread.started {thread_id}                      → session id
@@ -33,6 +41,11 @@ interface CodexItem {
   text?: string;
   command?: string;
   changes?: Array<{ path?: string; kind?: string }>;
+  server?: string;
+  tool?: string;
+  arguments?: unknown;
+  status?: string;
+  error?: { message?: string };
 }
 
 interface CodexEvent {
@@ -53,16 +66,49 @@ const clip = (raw: string): string => {
   return oneLine.length > 160 ? `${oneLine.slice(0, 160)}…` : oneLine;
 };
 
+/** JSON string escaping is valid TOML basic-string escaping. */
+const toml = (value: string): string => JSON.stringify(value);
+
+function mcpOverrides(servers: NonNullable<AgentInvocation["mcpServers"]>): string[] {
+  const args: string[] = [];
+  for (const [name, cfg] of Object.entries(servers)) {
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+      throw new Error(`codex: MCP server name "${name}" must match [A-Za-z0-9_-]+`);
+    }
+    const key = `mcp_servers.${name}`;
+    if ("url" in cfg) {
+      args.push("-c", `${key}.url=${toml(cfg.url)}`);
+      continue;
+    }
+    args.push("-c", `${key}.command=${toml(cfg.command)}`);
+    if (cfg.args?.length) {
+      args.push("-c", `${key}.args=[${cfg.args.map(toml).join(",")}]`);
+    }
+    if (cfg.env && Object.keys(cfg.env).length > 0) {
+      const table = Object.entries(cfg.env)
+        .map(([k, v]) => `${k}=${toml(v)}`)
+        .join(",");
+      args.push("-c", `${key}.env={${table}}`);
+    }
+  }
+  return args;
+}
+
 function invokeCodex(inv: AgentInvocation): Promise<AgentResult> {
+  const hasMcp = Object.keys(inv.mcpServers ?? {}).length > 0;
   const args = [
     "exec",
     "--json",
     "-m", inv.model,
-    "--sandbox", "workspace-write",
+    // --approve-for-me implies the workspace-write sandbox and lets codex's
+    // automatic reviewer answer MCP tool approvals (headless exec would
+    // otherwise auto-cancel them).
+    ...(hasMcp ? ["--approve-for-me"] : ["--sandbox", "workspace-write"]),
     "-C", inv.cwd,
     "--skip-git-repo-check",
     "--ignore-user-config",
   ];
+  if (hasMcp) args.push(...mcpOverrides(inv.mcpServers!));
   if (inv.effort) args.push("-c", `model_reasoning_effort=${inv.effort}`);
   // Governance mapping: a web-tool grant means the sandbox may reach the network.
   if (inv.tools.some((t) => t === "WebFetch" || t === "WebSearch")) {
@@ -115,6 +161,12 @@ function invokeCodex(inv: AgentInvocation): Promise<AgentResult> {
             const tool = change.kind === "add" ? "Write" : "Edit";
             inv.onToolUse?.(tool, clip(change.path ?? ""));
           }
+        }
+        if (item.type === "mcp_tool_call" && item.server && item.tool) {
+          inv.onToolUse?.(
+            `mcp__${item.server}__${item.tool}`,
+            clip(item.arguments !== undefined ? JSON.stringify(item.arguments) : "")
+          );
         }
       }
 

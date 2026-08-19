@@ -64,8 +64,16 @@ const clip = (raw: string): string => {
 };
 
 function invokePi(inv: AgentInvocation): Promise<AgentResult> {
+  if (Object.keys(inv.mcpServers ?? {}).length > 0) {
+    throw new Error(
+      "pi harness has no MCP support (pi uses its own extension system) — run this agent on claude or codex"
+    );
+  }
   const sessionId = inv.resume ?? randomUUID();
   const tools = inv.tools.map((t) => TOOL_MAP[t]).filter(Boolean);
+  // pi has no per-command allowlist: a CLI grant enables the plain bash
+  // tool; the scoping lives only in the persona hints.
+  if ((inv.clis?.length ?? 0) > 0 && !tools.includes("bash")) tools.push("bash");
   const args = [
     "-p",
     "--mode", "json",

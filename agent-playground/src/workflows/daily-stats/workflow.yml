@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: daily-stats
+description: "Daily Stats fuer my.netnode.ch: heute bearbeitete Tickets + Meetings eines Workspace, erhoben ueber das my-CLI"
+workspace: |
+  Dateien: rohdaten.md (Zaehlung mit Belegen aus dem my-CLI),
+  daily-stats.md (die fertige Tageszusammenfassung).
+
+# CLI grants: the usage hint lives HERE once and is injected into the
+# agent's persona — no step prompt repeats it. On claude the grant also
+# scopes the Bash allowlist to `my ...` commands.
+clis:
+  my: >-
+    CLI fuer my.netnode.ch (Projektmanagement). Immer --json und
+    -w <workspace-id> verwenden. Workspaces: `my ws list --json`
+    (id, title). Tickets: `my t ls -w <id> -a --json`
+    (Felder updated_at, status, title). Meetings:
+    `my m ls -a -w <id> --json` (Feld date; -a inkludiert vergangene).
+
+agents:
+  reporter:
+    name: Stats-Reporter
+    model: sonnet
+    tools: [Read, Write]
+    clis: [my] # governance: dieser Agent darf das my-CLI nutzen
+    persona: |
+      Du erstellst Tagesstatistiken aus my.netnode.ch. Du zaehlst NUR,
+      was die CLI-Ausgaben belegen — nichts schaetzen, nichts erfinden.
+      Jede Zahl in deinen Reports ist aus einer JSON-Ausgabe abgeleitet.
+
+steps:
+  - name: erheben
+    agent: reporter
+    prompt: |
+      Auftrag: Tagesstatistik fuer den Workspace "${{ request }}".
+
+      1. Bestimme das heutige Datum mit `date +%F`.
+      2. Ermittle die Workspace-ID: ist der Auftrag numerisch, nimm ihn
+         direkt; sonst finde die ID ueber den Workspace-Titel.
+      3. Erhebe fuer diesen Workspace:
+         - Tickets, deren updated_at heute ist (= heute bearbeitet)
+         - Meetings, deren date heute ist
+      4. Schreibe rohdaten.md mit den Abschnitten `## Tickets` und
+         `## Meetings`: pro Treffer eine Zeile mit Titel und Status
+         bzw. Uhrzeit, darunter je eine Summenzeile. Keine Treffer =
+         leerer Abschnitt mit Summenzeile 0.
+    gates:
+      - file_non_empty: rohdaten.md
+      - contains: { file: rohdaten.md, text: "## Tickets", label: Abschnitt Tickets }
+      - contains: { file: rohdaten.md, text: "## Meetings", label: Abschnitt Meetings }
+
+  - name: zusammenfassen
+    agent: reporter
+    prompt: |
+      Verdichte rohdaten.md zu daily-stats.md:
+      - Titel: `# Daily Stats <datum>` plus Workspace-Name
+      - Zeile `Bearbeitete Tickets: <n>` und Zeile `Meetings: <n>`
+      - darunter die Treffer als kurze Liste
+      - abschliessend 1-2 Saetze Einordnung des Tages
+    gates:
+      - file_non_empty: daily-stats.md
+      - contains: { file: daily-stats.md, text: "# Daily Stats", label: Titel }
+      - contains: { file: daily-stats.md, text: "Bearbeitete Tickets:", label: Ticket-Zeile }
+      - contains: { file: daily-stats.md, text: "Meetings:", label: Meeting-Zeile }

@@ -14,6 +14,16 @@
 
 export type HarnessId = "claude" | "codex" | "pi";
 
+/**
+ * One MCP server an agent may use: either a local stdio server (spawned by
+ * the harness, e.g. `node multiply-server.ts`) or a remote streamable-HTTP
+ * server (`url`). Names must be [A-Za-z0-9_-]. Supported by the claude and
+ * codex harnesses; pi has no MCP support and rejects the invocation.
+ */
+export type McpServerConfig =
+  | { command: string; args?: string[]; env?: Record<string, string> }
+  | { url: string };
+
 export interface AgentInvocation {
   prompt: string;
   systemPrompt: string;
@@ -21,6 +31,15 @@ export interface AgentInvocation {
   model: string;
   effort?: string;
   tools: string[];
+  /**
+   * CLI command prefixes granted for this phase (e.g. "git", "npm run").
+   * claude: each becomes a scoped `Bash(<name>:*)` allowlist entry.
+   * codex: the sandbox runs commands anyway — nothing to do.
+   * pi: no per-command scoping — enables the plain bash tool.
+   */
+  clis?: string[];
+  /** MCP servers available in this phase, keyed by server name. */
+  mcpServers?: Record<string, McpServerConfig>;
   resume?: string;
   onToolUse?: (tool: string, target: string) => void;
   onText?: (text: string) => void;

@@ -61,6 +61,12 @@ export const desloper = defineAgent({
   effort: "high",                   // optional: low | medium | high | xhigh | max
   tools: ["Read", "Write", "Edit"], // governance: capability boundary
   persona: `Du bist Lektor:in ...`, // WHO: the system prompt
+  clis: {                           // optional: CLI grants — the hint is injected
+    git: "Versionierung; nach jedem Schritt committen", // into the persona ONCE
+  },
+  mcp: {                            // optional: MCP servers (governance, like tools)
+    calculator: { command: "node", args: ["/path/to/multiply-server.ts"] },
+  },
 });
 ```
 
@@ -94,6 +100,8 @@ same interface ([src/harness.ts](src/harness.ts)):
 | Auth | Claude Code login | ChatGPT login | Claude/ChatGPT OAuth **or** vendor API keys |
 | Models | Claude ids | GPT ids | `provider/id`, e.g. `deepseek/deepseek-chat`, `openrouter/...` |
 | Hermetic | `--setting-sources ""` | `--ignore-user-config` | `--no-context-files` |
+| MCP | `--mcp-config` + `--strict-mcp-config`, allowlist `mcp__<name>` | `-c mcp_servers.*` + `--approve-for-me` (headless approvals) | not supported (own extension system) |
+| CLIs | scoped allowlist `Bash(<name>:*)` | sandbox runs them anyway (hint only) | plain `bash` tool (no scoping) |
 | Quirks | — | no system-prompt flag (persona prepended to prompt); governance = workspace-write sandbox, not per-tool | `effort` maps 1:1 to `--thinking`; tool names lowercased |
 
 Prerequisites: **claude** — Claude Code installed + logged in. **codex** —
@@ -170,26 +178,70 @@ Gates: `file_non_empty: <file>`, `slots_filled: <file>`,
 `contains: {file, text, label?}`. Living examples:
 [`../agent-playground/src/workflows/tagline/`](../agent-playground/src/workflows/tagline/)
 and [`../agent-playground/src/workflows/pitch/`](../agent-playground/src/workflows/pitch/).
-v1 is deliberately linear — approval loops, code steps, AGENTS.md-style
-context files and skills stay on the roadmap; anything non-linear is a TS
-workflow.
+v1 is deliberately linear — approval loops, AGENTS.md-style context files
+and skills stay on the roadmap; anything non-linear is a TS workflow.
 
-## Demo
+### MCP servers alongside the workflow
 
-```bash
-npm install
-npm run demo -- demo "Nebel ueber dem Rhein"
+A workflow folder can carry its own MCP servers; agents opt in by name
+(governance, like `tools`). Relative files resolve inside the folder,
+absolute paths and `url:` entries hook up external/remote servers:
+
+```yaml
+mcp:
+  calculator:
+    command: node                    # node >= 24 runs TypeScript directly
+    args: [mcp/multiply-server.ts]   # file inside the workflow folder
+  linear:
+    url: https://mcp.linear.app/mcp  # remote streamable HTTP
+agents:
+  rechner:
+    model: sonnet
+    tools: [Read, Write]
+    mcp: [calculator]                # this agent may use these servers
 ```
 
-[examples/demo/](examples/demo) is the minimal complete workflow: a code
-phase, an agent phase judged by gates, a second agent phase that curates in
-the **same session**, and the summary table. Artifacts land in
-`output/run-<stamp>/`.
+The stdio server is any MCP server (e.g. `@modelcontextprotocol/sdk` +
+`server.tool(...)` + `StdioServerTransport`, its deps in the consumer's
+`package.json`). On claude the servers are passed hermetically
+(`--strict-mcp-config`) and the allowlist gains `mcp__<name>`; on codex
+they become `-c mcp_servers.*` overrides and the phase runs with
+`--approve-for-me` so headless MCP calls get approved; `runs-on: pi` +
+`mcp` is rejected at validation time. Living example:
+[`../agent-playground/src/workflows/rechner/`](../agent-playground/src/workflows/rechner/).
+
+### CLI grants
+
+For existing command-line tools an MCP server is overkill — declare them
+once and grant per agent, so no step prompt has to repeat which CLIs
+exist or how to call them:
+
+```yaml
+clis:                      # command prefix -> one-line usage hint
+  my: "CLI fuer my.netnode.ch. Immer --json und -w <workspace-id> verwenden."
+  git: ""                  # empty hint = name only
+agents:
+  reporter:
+    tools: [Read, Write]
+    clis: [my, git]        # this agent may call these via Bash
+```
+
+The hint is injected into the agent's persona ONCE (that's the point —
+step prompts stay clean). Per harness: **claude** additionally scopes the
+Bash allowlist to `Bash(<name>:*)` — the granted prefixes run headless
+without approval, everything else keeps claude's default judgment
+(read-only commands auto-approve, mutating ones are denied). **codex**
+needs nothing (the workspace-write sandbox runs commands anyway).
+**pi** has no per-command scoping — a grant enables the plain `bash`
+tool. Living example:
+[`../agent-playground/src/workflows/daily-stats/`](../agent-playground/src/workflows/daily-stats/).
 
 ## Used by
 
 - [`../agent-playground/`](../agent-playground/) — the in-repo consumer with
-  the YAML example workflows (`tagline`, `pitch`).
+  the YAML example workflows (`tagline`, `pitch`, `rechner` with its own
+  MCP server, `website-check` with script steps, `daily-stats` with CLI
+  grants).
 - `nn-content-workflow-2` (in the local `langgraph/` experiments folder,
   outside this repo) — the netnode.ch content board and Matomo report
   generator; the full ADW pattern including the engineer approval gate and

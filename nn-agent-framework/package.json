@@ -11,7 +11,6 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "demo": "tsx examples/demo/main.ts",
     "validate": "tsx src/validate.ts"
   },
   "license": "ISC",

@@ -4,7 +4,7 @@
   "title": "nn-agent-framework workflow",
   "description": "A linear workflow of gated agent steps. Folder form: <name>/workflow.yml, where single-line prompt/persona/workspace values may reference files inside the folder (e.g. prompts/step.md).",
   "type": "object",
-  "required": ["name", "description", "agents", "steps"],
+  "required": ["name", "description", "steps"],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -19,6 +19,21 @@
     "workspace": {
       "type": "string",
       "description": "Workspace context appended to every agent's system prompt (file layout etc.). Single-line value = path to a file inside the workflow folder."
+    },
+    "mcp": {
+      "type": "object",
+      "description": "MCP servers stored alongside the workflow, keyed by server name. Agents opt in via their mcp: [names] list.",
+      "propertyNames": { "pattern": "^[A-Za-z0-9_-]+$" },
+      "additionalProperties": { "$ref": "#/definitions/mcpServer" }
+    },
+    "clis": {
+      "type": "object",
+      "description": "CLIs agents may call via Bash, keyed by command prefix (e.g. git, ddev, npm run) with a one-line usage hint (may be empty). Agents opt in via their clis: [names] list; the hint is injected into the agent's persona once — never repeat it in step prompts. claude scopes its Bash allowlist to Bash(<name>:*); codex runs commands in its sandbox anyway; pi gets the plain bash tool (no scoping).",
+      "propertyNames": { "pattern": "^[A-Za-z0-9@_.][A-Za-z0-9@_. /-]*$" },
+      "additionalProperties": {
+        "type": ["string", "null"],
+        "description": "One-line usage hint injected into the granting agent's persona; empty/null = name only"
+      }
     },
     "agents": {
       "type": "object",
@@ -69,8 +84,56 @@
           "type": "string",
           "minLength": 1,
           "description": "System prompt: role, voice, rules. Single-line value = path to a file inside the workflow folder."
+        },
+        "mcp": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "MCP servers this agent may use (names from the top-level mcp map). Governance like tools. Not supported on runs-on: pi."
+        },
+        "clis": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "CLIs this agent may use (names from the top-level clis map). Their usage hints are injected into the persona; claude additionally scopes the Bash allowlist to these commands."
         }
       }
+    },
+    "mcpServer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["command"],
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Executable that starts the stdio MCP server, e.g. node or npx"
+            },
+            "args": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Arguments; an arg that resolves to a file inside the workflow folder is made absolute (e.g. mcp/multiply-server.ts)"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Extra environment variables for the server process"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["url"],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Remote streamable-HTTP MCP server, e.g. https://mcp.linear.app/mcp"
+            }
+          }
+        }
+      ]
     },
     "step": {
       "oneOf": [

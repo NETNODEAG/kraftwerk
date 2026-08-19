@@ -10,6 +10,17 @@ import type { AgentInvocation, AgentResult, Harness } from "../harness.js";
  * stream-json output gives the orchestrator a live event feed (init message
  * with the session id, tool calls, final result) without any SDK dependency.
  * Auth is the local Claude Code login — no API key needed.
+ *
+ * MCP: servers from the invocation are passed as an inline `--mcp-config`
+ * JSON (stdio: command/args/env, remote: type http + url) together with
+ * `--strict-mcp-config`, so no user-configured MCP servers leak into the
+ * run. Each granted server extends the allowlist with `mcp__<name>`, which
+ * claude expands to every tool of that server.
+ *
+ * CLIs: each granted CLI becomes a scoped `Bash(<name>:*)` allowlist entry —
+ * that command prefix runs headless without approval, everything else keeps
+ * claude's default judgment (read-only commands auto-approve, mutating ones
+ * are denied in -p; verified against claude-code 2.x).
  */
 
 interface StreamMessage {
@@ -31,6 +42,12 @@ interface StreamMessage {
 }
 
 function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
+  const mcpNames = Object.keys(inv.mcpServers ?? {});
+  const allowedTools = [
+    ...inv.tools,
+    ...(inv.clis ?? []).map((name) => `Bash(${name}:*)`),
+    ...mcpNames.map((name) => `mcp__${name}`),
+  ];
   const args = [
     "-p",
     "--chrome",
@@ -38,11 +55,20 @@ function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
     "--verbose",
     "--model", inv.model,
     "--system-prompt", inv.systemPrompt,
-    "--allowed-tools", inv.tools.join(","),
+    "--allowed-tools", allowedTools.join(","),
     "--permission-mode", "acceptEdits",
     // Keep the run hermetic: no user/project settings, hooks, or CLAUDE.md.
     "--setting-sources", "",
   ];
+  if (mcpNames.length > 0) {
+    const mcpServers = Object.fromEntries(
+      Object.entries(inv.mcpServers!).map(([name, cfg]) => [
+        name,
+        "url" in cfg ? { type: "http", url: cfg.url } : cfg,
+      ])
+    );
+    args.push("--mcp-config", JSON.stringify({ mcpServers }), "--strict-mcp-config");
+  }
   if (inv.effort) args.push("--effort", inv.effort);
   if (inv.resume) args.push("--resume", inv.resume);
 

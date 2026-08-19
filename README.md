@@ -6,7 +6,7 @@ Deterministic workflow-as-code over headless agent harnesses (`claude -p`,
 | Folder | What |
 | ------ | ---- |
 | [`nn-agent-framework/`](nn-agent-framework/) | The framework package: agents (persona + model + tools + harness), bounded phases, envelopes, gates, per-harness sessions, YAML workflow folders + JSON Schema, the **kraftwerk** CLI. Start with its [README](nn-agent-framework/README.md). |
-| [`agent-playground/`](agent-playground/) | Zero-code consumer: only YAML workflow folders — `tagline` (runs on codex) and `pitch` (jury pattern: one prompt file, three agents via `${{ agent }}`). |
+| [`agent-playground/`](agent-playground/) | Zero-code consumer: only YAML workflow folders — `tagline` (runs on codex), `pitch` (jury pattern: one prompt file, three agents via `${{ agent }}`), `rechner` (MCP server stored next to the workflow), `website-check` (script steps), `daily-stats` (CLI grants: the `my` CLI with a persona-injected usage hint). |
 
 ```bash
 cd agent-playground

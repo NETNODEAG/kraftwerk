@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../../node_modules/nn-agent-framework/schema/workflow.schema.json
+name: rechner
+description: "MCP-Demo: Multiplikation ueber den calculator-MCP-Server neben dem Workflow"
+workspace: |
+  Dateien: ergebnis.md (das Resultat der Rechnung).
+
+# MCP servers live next to the workflow: mcp/multiply-server.ts is spawned
+# by the harness (node 24 runs TypeScript directly); the SDK comes from the
+# consumer's node_modules. External servers work the same way (absolute
+# command path or url: https://... for remote streamable HTTP).
+mcp:
+  calculator:
+    command: node
+    args: [mcp/multiply-server.ts]
+
+agents:
+  rechner:
+    name: Rechenassistent
+    model: sonnet
+    tools: [Read, Write]
+    mcp: [calculator] # governance: this agent may use the calculator server
+    persona: |
+      Du bist ein penibler Rechenassistent. Du rechnest NIE im Kopf:
+      jede Multiplikation laeuft ueber das multiply-Tool des
+      calculator-MCP-Servers. Du dokumentierst das Resultat knapp.
+
+steps:
+  - name: rechnen
+    agent: rechner
+    prompt: |
+      Auftrag: ${{ request }}
+
+      Extrahiere die beiden Faktoren aus dem Auftrag, berechne das Produkt
+      mit dem multiply-Tool und schreibe das Resultat nach ergebnis.md,
+      eine Zeile im Format: `<a> * <b> = <produkt>`.
+    gates:
+      - file_non_empty: ergebnis.md
+      - contains: { file: ergebnis.md, text: "=", label: Produktzeile }
