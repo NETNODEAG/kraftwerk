@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: showdown
+description: "Cross-vendor writing duel: Claude and Codex answer the same brief, each scores the rival's draft against a rubric, a script tallies the deterministic verdict and renders a scoreboard with time/tokens/cost from the trace"
+
+# Request = a writing brief, e.g. "a landing-page hero for a bakery that only
+# sells sourdough" or "explain git rebase to a designer".
+#
+# What this demos that no other example does:
+#   - two harnesses (claude + codex) competing in ONE run
+#   - ONE draft prompt and ONE review prompt serve both agents via ${{ agent }}
+#   - the verdict is not a model's opinion: each model only scores its RIVAL,
+#     and a script recomputes the totals and decides — agent proposes, code
+#     disposes, applied to judging itself
+#   - the final report reads trace.jsonl and shows what each model cost
+
+workspace: |
+  Files in the run directory:
+    draft-claude.md        Claude's answer to the brief
+    draft-codex.md         Codex's answer to the brief
+    review-by-claude.json  Claude's rubric scores for the CODEX draft
+    review-by-codex.json   Codex's rubric scores for the CLAUDE draft
+    verdict.json           script-computed totals + winner (never a model)
+    showdown.html          rendered scoreboard (script-generated)
+
+agents:
+  claude:
+    name: Contestant Claude
+    model: sonnet
+    tools: [Read, Write]
+    persona: &contestant |
+      You are a contestant in a head-to-head writing duel. You write tight,
+      concrete prose with no filler, and when reviewing you judge strictly by
+      the rubric with evidence from the text — never by taste alone. You know
+      your rival's work will be scored by the same rules. All output in
+      English.
+
+  codex:
+    name: Contestant Codex
+    runs-on: codex
+    model: gpt-5.6-sol
+    tools: [Read, Write]
+    persona: *contestant
+
+steps:
+  # ONE prompt, both contestants — ${{ agent }} steers the output file.
+  - name: claude drafts
+    agent: claude
+    prompt: prompts/draft.md
+    gates:
+      - file_non_empty: draft-claude.md
+      - contains: { file: draft-claude.md, text: "# ", label: title line }
+
+  - name: codex drafts
+    agent: codex
+    prompt: prompts/draft.md
+    gates:
+      - file_non_empty: draft-codex.md
+      - contains: { file: draft-codex.md, text: "# ", label: title line }
+
+  # Crossed reviews: each model scores only the RIVAL's draft.
+  - name: claude reviews codex
+    agent: claude
+    prompt: prompts/review.md
+    gates:
+      - file_non_empty: review-by-claude.json
+      - contains: { file: review-by-claude.json, text: '"scores"', label: rubric scores }
+      - contains: { file: review-by-claude.json, text: '"best_line"', label: best line }
+
+  - name: codex reviews claude
+    agent: codex
+    prompt: prompts/review.md
+    gates:
+      - file_non_empty: review-by-codex.json
+      - contains: { file: review-by-codex.json, text: '"scores"', label: rubric scores }
+      - contains: { file: review-by-codex.json, text: '"best_line"', label: best line }
+
+  # Code decides: recompute totals from the raw criterion points, pick the
+  # winner, break ties deterministically (shorter draft wins).
+  - name: tally verdict
+    run: scripts/tally.sh
+    gates:
+      - file_non_empty: verdict.json
+      - contains: { file: verdict.json, text: '"winner"', label: winner field }
+
+  - name: render scoreboard
+    run: scripts/render-report.sh
+    gates:
+      - file_non_empty: showdown.html
+      - contains: { file: showdown.html, text: "</html>", label: complete document }
+      - slots_filled: showdown.html
+
+  - name: output results
+    run: scripts/output.sh

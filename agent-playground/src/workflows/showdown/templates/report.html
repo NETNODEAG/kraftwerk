@@ -1,0 +1,166 @@
+<!doctype html>
+<!--
+  SLOT DOCUMENTATION — every {{...}} slot is filled by scripts/render-report.sh
+  from the drafts, both reviews, verdict.json and trace.jsonl. No LLM touches
+  this file. Literal "{{" inside rendered content is escaped as &#123;&#123;
+  so the slots_filled gate can verify completeness.
+
+  Scalars:
+    {{BRIEF}}          the writing brief (the run request, escaped)
+    {{GENERATED_AT}}   e.g. "2026-08-21 10:12"
+    {{WINNER_NAME}}    "Claude" or "Codex"
+    {{WINNER_CLASS}}   "claude" or "codex" (colors the banner)
+    {{WINNER_SCORE}}   e.g. "34 : 29" (winner first)
+    {{WINNER_SUB}}     margin / tiebreak explanation line
+
+  {{CARD_CLAUDE}} / {{CARD_CODEX}} — one full contestant column each:
+    model badge, the draft rendered from markdown, then the rival's verdict
+    (score bars per criterion with notes, best-line quote, weakness).
+
+  {{STATS_ROWS}} — <tr> rows from trace.jsonl phase_end events: phase,
+    model, attempts, time, tokens in/out, cost.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Showdown — Claude vs Codex</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --page: #f7f7f4; --surface: #fdfdfc; --line: #e4e4de;
+    --ink: #1d1f1e; --ink-2: #5b5f5c; --ink-3: #8b8f8b;
+    --claude: #c2570f; --claude-bg: #faeadd;
+    --codex: #0f7bd3; --codex-bg: #e5f1fb;
+    --gold: #b98307; --gold-bg: #fdf3dd;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --page: #161715; --surface: #1e201d; --line: #2e312c;
+    --ink: #e8e9e6; --ink-2: #a2a6a0; --ink-3: #71756f;
+    --claude: #e8823a; --claude-bg: #2e2015;
+    --codex: #58a6e8; --codex-bg: #16232e;
+    --gold: #e0a52c; --gold-bg: #2d2617;
+  } }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 15px/1.55 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { margin-bottom: 22px; }
+  .kicker { font: 600 11px/1 var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
+  h1 { font-size: 28px; font-weight: 700; letter-spacing: -.01em; }
+  .meta { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; }
+  .brief { margin: 18px 0 24px; padding: 14px 18px; border-left: 4px solid var(--gold);
+    background: var(--surface); border-radius: 0 10px 10px 0;
+    font-size: 14.5px; color: var(--ink-2); }
+  .brief .l { font: 600 10.5px/1 var(--mono); letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
+
+  .banner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; }
+  .banner .cup { font-size: 30px; }
+  .banner .who { font-size: 20px; font-weight: 700; }
+  .banner .who.claude { color: var(--claude); }
+  .banner .who.codex { color: var(--codex); }
+  .banner .score { font: 600 20px/1 var(--mono); margin-left: auto; }
+  .banner .sub { flex-basis: 100%; color: var(--ink-2); font-size: 13px; }
+
+  .duel { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .duel { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 22px; }
+  .card.claude { border-top: 4px solid var(--claude); }
+  .card.codex { border-top: 4px solid var(--codex); }
+  .c-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 14px; }
+  .badge { font: 700 10.5px/1 var(--mono); letter-spacing: .08em;
+    text-transform: uppercase; padding: 4px 8px; border-radius: 5px; }
+  .badge.claude { background: var(--claude-bg); color: var(--claude); }
+  .badge.codex { background: var(--codex-bg); color: var(--codex); }
+  .badge.win { background: var(--gold-bg); color: var(--gold); }
+  .c-model { font: 500 11.5px/1 var(--mono); color: var(--ink-3); }
+
+  .draft { font-size: 14px; color: var(--ink); }
+  .draft h1 { font-size: 19px; margin: 0 0 8px; }
+  .draft h2 { font-size: 14px; margin: 14px 0 6px; }
+  .draft p { margin: 8px 0; }
+  .draft ul { margin: 8px 0 8px 18px; }
+  .draft li { margin: 3px 0; }
+  .wc { font: 500 11px/1 var(--mono); color: var(--ink-3); margin-top: 10px; }
+
+  .verdict { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+  .v-title { font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-3); margin-bottom: 12px; font-weight: 600; }
+  .crit { margin-bottom: 10px; }
+  .crit .row { display: flex; align-items: baseline; gap: 8px; }
+  .crit .name { font: 600 11.5px/1.3 var(--mono); width: 72px; flex: none;
+    color: var(--ink-2); }
+  .crit .bar { flex: 1; height: 7px; border-radius: 999px; background: var(--line);
+    overflow: hidden; align-self: center; }
+  .crit .fill { height: 100%; border-radius: 999px; }
+  .claude .crit .fill { background: var(--claude); }
+  .codex .crit .fill { background: var(--codex); }
+  .crit .pts { font: 600 12px/1 var(--mono); width: 40px; text-align: right;
+    flex: none; }
+  .crit .note { font-size: 12px; color: var(--ink-3); margin: 3px 0 0 80px; }
+  blockquote.best { margin: 12px 0 0; padding: 10px 14px; border-left: 3px solid var(--gold);
+    background: var(--gold-bg); border-radius: 0 8px 8px 0; font-size: 13px;
+    font-style: italic; }
+  .weak { font-size: 12.5px; color: var(--ink-2); margin-top: 10px; }
+  .weak b { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-3); }
+
+  h3.sect { font-size: 13px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-3); margin: 30px 0 12px; }
+  table.stats { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.stats th { text-align: left; font: 600 10.5px/1 var(--mono);
+    letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+    padding: 0 10px 8px; }
+  table.stats td { padding: 7px 10px; border-top: 1px solid var(--line);
+    font-family: var(--mono); white-space: nowrap; }
+  table.stats td:first-child { font-family: inherit; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Model showdown</div>
+    <h1>Claude vs Codex</h1>
+    <div class="meta">Generated {{GENERATED_AT}} · kraftwerk showdown</div>
+  </header>
+
+  <div class="brief"><div class="l">The brief</div>{{BRIEF}}</div>
+
+  <div class="banner">
+    <span class="cup">&#127942;</span>
+    <span class="who {{WINNER_CLASS}}">{{WINNER_NAME}} wins</span>
+    <span class="score">{{WINNER_SCORE}}</span>
+    <span class="sub">{{WINNER_SUB}}</span>
+  </div>
+
+  <div class="duel">
+    {{CARD_CLAUDE}}
+    {{CARD_CODEX}}
+  </div>
+
+  <h3 class="sect">What each phase cost</h3>
+  <section class="card">
+    <table class="stats">
+      <tr><th>Phase</th><th>Model</th><th>Att</th><th>Time</th><th>Tokens in/out</th><th>Cost</th></tr>
+      {{STATS_ROWS}}
+    </table>
+  </section>
+
+  <footer>Both contestants got the same brief and the same rubric; each
+    scored only the rival's draft. The totals and the winner were computed
+    by script from the raw criterion points — no model picked the winner.
+    Phase stats read from this run's trace.jsonl.</footer>
+</div>
+</body>
+</html>

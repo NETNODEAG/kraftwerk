@@ -61,6 +61,9 @@ The playground workflows, roughly simplest to most involved:
 - `changelog` turns git history into release notes: a script extracts the
   commit range, an agent with a scoped `git` CLI grant rewrites it for
   humans, a script renders the HTML changelog.
+- `showdown` pits Claude against Codex on one writing brief — each model
+  scores the rival's draft, and a script computes the verdict and renders a
+  scoreboard with each model's time, tokens, and cost from the trace.
 - `website-check` is all script steps, no model, and produces an HTML audit.
 - `repo-audit` clones a repo, runs security scanners, has an agent verify each
   finding and review the code by hand, then renders an HTML report with
