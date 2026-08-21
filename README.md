@@ -199,9 +199,10 @@ every artifact per run, reading straight from `agent-playground/output/`. You ca
 also trigger a sandboxed run from the UI and jump right to it.
 
 ```bash
-cd kraftwerk/inspector
-npm run dev        # http://localhost:4499
+npx @netnodeag/kraftwerk ui        # http://localhost:4499, pointed at this project's output/
 ```
+
+(Or, from a checkout: `cd kraftwerk/inspector && npm run dev`.)
 
 For the primitives, the harness details, and the full YAML schema, read
 [`kraftwerk/README.md`](kraftwerk/README.md).

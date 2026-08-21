@@ -17,7 +17,15 @@
     "bin",
     "dist",
     "runner",
-    "schema"
+    "schema",
+    "inspector/app",
+    "inspector/lib",
+    "inspector/next.config.ts",
+    "inspector/next-env.d.ts",
+    "inspector/tsconfig.json",
+    "inspector/package.json",
+    "inspector/package-lock.json",
+    "inspector/README.md"
   ],
   "exports": {
     ".": {

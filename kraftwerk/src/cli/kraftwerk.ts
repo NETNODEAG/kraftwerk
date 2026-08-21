@@ -12,6 +12,7 @@ import { renderCreateBrief } from "./create-brief.js";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { listRuns, showRun } from "./runs.js";
+import { runUi } from "./ui.js";
 
 /**
  * kraftwerk — the kraftwerk CLI.
@@ -20,6 +21,7 @@ import { listRuns, showRun } from "./runs.js";
  *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
+ *   kraftwerk ui                      start the inspector web UI (localhost:4499)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -281,6 +283,15 @@ runs
   .option("--json", "Machine-readable output (all trace events)")
   .action(async (runId: string, opts: { json?: boolean }) => {
     await showRun(process.cwd(), runId, opts);
+  });
+
+program
+  .command("ui")
+  .description("Start the inspector web UI for this project's runs and workflows")
+  .option("--port <port>", "Port for the web UI", "4499")
+  .option("--output <dir>", "Output directory to inspect (default: the project's output dir)")
+  .action(async (opts: { port?: string; output?: string }) => {
+    await runUi(process.cwd(), opts);
   });
 
 const runner = program

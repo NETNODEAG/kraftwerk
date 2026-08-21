@@ -56,6 +56,7 @@ kraftwerk list                          # table: workflows, steps, agents (with 
 kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
+kraftwerk ui                            # inspector web UI on http://localhost:4499; --port, --output
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
@@ -339,7 +340,8 @@ npm publish         # runs npm run build first via prepublishOnly
 ```
 
 The tarball is whitelisted via `files`: `bin/`, `dist/`, `runner/`
-(Dockerfile for sandboxed runs), `schema/` (workflow JSON schema) — no
-`src/`, examples, or inspector. Check with `npm pack --dry-run` before a
+(Dockerfile for sandboxed runs), `schema/` (workflow JSON schema), and the
+inspector sources (for `kraftwerk ui`; its deps install on first launch) —
+no `src/` or examples. Check with `npm pack --dry-run` before a
 release. Runtime deps stay regular `dependencies`; `tsx` and `typescript`
 are dev-only, so consumers install neither.
