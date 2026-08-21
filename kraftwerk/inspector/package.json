@@ -2,23 +2,22 @@
   "name": "kraftwerk-inspector",
   "version": "0.1.0",
   "private": true,
-  "description": "Web UI to inspect kraftwerk workflow runs: live executions, phase traces, and per-run artifacts",
+  "description": "Frontend of the kraftwerk inspector: a Vite+React SPA served by the dependency-free server in src/inspector/",
+  "type": "module",
   "scripts": {
-    "dev": "next dev -p 4499",
-    "build": "next build",
-    "start": "next start -p 4499",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "next": "^15.5.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "yaml": "^2.9.0"
-  },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@fontsource/ibm-plex-mono": "^5.2.0",
+    "@fontsource/ibm-plex-sans": "^5.2.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "typescript": "^5.9.0"
+    "@vitejs/plugin-react": "^5.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
   }
 }

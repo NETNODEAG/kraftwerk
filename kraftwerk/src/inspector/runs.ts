@@ -1,15 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { getOutputDir } from "./context.js";
 
 /**
  * Filesystem + trace.jsonl reading for the inspector. The output directory
  * holds one folder per run (run-YYYY-MM-DD-HHMM-SS); every run folder has a
  * trace.jsonl written by the framework plus the run's working files.
  */
-
-export const OUTPUT_DIR = process.env.KRAFTWERK_OUTPUT
-  ? path.resolve(process.env.KRAFTWERK_OUTPUT)
-  : path.resolve(process.cwd(), "../../agent-playground/output");
 
 /** A run with no trace update for this long and no summary counts as aborted. */
 const STALE_MS = 15 * 60 * 1000;
@@ -223,13 +220,13 @@ function shortenPath(p: string): string {
 export async function listRuns(): Promise<RunListItem[]> {
   let entries: string[];
   try {
-    entries = (await fs.readdir(OUTPUT_DIR)).filter((e) => e.startsWith("run-"));
+    entries = (await fs.readdir(getOutputDir())).filter((e) => e.startsWith("run-"));
   } catch {
     return [];
   }
   const items = await Promise.all(
     entries.map(async (id): Promise<RunListItem | null> => {
-      const runDir = path.join(OUTPUT_DIR, id);
+      const runDir = path.join(getOutputDir(), id);
       const st = await fs.stat(runDir).catch(() => null);
       if (!st?.isDirectory()) return null;
       const events = await readTrace(runDir);
@@ -259,7 +256,7 @@ export async function listRuns(): Promise<RunListItem[]> {
 
 export function safeRunDir(id: string): string {
   if (!/^run-[0-9-]+$/.test(id)) throw new Error("invalid run id");
-  return path.join(OUTPUT_DIR, id);
+  return path.join(getOutputDir(), id);
 }
 
 export async function getRun(id: string): Promise<RunDetail | null> {

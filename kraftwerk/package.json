@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Deterministic workflow-as-code framework: agents (persona + model + tools + harness) run in bounded phases on headless CLI harnesses (claude -p, codex exec, pi); code owns the control flow, envelopes + gates judge the results",
   "keywords": [
     "agents",
@@ -33,14 +33,7 @@
     "dist",
     "runner",
     "schema",
-    "inspector/app",
-    "inspector/lib",
-    "inspector/next.config.ts",
-    "inspector/next-env.d.ts",
-    "inspector/tsconfig.json",
-    "inspector/package.json",
-    "inspector/package-lock.json",
-    "inspector/README.md"
+    "inspector/dist"
   ],
   "exports": {
     ".": {
@@ -52,7 +45,8 @@
     "typecheck": "tsc --noEmit",
     "validate": "tsx src/validate.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "prepublishOnly": "npm run build"
+    "build:inspector": "npm --prefix inspector install --no-fund --no-audit && npm --prefix inspector run build",
+    "prepublishOnly": "npm run build && npm run build:inspector"
   },
   "license": "MIT",
   "devDependencies": {

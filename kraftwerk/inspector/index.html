@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kraftwerk inspector</title>
+    <meta name="description" content="Inspect kraftwerk workflow runs: live executions, phase traces, artifacts" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("kw-theme");
+          if (t) document.documentElement.dataset.theme = t;
+          else if (matchMedia("(prefers-color-scheme: light)").matches)
+            document.documentElement.dataset.theme = "light";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

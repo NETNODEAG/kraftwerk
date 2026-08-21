@@ -1,88 +1,60 @@
 import { existsSync } from "node:fs";
-import { cp, readFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import chalk from "chalk";
 import { resolveProject } from "../config.js";
+import { startInspector } from "../inspector/server.js";
 
 /**
- * `kraftwerk ui` — start the inspector web UI (Next.js app shipped in the
- * package under inspector/) pointed at the current project's output dir.
- * First launch installs the inspector's dependencies; the server then runs
- * in the foreground until Ctrl-C.
+ * `kraftwerk ui` — start the inspector web UI pointed at the current
+ * project's output dir. The server is dependency-free node:http (part of
+ * this package); the frontend is a prebuilt Vite bundle shipped in
+ * inspector/dist. Nothing to install at runtime — the server starts
+ * instantly and runs in the foreground until Ctrl-C.
  */
 
 /** Package root is two levels up from this file (src/cli/ or dist/cli/). */
 const packageRoot = (): string =>
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-const inNodeModules = (p: string): boolean =>
-  p.split(path.sep).includes("node_modules");
-
 /**
- * The inspector cannot run in place from an installed package: Next.js
- * excludes everything under node_modules/ from compilation, so its .ts/.tsx
- * sources would be served raw. Installed copies are materialized (sources
- * only) into ~/.cache/kraftwerk/inspector-<version>/ and run from there;
- * dev checkouts run in place.
+ * Published packages ship inspector/dist. A dev checkout builds it on
+ * first use (and after frontend edits: `npm run build` in inspector/).
  */
-async function materializeInspector(): Promise<string> {
-  const src = path.join(packageRoot(), "inspector");
-  if (!inNodeModules(src)) return src;
+function ensureBuilt(): string {
+  const inspector = path.join(packageRoot(), "inspector");
+  const dist = path.join(inspector, "dist");
+  if (existsSync(path.join(dist, "index.html"))) return dist;
 
-  const pkg = JSON.parse(await readFile(path.join(packageRoot(), "package.json"), "utf8"));
-  const dest = path.join(os.homedir(), ".cache", "kraftwerk", `inspector-${pkg.version}`);
-  if (!existsSync(path.join(dest, "package.json"))) {
-    await cp(src, dest, {
-      recursive: true,
-      filter: (s) => {
-        const parts = path.relative(src, s).split(path.sep);
-        return !parts.includes("node_modules") && !parts.includes(".next");
-      },
-    });
-  }
-  return dest;
-}
-
-export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
-  if (!existsSync(path.join(packageRoot(), "inspector", "package.json"))) {
-    console.error(chalk.red(`Inspector not found at ${path.join(packageRoot(), "inspector")} — broken install?`));
+  if (!existsSync(path.join(inspector, "src"))) {
+    console.error(chalk.red(`Inspector assets missing at ${dist} — broken install?`));
     process.exit(1);
   }
-  const dir = await materializeInspector();
-
-  const outputDir = opts.output
-    ? path.resolve(cwd, opts.output)
-    : (await resolveProject(cwd)).outputDir;
-  const port = opts.port ?? "4499";
-
-  if (!existsSync(path.join(dir, "node_modules"))) {
-    console.log(chalk.dim("First launch — installing inspector dependencies ..."));
-    const install = spawnSync("npm", ["install", "--no-fund", "--no-audit"], {
-      cwd: dir,
-      stdio: "inherit",
-    });
-    if (install.status !== 0) {
-      console.error(chalk.red("npm install failed in the inspector directory."));
+  console.log(chalk.dim("Building the inspector frontend (first use in this checkout) ..."));
+  for (const args of [
+    ...(existsSync(path.join(inspector, "node_modules")) ? [] : [["install", "--no-fund", "--no-audit"]]),
+    ["run", "build"],
+  ]) {
+    const r = spawnSync("npm", args, { cwd: inspector, stdio: "inherit" });
+    if (r.status !== 0) {
+      console.error(chalk.red(`npm ${args.join(" ")} failed in inspector/.`));
       process.exit(1);
     }
   }
+  return dist;
+}
 
+export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
+  const staticDir = ensureBuilt();
+  const outputDir = opts.output
+    ? path.resolve(cwd, opts.output)
+    : (await resolveProject(cwd)).outputDir;
+  const port = Number(opts.port ?? "4499");
+
+  await startInspector({ outputDir, staticDir, port });
   console.log(
     `${chalk.green("✔")} Inspector: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
   );
-
-  const nextBin = path.join(dir, "node_modules", "next", "dist", "bin", "next");
-  const child = spawn(process.execPath, [nextBin, "dev", "-p", port], {
-    cwd: dir,
-    stdio: "inherit",
-    env: { ...process.env, KRAFTWERK_OUTPUT: outputDir },
-  });
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => child.kill(signal));
-  }
-  child.on("exit", (code) => process.exit(code ?? 0));
 }

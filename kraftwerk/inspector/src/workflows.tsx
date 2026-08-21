@@ -1,9 +1,7 @@
-"use client";
+import type { WorkflowSummary } from "./types";
+import { Link, usePoll } from "./shared";
 
-import type { WorkflowSummary } from "@/lib/workflows";
-import { usePoll } from "../shared";
-
-export default function WorkflowIndex() {
+export function WorkflowIndex() {
   const data = usePoll<{ root?: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const wfs = data?.workflows ?? [];
 
@@ -24,7 +22,7 @@ export default function WorkflowIndex() {
 
       <div className="wf-grid">
         {wfs.map((w) => (
-          <a key={w.slug} href={`/workflows/${w.slug}`} className="wf-card">
+          <Link key={w.slug} href={`/workflows/${w.slug}`} className="wf-card">
             <div className="wf-card-head">
               <span className="wf-name">{w.name ?? w.slug}</span>
               {w.error && <span className="status-word failed">broken</span>}
@@ -35,7 +33,7 @@ export default function WorkflowIndex() {
               <span>·</span>
               <span>{w.steps} steps</span>
             </div>
-          </a>
+          </Link>
         ))}
       </div>
     </>

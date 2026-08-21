@@ -1,6 +1,31 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
+
+/* ---------- hash routing ---------- */
+
+/** Current route path from the hash: "#/runs/x" → "/runs/x". */
+export function useHashPath(): string {
+  const [path, setPath] = useState(() => window.location.hash.slice(1) || "/");
+  useEffect(() => {
+    const onChange = () => setPath(window.location.hash.slice(1) || "/");
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  return path;
+}
+
+export function navigate(to: string, opts?: { replace?: boolean }): void {
+  if (opts?.replace) window.location.replace(`#${to}`);
+  else window.location.hash = to;
+}
+
+export function Link({
+  href,
+  ...rest
+}: { href: string } & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
+  return <a href={`#${href}`} {...rest} />;
+}
+
+/* ---------- polling ---------- */
 
 /** Poll a JSON endpoint; tightens the interval while `fast` (live run). */
 export function usePoll<T>(url: string, fast: boolean): T | null {
@@ -27,6 +52,8 @@ export function usePoll<T>(url: string, fast: boolean): T | null {
 
   return data;
 }
+
+/* ---------- formatting ---------- */
 
 export function fmtDuration(ms?: number): string {
   if (ms == null) return "—";

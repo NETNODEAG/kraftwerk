@@ -340,8 +340,10 @@ npm publish         # runs npm run build first via prepublishOnly
 ```
 
 The tarball is whitelisted via `files`: `bin/`, `dist/`, `runner/`
-(Dockerfile for sandboxed runs), `schema/` (workflow JSON schema), and the
-inspector sources (for `kraftwerk ui`; its deps install on first launch) —
-no `src/` or examples. Check with `npm pack --dry-run` before a
-release. Runtime deps stay regular `dependencies`; `tsx` and `typescript`
-are dev-only, so consumers install neither.
+(Dockerfile for sandboxed runs), `schema/` (workflow JSON schema), and
+`inspector/dist/` (the prebuilt web UI for `kraftwerk ui` — built by
+`prepublishOnly`, served by the dependency-free server compiled into
+`dist/inspector/`) — no `src/` or examples. Check with `npm pack
+--dry-run` before a release. Runtime deps stay regular `dependencies`;
+`tsx`, `typescript`, and the inspector's Vite/React toolchain are
+dev-only, so consumers install none of them.

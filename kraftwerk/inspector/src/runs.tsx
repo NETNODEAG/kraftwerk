@@ -1,9 +1,7 @@
-"use client";
-
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import type { RunDetail, RunListItem, PhaseView, FileView } from "@/lib/runs";
+import type { RunDetail, RunListItem, PhaseView, FileView } from "./types";
 import {
+  Link,
   usePoll,
   fmtDuration,
   fmtCost,
@@ -13,7 +11,7 @@ import {
   Lamp,
   StatusWord,
   Elapsed,
-} from "../../shared";
+} from "./shared";
 
 /**
  * Full-width runs screen: a sidebar with every run (latest on top) for
@@ -92,9 +90,9 @@ function RunDetailView({ id }: { id: string }) {
         <Lamp status={run.status} />
         <h1>
           {run.workflow ? (
-            <a href={`/workflows/${encodeURIComponent(run.workflow)}`} title="open workflow">
+            <Link href={`/workflows/${encodeURIComponent(run.workflow)}`} title="open workflow">
               {run.workflow}
-            </a>
+            </Link>
           ) : (
             "unknown workflow"
           )}

@@ -1,13 +1,9 @@
-"use client";
-
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { WorkflowDetail, AgentInfo, StepInfo } from "@/lib/workflows";
-import type { RunListItem } from "@/lib/runs";
-import { usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "../../shared";
+import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
+import { Link, navigate, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "./shared";
 
 export function WorkflowView({ slug }: { slug: string }) {
-  const wf = usePoll<WorkflowDetail>(`/api/workflows/${slug}`, false);
+  const wf = usePoll<WorkflowDetail>(`/api/workflows/${encodeURIComponent(slug)}`, false);
   const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", false);
 
   if (!wf) return <div className="empty">loading…</div>;
@@ -109,13 +105,13 @@ export function WorkflowView({ slug }: { slug: string }) {
             </div>
             <div className="file-list">
               {runs.map((r) => (
-                <a key={r.id} href={`/runs/${r.id}`} className="file-row">
+                <Link key={r.id} href={`/runs/${r.id}`} className="file-row">
                   <Lamp status={r.status} />
                   <span className="fname">{r.id.replace(/^run-/, "")}</span>
                   <span className="fsize num">
                     {fmtDuration(r.durationMs)} · {fmtCost(r.costUsd)} · {fmtWhen(r.startedAt)}
                   </span>
-                </a>
+                </Link>
               ))}
               {runs.length === 0 && <div className="viewer-note">no runs of this workflow yet</div>}
             </div>
@@ -127,7 +123,6 @@ export function WorkflowView({ slug }: { slug: string }) {
 }
 
 function RunPanel({ slug, lastRequest }: { slug: string; lastRequest?: string }) {
-  const router = useRouter();
   const [request, setRequest] = useState("");
   const [sandbox, setSandbox] = useState(true);
   const [ssh, setSsh] = useState(false);
@@ -164,7 +159,7 @@ function RunPanel({ slug, lastRequest }: { slug: string; lastRequest?: string })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      router.push(`/runs/${data.runId}`);
+      navigate(`/runs/${data.runId}`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -206,7 +201,7 @@ function RunPanel({ slug, lastRequest }: { slug: string; lastRequest?: string })
 function Crumbs({ slug }: { slug: string }) {
   return (
     <nav className="crumbs">
-      <a href="/workflows">workflows</a>
+      <Link href="/workflows">workflows</Link>
       <span className="sep">/</span>
       <span className="mono">{slug}</span>
     </nav>

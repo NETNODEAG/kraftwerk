@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, openSync, closeSync, existsSync } from "node:fs";
+import { mkdirSync, openSync, closeSync } from "node:fs";
 import path from "node:path";
-import { PROJECT_ROOT } from "./workflows";
+import { getProjectRoot } from "./context.js";
 
 /**
  * Workflow trigger for the web UI. The inspector stays decoupled from the
@@ -45,7 +45,8 @@ export function triggerRun(opts: {
   }
 
   const runId = `run-${stamp()}`;
-  const runDir = path.join(PROJECT_ROOT, "output", runId);
+  // Matches the CLI's --run-id resolution: output/<id> under the project root.
+  const runDir = path.join(getProjectRoot(), "output", runId);
   mkdirSync(runDir, { recursive: true });
   const log = openSync(path.join(runDir, "trigger.log"), "a");
 
@@ -55,7 +56,7 @@ export function triggerRun(opts: {
   args.push(opts.workflowName, opts.request);
 
   const child = spawn("npx", args, {
-    cwd: PROJECT_ROOT,
+    cwd: getProjectRoot(),
     detached: true,
     stdio: ["ignore", log, log],
     env: { ...process.env, FORCE_COLOR: "0" },
@@ -71,8 +72,4 @@ export function stopRun(runId: string): boolean {
   return (
     spawnSync("docker", ["stop", `kw-${runId}`], { stdio: "ignore", timeout: 30_000 }).status === 0
   );
-}
-
-export function hasRunnerMeta(runId: string): boolean {
-  return existsSync(path.join(PROJECT_ROOT, "output", runId, "runner.json"));
 }

@@ -197,15 +197,14 @@ the container has no access to the rest of your disk.
 
 ## Inspector
 
-A Next.js app for watching runs. It shows a live phase timeline, the trace, and
-every artifact per run, reading straight from `agent-playground/output/`. You can
-also trigger a sandboxed run from the UI and jump right to it.
+A lightweight web UI for watching runs — a prebuilt Vite + React app served by a
+dependency-free Node server, so it starts instantly with nothing to install. It
+shows a live phase timeline, the trace, and every artifact per run. You can also
+trigger a sandboxed run from the UI and jump right to it.
 
 ```bash
 npx @netnodeag/kraftwerk ui        # http://localhost:4499, pointed at this project's output/
 ```
-
-(Or, from a checkout: `cd kraftwerk/inspector && npm run dev`.)
 
 For the primitives, the harness details, and the full YAML schema, read
 [`kraftwerk/README.md`](kraftwerk/README.md).

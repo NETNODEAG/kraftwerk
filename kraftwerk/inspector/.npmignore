@@ -1,0 +1,3 @@
+# Takes precedence over .gitignore during npm pack: dist/ IS shipped
+# (the package.json files whitelist only admits inspector/dist anyway).
+node_modules/

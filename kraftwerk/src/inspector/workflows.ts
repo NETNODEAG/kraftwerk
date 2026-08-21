@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
-import { OUTPUT_DIR } from "./runs";
+import { getProjectRoot } from "./context.js";
 
 /**
  * Workflow discovery + parsing for the inspector. Mirrors the kraftwerk CLI
@@ -10,12 +10,9 @@ import { OUTPUT_DIR } from "./runs";
  * even a workflow the framework would reject still renders — with its error.
  */
 
-/** The consumer project root is the parent of the output dir. */
-export const PROJECT_ROOT = path.dirname(OUTPUT_DIR);
-
 async function workflowsRoot(): Promise<string | undefined> {
   for (const candidate of ["src/workflows", "workflows"]) {
-    const p = path.join(PROJECT_ROOT, candidate);
+    const p = path.join(getProjectRoot(), candidate);
     const st = await fs.stat(p).catch(() => null);
     if (st?.isDirectory()) return p;
   }

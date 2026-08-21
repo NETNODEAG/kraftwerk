@@ -2,6 +2,9 @@
    indicator lamps. Dark is the native mode; light is the day shift. */
 
 :root {
+  /* Self-hosted via @fontsource (imported in main.tsx). */
+  --font-sans: "IBM Plex Sans";
+  --font-mono: "IBM Plex Mono";
   --bg: #141512;
   --bg-deep: #0e0f0d;
   --panel: #1b1d19;

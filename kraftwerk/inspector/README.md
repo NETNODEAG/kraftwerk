@@ -5,27 +5,37 @@ all runs at a glance, live phase timelines while a run executes, and every
 file per run with inline preview (HTML reports render in place, text tails
 live, images display).
 
+## Architecture
+
+Two halves, both in this package:
+
+- **Server** — `src/inspector/` (part of the kraftwerk TypeScript build):
+  a dependency-free `node:http` server that serves the JSON/file API and
+  the prebuilt SPA. Started by `kraftwerk ui`.
+- **Frontend** — this folder: a Vite + React SPA with hash routing
+  (`#/runs/<id>`, `#/workflows`, `#/workflows/<slug>`). Built to `dist/`,
+  which ships in the npm package — consumers install nothing and the UI
+  starts instantly.
+
 ## Run
 
 ```bash
-kraftwerk ui       # from any consumer project — installs deps on first launch,
-                   # points at the project's output dir; --port, --output
+kraftwerk ui       # from any consumer project; --port, --output
 ```
 
-Or directly from a checkout:
+In a dev checkout, `kraftwerk ui` builds `dist/` automatically on first
+use. When working on the frontend itself, run the Vite dev server with
+hot reload (proxies `/api` to a `kraftwerk ui` instance on 4499):
 
 ```bash
+kraftwerk ui &     # API + last built frontend on :4499
 cd inspector
 npm install
-npm run dev        # http://localhost:4499
+npm run dev        # hot-reloading frontend on http://localhost:4498
 ```
 
-By default it inspects `../../agent-playground/output` (the playground next
-to this repo). Point it anywhere else with:
-
-```bash
-KRAFTWERK_OUTPUT=/path/to/your-project/output npm run dev
-```
+After frontend changes, `npm run build` refreshes `dist/` (what
+`kraftwerk ui` serves).
 
 ## What it shows
 
