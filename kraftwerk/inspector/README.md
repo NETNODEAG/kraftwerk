@@ -25,13 +25,13 @@ kraftwerk ui       # from any consumer project; --port, --output
 
 In a dev checkout, `kraftwerk ui` builds `dist/` automatically on first
 use. When working on the frontend itself, run the Vite dev server with
-hot reload (proxies `/api` to a `kraftwerk ui` instance on 4499):
+hot reload (proxies `/api` to a `kraftwerk ui` instance on 1981):
 
 ```bash
-kraftwerk ui &     # API + last built frontend on :4499
+kraftwerk ui &     # API + last built frontend on :1981
 cd inspector
 npm install
-npm run dev        # hot-reloading frontend on http://localhost:4498
+npm run dev        # hot-reloading frontend on http://localhost:1980
 ```
 
 After frontend changes, `npm run build` refreshes `dist/` (what

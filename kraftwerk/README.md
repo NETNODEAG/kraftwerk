@@ -56,7 +56,7 @@ kraftwerk list                          # table: workflows, steps, agents (with 
 kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
-kraftwerk ui                            # inspector web UI on http://localhost:4499; --port, --output
+kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths

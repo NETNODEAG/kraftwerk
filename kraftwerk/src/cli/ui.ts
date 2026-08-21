@@ -50,7 +50,7 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
   const outputDir = opts.output
     ? path.resolve(cwd, opts.output)
     : (await resolveProject(cwd)).outputDir;
-  const port = Number(opts.port ?? "4499");
+  const port = Number(opts.port ?? "1981");
 
   await startInspector({ outputDir, staticDir, port });
   console.log(

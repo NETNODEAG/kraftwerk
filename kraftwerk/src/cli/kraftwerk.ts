@@ -21,7 +21,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
- *   kraftwerk ui                      start the inspector web UI (localhost:4499)
+ *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -288,7 +288,7 @@ runs
 program
   .command("ui")
   .description("Start the inspector web UI for this project's runs and workflows")
-  .option("--port <port>", "Port for the web UI", "4499")
+  .option("--port <port>", "Port for the web UI", "1981")
   .option("--output <dir>", "Output directory to inspect (default: the project's output dir)")
   .action(async (opts: { port?: string; output?: string }) => {
     await runUi(process.cwd(), opts);

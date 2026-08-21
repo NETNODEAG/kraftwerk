@@ -203,7 +203,7 @@ shows a live phase timeline, the trace, and every artifact per run. You can also
 trigger a sandboxed run from the UI and jump right to it.
 
 ```bash
-npx @netnodeag/kraftwerk ui        # http://localhost:4499, pointed at this project's output/
+npx @netnodeag/kraftwerk ui        # http://localhost:1981, pointed at this project's output/
 ```
 
 For the primitives, the harness details, and the full YAML schema, read
