@@ -8,6 +8,13 @@ live, images display).
 ## Run
 
 ```bash
+kraftwerk ui       # from any consumer project — installs deps on first launch,
+                   # points at the project's output dir; --port, --output
+```
+
+Or directly from a checkout:
+
+```bash
 cd inspector
 npm install
 npm run dev        # http://localhost:4499
