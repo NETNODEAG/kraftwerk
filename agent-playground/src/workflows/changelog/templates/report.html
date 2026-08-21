@@ -1,0 +1,151 @@
+<!doctype html>
+<!--
+  SLOT DOCUMENTATION — every {{...}} slot is filled by scripts/render-report.sh
+  from changelog.json + commits.json. No LLM touches this file. Literal "{{"
+  inside rendered content is escaped as &#123;&#123; so the slots_filled gate
+  can verify completeness.
+
+  Scalars:
+    {{REPO}}             repo name (last path segment of the source)
+    {{REPO_SUB}}         source + head commit line
+    {{GENERATED_AT}}     e.g. "2026-08-20 10:12"
+    {{RANGE_LABEL}}      e.g. "v1.2.0 → HEAD" or "last 100 commits"
+    {{SUMMARY_TEXT}}     editor's release summary paragraph (escaped)
+    {{COMMITS_VALUE}}    commits in range
+    {{AUTHORS_VALUE}}    distinct contributors
+    {{CHANGES_VALUE}} {{CHANGES_SUB}}   files touched + "+ins −del"
+    {{ENTRIES_VALUE}} {{ENTRIES_SUB}}   changelog entries + section count
+
+  {{HIGHLIGHTS_SECTION}} — empty string when no highlights; otherwise a card
+    with a <ul> of highlight lines.
+
+  {{SECTION_BLOCKS}} — per changelog section: <h3 class="sect"> + one
+    <section class="card entry <type>"> per entry with a type badge, the
+    entry text, and commit-hash chips. Breaking entries get an extra badge.
+
+  {{CONTRIBUTOR_ROWS}} — <tr> rows: author name + commit count.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog — {{REPO}}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --page: #f7f7f4; --surface: #fdfdfc; --line: #e4e4de;
+    --ink: #1d1f1e; --ink-2: #5b5f5c; --ink-3: #8b8f8b;
+    --feature: #0ca30c; --improvement: #0f7bd3; --fix: #b98307;
+    --breaking: #d03b3b; --docs: #6b7280; --internal: #6b7280;
+    --feature-bg: #eaf7ea; --improvement-bg: #e5f1fb; --fix-bg: #fdf3dd;
+    --breaking-bg: #fbe7e7; --docs-bg: #eef0f2; --internal-bg: #eef0f2;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --page: #161715; --surface: #1e201d; --line: #2e312c;
+    --ink: #e8e9e6; --ink-2: #a2a6a0; --ink-3: #71756f;
+    --feature: #4cc24c; --improvement: #58a6e8; --fix: #e0a52c;
+    --breaking: #e46464; --docs: #9aa2ad; --internal: #9aa2ad;
+    --feature-bg: #1c2a1c; --improvement-bg: #16232e; --fix-bg: #2d2617;
+    --breaking-bg: #301a1a; --docs-bg: #22252a; --internal-bg: #22252a;
+  } }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 15px/1.55 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { margin-bottom: 26px; }
+  .kicker { font: 600 11px/1 var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 10px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--ink-2); margin-top: 6px; font-size: 13.5px;
+    font-family: var(--mono); word-break: break-all; }
+  .meta { color: var(--ink-3); font-size: 12.5px; margin-top: 4px; }
+  .range { display: inline-block; margin-top: 14px; padding: 6px 13px;
+    border-radius: 999px; font-weight: 600; font-size: 13.5px;
+    font-family: var(--mono); background: var(--improvement-bg);
+    color: var(--improvement); }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    margin: 22px 0 28px; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 14px; }
+  .tile .v { font: 600 22px/1.2 var(--mono); }
+  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-3); margin-top: 3px; }
+  .tile .s { font-size: 11.5px; color: var(--ink-2); margin-top: 2px;
+    font-family: var(--mono); }
+
+  .card { background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+  .card.summary { font-size: 14.5px; color: var(--ink-2); }
+  .card.highlights ul { margin: 0 0 0 18px; }
+  .card.highlights li { margin: 4px 0; font-size: 14.5px; }
+
+  .entry { border-left: 4px solid var(--line); }
+  .entry.feature { border-left-color: var(--feature); }
+  .entry.improvement { border-left-color: var(--improvement); }
+  .entry.fix { border-left-color: var(--fix); }
+  .entry.breaking { border-left-color: var(--breaking); }
+  .entry.docs { border-left-color: var(--docs); }
+  .entry.internal { border-left-color: var(--internal); }
+  .e-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .badge { font: 700 10.5px/1 var(--mono); letter-spacing: .08em;
+    text-transform: uppercase; padding: 4px 8px; border-radius: 5px; }
+  .badge.feature { background: var(--feature-bg); color: var(--feature); }
+  .badge.improvement { background: var(--improvement-bg); color: var(--improvement); }
+  .badge.fix { background: var(--fix-bg); color: var(--fix); }
+  .badge.breaking { background: var(--breaking-bg); color: var(--breaking); }
+  .badge.docs { background: var(--docs-bg); color: var(--docs); }
+  .badge.internal { background: var(--internal-bg); color: var(--internal); }
+  .e-text { font-size: 14.5px; flex: 1 1 300px; }
+  .commits { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: 500 11px/1 var(--mono); color: var(--ink-3);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; }
+
+  h3.sect { font-size: 13px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-3); margin: 30px 0 12px; }
+  table.contrib { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.contrib td { padding: 7px 10px; border-top: 1px solid var(--line); }
+  table.contrib td:last-child { font-family: var(--mono); text-align: right;
+    color: var(--ink-2); white-space: nowrap; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Release notes</div>
+    <h1>{{REPO}}</h1>
+    <div class="sub">{{REPO_SUB}}</div>
+    <div class="meta">Generated {{GENERATED_AT}} · kraftwerk changelog</div>
+    <span class="range">{{RANGE_LABEL}}</span>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="v">{{COMMITS_VALUE}}</div><div class="l">Commits</div></div>
+    <div class="tile"><div class="v">{{AUTHORS_VALUE}}</div><div class="l">Contributors</div></div>
+    <div class="tile"><div class="v">{{CHANGES_VALUE}}</div><div class="l">Files touched</div><div class="s">{{CHANGES_SUB}}</div></div>
+    <div class="tile"><div class="v">{{ENTRIES_VALUE}}</div><div class="l">Entries</div><div class="s">{{ENTRIES_SUB}}</div></div>
+  </div>
+
+  <section class="card summary">{{SUMMARY_TEXT}}</section>
+
+  {{HIGHLIGHTS_SECTION}}
+
+  {{SECTION_BLOCKS}}
+
+  <h3 class="sect">Contributors</h3>
+  <section class="card">
+    <table class="contrib">{{CONTRIBUTOR_ROWS}}</table>
+  </section>
+
+  <footer>Commit range extracted deterministically; entries written and
+    grouped by the release editor agent; page rendered by script. The same
+    notes exist as changelog.md next to this file.</footer>
+</div>
+</body>
+</html>

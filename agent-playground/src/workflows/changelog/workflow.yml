@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: changelog
+description: "Release notes from git history: script extracts commits since the last tag, an agent (with a scoped git CLI grant) rewrites them into user-facing release notes, script renders an HTML changelog"
+
+# Request = a git URL, a pasted `git clone ...` command, or a local repo path
+# — optionally with a starting ref: "<repo> since v1.2.0". Without a ref the
+# range is latest-tag..HEAD, or the last 100 commits when the repo has no tags.
+
+workspace: |
+  Files in the run directory:
+    repo/            the repository, full history (read-only: never modify
+                     it; removed again by the cleanup step at the end)
+    commits.json     extracted commit range: metadata + per-commit stats
+    changelog.json   structured release notes (you write this)
+    changelog.md     the same notes as markdown (you write this)
+    changelog.html   rendered HTML changelog (script-generated)
+
+# CLI grant: the editor may run git via Bash, scoped to `git` only (claude
+# allowlists Bash(git:*)). The hint below is injected into the persona once.
+clis:
+  git: "read-only history inspection inside repo/, e.g. `git -C repo show --stat <hash>` or `git -C repo show <hash> -- <path>` when a commit subject alone is unclear. Never commit, tag, push, or modify anything."
+
+agents:
+  editor:
+    name: Release Editor
+    model: sonnet
+    tools: [Read, Write]
+    clis: [git]
+    persona: |
+      You are a release-notes editor. You turn raw commit history into notes
+      a USER of the software understands: what changed for them, not which
+      files moved. You group related commits into single entries, translate
+      developer shorthand into plain language, and never invent changes that
+      the commits do not show. Chore/merge noise is summarised, not listed.
+      All output is in English, regardless of the commit language.
+
+steps:
+  - name: extract history
+    run: scripts/prepare.sh
+    gates:
+      - file_non_empty: commits.json
+      - contains: { file: commits.json, text: '"commits"', label: commit list }
+      - contains: { file: commits.json, text: '"range_label"', label: resolved range }
+
+  - name: write notes
+    agent: editor
+    prompt: prompts/write.md
+    gates:
+      - file_non_empty: changelog.json
+      - contains: { file: changelog.json, text: '"sections"', label: sections array }
+      - contains: { file: changelog.json, text: '"highlights"', label: highlights }
+      - file_non_empty: changelog.md
+      - contains: { file: changelog.md, text: "## ", label: markdown sections }
+
+  - name: render changelog
+    run: scripts/render-report.sh
+    gates:
+      - file_non_empty: changelog.html
+      - contains: { file: changelog.html, text: "</html>", label: complete document }
+      - slots_filled: changelog.html
+
+  - name: cleanup
+    run: scripts/cleanup.sh
+
+  - name: output results
+    run: scripts/output.sh
