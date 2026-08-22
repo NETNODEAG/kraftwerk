@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RunDetail, RunListItem, PhaseView, FileView } from "./types";
+import { createChatAndOpen } from "./chat";
 import {
   Link,
   usePoll,
@@ -106,6 +107,13 @@ function RunDetailView({ id }: { id: string }) {
           </button>
         )}
         <span className="spacer" />
+        <button
+          className="open-raw"
+          title="chat with an agent about this run"
+          onClick={() => void createChatAndOpen("claude", { kind: "run", runId: id })}
+        >
+          ⌬ discuss
+        </button>
         <nav className="tabs">
           <button className={active === "run" ? "active" : ""} onClick={() => setTab("run")}>
             run

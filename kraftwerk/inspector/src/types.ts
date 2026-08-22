@@ -17,3 +17,10 @@ export type {
   WorkflowSummary,
   WorkflowDetail,
 } from "../../src/inspector/workflows";
+export type {
+  ChatAgentId,
+  ChatScope,
+  ChatMeta,
+  ChatEvent,
+  StoredChatEvent,
+} from "../../src/inspector/chat/types";

@@ -4,6 +4,7 @@ import { navigate, useHashPath } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
+import { ChatScreen } from "./chat";
 
 /**
  * Shell + hash router. Routes: #/ (redirect to latest run), #/runs/<id>,
@@ -17,6 +18,7 @@ export function App() {
   if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} />;
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
+  else if (seg[0] === "chats") screen = <ChatScreen id={seg[1]} />;
   else screen = <Home />;
 
   return (
@@ -32,6 +34,7 @@ export function App() {
         <nav>
           <a href="#/">runs</a>
           <a href="#/workflows">workflows</a>
+          <a href="#/chats">chat</a>
         </nav>
         <span className="spacer" />
         <OutDir />

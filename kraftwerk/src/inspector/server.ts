@@ -5,6 +5,16 @@ import { setOutputDir, getOutputDir } from "./context.js";
 import { listRuns, getRun, readRunFile } from "./runs.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
+import {
+  cancelChat,
+  createChat,
+  getChat,
+  listChats,
+  postMessage,
+  resolvePermission,
+  subscribeChat,
+} from "./chat/sessions.js";
+import type { ChatAgentId, ChatScope } from "./chat/types.js";
 
 /**
  * The inspector server: a plain node:http server with no dependencies.
@@ -37,6 +47,8 @@ const MAX_TEXT = 400_000;
 type Res = http.ServerResponse;
 
 function json(res: Res, body: unknown, status = 200): void {
+  // A late error on an SSE response must not try to write headers again.
+  if (res.headersSent) return void res.end();
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
 }
@@ -145,6 +157,104 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       } catch (err) {
         return json(res, { error: (err as Error).message }, 503);
       }
+    }
+  }
+
+  // GET/POST /api/chats
+  if (seg.length === 2 && seg[1] === "chats") {
+    if (method === "GET") return json(res, { chats: await listChats() });
+    if (method === "POST") {
+      let body: { agent?: string; scope?: { kind?: string; runId?: string } };
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, { error: "invalid JSON body" }, 400);
+      }
+      const agent = body.agent as ChatAgentId;
+      if (!["claude", "codex", "pi"].includes(agent)) {
+        return json(res, { error: "agent must be claude, codex, or pi" }, 400);
+      }
+      let scope: ChatScope;
+      if (body.scope?.kind === "run" && body.scope.runId) {
+        scope = { kind: "run", runId: body.scope.runId };
+      } else if (body.scope?.kind === "kraftwerk") {
+        scope = { kind: "kraftwerk" };
+      } else {
+        scope = { kind: "general" };
+      }
+      try {
+        return json(res, await createChat({ agent, scope }));
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  // GET /api/chats/:id
+  if (seg.length === 3 && seg[1] === "chats" && method === "GET") {
+    try {
+      const chat = await getChat(seg[2]);
+      return chat ? json(res, chat) : json(res, { error: "not found" }, 404);
+    } catch {
+      return json(res, { error: "invalid chat id" }, 400);
+    }
+  }
+
+  // GET /api/chats/:id/events?after=N — SSE stream of thread events.
+  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "events" && method === "GET") {
+    const afterSeq = Number(url.searchParams.get("after") ?? "0") || 0;
+    const send = (ev: { seq: number }) => {
+      res.write(`id: ${ev.seq}\ndata: ${JSON.stringify(ev)}\n\n`);
+    };
+    let unsubscribe: (() => void) | null = null;
+    try {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-store",
+        connection: "keep-alive",
+      });
+      unsubscribe = await subscribeChat(seg[2], afterSeq, send);
+    } catch {
+      return void res.end();
+    }
+    if (!unsubscribe) return void res.end();
+    const heartbeat = setInterval(() => res.write(":hb\n\n"), 25_000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe?.();
+    });
+    return;
+  }
+
+  // POST /api/chats/:id/{message,permission,cancel}
+  if (seg.length === 4 && seg[1] === "chats" && method === "POST") {
+    let body: Record<string, unknown> = {};
+    try {
+      const raw = await readBody(req);
+      if (raw) body = JSON.parse(raw);
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+    try {
+      let result: { error?: string };
+      if (seg[3] === "message") {
+        const text = String(body.text ?? "").trim();
+        if (!text) return json(res, { error: "text is required" }, 400);
+        result = await postMessage(seg[2], text);
+      } else if (seg[3] === "permission") {
+        result = await resolvePermission(
+          seg[2],
+          String(body.requestId ?? ""),
+          body.optionId == null ? null : String(body.optionId)
+        );
+      } else if (seg[3] === "cancel") {
+        result = await cancelChat(seg[2]);
+      } else {
+        return json(res, { error: "not found" }, 404);
+      }
+      return result.error ? json(res, result, 409) : json(res, { ok: true });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
     }
   }
 
