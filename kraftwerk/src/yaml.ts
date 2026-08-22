@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import type { AgentDefinition } from "./agent.js";
 import type { McpServerConfig } from "./harness.js";
 import { envelopeContract } from "./envelope.js";
-import { containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
+import { checkScript, containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
 import { Run } from "./run.js";
 import { summaryTable } from "./stats.js";
 import { runStamp, type RunResult, type WorkflowDefinition } from "./workflow.js";
@@ -46,7 +46,7 @@ import { runStamp, type RunResult, type WorkflowDefinition } from "./workflow.js
  */
 
 const GATE_HINT =
-  "Gates: file_non_empty: <file> | slots_filled: <file> | contains: {file, text, label?}";
+  "Gates: file_non_empty: <file> | slots_filled: <file> | contains: {file, text, label?} | check: <script> or {run, label?}";
 const VARIABLES = ["request", "agent"];
 
 let compiledSchema: ((data: unknown) => boolean) & { errors?: ErrorObject[] | null };
@@ -71,7 +71,7 @@ const CLI_HINT =
 function formatAjvErrors(errors: ErrorObject[], file: string): string {
   // oneOf mismatches (gates, steps, mcp) explode into per-branch errors; keep it readable.
   const relevant = errors.filter(
-    (e) => e.keyword !== "oneOf" || !/\/gates\/|\/steps\/\d+$|^\/mcp\//.test(e.instancePath)
+    (e) => e.keyword !== "oneOf" || !/\/gates\/|\/if\/|\/steps\/\d+$|^\/mcp\//.test(e.instancePath)
   );
   const lines = relevant.slice(0, 4).map((e) => {
     const where = e.instancePath || "/";
@@ -83,7 +83,11 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
     }
     return `${where}: ${e.message}`;
   });
-  const gateHint = errors.some((e) => e.instancePath.includes("/gates/")) ? `\n${GATE_HINT}` : "";
+  const gateHint = errors.some(
+    (e) => e.instancePath.includes("/gates/") || e.instancePath.includes("/if/")
+  )
+    ? `\n${GATE_HINT}`
+    : "";
   const stepHint = errors.some((e) => e.keyword === "oneOf" && /\/steps\/\d+$/.test(e.instancePath))
     ? `\n${STEP_HINT}`
     : "";
@@ -93,8 +97,8 @@ function formatAjvErrors(errors: ErrorObject[], file: string): string {
 }
 
 type YamlStep =
-  | { kind: "agent"; name: string; agent: AgentDefinition; prompt: string; gates: Gate[] }
-  | { kind: "script"; name: string; script: string; gates: Gate[] };
+  | { kind: "agent"; name: string; agent: AgentDefinition; prompt: string; gates: Gate[]; preconditions: Gate[] }
+  | { kind: "script"; name: string; script: string; gates: Gate[]; preconditions: Gate[] };
 
 /** A YAML-loaded workflow additionally exposes its roster/steps (for the CLI). */
 export interface LoadedWorkflow extends WorkflowDefinition {
@@ -256,9 +260,22 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     const at = (message: string): never => fail(`steps[${i}]: ${message}`);
     if (seen.has(s.name)) at(`step name "${s.name}" is a duplicate`);
     seen.add(s.name);
-    const gates = (s.gates ?? []).map((g: any, j: number) =>
-      buildGate(g, (message) => fail(`steps[${i}].gates[${j}]: ${message}`))
-    );
+    const gates: Gate[] = [];
+    for (const [j, g] of ((s.gates ?? []) as any[]).entries()) {
+      gates.push(
+        await buildGate(g, resolveText, `steps[${i}].gates[${j}]`, (message) =>
+          fail(`steps[${i}].gates[${j}]: ${message}`)
+        )
+      );
+    }
+    const preconditions: Gate[] = [];
+    for (const [j, g] of ((s.if ?? []) as any[]).entries()) {
+      preconditions.push(
+        await buildGate(g, resolveText, `steps[${i}].if[${j}]`, (message) =>
+          fail(`steps[${i}].if[${j}]: ${message}`)
+        )
+      );
+    }
 
     if (s.run !== undefined) {
       const script = await resolveText(s.run, `steps[${i}].run`);
@@ -267,7 +284,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
           at(`unknown variable \${{ ${match[1]} }} — run steps only support \${{ request }} (plus env: REQUEST, RUN_DIR, PHASE, WORKFLOW_DIR)`);
         }
       }
-      steps.push({ kind: "script", name: s.name, script, gates });
+      steps.push({ kind: "script", name: s.name, script, gates, preconditions });
       continue;
     }
 
@@ -281,7 +298,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
         at(`unknown variable \${{ ${match[1]} }} — available: ${VARIABLES.join(", ")}`);
       }
     }
-    steps.push({ kind: "agent", name: s.name, agent: agent!, prompt, gates });
+    steps.push({ kind: "agent", name: s.name, agent: agent!, prompt, gates, preconditions });
   }
 
   const requires: string[] = raw.requires ?? [];
@@ -333,6 +350,22 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       });
 
       for (const step of steps) {
+        // `if:` preconditions — deterministic checks on run-dir files. Any
+        // unmet precondition SKIPS the step (the run continues); this is how
+        // a workflow avoids spawning an agent when there is nothing to do.
+        if (step.preconditions.length > 0) {
+          const unmet: string[] = [];
+          for (const pre of step.preconditions) {
+            const failure = await pre.check(runDir);
+            if (failure) unmet.push(`${pre.name}: ${failure}`);
+          }
+          if (unmet.length > 0) {
+            console.log(`\n▸ Phase "${step.name}" — skipped (if: not met)`);
+            for (const reason of unmet) console.log(`  ↷ ${reason}`);
+            await run.trace("phase_skipped", { phase: step.name, unmet });
+            continue;
+          }
+        }
         if (step.kind === "script") {
           await run.scriptPhase({
             name: step.name,
@@ -367,7 +400,12 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
 export const loadWorkflowYaml = loadWorkflow;
 
 /** One YAML gate entry (single-key mapping, schema-checked) -> a Gate. */
-function buildGate(g: any, at: (message: string) => never): Gate {
+async function buildGate(
+  g: any,
+  resolveText: (value: string, field: string) => Promise<string>,
+  field: string,
+  at: (message: string) => never
+): Promise<Gate> {
   const [gateName, value] = Object.entries(g)[0] as [string, any];
   switch (gateName) {
     case "file_non_empty":
@@ -376,6 +414,12 @@ function buildGate(g: any, at: (message: string) => never): Gate {
       return slotsFilled(value);
     case "contains":
       return containsText(value.file, value.text, value.label ?? value.text);
+    case "check": {
+      // String form: `check: scripts/x.sh`; object form: `check: {run, label?}`.
+      const ref = typeof value === "string" ? value : value.run;
+      const label = typeof value === "string" ? ref : (value.label ?? value.run);
+      return checkScript(await resolveText(ref, field), label);
+    }
     default:
       return at(`unknown gate "${gateName}" — ${GATE_HINT}`);
   }

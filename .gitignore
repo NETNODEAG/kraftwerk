@@ -5,3 +5,4 @@ dist/
 *.log
 .env
 .env.*
+agent-playground/src/workflows/helpdesk-check/

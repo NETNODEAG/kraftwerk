@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -36,6 +37,32 @@ export const slotsFilled = (file: string): Gate => ({
     return content.includes("{{")
       ? `${file} still contains unfilled {{...}} slots`
       : null;
+  },
+});
+
+/**
+ * Workflow-specific validation as a bash script: exit 0 = passed, non-zero =
+ * failed and everything the script printed becomes the failure message — so
+ * precise per-violation output turns directly into a precise correction
+ * prompt. The script runs in the run directory (env: RUN_DIR).
+ */
+export const checkScript = (script: string, label: string): Gate => ({
+  name: `check(${label})`,
+  async check(runDir) {
+    const result = await new Promise<{ code: number; output: string }>((resolve, reject) => {
+      const child = spawn("bash", ["-c", script], {
+        cwd: runDir,
+        env: { ...process.env, RUN_DIR: runDir },
+      });
+      let output = "";
+      child.stdout.on("data", (chunk) => (output += String(chunk)));
+      child.stderr.on("data", (chunk) => (output += String(chunk)));
+      child.on("error", reject);
+      child.on("close", (code) => resolve({ code: code ?? 1, output }));
+    });
+    if (result.code === 0) return null;
+    const tail = result.output.trim().split("\n").slice(-12).join("\n");
+    return tail || `check script failed with exit code ${result.code}`;
   },
 });
 

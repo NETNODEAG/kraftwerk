@@ -4,7 +4,11 @@
   "title": "kraftwerk workflow",
   "description": "A linear workflow of gated agent steps. Folder form: <name>/workflow.yml, where single-line prompt/persona/workspace values may reference files inside the folder (e.g. prompts/step.md).",
   "type": "object",
-  "required": ["name", "description", "steps"],
+  "required": [
+    "name",
+    "description",
+    "steps"
+  ],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -22,21 +26,33 @@
     },
     "requires": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
       "description": "Environment variables the workflow needs (API tokens etc.). Checked before the run starts; missing variables abort with a clear error instead of failing mid-run."
     },
     "mcp": {
       "type": "object",
       "description": "MCP servers stored alongside the workflow, keyed by server name. Agents opt in via their mcp: [names] list.",
-      "propertyNames": { "pattern": "^[A-Za-z0-9_-]+$" },
-      "additionalProperties": { "$ref": "#/definitions/mcpServer" }
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/mcpServer"
+      }
     },
     "clis": {
       "type": "object",
       "description": "CLIs agents may call via Bash, keyed by command prefix (e.g. git, ddev, npm run) with a one-line usage hint (may be empty). Agents opt in via their clis: [names] list; the hint is injected into the agent's persona once — never repeat it in step prompts. claude scopes its Bash allowlist to Bash(<name>:*); codex runs commands in its sandbox anyway; pi gets the plain bash tool (no scoping).",
-      "propertyNames": { "pattern": "^[A-Za-z0-9@_.][A-Za-z0-9@_. /-]*$" },
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9@_.][A-Za-z0-9@_. /-]*$"
+      },
       "additionalProperties": {
-        "type": ["string", "null"],
+        "type": [
+          "string",
+          "null"
+        ],
         "description": "One-line usage hint injected into the granting agent's persona; empty/null = name only"
       }
     },
@@ -44,19 +60,27 @@
       "type": "object",
       "minProperties": 1,
       "description": "Agent roster: id -> definition",
-      "additionalProperties": { "$ref": "#/definitions/agent" }
+      "additionalProperties": {
+        "$ref": "#/definitions/agent"
+      }
     },
     "steps": {
       "type": "array",
       "minItems": 1,
       "description": "Linear sequence of gated steps: agent steps (agent + prompt) or deterministic script steps (run)",
-      "items": { "$ref": "#/definitions/step" }
+      "items": {
+        "$ref": "#/definitions/step"
+      }
     }
   },
   "definitions": {
     "agent": {
       "type": "object",
-      "required": ["model", "tools", "persona"],
+      "required": [
+        "model",
+        "tools",
+        "persona"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -73,16 +97,28 @@
           "description": "Model id in the harness's naming, e.g. haiku, claude-opus-5, gpt-5.6-sol, deepseek/deepseek-chat"
         },
         "effort": {
-          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "description": "Reasoning effort; omit for the model default"
         },
         "runs-on": {
-          "enum": ["claude", "codex", "pi"],
+          "enum": [
+            "claude",
+            "codex",
+            "pi"
+          ],
           "description": "Harness that executes this agent (default: claude)"
         },
         "tools": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Governance: the only tools the agent may use, e.g. [Read, Write, Edit, WebFetch]"
         },
         "persona": {
@@ -92,12 +128,18 @@
         },
         "mcp": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "description": "MCP servers this agent may use (names from the top-level mcp map). Governance like tools. Not supported on runs-on: pi."
         },
         "clis": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "description": "CLIs this agent may use (names from the top-level clis map). Their usage hints are injected into the persona; claude additionally scopes the Bash allowlist to these commands."
         }
       }
@@ -106,7 +148,9 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["command"],
+          "required": [
+            "command"
+          ],
           "additionalProperties": false,
           "properties": {
             "command": {
@@ -116,19 +160,25 @@
             },
             "args": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Arguments; an arg that resolves to a file inside the workflow folder is made absolute (e.g. mcp/multiply-server.ts)"
             },
             "env": {
               "type": "object",
-              "additionalProperties": { "type": "string" },
+              "additionalProperties": {
+                "type": "string"
+              },
               "description": "Extra environment variables for the server process"
             }
           }
         },
         {
           "type": "object",
-          "required": ["url"],
+          "required": [
+            "url"
+          ],
           "additionalProperties": false,
           "properties": {
             "url": {
@@ -142,13 +192,21 @@
     },
     "step": {
       "oneOf": [
-        { "$ref": "#/definitions/agentStep" },
-        { "$ref": "#/definitions/scriptStep" }
+        {
+          "$ref": "#/definitions/agentStep"
+        },
+        {
+          "$ref": "#/definitions/scriptStep"
+        }
       ]
     },
     "agentStep": {
       "type": "object",
-      "required": ["name", "agent", "prompt"],
+      "required": [
+        "name",
+        "agent",
+        "prompt"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -169,13 +227,26 @@
         "gates": {
           "type": "array",
           "description": "Post-execution file checks; failures trigger an in-session correction",
-          "items": { "$ref": "#/definitions/gate" }
+          "items": {
+            "$ref": "#/definitions/gate"
+          }
+        },
+        "if": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED — not failed — and the run continues with the next step.",
+          "items": {
+            "$ref": "#/definitions/gate"
+          }
         }
       }
     },
     "scriptStep": {
       "type": "object",
-      "required": ["name", "run"],
+      "required": [
+        "name",
+        "run"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -191,7 +262,17 @@
         "gates": {
           "type": "array",
           "description": "Post-execution file checks; script steps have no correction loop — a failing gate fails the run (fix the script)",
-          "items": { "$ref": "#/definitions/gate" }
+          "items": {
+            "$ref": "#/definitions/gate"
+          }
+        },
+        "if": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED — not failed — and the run continues with the next step.",
+          "items": {
+            "$ref": "#/definitions/gate"
+          }
         }
       }
     },
@@ -199,7 +280,9 @@
       "oneOf": [
         {
           "type": "object",
-          "required": ["file_non_empty"],
+          "required": [
+            "file_non_empty"
+          ],
           "additionalProperties": false,
           "properties": {
             "file_non_empty": {
@@ -211,7 +294,9 @@
         },
         {
           "type": "object",
-          "required": ["slots_filled"],
+          "required": [
+            "slots_filled"
+          ],
           "additionalProperties": false,
           "properties": {
             "slots_filled": {
@@ -223,18 +308,68 @@
         },
         {
           "type": "object",
-          "required": ["contains"],
+          "required": [
+            "contains"
+          ],
           "additionalProperties": false,
           "properties": {
             "contains": {
               "type": "object",
-              "required": ["file", "text"],
+              "required": [
+                "file",
+                "text"
+              ],
               "additionalProperties": false,
               "properties": {
-                "file": { "type": "string", "minLength": 1 },
-                "text": { "type": "string", "minLength": 1 },
-                "label": { "type": "string", "description": "Short label used in the gate name; defaults to text" }
+                "file": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Short label used in the gate name; defaults to text"
+                }
               }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "check"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Bash validation script executed in the run directory (single-line value = script file inside the workflow folder). Exit 0 = gate passed; non-zero = failed, and everything the script printed becomes the failure message fed into the correction prompt."
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "run"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "run": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Bash validation script (single-line value = script file inside the workflow folder)"
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "Short label used in the gate name; defaults to the script reference"
+                    }
+                  }
+                }
+              ]
             }
           }
         }

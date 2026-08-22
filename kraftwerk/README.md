@@ -313,9 +313,32 @@ npm start -- validate <path>                   # runCli consumers (TS registry)
 ```
 
 Gates: `file_non_empty: <file>`, `slots_filled: <file>`,
-`contains: {file, text, label?}`. Living examples:
+`contains: {file, text, label?}`, and `check: <script>` (or
+`check: {run, label?}`) — a bash validation script executed in the run
+directory; exit 0 passes, non-zero fails and everything the script printed
+becomes the failure message, verbatim in the correction prompt. Single-line
+values reference a file inside the workflow folder, like `run:`.
+
+Steps take an optional `if:` — deterministic preconditions in the same
+forms as gates, evaluated against the run directory just before the step.
+Any unmet precondition SKIPS the step (traced as `phase_skipped`, run
+continues) — the way to avoid spawning an agent when a previous script
+found nothing to do:
+
+```yaml
+  - name: triage tickets
+    agent: triager
+    if:
+      - file_non_empty: todo.json    # written by the fetch step only when work exists
+    prompt: prompts/triage.md
+    gates:
+      - check: scripts/validate-triage.sh
+```
+
+Living examples:
 [`../agent-playground/src/workflows/tagline/`](../agent-playground/src/workflows/tagline/)
-and [`../agent-playground/src/workflows/pitch/`](../agent-playground/src/workflows/pitch/).
+and [`../agent-playground/src/workflows/pitch/`](../agent-playground/src/workflows/pitch/);
+`check`/`if` in [`../agent-playground/src/workflows/helpdesk-check/`](../agent-playground/src/workflows/helpdesk-check/).
 v1 is deliberately linear — approval loops, AGENTS.md-style context files
 and skills stay on the roadmap; anything non-linear is a TS workflow.
 
