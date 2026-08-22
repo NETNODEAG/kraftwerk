@@ -209,6 +209,33 @@ context, or about a specific run.
 npx @netnodeag/kraftwerk ui        # http://localhost:1981, pointed at this project's output/
 ```
 
+## Context & Knowledge
+
+Runs are ephemeral; knowledge shouldn't be. A project can keep curated,
+durable knowledge as [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundles under `knowledge/` — plain markdown files with YAML frontmatter, one
+concept per file, git-tracked and diffable. Frontmatter makes the corpus
+self-describing: who wrote a concept (`generated`), from what (`sources`),
+who confirmed it (`verified`), and whether it is still current (`status`,
+`stale_after`).
+
+- **Chat authors it**: the inspector's "Context & Knowledge" screen opens a
+  knowledge-scoped chat; the agent writes concepts through the CLI, which
+  stamps provenance and maintains each bundle's `index.md` + `log.md`.
+- **Workflows use it**: grant an agent the `kraftwerk knowledge` CLI and it
+  can `get`/`search`/`put` concepts mid-run, stamped with its own actor.
+- **Humans verify it**: one click in the UI records a `human:user`
+  verification and raises the concept's trust tier
+  (unverified → machine-confirmed → human-reviewed).
+
+```bash
+npx @netnodeag/kraftwerk knowledge init customer-support
+npx @netnodeag/kraftwerk knowledge put customer-support/playbooks/refunds --file refunds.md
+npx @netnodeag/kraftwerk knowledge list customer-support
+```
+
+Details in [`kraftwerk/README.md`](kraftwerk/README.md#context--knowledge--okf-bundles).
+
 ## Deploy on a server
 
 [`deploy-starter/`](deploy-starter/) is a folder you copy into your consumer

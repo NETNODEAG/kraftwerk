@@ -15,6 +15,7 @@ import { parse } from "yaml";
  *
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
+ *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -30,6 +31,8 @@ export interface ProjectConfig {
   workflows?: string;
   /** Run-artifact directory relative to the project root. Default: output */
   output?: string;
+  /** OKF knowledge-bundle root relative to the project root. Default: knowledge */
+  knowledge?: string;
 }
 
 export interface Project {
@@ -108,10 +111,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (workflows, output)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (workflows, output, knowledge)`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["workflows", "output"];
+  const known = ["workflows", "output", "knowledge"];
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(

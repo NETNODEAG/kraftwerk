@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getOutputDir, getProjectRoot } from "../context.js";
+import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listWorkflows } from "../workflows.js";
 import { startAcpBackend } from "./acp.js";
@@ -63,7 +64,37 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
 
 /* ---------- scope context ---------- */
 
-async function scopeContext(scope: ChatScope): Promise<string> {
+async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
+  if (scope.kind === "knowledge") {
+    const { root, bundles } = await knowledgeIndex().catch(() => ({ root: "", bundles: [] }));
+    const bundleLines = bundles
+      .map((b) => `- ${b.name} (${b.concepts} concepts${b.updatedAt ? `, updated ${b.updatedAt.slice(0, 10)}` : ""})`)
+      .join("\n");
+    return (
+      `You are the knowledge curator inside the kraftwerk inspector ("Context & Knowledge"). ` +
+      `This project keeps knowledge as OKF v0.2 bundles (Open Knowledge Format): directories of markdown ` +
+      `files with YAML frontmatter under ${root || "knowledge/"}. Each direct subdirectory is one bundle; each .md file ` +
+      `(except the reserved index.md and log.md) is one concept.\n\n` +
+      `Existing bundles:\n${bundleLines || "(none yet)"}\n` +
+      (scope.bundle ? `\nThe user wants to work on the "${scope.bundle}" bundle.\n` : "") +
+      `\nOKF essentials:\n` +
+      `- Frontmatter needs exactly one required key: \`type\` (free-form, e.g. Playbook, Metric, Reference, API Endpoint). ` +
+      `Recommended: title, description, tags, resource (canonical URI of the described asset).\n` +
+      `- Provenance/trust families (all optional): \`sources\` (list of { id, resource, title, author, usage_count, last_modified }), ` +
+      `\`generated: { by, at }\`, \`verified: [{ by, at }]\`, \`status\` (draft|stable|deprecated), \`stale_after\` (ISO datetime).\n` +
+      `- Actors: \`<producer>/<version>\` for agents, \`human:<id>\` for people, \`process:<id>\` for automation.\n` +
+      `- Concepts cross-link with normal markdown links, bundle-absolute (\`/path/concept.md\`) preferred. ` +
+      `Per-claim attribution uses markdown footnotes whose label is a \`sources[].id\`.\n` +
+      `- Favor structural markdown (headings, tables, lists) over prose.\n\n` +
+      `ALWAYS write through the kraftwerk CLI so provenance is stamped and the bundle log/index stay maintained:\n` +
+      `- \`npx kraftwerk knowledge init <bundle>\` — new bundle\n` +
+      `- \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor kraftwerk-chat/${agent}\` — create/update a concept ` +
+      `(write the markdown to a temp file first; the CLI stamps generated.by/at, appends log.md, regenerates index.md)\n` +
+      `- \`npx kraftwerk knowledge list [bundle]\`, \`get <bundle>/<path>\`, \`search <text>\`, \`validate\`\n` +
+      `Do not hand-edit index.md or log.md (derived/maintained), and do not add \`verified\` yourself — ` +
+      `verification is the human's click in the UI. Ask the user what knowledge to capture, then author concise, well-typed concepts.`
+    );
+  }
   if (scope.kind === "kraftwerk") {
     const [{ workflows }, runs] = await Promise.all([listWorkflows(), listRuns()]);
     const wfLines = workflows
@@ -187,7 +218,7 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
   void (async () => {
     try {
       const backend = await ensureBackend(state);
-      const context = isFirst ? await scopeContext(state.meta.scope) : "";
+      const context = isFirst ? await scopeContext(state.meta.scope, state.meta.agent) : "";
       const promptText = context ? `<context>\n${context}\n</context>\n\n${text}` : text;
       const stopReason = await backend.prompt(promptText);
       emit(state, { type: "turn_end", stopReason });

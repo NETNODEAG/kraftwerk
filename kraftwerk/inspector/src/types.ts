@@ -24,3 +24,15 @@ export type {
   ChatEvent,
   StoredChatEvent,
 } from "../../src/inspector/chat/types";
+export type {
+  KnowledgeIndex,
+  BundleDetail,
+} from "../../src/inspector/knowledge";
+export type {
+  BundleInfo,
+  ConceptInfo,
+  ConceptDetail,
+  SourceEntry,
+  VerifiedEntry,
+  TrustTier,
+} from "../../src/okf";

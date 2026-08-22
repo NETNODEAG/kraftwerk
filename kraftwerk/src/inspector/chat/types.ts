@@ -11,7 +11,8 @@ export type ChatAgentId = "claude" | "codex" | "pi";
 export type ChatScope =
   | { kind: "general" }
   | { kind: "kraftwerk" }
-  | { kind: "run"; runId: string };
+  | { kind: "run"; runId: string }
+  | { kind: "knowledge"; bundle?: string };
 
 export interface ChatMeta {
   id: string;

@@ -46,7 +46,13 @@ export function ChatScreen({ id }: { id?: string }) {
                 <div className="side-row-sub">
                   <span className="side-req">
                     {c.agent}
-                    {c.scope.kind === "run" ? ` · ${c.scope.runId}` : c.scope.kind === "kraftwerk" ? " · kraftwerk" : ""}
+                    {c.scope.kind === "run"
+                      ? ` · ${c.scope.runId}`
+                      : c.scope.kind === "kraftwerk"
+                        ? " · kraftwerk"
+                        : c.scope.kind === "knowledge"
+                          ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
+                          : ""}
                   </span>
                 </div>
               </div>
@@ -66,7 +72,7 @@ export function ChatScreen({ id }: { id?: string }) {
 
 export async function createChatAndOpen(
   agent: ChatAgentId,
-  scope: { kind: string; runId?: string }
+  scope: { kind: string; runId?: string; bundle?: string }
 ): Promise<void> {
   const res = await fetch("/api/chats", {
     method: "POST",
@@ -188,6 +194,14 @@ function ChatThread({ id }: { id: string }) {
           </Link>
         )}
         {meta.scope.kind === "kraftwerk" && <span className="chip">kraftwerk-aware</span>}
+        {meta.scope.kind === "knowledge" && (
+          <Link
+            href={meta.scope.bundle ? `/knowledge/${encodeURIComponent(meta.scope.bundle)}` : "/knowledge"}
+            className="chip"
+          >
+            knowledge{meta.scope.bundle ? `:${meta.scope.bundle}` : ""}
+          </Link>
+        )}
         <span className="rid" title={meta.cwd}>
           {meta.cwd}
         </span>

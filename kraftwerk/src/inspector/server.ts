@@ -15,6 +15,14 @@ import {
   subscribeChat,
 } from "./chat/sessions.js";
 import type { ChatAgentId, ChatScope } from "./chat/types.js";
+import {
+  bundleDetail,
+  conceptDetail,
+  createBundle,
+  knowledgeIndex,
+  putConcept,
+  verifyFromUi,
+} from "./knowledge.js";
 
 /**
  * The inspector server: a plain node:http server with no dependencies.
@@ -160,11 +168,85 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // GET/POST /api/knowledge — bundle index / create a bundle
+  if (seg.length === 2 && seg[1] === "knowledge") {
+    if (method === "GET") return json(res, await knowledgeIndex());
+    if (method === "POST") {
+      let body: { name?: string };
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, { error: "invalid JSON body" }, 400);
+      }
+      try {
+        return json(res, await createBundle(String(body.name ?? "").trim()));
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  // GET /api/knowledge/:bundle — concepts + log
+  if (seg.length === 3 && seg[1] === "knowledge" && method === "GET") {
+    try {
+      const detail = await bundleDetail(decodeURIComponent(seg[2]));
+      return detail ? json(res, detail) : json(res, { error: "not found" }, 404);
+    } catch {
+      return json(res, { error: "invalid bundle name" }, 400);
+    }
+  }
+
+  // GET/POST /api/knowledge/:bundle/concept?id=... — read / write one concept
+  if (seg.length === 4 && seg[1] === "knowledge" && seg[3] === "concept") {
+    const bundle = decodeURIComponent(seg[2]);
+    if (method === "GET") {
+      const id = url.searchParams.get("id") ?? "";
+      try {
+        const concept = await conceptDetail(bundle, id);
+        return concept ? json(res, concept) : json(res, { error: "not found" }, 404);
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+    if (method === "POST") {
+      let body: { id?: string; content?: string };
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return json(res, { error: "invalid JSON body" }, 400);
+      }
+      if (!body.id || !body.content?.trim()) {
+        return json(res, { error: "id and content are required" }, 400);
+      }
+      try {
+        return json(res, await putConcept(bundle, body.id, body.content));
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  // POST /api/knowledge/:bundle/verify — human verification from the UI
+  if (seg.length === 4 && seg[1] === "knowledge" && seg[3] === "verify" && method === "POST") {
+    let body: { id?: string };
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return json(res, { error: "invalid JSON body" }, 400);
+    }
+    if (!body.id) return json(res, { error: "id is required" }, 400);
+    try {
+      return json(res, await verifyFromUi(decodeURIComponent(seg[2]), body.id));
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
   // GET/POST /api/chats
   if (seg.length === 2 && seg[1] === "chats") {
     if (method === "GET") return json(res, { chats: await listChats() });
     if (method === "POST") {
-      let body: { agent?: string; scope?: { kind?: string; runId?: string } };
+      let body: { agent?: string; scope?: { kind?: string; runId?: string; bundle?: string } };
       try {
         body = JSON.parse(await readBody(req));
       } catch {
@@ -179,6 +261,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         scope = { kind: "run", runId: body.scope.runId };
       } else if (body.scope?.kind === "kraftwerk") {
         scope = { kind: "kraftwerk" };
+      } else if (body.scope?.kind === "knowledge") {
+        scope = { kind: "knowledge", ...(body.scope.bundle ? { bundle: body.scope.bundle } : {}) };
       } else {
         scope = { kind: "general" };
       }

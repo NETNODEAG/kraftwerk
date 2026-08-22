@@ -56,6 +56,7 @@ kraftwerk list                          # table: workflows, steps, agents (with 
 kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
+kraftwerk knowledge                     # Context & Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
@@ -69,8 +70,9 @@ kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
 ### Project config — kraftwerk.yml
 
 Optional, at the project root (also the root marker for the walk-up); all
-fields optional: `workflows:` (workflows root) and `output:` (run-artifact
-directory, default `output/`).
+fields optional: `workflows:` (workflows root), `output:` (run-artifact
+directory, default `output/`), and `knowledge:` (OKF knowledge-bundle
+root, default `knowledge/`).
 
 ### Triggering from CI / cron / webhooks
 
@@ -128,6 +130,63 @@ runs coding agents against the mounted repo. Agent logins made inside
 the container persist in the `agent-home` volume. This is a different
 image from the `kraftwerk-runner` sandbox (`runner/Dockerfile`) used by
 `run --sandbox`.
+
+## Context & Knowledge — OKF bundles
+
+Alongside runs and chats, a project can keep curated knowledge as
+[OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundles (Open Knowledge Format): directories of markdown files with YAML
+frontmatter under `knowledge/`, one concept per file. Human-readable,
+agent-parseable, diffable in git — and self-describing: frontmatter
+carries provenance (`sources`, `generated`), trust (`verified`), and
+lifecycle (`status`, `stale_after`).
+
+```
+knowledge/
+  customer-support/        # one bundle per subdirectory
+    index.md               # derived directory listing (regenerated on every write)
+    log.md                 # chronological update history (appended on every write)
+    playbooks/refunds.md   # a concept: YAML frontmatter + markdown body
+```
+
+The `kraftwerk knowledge` CLI is the enforced write path — `put` stamps
+`generated: { by, at }` with the writing actor, appends the bundle log,
+and regenerates the derived `index.md`, so an agent-maintained corpus
+stays trustable:
+
+```bash
+kraftwerk knowledge init customer-support               # new bundle
+kraftwerk knowledge put customer-support/playbooks/refunds \
+  --file refunds.md --actor helpdesk-agent/claude-sonnet-5
+kraftwerk knowledge list customer-support               # concepts + trust tier
+kraftwerk knowledge get customer-support/playbooks/refunds   # raw markdown; --json parsed
+kraftwerk knowledge search "refund"                     # full-text across bundles
+kraftwerk knowledge verify customer-support/playbooks/refunds --by human:user
+kraftwerk knowledge validate                            # OKF conformance + warnings
+kraftwerk knowledge fsck --fix                          # heal out-of-band edits (reindex)
+```
+
+Actors follow the OKF convention: `<producer>/<version>` for agents,
+`human:<id>` for people, `process:<id>` for automation. Consumers derive
+a **trust tier** per concept: no `verified` ⇒ unverified, verified by
+non-human actors ⇒ machine-confirmed, verified by a `human:` actor ⇒
+human-reviewed. The inspector's **Context & Knowledge** screen shows
+bundles, concepts with trust/status/staleness badges, sources, and the
+bundle log — the ✓ verify button records a `human:user` verification, and
+"curate in chat" opens a knowledge-scoped chat whose agent knows the OKF
+essentials and writes through the CLI.
+
+Workflows read and write knowledge through the same CLI via a
+[CLI grant](#cli-grants) — the trust model stays intact because every
+agent write is stamped with its actor:
+
+```yaml
+clis:
+  npx kraftwerk knowledge: "OKF knowledge base. Read: `list`, `get <bundle>/<path>`, `search <text>`. Write: `put <bundle>/<path> --file <tmp.md> --actor triager/gpt-5.6`. Frontmatter needs `type:`; never edit index.md/log.md by hand."
+agents:
+  triager:
+    clis: [npx kraftwerk knowledge]
+```
 
 ## The agent — four axes
 

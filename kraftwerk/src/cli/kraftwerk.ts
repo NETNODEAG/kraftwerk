@@ -11,6 +11,7 @@ import { loadWorkflow, missingEnv, type LoadedWorkflow } from "../yaml.js";
 import { renderCreateBrief } from "./create-brief.js";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
+import { registerKnowledgeCommands } from "./knowledge.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
 
@@ -21,6 +22,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
+ *   kraftwerk knowledge ...           Context & Knowledge: OKF bundles (list/get/put/verify/...)
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
@@ -284,6 +286,8 @@ runs
   .action(async (runId: string, opts: { json?: boolean }) => {
     await showRun(process.cwd(), runId, opts);
   });
+
+registerKnowledgeCommands(program);
 
 program
   .command("ui")
