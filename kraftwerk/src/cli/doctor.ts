@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import { resolveProject } from "../config.js";
@@ -25,6 +26,30 @@ function report(level: Level, label: string, detail?: string): void {
   console.log(`${ICONS[level]} ${label}${detail ? chalk.dim(` — ${detail}`) : ""}`);
 }
 
+/** True if a < b for plain x.y.z versions (prerelease tags ignored). */
+function semverLt(a: string, b: string): boolean {
+  const pa = a.split("-")[0].split(".").map(Number);
+  const pb = b.split("-")[0].split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0);
+  }
+  return false;
+}
+
+/** Latest published version from the npm registry, or undefined if unreachable. */
+async function latestNpmVersion(name: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(`https://registry.npmjs.org/${name}/latest`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { version?: string };
+    return data.version;
+  } catch {
+    return undefined;
+  }
+}
+
 function cliVersion(command: string): string | undefined {
   const r = spawnSync(command, ["--version"], { encoding: "utf8", timeout: 10_000 });
   if (r.status !== 0) return undefined;
@@ -40,6 +65,19 @@ export async function runDoctor(cwd: string): Promise<void> {
   else {
     report("fail", `node ${process.versions.node}`, "kraftwerk needs node >= 20");
     failures++;
+  }
+
+  // kraftwerk version vs npm.
+  const pkg = JSON.parse(
+    await readFile(new URL("../../package.json", import.meta.url), "utf8")
+  ) as { name: string; version: string };
+  const latest = await latestNpmVersion(pkg.name);
+  if (!latest) {
+    report("info", `kraftwerk ${pkg.version}`, "could not reach npm registry to check for updates");
+  } else if (semverLt(pkg.version, latest)) {
+    report("warn", `kraftwerk ${pkg.version}`, `${latest} available — npm i -g ${pkg.name}@latest`);
+  } else {
+    report("ok", `kraftwerk ${pkg.version}`, latest === pkg.version ? "latest on npm" : `ahead of npm (latest: ${latest})`);
   }
 
   // Project.
