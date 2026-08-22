@@ -1,0 +1,33 @@
+# Traefik override: exposes the UI at https://$KRAFTWERK_HOST behind
+# basic-auth. Assumes an already-running traefik that watches the docker
+# provider on the external network "traefik", with an entrypoint
+# "websecure" and a certresolver "letsencrypt" — rename the labels below
+# to match your install.
+#
+#   docker compose -f compose.yml -f compose.traefik.yml up -d --build
+#
+# Requires in .env:
+#   KRAFTWERK_HOST=kraftwerk.example.com
+#   KRAFTWERK_BASIC_AUTH=user:$$2y$$05$$...   # htpasswd -nB user  ($ doubled!)
+#
+# Basic-auth is NOT optional: the UI itself is unauthenticated and its
+# chat executes coding agents inside the container.
+
+services:
+  ui:
+    networks:
+      - default
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.kraftwerk.rule=Host(`${KRAFTWERK_HOST}`)
+      - traefik.http.routers.kraftwerk.entrypoints=websecure
+      - traefik.http.routers.kraftwerk.tls.certresolver=letsencrypt
+      - traefik.http.services.kraftwerk.loadbalancer.server.port=1981
+      - traefik.http.routers.kraftwerk.middlewares=kraftwerk-auth
+      - traefik.http.middlewares.kraftwerk-auth.basicauth.users=${KRAFTWERK_BASIC_AUTH}
+
+networks:
+  traefik:
+    external: true

@@ -1,0 +1,45 @@
+# kraftwerk inspector for this repo — base compose: localhost only.
+#
+#   cd deploy
+#   cp .env.example .env      # fill in API keys
+#   docker compose up -d --build
+#   -> http://127.0.0.1:1981
+#
+# On a server behind traefik, layer the override on top (see
+# compose.traefik.yml):
+#
+#   docker compose -f compose.yml -f compose.traefik.yml up -d --build
+#
+# The UI has NO authentication of its own and its chat runs coding agents
+# with full access to the mounted repo — never publish the port beyond
+# 127.0.0.1; remote access only via SSH tunnel or the traefik override
+# with basic-auth.
+#
+# Agent auth:
+#   - claude + pi: ANTHROPIC_API_KEY from .env
+#   - codex: OPENAI_API_KEY from .env, or persist a ChatGPT login once:
+#       docker compose exec ui codex login
+#     (stored in the agent-home volume, survives restarts)
+
+name: kraftwerk
+
+services:
+  ui:
+    build: .
+    image: kraftwerk-ui
+    container_name: kraftwerk-ui
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "127.0.0.1:1981:1981"
+    volumes:
+      # The consumer repo this UI serves: workflows are read from
+      # src/workflows/ (or workflows/), runs + chats persist to output/.
+      - ..:/work
+      # Agent CLI auth/config (.claude.json, .codex, .pi, ...).
+      - agent-home:/root
+    restart: unless-stopped
+
+volumes:
+  agent-home:

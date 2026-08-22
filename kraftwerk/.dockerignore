@@ -1,0 +1,10 @@
+# Context ignore for runner/Dockerfile (kraftwerk-runner sandbox image,
+# built by `kraftwerk runner build` with this directory as context).
+# It copies the host-built dist/, so dist/ must stay in the context.
+# The UI image lives in the repo root's deploy-starter/.
+.git
+node_modules
+inspector/node_modules
+inspector/dist
+output
+examples

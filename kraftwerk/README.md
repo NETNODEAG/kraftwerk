@@ -116,6 +116,19 @@ agent (Claude Code, Codex): it prints a self-contained brief — schema
 example, gates, harness rules, verify ladder — that the agent follows to
 author the workflow folder and validate/smoke it with this CLI.
 
+### Inspector on a server — deploy starter
+
+The repo root ships [`deploy-starter/`](../deploy-starter/): copy it
+into your consumer repo as `deploy/` and it builds a small image (this
+package from npm + the claude/codex/pi CLIs) that serves `kraftwerk ui`
+for that repo, bind-mounted at `/work`. `compose.yml` is localhost-only
+(SSH tunnel); `compose.traefik.yml` layers traefik routing + mandatory
+basic-auth on top — the UI has no authentication of its own and its chat
+runs coding agents against the mounted repo. Agent logins made inside
+the container persist in the `agent-home` volume. This is a different
+image from the `kraftwerk-runner` sandbox (`runner/Dockerfile`) used by
+`run --sandbox`.
+
 ## The agent — four axes
 
 ```ts

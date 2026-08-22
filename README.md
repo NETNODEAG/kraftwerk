@@ -52,6 +52,7 @@ That is the whole idea. The rest is tooling around it.
 | --- | --- |
 | [`kraftwerk/`](kraftwerk/) | The framework, the `kraftwerk` CLI, the Docker sandbox runner, and the inspector web UI. Deep docs in its [README](kraftwerk/README.md). |
 | [`agent-playground/`](agent-playground/) | A zero-code consumer. Only YAML workflow folders, no entry file. The best way to see real workflows. |
+| [`deploy-starter/`](deploy-starter/) | Copy into a consumer repo as `deploy/`: Docker image + compose (traefik-ready) serving the inspector UI for that repo. |
 
 The playground workflows, roughly simplest to most involved:
 
@@ -200,11 +201,32 @@ the container has no access to the rest of your disk.
 A lightweight web UI for watching runs — a prebuilt Vite + React app served by a
 dependency-free Node server, so it starts instantly with nothing to install. It
 shows a live phase timeline, the trace, and every artifact per run. You can also
-trigger a sandboxed run from the UI and jump right to it.
+trigger a sandboxed run from the UI and jump right to it, or chat with an agent
+(claude, codex, pi) — as a general coding assistant, with kraftwerk project
+context, or about a specific run.
 
 ```bash
 npx @netnodeag/kraftwerk ui        # http://localhost:1981, pointed at this project's output/
 ```
+
+## Deploy on a server
+
+[`deploy-starter/`](deploy-starter/) is a folder you copy into your consumer
+repo as `deploy/`. It builds a small Docker image — kraftwerk from npm plus the
+claude/codex/pi CLIs — and serves the inspector for that repo, which is
+bind-mounted into the container (runs and chats persist to its `output/`).
+
+```bash
+cd deploy
+cp .env.example .env               # ANTHROPIC_API_KEY, OPENAI_API_KEY
+docker compose up -d --build       # -> 127.0.0.1:1981 (SSH tunnel), or:
+docker compose -f compose.yml -f compose.traefik.yml up -d --build
+```
+
+The traefik override publishes it at `https://$KRAFTWERK_HOST` behind
+basic-auth — mandatory, since the UI is unauthenticated and its chat runs
+coding agents with full access to the mounted repo. Details in the starter's
+[README](deploy-starter/README.md).
 
 For the primitives, the harness details, and the full YAML schema, read
 [`kraftwerk/README.md`](kraftwerk/README.md).
