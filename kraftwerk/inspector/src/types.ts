@@ -29,6 +29,14 @@ export type {
   BundleDetail,
 } from "../../src/inspector/knowledge";
 export type {
+  TeamMember,
+  TeamMemberDetail,
+} from "../../src/inspector/team";
+export type {
+  Routine,
+  RoutineStatus,
+} from "../../src/inspector/routines";
+export type {
   BundleInfo,
   ConceptInfo,
   ConceptDetail,

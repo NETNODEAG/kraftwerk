@@ -209,6 +209,37 @@ context, or about a specific run.
 npx @netnodeag/kraftwerk ui        # http://localhost:1981, pointed at this project's output/
 ```
 
+## Team — persistent agents
+
+Chat is throwaway; a team member isn't. The inspector's "team" screen lets you
+build agents like employees: each one has a name, an emoji, a role (system
+prompt), a harness + model + effort to run on, and the workflows that belong
+to its job. A member lives in `agents/<slug>/` as `agent.yml` + `system.md` —
+git-tracked, so your team travels with the repo.
+
+Every session is a conversation with that same agent. Its connected workflows
+are autoloaded into its context, so "check the website" makes it run
+`kraftwerk run website-check ...` itself and report back. Sessions are listed
+per agent in a second sidebar; the definition is editable in the UI or in the
+files directly.
+
+Agents can also have **routines** — cron-scheduled prompts
+(`agents/<slug>/routines.yml`), like standing orders: every due routine opens
+a fresh session, runs unattended (permissions auto-approved), and lands in
+the sessions sidebar as "⏰ <name>" for review.
+
+```yaml
+# agents/max/agent.yml
+name: Max
+emoji: 🛠️
+description: Runs and explains this project's workflows
+harness: claude        # claude | codex | pi
+model: sonnet
+effort: medium         # low | medium | high | xhigh | max
+workflows: [tagline, website-check]
+knowledge: [customer-support]   # OKF bundles it consults & maintains
+```
+
 ## Context & Knowledge
 
 Runs are ephemeral; knowledge shouldn't be. A project can keep curated,

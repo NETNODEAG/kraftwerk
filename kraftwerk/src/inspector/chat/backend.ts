@@ -20,6 +20,15 @@ export interface BackendHooks {
   ): Promise<string | null>;
 }
 
+/**
+ * Optional per-chat model/effort overrides (from a team member definition).
+ * Each backend maps them onto whatever its agent actually supports.
+ */
+export interface BackendTuning {
+  model?: string;
+  effort?: string;
+}
+
 export interface ChatBackend {
   /** Send one user message; resolves with the stop reason at turn end. */
   prompt(text: string): Promise<string>;

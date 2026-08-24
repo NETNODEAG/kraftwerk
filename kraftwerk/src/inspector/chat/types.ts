@@ -12,7 +12,8 @@ export type ChatScope =
   | { kind: "general" }
   | { kind: "kraftwerk" }
   | { kind: "run"; runId: string }
-  | { kind: "knowledge"; bundle?: string };
+  | { kind: "knowledge"; bundle?: string }
+  | { kind: "team"; member: string; routine?: string };
 
 export interface ChatMeta {
   id: string;

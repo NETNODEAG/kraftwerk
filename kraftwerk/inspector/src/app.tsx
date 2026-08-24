@@ -6,10 +6,12 @@ import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
 import { ChatScreen } from "./chat";
 import { KnowledgeScreen } from "./knowledge";
+import { TeamScreen } from "./team";
 
 /**
  * Shell + hash router. Routes: #/ (redirect to latest run), #/runs/<id>,
- * #/workflows, #/workflows/<slug>, #/knowledge[/<bundle>[/<concept-path>]].
+ * #/workflows, #/workflows/<slug>, #/knowledge[/<bundle>[/<concept-path>]],
+ * #/team[/new | /<slug>[/edit | /chat/<chatId>]].
  */
 export function App() {
   const path = useHashPath();
@@ -20,6 +22,7 @@ export function App() {
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
   else if (seg[0] === "chats") screen = <ChatScreen id={seg[1]} />;
+  else if (seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
     screen = (
@@ -44,6 +47,7 @@ export function App() {
           <a href="#/">runs</a>
           <a href="#/workflows">workflows</a>
           <a href="#/chats">chat</a>
+          <a href="#/team">team</a>
           <a href="#/knowledge">context &amp; knowledge</a>
         </nav>
         <span className="spacer" />

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { BackendHooks, ChatBackend } from "./backend.js";
+import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
 
 /**
  * pi chat backend: pi has no ACP support, but its `-p --mode json` run with
@@ -31,16 +31,24 @@ const clip = (raw: unknown): string => {
   return oneLine.length > 120 ? `${oneLine.slice(0, 120)}…` : oneLine;
 };
 
-export function startPiBackend(cwd: string, hooks: BackendHooks): ChatBackend {
+export function startPiBackend(
+  cwd: string,
+  hooks: BackendHooks,
+  tuning: BackendTuning = {}
+): ChatBackend {
   const sessionId = randomUUID();
   let child: ChildProcessWithoutNullStreams | null = null;
   let cancelled = false;
+  const tuningArgs = [
+    ...(tuning.model ? ["--model", tuning.model] : []),
+    ...(tuning.effort ? ["--thinking", tuning.effort] : []),
+  ];
 
   return {
     prompt(text: string): Promise<string> {
       cancelled = false;
       return new Promise((resolve, reject) => {
-        const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId], {
+        const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...tuningArgs], {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
           env: process.env,

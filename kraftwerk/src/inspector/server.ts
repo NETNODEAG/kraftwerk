@@ -23,6 +23,22 @@ import {
   putConcept,
   verifyFromUi,
 } from "./knowledge.js";
+import {
+  deleteMember,
+  getMember,
+  listMembers,
+  saveMember,
+  teamRoot,
+  type SaveMemberInput,
+} from "./team.js";
+import {
+  deleteRoutine,
+  routineStatuses,
+  runRoutineNow,
+  saveRoutine,
+  startRoutineScheduler,
+  type SaveRoutineInput,
+} from "./routines.js";
 
 /**
  * The inspector server: a plain node:http server with no dependencies.
@@ -242,22 +258,95 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // GET/POST /api/team — member list / create a member
+  if (seg.length === 2 && seg[1] === "team") {
+    if (method === "GET") {
+      return json(res, { root: await teamRoot(), members: await listMembers() });
+    }
+    if (method === "POST") {
+      try {
+        const body = JSON.parse(await readBody(req)) as SaveMemberInput;
+        return json(res, await saveMember({ ...body, slug: undefined }));
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  // GET/POST /api/team/:slug/routines — list (with run state) / upsert
+  if (seg.length === 4 && seg[1] === "team" && seg[3] === "routines") {
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "GET") return json(res, { routines: await routineStatuses(slug) });
+      if (method === "POST") {
+        const body = JSON.parse(await readBody(req)) as SaveRoutineInput;
+        return json(res, await saveRoutine(slug, body));
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // DELETE /api/team/:slug/routines/:id | POST /api/team/:slug/routines/:id/run
+  if (seg.length >= 5 && seg[1] === "team" && seg[3] === "routines") {
+    const slug = decodeURIComponent(seg[2]);
+    const id = decodeURIComponent(seg[4]);
+    try {
+      if (seg.length === 5 && method === "DELETE") {
+        await deleteRoutine(slug, id);
+        return json(res, { ok: true });
+      }
+      if (seg.length === 6 && seg[5] === "run" && method === "POST") {
+        return json(res, await runRoutineNow(slug, id));
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET/PUT/DELETE /api/team/:slug
+  if (seg.length === 3 && seg[1] === "team") {
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "GET") {
+        const member = await getMember(slug);
+        return member ? json(res, member) : json(res, { error: "not found" }, 404);
+      }
+      if (method === "PUT") {
+        const body = JSON.parse(await readBody(req)) as SaveMemberInput;
+        return json(res, await saveMember({ ...body, slug }));
+      }
+      if (method === "DELETE") {
+        await deleteMember(slug);
+        return json(res, { ok: true });
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
   // GET/POST /api/chats
   if (seg.length === 2 && seg[1] === "chats") {
     if (method === "GET") return json(res, { chats: await listChats() });
     if (method === "POST") {
-      let body: { agent?: string; scope?: { kind?: string; runId?: string; bundle?: string } };
+      let body: {
+        agent?: string;
+        scope?: { kind?: string; runId?: string; bundle?: string; member?: string };
+      };
       try {
         body = JSON.parse(await readBody(req));
       } catch {
         return json(res, { error: "invalid JSON body" }, 400);
       }
-      const agent = body.agent as ChatAgentId;
-      if (!["claude", "codex", "pi"].includes(agent)) {
-        return json(res, { error: "agent must be claude, codex, or pi" }, 400);
-      }
+      let agent = body.agent as ChatAgentId;
       let scope: ChatScope;
-      if (body.scope?.kind === "run" && body.scope.runId) {
+      if (body.scope?.kind === "team" && body.scope.member) {
+        // Team sessions run on the member's configured harness.
+        const member = await getMember(body.scope.member).catch(() => null);
+        if (!member) return json(res, { error: "team agent not found" }, 404);
+        scope = { kind: "team", member: member.slug };
+        agent = member.harness;
+      } else if (body.scope?.kind === "run" && body.scope.runId) {
         scope = { kind: "run", runId: body.scope.runId };
       } else if (body.scope?.kind === "kraftwerk") {
         scope = { kind: "kraftwerk" };
@@ -265,6 +354,9 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         scope = { kind: "knowledge", ...(body.scope.bundle ? { bundle: body.scope.bundle } : {}) };
       } else {
         scope = { kind: "general" };
+      }
+      if (!["claude", "codex", "pi"].includes(agent)) {
+        return json(res, { error: "agent must be claude, codex, or pi" }, 400);
       }
       try {
         return json(res, await createChat({ agent, scope }));
@@ -376,6 +468,7 @@ export interface InspectorOptions {
 /** Start the server; resolves once it listens. Runs until the process ends. */
 export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   setOutputDir(opts.outputDir);
+  startRoutineScheduler();
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");

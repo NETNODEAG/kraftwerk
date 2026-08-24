@@ -6,3 +6,7 @@ dist/
 .env
 .env.*
 agent-playground/src/workflows/helpdesk-check/
+agent-playground/knowledge/*
+!agent-playground/knowledge/demo-customer-support/
+agent-playground/agents/*
+!agent-playground/agents/max/

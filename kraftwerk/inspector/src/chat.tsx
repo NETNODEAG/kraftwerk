@@ -18,7 +18,8 @@ const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
 
 export function ChatScreen({ id }: { id?: string }) {
   const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
-  const chats = data?.chats ?? [];
+  // Team sessions live on the team screen, not in the general chat list.
+  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "team");
 
   return (
     <div className="runs-screen">
@@ -72,7 +73,7 @@ export function ChatScreen({ id }: { id?: string }) {
 
 export async function createChatAndOpen(
   agent: ChatAgentId,
-  scope: { kind: string; runId?: string; bundle?: string }
+  scope: { kind: string; runId?: string; bundle?: string; member?: string }
 ): Promise<void> {
   const res = await fetch("/api/chats", {
     method: "POST",
@@ -80,7 +81,13 @@ export async function createChatAndOpen(
     body: JSON.stringify({ agent, scope }),
   });
   const meta = await res.json();
-  if (meta.id) navigate(`/chats/${meta.id}`);
+  if (meta.id) {
+    navigate(
+      meta.scope?.kind === "team"
+        ? `/team/${encodeURIComponent(meta.scope.member)}/chat/${meta.id}`
+        : `/chats/${meta.id}`
+    );
+  }
 }
 
 function NewChat() {
@@ -140,7 +147,7 @@ function NewChat() {
 
 /* ---------- thread ---------- */
 
-function ChatThread({ id }: { id: string }) {
+export function ChatThread({ id }: { id: string }) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
@@ -200,6 +207,11 @@ function ChatThread({ id }: { id: string }) {
             className="chip"
           >
             knowledge{meta.scope.bundle ? `:${meta.scope.bundle}` : ""}
+          </Link>
+        )}
+        {meta.scope.kind === "team" && (
+          <Link href={`/team/${encodeURIComponent(meta.scope.member)}`} className="chip">
+            team:{meta.scope.member}
           </Link>
         )}
         <span className="rid" title={meta.cwd}>

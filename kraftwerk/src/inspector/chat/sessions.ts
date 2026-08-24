@@ -3,9 +3,10 @@ import { getOutputDir, getProjectRoot } from "../context.js";
 import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listWorkflows } from "../workflows.js";
+import { getMember } from "../team.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
-import type { ChatBackend } from "./backend.js";
+import type { BackendTuning, ChatBackend } from "./backend.js";
 import type { ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
 import { appendEvent, listChatMetas, newChatId, readEvents, readMeta, writeMeta } from "./store.js";
 
@@ -64,7 +65,74 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
 
 /* ---------- scope context ---------- */
 
+/** "## Your knowledge" block for a team member's connected OKF bundles. */
+async function teamKnowledgeContext(member: {
+  slug: string;
+  harness: ChatAgentId;
+  knowledge: string[];
+}): Promise<string> {
+  if (member.knowledge.length === 0) return "";
+  const { bundles } = await knowledgeIndex().catch(() => ({ bundles: [] }));
+  const lines = member.knowledge
+    .map((name) => {
+      const b = bundles.find((x) => x.name === name);
+      return b
+        ? `- ${b.name} (${b.concepts} concepts${b.updatedAt ? `, updated ${b.updatedAt.slice(0, 10)}` : ""})`
+        : `- ${name} (not found in knowledge/ — tell the user if you need it)`;
+    })
+    .join("\n");
+  return (
+    `## Your knowledge\nThese OKF knowledge bundles (markdown + YAML frontmatter under knowledge/) are ` +
+    `part of your job. Consult them before answering questions in their domain, and keep them current ` +
+    `when you learn something durable:\n${lines}\n\n` +
+    `Read with \`npx kraftwerk knowledge list <bundle>\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
+    `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor ${member.slug}/${member.harness}\` ` +
+    `(write the markdown to a temp file first; the CLI stamps provenance and maintains index.md/log.md). ` +
+    `Never hand-edit index.md or log.md, and never add \`verified\` yourself — verification is the human's ` +
+    `click in the UI.\n\n`
+  );
+}
+
 async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
+  if (scope.kind === "team") {
+    const member = await getMember(scope.member).catch(() => null);
+    if (!member) {
+      return `You were opened as team agent "${scope.member}", but its definition under agents/ is missing. Tell the user and ask them to recreate it.`;
+    }
+    const { workflows } = await listWorkflows().catch(() => ({ workflows: [] }));
+    const connected = workflows.filter((w) => member.workflows.includes(w.slug));
+    const missing = member.workflows.filter((slug) => !connected.some((w) => w.slug === slug));
+    const wfLines = connected
+      .map((w) => `- ${w.slug}: ${w.description ?? w.name ?? ""} (${w.steps} steps)`)
+      .join("\n");
+    return (
+      `You are ${member.emoji} ${member.name}, a persistent agent teammate on this project's team ` +
+      `(defined in agents/${member.slug}/). The user works with you like with a colleague: every session ` +
+      `is a conversation with the same ${member.name}, so keep this role consistently. You are an AI agent, ` +
+      `not a human — never pretend otherwise, but do own your role.\n\n` +
+      `## Your role\n${member.system || "(no system prompt written yet — ask the user what your job should be)"}\n\n` +
+      (member.workflows.length > 0
+        ? `## Your workflows\nThese kraftwerk workflows are part of your job. When the user's request matches one, ` +
+          `run it yourself instead of doing the work by hand:\n${wfLines || "(none found)"}\n` +
+          (missing.length > 0
+            ? `(configured but not found in this project: ${missing.join(", ")})\n`
+            : "") +
+          `\nRun a workflow with:\n` +
+          `  KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"\n` +
+          `The command blocks until the run finishes; artifacts land in output/run-*/ — tell the user the ` +
+          `run id and summarize the result. Confirm with the user before starting a long or expensive run ` +
+          `unless they clearly asked for it.\n\n`
+        : "") +
+      (await teamKnowledgeContext(member)) +
+      `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
+      `say so and suggest which teammate or tool fits better.` +
+      (scope.routine
+        ? `\n\nThis session was started automatically by your scheduled routine "${scope.routine}" — ` +
+          `nobody may be watching live. Complete the task autonomously (tool permissions are ` +
+          `auto-approved) and end with a clear, self-contained summary of what you did and found.`
+        : "")
+    );
+  }
   if (scope.kind === "knowledge") {
     const { root, bundles } = await knowledgeIndex().catch(() => ({ root: "", bundles: [] }));
     const bundleLines = bundles
@@ -130,6 +198,16 @@ async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<strin
 
 /* ---------- backend lifecycle ---------- */
 
+/** Team chats carry the member's model/effort; resolved live so edits apply to new backends. */
+async function backendTuning(scope: ChatScope): Promise<BackendTuning> {
+  if (scope.kind !== "team") return {};
+  const member = await getMember(scope.member).catch(() => null);
+  return {
+    ...(member?.model ? { model: member.model } : {}),
+    ...(member?.effort ? { effort: member.effort } : {}),
+  };
+}
+
 async function ensureBackend(state: ChatState): Promise<ChatBackend> {
   if (state.backend) return state.backend;
   const hooks = {
@@ -137,8 +215,18 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
     askPermission: (
       title: string,
       options: Array<{ optionId: string; name: string; kind?: string }>
-    ): Promise<string | null> =>
-      new Promise((resolve) => {
+    ): Promise<string | null> => {
+      // Routine-triggered sessions run unattended: auto-approve, but keep
+      // the request/resolution pair in the thread as an audit trail.
+      const scope = state.meta.scope;
+      if (scope.kind === "team" && scope.routine) {
+        const allow = options.find((o) => o.kind?.startsWith("allow")) ?? options[0];
+        const requestId = randomUUID();
+        emit(state, { type: "permission_request", requestId, title, options });
+        emit(state, { type: "permission_resolved", requestId, optionId: allow?.optionId ?? null });
+        return Promise.resolve(allow?.optionId ?? null);
+      }
+      return new Promise((resolve) => {
         const requestId = randomUUID();
         state.pendingPermissions.set(requestId, (optionId) => {
           state.pendingPermissions.delete(requestId);
@@ -146,11 +234,15 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
           resolve(optionId);
         });
         emit(state, { type: "permission_request", requestId, title, options });
-      }),
+      });
+    },
   };
   const { agent, cwd } = state.meta;
+  const tuning = await backendTuning(state.meta.scope);
   state.backend =
-    agent === "pi" ? startPiBackend(cwd, hooks) : await startAcpBackend(agent, cwd, hooks);
+    agent === "pi"
+      ? startPiBackend(cwd, hooks, tuning)
+      : await startAcpBackend(agent, cwd, hooks, tuning);
   return state.backend;
 }
 
@@ -159,13 +251,15 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
 export async function createChat(opts: {
   agent: ChatAgentId;
   scope: ChatScope;
+  /** Preset title (e.g. routine runs); otherwise the first message names the chat. */
+  title?: string;
 }): Promise<ChatMeta> {
   const cwd = opts.scope.kind === "run" ? safeRunDir(opts.scope.runId) : getProjectRoot();
   const now = new Date().toISOString();
   const meta: ChatMeta = {
     id: newChatId(),
     agent: opts.agent,
-    title: "",
+    title: opts.title ?? "",
     cwd,
     scope: opts.scope,
     createdAt: now,
@@ -207,7 +301,7 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
 
   state.busy = true;
   const isFirst = !state.events.some((e) => e.type === "user_message");
-  if (isFirst) {
+  if (isFirst && !state.meta.title) {
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
     void writeMeta(state.meta).catch(() => {});
   }

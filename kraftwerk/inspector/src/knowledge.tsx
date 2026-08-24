@@ -161,27 +161,8 @@ function BundleView({ name }: { name: string }) {
         ) : (
           <table className="know-table">
             <tbody>
-              {data.concepts.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <Link href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}>
-                      <b>{c.title}</b> <span className="know-id">{c.id}</span>
-                    </Link>
-                  </td>
-                  <td className="know-type">{c.type ?? "?"}</td>
-                  <td>
-                    <TrustBadge tier={c.trustTier} />
-                  </td>
-                  <td className="know-flags">
-                    {c.status !== "stable" && <span className={`chip ${c.status}`}>{c.status}</span>}
-                    {c.stale && <span className="chip stale">stale</span>}
-                    {c.error && (
-                      <span className="chip stale" title={c.error}>
-                        invalid
-                      </span>
-                    )}
-                  </td>
-                </tr>
+              {groupByFolder(data.concepts).map(({ folder, concepts }) => (
+                <FolderGroup key={folder || "."} name={name} folder={folder} concepts={concepts} />
               ))}
             </tbody>
           </table>
@@ -198,6 +179,63 @@ function BundleView({ name }: { name: string }) {
         </section>
       )}
     </div>
+  );
+}
+
+/** Group concepts by their directory within the bundle, root first. */
+function groupByFolder(concepts: BundleDetail["concepts"]) {
+  const groups = new Map<string, BundleDetail["concepts"]>();
+  for (const c of concepts) {
+    const folder = c.id.includes("/") ? c.id.slice(0, c.id.lastIndexOf("/")) : "";
+    (groups.get(folder) ?? groups.set(folder, []).get(folder)!).push(c);
+  }
+  return [...groups.keys()]
+    .sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)))
+    .map((folder) => ({ folder, concepts: groups.get(folder)! }));
+}
+
+function FolderGroup({
+  name,
+  folder,
+  concepts,
+}: {
+  name: string;
+  folder: string;
+  concepts: BundleDetail["concepts"];
+}) {
+  return (
+    <>
+      {folder && (
+        <tr className="know-folder-row">
+          <td colSpan={4}>
+            <span className="know-folder">▸ {folder}/</span>
+          </td>
+        </tr>
+      )}
+      {concepts.map((c) => (
+        <tr key={c.id}>
+          <td className={folder ? "know-indent" : undefined}>
+            <Link href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}>
+              <b>{c.title}</b>{" "}
+              <span className="know-id">{folder ? c.id.slice(folder.length + 1) : c.id}.md</span>
+            </Link>
+          </td>
+          <td className="know-type">{c.type ?? "?"}</td>
+          <td>
+            <TrustBadge tier={c.trustTier} />
+          </td>
+          <td className="know-flags">
+            {c.status !== "stable" && <span className={`chip ${c.status}`}>{c.status}</span>}
+            {c.stale && <span className="chip stale">stale</span>}
+            {c.error && (
+              <span className="chip stale" title={c.error}>
+                invalid
+              </span>
+            )}
+          </td>
+        </tr>
+      ))}
+    </>
   );
 }
 

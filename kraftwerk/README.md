@@ -71,8 +71,9 @@ kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
 
 Optional, at the project root (also the root marker for the walk-up); all
 fields optional: `workflows:` (workflows root), `output:` (run-artifact
-directory, default `output/`), and `knowledge:` (OKF knowledge-bundle
-root, default `knowledge/`).
+directory, default `output/`), `knowledge:` (OKF knowledge-bundle root,
+default `knowledge/`), and `agents:` (team agent-definition root, default
+`agents/`).
 
 ### Triggering from CI / cron / webhooks
 
@@ -130,6 +131,71 @@ runs coding agents against the mounted repo. Agent logins made inside
 the container persist in the `agent-home` volume. This is a different
 image from the `kraftwerk-runner` sandbox (`runner/Dockerfile`) used by
 `run --sandbox`.
+
+## Team — persistent agents
+
+The inspector's "team" screen turns chat agents into persistent teammates.
+A team member is one folder under the project's `agents/` root:
+
+```
+agents/max/
+  agent.yml     # name, emoji, description, harness, model, effort, workflows
+  system.md     # the member's system prompt (its role)
+```
+
+```yaml
+# agents/max/agent.yml
+name: Max
+emoji: 🛠️
+description: Runs and explains this project's workflows
+harness: claude        # claude | codex | pi — which chat backend runs it
+model: sonnet          # optional; harness default when omitted
+effort: medium         # optional: low | medium | high | xhigh | max
+workflows: [tagline, website-check]
+knowledge: [customer-support]   # OKF bundles the member consults & maintains
+```
+
+Sessions with a member are ordinary chats scoped `{ kind: "team", member }`,
+listed per member in a second sidebar. On the first message the member gets
+its role plus its connected workflows and knowledge bundles injected as
+context — including how to run workflows
+(`KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"`) and how to read
+and write knowledge through `kraftwerk knowledge` (writes stamped with the
+member's own actor, `<slug>/<harness>`), so it triggers its own workflows
+when a request matches and keeps its bundles current. Model/effort ride on
+backend-specific channels: the claude adapter takes the model via ACP session
+options and the thinking budget via `MAX_THINKING_TOKENS`; codex gets a
+`CODEX_CONFIG` env override (`model`, `model_reasoning_effort`); pi gets
+`--model`/`--thinking` flags. Members are created and edited in the UI (or by
+editing the files — the definition is read fresh for each new session).
+
+### Routines — scheduled prompts
+
+A member can have routines: cron-scheduled prompts, like standing orders for
+an employee. Definitions live next to the member in
+`agents/<slug>/routines.yml` (git-tracked); run state (last run, last
+session, errors) lives in `<output>/routines-state.json`.
+
+```yaml
+# agents/max/routines.yml
+- id: morning-check
+  name: Morning check
+  schedule: "0 9 * * 1-5"   # 5-field cron (server local time) or @hourly/@daily/@weekly/@monthly
+  prompt: |
+    Run the website-check workflow for https://example.com and summarize
+    anything that regressed since the last run.
+  enabled: true
+```
+
+The inspector server runs the scheduler in-process (no external cron): every
+due routine opens a fresh session for the member, posts the prompt, and the
+run shows up in the sessions sidebar titled "⏰ <name>". Routine sessions run
+unattended, so tool-permission requests are auto-approved (the
+request/approval pair stays in the thread as an audit trail) — treat routine
+prompts with the same trust as `KRAFTWERK_YES=1` workflow runs. Manage
+routines on the member page: create/edit/delete, toggle enabled, "run now",
+and jump to the last run's session. Missed schedules while the server is
+down are skipped, not replayed.
 
 ## Context & Knowledge — OKF bundles
 

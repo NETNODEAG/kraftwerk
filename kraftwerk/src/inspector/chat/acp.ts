@@ -12,7 +12,7 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from "@agentclientprotocol/sdk";
-import type { BackendHooks, ChatBackend } from "./backend.js";
+import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
 
 /**
  * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp) as a
@@ -29,6 +29,35 @@ const ADAPTERS: Record<"claude" | "codex", string> = {
   codex: "@agentclientprotocol/codex-acp/dist/index.js",
 };
 
+/** Effort tier -> Claude thinking budget (the adapter reads MAX_THINKING_TOKENS). */
+const CLAUDE_THINKING_BUDGET: Record<string, number> = {
+  low: 2048,
+  medium: 8192,
+  high: 16384,
+  xhigh: 32000,
+  max: 63999,
+};
+
+/**
+ * Model/effort overrides ride on adapter-specific channels: the claude
+ * adapter takes the model via session `_meta.claudeCode.options` and the
+ * thinking budget via env; codex-acp merges a CODEX_CONFIG env JSON into
+ * the session config it hands to `codex app-server`.
+ */
+function tuningEnv(agent: "claude" | "codex", tuning: BackendTuning): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (agent === "claude" && tuning.effort && CLAUDE_THINKING_BUDGET[tuning.effort]) {
+    env.MAX_THINKING_TOKENS = String(CLAUDE_THINKING_BUDGET[tuning.effort]);
+  }
+  if (agent === "codex" && (tuning.model || tuning.effort)) {
+    env.CODEX_CONFIG = JSON.stringify({
+      ...(tuning.model ? { model: tuning.model } : {}),
+      ...(tuning.effort ? { model_reasoning_effort: tuning.effort } : {}),
+    });
+  }
+  return env;
+}
+
 function contentText(content: ContentBlock): string {
   return content.type === "text" ? content.text : "";
 }
@@ -36,13 +65,14 @@ function contentText(content: ContentBlock): string {
 export async function startAcpBackend(
   agent: "claude" | "codex",
   cwd: string,
-  hooks: BackendHooks
+  hooks: BackendHooks,
+  tuning: BackendTuning = {}
 ): Promise<ChatBackend> {
   const entry = fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
   const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [entry], {
     cwd,
     stdio: ["pipe", "pipe", "pipe"],
-    env: process.env,
+    env: tuningEnv(agent, tuning),
   });
 
   let stderr = "";
@@ -120,7 +150,13 @@ export async function startAcpBackend(
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     clientInfo: { name: "kraftwerk-inspector", version: "1.0.0" },
   });
-  const session = await conn.newSession({ cwd, mcpServers: [] });
+  const session = await conn.newSession({
+    cwd,
+    mcpServers: [],
+    ...(agent === "claude" && tuning.model
+      ? { _meta: { claudeCode: { options: { model: tuning.model } } } }
+      : {}),
+  });
   const sessionId = session.sessionId;
 
   return {
