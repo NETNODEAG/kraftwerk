@@ -1,3 +1,5 @@
 node_modules/
 output/
 runner.env
+src/workflows/research-nextjs-development/
+deploy/
