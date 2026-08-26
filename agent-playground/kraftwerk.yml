@@ -6,3 +6,4 @@ workflows: src/workflows
 output: output
 knowledge: knowledge
 agents: agents
+port: 1981

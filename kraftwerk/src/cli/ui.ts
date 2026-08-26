@@ -49,7 +49,8 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
   const staticDir = ensureBuilt();
   const project = await resolveProject(cwd);
   const outputDir = opts.output ? path.resolve(cwd, opts.output) : project.outputDir;
-  const port = Number(opts.port ?? "1981");
+  // Port precedence: --port flag > kraftwerk.yml `port` > 1981.
+  const port = opts.port ? Number(opts.port) : (project.config.port ?? 1981);
 
   await startInspector({ outputDir, staticDir, port, projectRoot: project.root });
   console.log(

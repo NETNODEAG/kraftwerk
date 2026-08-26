@@ -292,7 +292,7 @@ registerKnowledgeCommands(program);
 program
   .command("ui")
   .description("Start the inspector web UI for this project's runs and workflows")
-  .option("--port <port>", "Port for the web UI", "1981")
+  .option("--port <port>", "Port for the web UI (default: kraftwerk.yml `port`, else 1981)")
   .option("--output <dir>", "Output directory to inspect (default: the project's output dir)")
   .action(async (opts: { port?: string; output?: string }) => {
     await runUi(process.cwd(), opts);

@@ -15,6 +15,7 @@ import { parse } from "yaml";
  *
  *   name: my-project           # display name (inspector header, "environment")
  *   icon: "⚡"                  # emoji shown as inspector favicon
+ *   port: 1981                 # port `kraftwerk ui` listens on
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
  *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
@@ -34,6 +35,8 @@ export interface ProjectConfig {
   name?: string;
   /** Emoji used as the inspector favicon (browser-tab icon). */
   icon?: string;
+  /** Port `kraftwerk ui` listens on. Default: 1981 (CLI --port wins). */
+  port?: number;
   /** Workflows root relative to the project root. */
   workflows?: string;
   /** Run-artifact directory relative to the project root. Default: output */
@@ -120,17 +123,21 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, workflows, output, knowledge, agents)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents)`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["name", "icon", "workflows", "output", "knowledge", "agents"];
+  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents"];
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(
         `${path.basename(configPath)}: unknown key "${key}" (allowed: ${known.join(", ")})`
       );
     }
-    if (typeof config[key] !== "string") {
+    if (key === "port") {
+      if (typeof config[key] !== "number" || !Number.isInteger(config[key])) {
+        throw new Error(`${path.basename(configPath)}: port must be an integer`);
+      }
+    } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
   }
