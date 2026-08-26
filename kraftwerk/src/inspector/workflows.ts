@@ -1,22 +1,19 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
+import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
 
 /**
- * Workflow discovery + parsing for the inspector. Mirrors the kraftwerk CLI
- * conventions (src/workflows/ or workflows/ under the project root, folder
- * mode with workflow.yml or single .yml files) but parses the YAML raw, so
- * even a workflow the framework would reject still renders — with its error.
+ * Workflow discovery + parsing for the inspector. Uses the same root
+ * resolution as the CLI (kraftwerk.yml `workflows:` key, else src/workflows/
+ * or workflows/) but parses the YAML raw, so even a workflow the framework
+ * would reject still renders — with its error.
  */
 
 async function workflowsRoot(): Promise<string | undefined> {
-  for (const candidate of ["src/workflows", "workflows"]) {
-    const p = path.join(getProjectRoot(), candidate);
-    const st = await fs.stat(p).catch(() => null);
-    if (st?.isDirectory()) return p;
-  }
-  return undefined;
+  const project = await resolveProject(getProjectRoot()).catch(() => null);
+  return project?.workflowsRoot;
 }
 
 export interface AgentInfo {
