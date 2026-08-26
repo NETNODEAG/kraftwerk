@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/kraftwerk.schema.json",
+  "title": "kraftwerk project config",
+  "description": "kraftwerk.yml at the project root: config file and root marker for the kraftwerk CLI. All fields are optional — an empty file is valid.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Display name of the project (\"environment\"), shown in the inspector header and browser tab"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Emoji used as the inspector favicon (browser-tab icon), e.g. \"⚡\""
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Port `kraftwerk ui` listens on. Default: 1981 (the --port flag wins over this)"
+    },
+    "workflows": {
+      "type": "string",
+      "description": "Workflows root relative to this file. Default: src/workflows or workflows"
+    },
+    "output": {
+      "type": "string",
+      "description": "Run-artifact directory relative to this file. Default: output"
+    },
+    "knowledge": {
+      "type": "string",
+      "description": "OKF knowledge-bundle root relative to this file. Default: knowledge"
+    },
+    "agents": {
+      "type": "string",
+      "description": "Team agent-definition root relative to this file. Default: agents"
+    }
+  }
+}

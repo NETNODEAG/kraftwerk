@@ -26,6 +26,10 @@ import { parse } from "yaml";
 export const SCHEMA_URL =
   "https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json";
 
+/** Stable, versionless URL of the kraftwerk.yml JSON schema (editor validation). */
+export const CONFIG_SCHEMA_URL =
+  "https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/kraftwerk.schema.json";
+
 export const CONFIG_FILENAMES = ["kraftwerk.yml", "kraftwerk.yaml"];
 
 const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];

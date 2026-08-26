@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { SCHEMA_URL } from "../config.js";
+import { CONFIG_SCHEMA_URL, SCHEMA_URL } from "../config.js";
 import { initBundle, writeConcept } from "../okf.js";
 
 /**
@@ -14,7 +14,8 @@ import { initBundle, writeConcept } from "../okf.js";
 
 const DATA_DIR = "kraftwerk-data";
 
-const configTemplate = (name: string) => `# kraftwerk project config — also marks the project root for the CLI.
+const configTemplate = (name: string) => `# yaml-language-server: $schema=${CONFIG_SCHEMA_URL}
+# kraftwerk project config — also marks the project root for the CLI.
 # All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
 name: ${JSON.stringify(name)}   # display name, shown in the inspector header + browser tab
 icon: "⚡"   # emoji shown as the inspector favicon

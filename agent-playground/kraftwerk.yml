@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/kraftwerk.schema.json
 # kraftwerk project config — also marks the project root for the CLI.
 # All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
 name: "agent-playground"   # display name, shown in the inspector header + browser tab
