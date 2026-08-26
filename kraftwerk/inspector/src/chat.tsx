@@ -358,8 +358,8 @@ function BlockView({ b, chatId }: { b: Block; chatId: string }) {
               b.status === "completed" ? "ok" : b.status === "failed" ? "failed" : "running"
             }`}
           />
+          {b.toolKind && <span className="chip tool-kind">{b.toolKind}</span>}
           <span className="tool-title">{b.title}</span>
-          {b.toolKind && <span className="chip">{b.toolKind}</span>}
         </div>
       );
     case "permission":

@@ -647,12 +647,19 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 
 .tool-card {
   align-self: flex-start;
-  display: inline-flex; align-items: center; gap: 9px;
+  display: inline-flex; align-items: flex-start; gap: 9px;
   font-family: var(--font-mono), monospace; font-size: 11.5px; color: var(--on-surface-variant);
   background: transparent; border: 1px solid var(--outline-variant); border-radius: 8px;
   padding: 5px 12px; max-width: 90ch;
 }
-.tool-card .tool-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The lamp and the tool label stay on the first line; the command itself
+   wraps so the full line is always readable. */
+.tool-card .lamp { margin-top: 4px; }
+.tool-card .chip.tool-kind { flex-shrink: 0; }
+.tool-card .tool-title {
+  white-space: pre-wrap; word-break: break-word; overflow: visible;
+  line-height: 1.5; min-width: 0;
+}
 
 .perm-card {
   align-self: flex-start;
