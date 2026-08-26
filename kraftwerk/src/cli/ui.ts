@@ -53,7 +53,7 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
 
   await startInspector({ outputDir, staticDir, port, projectRoot: project.root });
   console.log(
-    `${chalk.green("✔")} Inspector: ${chalk.cyan(`http://localhost:${port}`)} ` +
+    `${chalk.green("✔")} Kraftwerk UI: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
   );
 }
