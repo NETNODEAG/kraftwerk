@@ -14,6 +14,7 @@ import { parse } from "yaml";
  * All fields are optional — a valid kraftwerk.yml may be empty:
  *
  *   name: my-project           # display name (inspector header, "environment")
+ *   icon: "⚡"                  # emoji shown as inspector favicon
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
  *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
@@ -31,6 +32,8 @@ const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
 export interface ProjectConfig {
   /** Display name of the project ("environment"), shown in the inspector header. */
   name?: string;
+  /** Emoji used as the inspector favicon (browser-tab icon). */
+  icon?: string;
   /** Workflows root relative to the project root. */
   workflows?: string;
   /** Run-artifact directory relative to the project root. Default: output */
@@ -117,10 +120,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (name, workflows, output, knowledge, agents)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, workflows, output, knowledge, agents)`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["name", "workflows", "output", "knowledge", "agents"];
+  const known = ["name", "icon", "workflows", "output", "knowledge", "agents"];
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(

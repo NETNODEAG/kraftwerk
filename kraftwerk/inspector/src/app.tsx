@@ -17,12 +17,30 @@ export function App() {
   const path = useHashPath();
   const seg = path.split("/").filter(Boolean);
   const [projectName, setProjectName] = useState("");
+  const [projectIcon, setProjectIcon] = useState("");
   useEffect(() => {
     fetch("/api/meta")
       .then((r) => r.json())
-      .then((d: { projectName?: string }) => setProjectName(d.projectName ?? ""))
+      .then((d: { projectName?: string; projectIcon?: string }) => {
+        setProjectName(d.projectName ?? "");
+        setProjectIcon(d.projectIcon ?? "");
+      })
       .catch(() => {});
   }, []);
+  // Browser-tab title + favicon carry the instance identity so multiple
+  // open kraftwerks stay distinguishable (kraftwerk.yml: name, icon).
+  useEffect(() => {
+    document.title = projectName ? `${projectName} — kraftwerk` : "kraftwerk inspector";
+    if (!projectIcon) return;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="0.9em" font-size="85">${projectIcon}</text></svg>`;
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }, [projectName, projectIcon]);
 
   let screen: React.ReactNode;
   if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} />;

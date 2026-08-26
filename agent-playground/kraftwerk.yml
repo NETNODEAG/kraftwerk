@@ -1,0 +1,8 @@
+# kraftwerk project config — also marks the project root for the CLI.
+# All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
+name: "agent-playground"   # display name, shown in the inspector header + browser tab
+icon: "🤖"   # emoji shown as the inspector favicon
+workflows: src/workflows
+output: output
+knowledge: knowledge
+agents: agents

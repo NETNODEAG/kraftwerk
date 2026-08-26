@@ -16,7 +16,8 @@ const DATA_DIR = "kraftwerk-data";
 
 const configTemplate = (name: string) => `# kraftwerk project config — also marks the project root for the CLI.
 # All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
-name: ${JSON.stringify(name)}   # display name, shown in the inspector header
+name: ${JSON.stringify(name)}   # display name, shown in the inspector header + browser tab
+icon: "⚡"   # emoji shown as the inspector favicon
 workflows: ${DATA_DIR}/workflows   # where workflows live
 output: ${DATA_DIR}/output         # where run artifacts land (git-ignored)
 knowledge: ${DATA_DIR}/knowledge   # OKF knowledge bundles
