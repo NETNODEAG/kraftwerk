@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { RunDetail, RunListItem, PhaseView, FileView } from "./types";
 import { createChatAndOpen } from "./chat";
 import {
@@ -328,7 +330,45 @@ function Viewer({ id, name, live }: { id: string; name: string; live: boolean })
       </div>
     );
   }
+  if (ext === "md" || ext === "markdown") return <MarkdownViewer id={id} name={name} live={live} />;
   return <TextViewer id={id} name={name} live={live} />;
+}
+
+function MarkdownViewer({ id, name, live }: { id: string; name: string; live: boolean }) {
+  const [mode, setMode] = useState<"rendered" | "source">("rendered");
+  const data = usePoll<{ content: string; truncated: boolean; size: number }>(
+    `/api/runs/${id}/file?name=${encodeURIComponent(name)}`,
+    live
+  );
+  // Artifacts are model-generated — sanitize before injecting into the page.
+  const html = useMemo(
+    () => (data ? DOMPurify.sanitize(marked.parse(data.content, { async: false })) : ""),
+    [data?.content]
+  );
+  return (
+    <div className="viewer">
+      <div className="viewer-note md-toolbar">
+        <div className="tabs">
+          <button className={mode === "rendered" ? "active" : ""} onClick={() => setMode("rendered")}>
+            rendered
+          </button>
+          <button className={mode === "source" ? "active" : ""} onClick={() => setMode("source")}>
+            source
+          </button>
+        </div>
+        {data?.truncated && <span>large file — showing the last {fmtSize(400_000)}</span>}
+      </div>
+      <div className="viewer-body">
+        {!data ? (
+          <pre>loading…</pre>
+        ) : mode === "rendered" ? (
+          <div className="md-body" dangerouslySetInnerHTML={{ __html: html }} />
+        ) : (
+          <pre>{data.content || "(empty)"}</pre>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function TextViewer({ id, name, live }: { id: string; name: string; live: boolean }) {

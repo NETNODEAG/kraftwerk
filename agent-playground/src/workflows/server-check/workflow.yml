@@ -17,6 +17,7 @@ agents:
 
   sysop:
     name: System Operator
+    
     model: opus
     tools: [Read, Write]
     persona: |
