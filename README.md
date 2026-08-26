@@ -238,7 +238,14 @@ model: sonnet
 effort: medium         # low | medium | high | xhigh | max
 workflows: [tagline, website-check]
 knowledge: [customer-support]   # OKF bundles it consults & maintains
+skills: [report-html]  # optional allowlist; omit = all discovered skills
 ```
+
+Chats can also use **skills** — Claude-style instruction packages
+(`.claude/skills/<name>/SKILL.md`, project and user level). Every chat lists
+its skills as context, and typing `/` in the composer autocompletes them;
+`/<name> args` expands the skill into the prompt, so it works on claude,
+codex, and pi alike.
 
 ## Context & Knowledge
 

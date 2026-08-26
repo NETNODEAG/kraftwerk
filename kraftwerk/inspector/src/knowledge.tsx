@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
 import { Link, usePoll } from "./shared";
@@ -137,7 +137,7 @@ function BundleView({ name }: { name: string }) {
   if ("error" in data) return <div className="empty">bundle not found</div>;
 
   return (
-    <div>
+    <div className="member-view">
       <div className="page-head">
         <h1>{name}</h1>
         <span className="count">{data.concepts.length} concepts</span>
@@ -150,35 +150,141 @@ function BundleView({ name }: { name: string }) {
         </button>
       </div>
       <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">concepts</span>
-        </div>
         {data.concepts.length === 0 ? (
           <div className="viewer-note">
             No concepts yet — start a chat to author some, or write one with{" "}
             <code>kraftwerk knowledge put {name}/&lt;path&gt;</code>.
           </div>
         ) : (
-          <table className="know-table">
-            <tbody>
-              {groupByFolder(data.concepts).map(({ folder, concepts }) => (
-                <FolderGroup key={folder || "."} name={name} folder={folder} concepts={concepts} />
-              ))}
-            </tbody>
-          </table>
+          <div className="m3-list">
+            {groupByFolder(data.concepts).map(({ folder, concepts }) => (
+              <Fragment key={folder || "."}>
+                {folder && <div className="m3-subhead">{folder}/</div>}
+                {concepts.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}
+                    className="m3-row m3-link"
+                  >
+                    <span className="m3-ico">{typeIcon(c.type)}</span>
+                    <span className="m3-body">
+                      <span className="m3-head">
+                        {c.title}
+                        {c.status !== "stable" && <span className={`chip ${c.status}`}>{c.status}</span>}
+                        {c.stale && <span className="chip stale">stale</span>}
+                        {c.error && (
+                          <span className="chip stale" title={c.error}>
+                            invalid
+                          </span>
+                        )}
+                      </span>
+                      <span className="m3-sub">
+                        <code>{folder ? c.id.slice(folder.length + 1) : c.id}.md</code>
+                        {" · "}
+                        {c.type ?? "untyped"}
+                      </span>
+                    </span>
+                    <TrustBadge tier={c.trustTier} />
+                    <span className="m3-chev">›</span>
+                  </Link>
+                ))}
+              </Fragment>
+            ))}
+          </div>
         )}
       </section>
-      {data.log && (
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">log</span>
-          </div>
-          <div className="viewer-body">
-            <pre>{data.log}</pre>
-          </div>
-        </section>
-      )}
+      {data.log && <ActivityPanel name={name} log={data.log} />}
     </div>
+  );
+}
+
+/** Leading icon per OKF concept type. */
+function typeIcon(type?: string): string {
+  switch ((type ?? "").toLowerCase()) {
+    case "reference": return "▤";
+    case "policy": return "§";
+    case "guide": case "howto": return "➤";
+    case "decision": return "⚖";
+    default: return "◆";
+  }
+}
+
+/* ---------- activity log ---------- */
+
+interface LogEntry {
+  kind: string;
+  text: string;
+}
+
+/** Parse the OKF update log ("## YYYY-MM-DD" + "* **Kind**: ..." lines) into days. */
+function parseLog(log: string): Array<{ date: string; entries: LogEntry[] }> {
+  const days: Array<{ date: string; entries: LogEntry[] }> = [];
+  for (const line of log.split("\n")) {
+    const day = line.match(/^##\s+(\d{4}-\d{2}-\d{2})/);
+    if (day) {
+      days.push({ date: day[1], entries: [] });
+      continue;
+    }
+    const entry = line.match(/^[*-]\s+\*\*([^*]+)\*\*:\s*(.*)$/);
+    if (entry && days.length > 0) {
+      days[days.length - 1].entries.push({ kind: entry[1].toLowerCase(), text: entry[2] });
+    }
+  }
+  return days.filter((d) => d.entries.length > 0);
+}
+
+/** Render one log line, turning "[title](/path.md)" into concept links. */
+function logText(name: string, text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /\[([^\]]+)\]\(\/?([^)]+?)\.md\)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(
+      <Link key={m.index} href={`/knowledge/${encodeURIComponent(name)}/${m[2].replace(/^\//, "")}`}>
+        {m[1]}
+      </Link>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function ActivityPanel({ name, log }: { name: string; log: string }) {
+  const days = parseLog(log);
+  const [raw, setRaw] = useState(false);
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="microlabel">activity</span>
+        <span className="spacer" />
+        <button className="open-raw" onClick={() => setRaw(!raw)}>
+          {raw ? "timeline" : "raw log"}
+        </button>
+      </div>
+      {raw || days.length === 0 ? (
+        <div className="viewer-body">
+          <pre>{log}</pre>
+        </div>
+      ) : (
+        <div className="know-log">
+          {days.map((d) => (
+            <Fragment key={d.date}>
+              <div className="m3-subhead num">{d.date}</div>
+              {d.entries.map((e, i) => (
+                <div key={i} className="know-log-row">
+                  <span className={`chip log-kind log-${e.kind}`}>{e.kind}</span>
+                  <span className="know-log-text">{logText(name, e.text)}</span>
+                </div>
+              ))}
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -194,57 +300,16 @@ function groupByFolder(concepts: BundleDetail["concepts"]) {
     .map((folder) => ({ folder, concepts: groups.get(folder)! }));
 }
 
-function FolderGroup({
-  name,
-  folder,
-  concepts,
-}: {
-  name: string;
-  folder: string;
-  concepts: BundleDetail["concepts"];
-}) {
-  return (
-    <>
-      {folder && (
-        <tr className="know-folder-row">
-          <td colSpan={4}>
-            <span className="know-folder">▸ {folder}/</span>
-          </td>
-        </tr>
-      )}
-      {concepts.map((c) => (
-        <tr key={c.id}>
-          <td className={folder ? "know-indent" : undefined}>
-            <Link href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}>
-              <b>{c.title}</b>{" "}
-              <span className="know-id">{folder ? c.id.slice(folder.length + 1) : c.id}.md</span>
-            </Link>
-          </td>
-          <td className="know-type">{c.type ?? "?"}</td>
-          <td>
-            <TrustBadge tier={c.trustTier} />
-          </td>
-          <td className="know-flags">
-            {c.status !== "stable" && <span className={`chip ${c.status}`}>{c.status}</span>}
-            {c.stale && <span className="chip stale">stale</span>}
-            {c.error && (
-              <span className="chip stale" title={c.error}>
-                invalid
-              </span>
-            )}
-          </td>
-        </tr>
-      ))}
-    </>
-  );
-}
-
 /* ---------- concept ---------- */
 
 function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string }) {
   const [concept, setConcept] = useState<ConceptDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const load = () => {
     fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`)
@@ -265,11 +330,29 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
     load();
   }
 
+  async function save() {
+    setSaving(true);
+    setSaveError("");
+    const body = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: conceptId, content: draft }),
+    })
+      .then((r) => r.json())
+      .catch(() => ({ error: "save failed" }));
+    setSaving(false);
+    if (body.error) setSaveError(body.error);
+    else {
+      setConcept(body);
+      setEditing(false);
+    }
+  }
+
   if (gone) return <div className="empty">concept not found</div>;
   if (!concept) return <div className="empty">loading…</div>;
 
   return (
-    <div>
+    <div className="member-view">
       <div className="detail-head">
         <h1>{concept.title}</h1>
         {concept.type && <span className="chip agent">{concept.type}</span>}
@@ -289,92 +372,156 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
           {verifying ? "verifying…" : "✓ verify (human)"}
         </button>
       </div>
-      <div className="know-sub">
-        <span className="rid">
-          {bundle}/{concept.id}.md
-        </span>
-        {concept.tags.map((t) => (
-          <span key={t} className="chip">
-            {t}
-          </span>
-        ))}
-      </div>
       {concept.error && <div className="msg error">✕ {concept.error}</div>}
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">provenance &amp; trust</span>
-        </div>
-        <div className="know-meta">
-          <div>
-            <span className="microlabel">generated</span>
-            <span>
-              {concept.generated
-                ? `${concept.generated.by ?? "?"} · ${concept.generated.at ?? "?"}`
-                : "— (not stamped)"}
+      <div className="detail-cols">
+        <section className="panel">
+          <div className="panel-head">
+            <span className="microlabel">content</span>
+            <span className="spacer" />
+            <span className="side-meta">
+              {bundle}/{concept.id}.md
             </span>
+            {editing ? (
+              <>
+                <button
+                  className="open-raw"
+                  onClick={() => {
+                    setEditing(false);
+                    setSaveError("");
+                  }}
+                >
+                  cancel
+                </button>
+                <button className="open-raw" disabled={saving} onClick={save}>
+                  {saving ? "saving…" : "✓ save"}
+                </button>
+              </>
+            ) : (
+              <button
+                className="open-raw"
+                onClick={() => {
+                  setDraft(concept.raw);
+                  setEditing(true);
+                  setSaveError("");
+                }}
+              >
+                ✎ edit
+              </button>
+            )}
           </div>
-          <div>
-            <span className="microlabel">verified</span>
-            <span>
-              {concept.verified.length === 0
-                ? "never"
-                : concept.verified.map((v, i) => (
-                    <span key={i} className="know-verify-entry">
-                      {v.by ?? "?"} · {v.at ?? "?"}
-                    </span>
-                  ))}
-            </span>
-          </div>
-          {concept.staleAfter && (
-            <div>
-              <span className="microlabel">stale after</span>
-              <span>{concept.staleAfter}</span>
+          {editing ? (
+            <>
+              <textarea
+                className="concept-edit"
+                value={draft}
+                rows={Math.min(40, Math.max(18, draft.split("\n").length + 2))}
+                onChange={(e) => setDraft(e.target.value)}
+                spellCheck={false}
+              />
+              <div className="viewer-note">
+                full file (frontmatter + markdown body) — saving stamps provenance as{" "}
+                <code>human:user</code> and logs an update.
+              </div>
+            </>
+          ) : (
+            <div className="viewer-body">
+              <pre>{concept.body.trim() || "(empty body)"}</pre>
             </div>
           )}
-        </div>
-        {concept.sources.length > 0 && (
-          <>
+          {saveError && <div className="msg error">✕ {saveError}</div>}
+        </section>
+
+        <aside className="detail-rail">
+          <section className="panel">
             <div className="panel-head">
-              <span className="microlabel">sources</span>
+              <span className="microlabel">about</span>
             </div>
-            <table className="know-table">
-              <tbody>
+            <div className="rail-list">
+              <div className="rail-kv">
+                <span className="microlabel">trust</span>
+                <span className="v">
+                  <TrustBadge tier={concept.trustTier} />
+                </span>
+              </div>
+              <div className="rail-kv">
+                <span className="microlabel">generated</span>
+                <span className={`v ${concept.generated ? "" : "dim"}`}>
+                  {concept.generated
+                    ? `${concept.generated.by ?? "?"} · ${(concept.generated.at ?? "?").slice(0, 10)}`
+                    : "not stamped"}
+                </span>
+              </div>
+              <div className="rail-kv">
+                <span className="microlabel">verified</span>
+                {concept.verified.length === 0 ? (
+                  <span className="v dim">never</span>
+                ) : (
+                  concept.verified.map((v, i) => (
+                    <span key={i} className="v">
+                      {v.by ?? "?"} · {(v.at ?? "?").slice(0, 10)}
+                    </span>
+                  ))
+                )}
+              </div>
+              {concept.staleAfter && (
+                <div className="rail-kv">
+                  <span className="microlabel">stale after</span>
+                  <span className={`v ${concept.stale ? "" : "dim"}`}>
+                    {concept.staleAfter.slice(0, 10)}
+                    {concept.stale && <span className="chip stale">stale</span>}
+                  </span>
+                </div>
+              )}
+              {concept.tags.length > 0 && (
+                <div className="rail-kv">
+                  <span className="microlabel">tags</span>
+                  <span className="m3-chips">
+                    {concept.tags.map((t) => (
+                      <span key={t} className="chip">
+                        {t}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {concept.sources.length > 0 && (
+            <section className="panel">
+              <div className="panel-head">
+                <span className="microlabel">sources</span>
+              </div>
+              <div className="rail-list">
                 {concept.sources.map((s, i) => (
-                  <tr key={i}>
-                    <td>
+                  <div key={i} className="rail-kv">
+                    <span className="v">
                       {s.resource?.startsWith("http") ? (
                         <a href={s.resource} target="_blank" rel="noreferrer">
                           {s.title ?? s.resource}
                         </a>
                       ) : (
-                        <span>{s.title ?? s.resource ?? "?"}</span>
+                        (s.title ?? s.resource ?? "?")
                       )}
                       {s.id && <span className="know-id">[^{s.id}]</span>}
-                    </td>
-                    <td className="know-type">{s.author ?? ""}</td>
-                    <td className="know-type">
-                      {s.usage_count != null ? `${s.usage_count} uses` : ""}
-                    </td>
-                    <td className="know-type">
-                      {s.last_modified ? `mod ${s.last_modified.slice(0, 10)}` : ""}
-                    </td>
-                  </tr>
+                    </span>
+                    <span className="v dim">
+                      {[
+                        s.author,
+                        s.usage_count != null ? `${s.usage_count} uses` : null,
+                        s.last_modified ? `mod ${s.last_modified.slice(0, 10)}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">content</span>
-        </div>
-        <div className="viewer-body">
-          <pre>{concept.body.trim() || "(empty body)"}</pre>
-        </div>
-      </section>
+              </div>
+            </section>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }

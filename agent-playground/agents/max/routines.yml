@@ -1,7 +1,1 @@
-- id: hourly-check
-  name: Hourly Check
-  schedule: 14 * * * *
-  prompt: |-
-    Run helpdesk workflow
-    Set the session title to: Helpdesk <date & time>
-  enabled: true
+[]

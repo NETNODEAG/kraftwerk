@@ -1,14 +1,24 @@
 import { randomUUID } from "node:crypto";
+import { promises as fs } from "node:fs";
 import { getOutputDir, getProjectRoot } from "../context.js";
 import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
+import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
 import { getMember } from "../team.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
 import type { ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
-import { appendEvent, listChatMetas, newChatId, readEvents, readMeta, writeMeta } from "./store.js";
+import {
+  appendEvent,
+  listChatMetas,
+  newChatId,
+  readEvents,
+  readMeta,
+  safeChatDir,
+  writeMeta,
+} from "./store.js";
 
 /**
  * Chat session manager: holds the live state per chat (agent subprocess,
@@ -63,6 +73,56 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
   return stored;
 }
 
+/* ---------- skills ---------- */
+
+/**
+ * Skills visible to a chat: every discovered skill (project + user
+ * .claude/skills), narrowed by the team member's allowlist when the chat
+ * is a team session (absent allowlist = all, empty = none).
+ */
+async function availableSkills(scope: ChatScope): Promise<SkillInfo[]> {
+  const all = await listSkills().catch(() => [] as SkillInfo[]);
+  if (scope.kind !== "team" || all.length === 0) return all;
+  const member = await getMember(scope.member).catch(() => null);
+  if (!member || member.skills === undefined) return all;
+  const allowed = new Set(member.skills.map((n) => n.toLowerCase()));
+  return all.filter((s) => allowed.has(s.name.toLowerCase()));
+}
+
+/** "## Your skills" context block (empty when no skills are visible). */
+function skillsBlock(skills: SkillInfo[]): string {
+  if (skills.length === 0) return "";
+  const lines = skills
+    .map((s) => `- /${s.name}${s.description ? `: ${s.description}` : ""} — ${s.path}`)
+    .join("\n");
+  return (
+    `## Your skills\nSkills are reusable instruction packages (a SKILL.md per skill). When the ` +
+    `user's request matches one, read its SKILL.md file and follow the instructions in it. The user ` +
+    `can also invoke one explicitly by starting a message with /<skill-name>.\n${lines}`
+  );
+}
+
+/**
+ * Explicit skill invocation: a message starting with /<skill-name> is
+ * expanded into the skill's SKILL.md instructions (the stored user_message
+ * keeps the original "/name args" text). Unknown names pass through as-is.
+ */
+async function expandSkillInvocation(scope: ChatScope, text: string): Promise<string> {
+  const m = /^\/([A-Za-z0-9][\w-]*)[ \t]*([\s\S]*)$/.exec(text);
+  if (!m) return text;
+  const skills = await availableSkills(scope);
+  const skill = skills.find((s) => s.name.toLowerCase() === m[1].toLowerCase());
+  if (!skill) return text;
+  const body = await readSkill(skill);
+  if (!body.trim()) return text;
+  const args = m[2].trim();
+  return (
+    `The user invoked the skill "${skill.name}" (${skill.path}). Follow the skill's instructions:\n\n` +
+    `<skill name="${skill.name}">\n${body.trim()}\n</skill>\n\n` +
+    `Arguments the user passed to the skill: ${args || "(none)"}`
+  );
+}
+
 /* ---------- scope context ---------- */
 
 /** "## Your knowledge" block for a team member's connected OKF bundles. */
@@ -93,7 +153,8 @@ async function teamKnowledgeContext(member: {
   );
 }
 
-async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
+/** Base context per scope; scopeContext() appends the shared skills block. */
+async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
   if (scope.kind === "team") {
     const member = await getMember(scope.member).catch(() => null);
     if (!member) {
@@ -119,7 +180,7 @@ async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<strin
             : "") +
           `\nRun a workflow with:\n` +
           `  KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"\n` +
-          `The command blocks until the run finishes; artifacts land in output/run-*/ — tell the user the ` +
+          `The command blocks until the run finishes; artifacts land in output/runs/*/ — tell the user the ` +
           `run id and summarize the result. Confirm with the user before starting a long or expensive run ` +
           `unless they clearly asked for it.\n\n`
         : "") +
@@ -174,7 +235,7 @@ async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<strin
       .join("\n");
     return (
       `You are the assistant inside the kraftwerk inspector, a UI for a workflow-as-code agent framework. ` +
-      `The consumer project root is ${getProjectRoot()}; run outputs live in ${getOutputDir()} (one run-* folder per run, each with a trace.jsonl and working files).\n\n` +
+      `The consumer project root is ${getProjectRoot()}; run outputs live in ${getOutputDir()} (one folder per run under runs/, each with a trace.jsonl and working files).\n\n` +
       `Workflows in this project:\n${wfLines || "(none)"}\n\nRecent runs:\n${runLines || "(none)"}\n\n` +
       `Answer questions about workflows and runs by reading these files. Do not modify run outputs unless asked.`
     );
@@ -196,16 +257,37 @@ async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<strin
   return "";
 }
 
+async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
+  const [base, skills] = await Promise.all([
+    baseScopeContext(scope, agent),
+    availableSkills(scope),
+  ]);
+  const block = skillsBlock(skills);
+  if (!block) return base;
+  return base ? `${base}\n\n${block}` : block;
+}
+
 /* ---------- backend lifecycle ---------- */
 
 /** Team chats carry the member's model/effort; resolved live so edits apply to new backends. */
-async function backendTuning(scope: ChatScope): Promise<BackendTuning> {
-  if (scope.kind !== "team") return {};
-  const member = await getMember(scope.member).catch(() => null);
-  return {
-    ...(member?.model ? { model: member.model } : {}),
-    ...(member?.effort ? { effort: member.effort } : {}),
-  };
+async function backendTuning(scope: ChatScope, agent: ChatAgentId): Promise<BackendTuning> {
+  const tuning: BackendTuning = {};
+  if (scope.kind === "team") {
+    const member = await getMember(scope.member).catch(() => null);
+    if (member?.model) tuning.model = member.model;
+    if (member?.effort) tuning.effort = member.effort;
+    // Claude discovers skills natively; a defined allowlist narrows that.
+    if (agent === "claude" && member?.skills) tuning.skills = member.skills;
+  }
+  // Run chats live in the run folder — grant claude the project root so
+  // project-level skills and files stay reachable.
+  if (scope.kind === "run" && agent === "claude") tuning.addDirs = [getProjectRoot()];
+  // pi loads skills only when told: hand it every visible skill folder.
+  if (agent === "pi") {
+    const skills = await availableSkills(scope);
+    if (skills.length > 0) tuning.skillDirs = skills.map((s) => s.dir);
+  }
+  return tuning;
 }
 
 async function ensureBackend(state: ChatState): Promise<ChatBackend> {
@@ -238,7 +320,7 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
     },
   };
   const { agent, cwd } = state.meta;
-  const tuning = await backendTuning(state.meta.scope);
+  const tuning = await backendTuning(state.meta.scope, agent);
   state.backend =
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
@@ -313,7 +395,10 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
     try {
       const backend = await ensureBackend(state);
       const context = isFirst ? await scopeContext(state.meta.scope, state.meta.agent) : "";
-      const promptText = context ? `<context>\n${context}\n</context>\n\n${text}` : text;
+      // "/<skill> args" expands to the skill's instructions for the agent;
+      // the thread keeps the short form the user typed.
+      const body = await expandSkillInvocation(state.meta.scope, text);
+      const promptText = context ? `<context>\n${context}\n</context>\n\n${body}` : body;
       const stopReason = await backend.prompt(promptText);
       emit(state, { type: "turn_end", stopReason });
     } catch (err) {
@@ -340,6 +425,17 @@ export async function resolvePermission(
   const resolve = state.pendingPermissions.get(requestId);
   if (!resolve) return { error: "no such pending permission request" };
   resolve(optionId);
+  return {};
+}
+
+/** Delete a chat: kill its backend, drop the live state, remove its folder. */
+export async function deleteChat(id: string): Promise<{ error?: string }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  for (const resolve of state.pendingPermissions.values()) resolve(null);
+  state.backend?.dispose();
+  states.delete(id);
+  await fs.rm(safeChatDir(id), { recursive: true, force: true });
   return {};
 }
 

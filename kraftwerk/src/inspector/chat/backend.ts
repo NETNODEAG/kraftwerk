@@ -27,6 +27,12 @@ export interface BackendHooks {
 export interface BackendTuning {
   model?: string;
   effort?: string;
+  /** claude: restrict native skill discovery to these names (undefined = all). */
+  skills?: string[];
+  /** pi: skill folders to load explicitly via --skill. */
+  skillDirs?: string[];
+  /** claude: extra directories the session may work in (e.g. project root for run chats). */
+  addDirs?: string[];
 }
 
 export interface ChatBackend {

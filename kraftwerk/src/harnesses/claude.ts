@@ -50,7 +50,6 @@ function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
   ];
   const args = [
     "-p",
-    "--chrome",
     "--output-format", "stream-json",
     "--verbose",
     "--model", inv.model,

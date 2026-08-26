@@ -31,6 +31,11 @@ export interface TeamMember {
   workflows: string[];
   /** Knowledge bundles (OKF) this member works with. */
   knowledge: string[];
+  /**
+   * Skill allowlist (names from .claude/skills, project or user level).
+   * Absent = all discovered skills; empty list = no skills.
+   */
+  skills?: string[];
 }
 
 export interface TeamMemberDetail extends TeamMember {
@@ -72,6 +77,7 @@ interface MemberYaml {
   effort?: unknown;
   workflows?: unknown;
   knowledge?: unknown;
+  skills?: unknown;
 }
 
 function normalize(slug: string, raw: MemberYaml): TeamMember {
@@ -86,6 +92,7 @@ function normalize(slug: string, raw: MemberYaml): TeamMember {
     ...(raw.effort ? { effort: String(raw.effort) } : {}),
     workflows: Array.isArray(raw.workflows) ? raw.workflows.map(String) : [],
     knowledge: Array.isArray(raw.knowledge) ? raw.knowledge.map(String) : [],
+    ...(Array.isArray(raw.skills) ? { skills: raw.skills.map(String) } : {}),
   };
 }
 
@@ -134,6 +141,8 @@ export interface SaveMemberInput {
   effort?: string;
   workflows?: string[];
   knowledge?: string[];
+  /** Omit for "all skills"; a list (possibly empty) restricts to those names. */
+  skills?: string[];
   system?: string;
 }
 
@@ -159,6 +168,7 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
     ...(input.effort ? { effort: input.effort } : {}),
     workflows: (input.workflows ?? []).map(String),
     knowledge: (input.knowledge ?? []).map(String),
+    ...(input.skills ? { skills: input.skills.map(String) } : {}),
   };
   await fs.writeFile(path.join(dir, "agent.yml"), stringify(yml));
   await fs.writeFile(path.join(dir, "system.md"), (input.system ?? "").trim() + "\n");

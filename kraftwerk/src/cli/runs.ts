@@ -4,6 +4,7 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import { resolveProject } from "../config.js";
 import { fmtDuration, fmtTokens } from "../stats.js";
+import { runDirFor } from "../workflow.js";
 
 /**
  * `kraftwerk runs` / `kraftwerk runs show <id>` — inspect past runs from
@@ -58,11 +59,18 @@ async function readRun(dir: string): Promise<RunInfo | undefined> {
 
 async function collectRuns(cwd: string): Promise<{ outputDir: string; runs: RunInfo[] }> {
   const { outputDir } = await resolveProject(cwd);
-  const entries = await readdir(outputDir, { withFileTypes: true }).catch(() => []);
+  // New runs live under <output>/runs/; legacy run-* folders sit at the root.
+  const dirs = [
+    ...(await readdir(path.join(outputDir, "runs"), { withFileTypes: true }).catch(() => []))
+      .filter((e) => e.isDirectory())
+      .map((e) => path.join(outputDir, "runs", e.name)),
+    ...(await readdir(outputDir, { withFileTypes: true }).catch(() => []))
+      .filter((e) => e.isDirectory() && e.name.startsWith("run-"))
+      .map((e) => path.join(outputDir, e.name)),
+  ];
   const runs: RunInfo[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const info = await readRun(path.join(outputDir, entry.name));
+  for (const dir of dirs) {
+    const info = await readRun(dir);
     if (info) runs.push(info);
   }
   runs.sort((a, b) => (b.startedAt ?? b.id).localeCompare(a.startedAt ?? a.id));
@@ -111,7 +119,7 @@ export async function listRuns(cwd: string, opts: { json?: boolean } = {}): Prom
 
 export async function showRun(cwd: string, id: string, opts: { json?: boolean } = {}): Promise<void> {
   const { outputDir } = await resolveProject(cwd);
-  const dir = path.join(outputDir, id);
+  const dir = runDirFor(outputDir, id);
   if (!(await stat(dir).catch(() => null))) {
     console.error(chalk.red(`Run "${id}" not found under ${outputDir}.`));
     process.exit(2);

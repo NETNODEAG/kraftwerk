@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import { resolveProject } from "../config.js";
@@ -80,9 +80,46 @@ export async function runDoctor(cwd: string): Promise<void> {
     report("ok", `kraftwerk ${pkg.version}`, latest === pkg.version ? "latest on npm" : `ahead of npm (latest: ${latest})`);
   }
 
-  // Project.
-  const project = await resolveProject(cwd);
+  // Project. resolveProject throws on a malformed kraftwerk.yml (bad YAML,
+  // non-mapping, unknown keys, non-string values) — surface that as a check.
+  let project;
+  try {
+    project = await resolveProject(cwd);
+  } catch (err) {
+    report("fail", "kraftwerk.yml invalid", (err as Error).message.split("\n")[0]);
+    console.log(chalk.red("\n1 problem(s) found."));
+    process.exit(1);
+  }
   report("info", `Project root: ${project.root}`, project.configPath ? path.basename(project.configPath) : "no kraftwerk.yml (fallback: workflows folder or .git)");
+
+  // Project config: well-formed (guaranteed by the parse above) and the
+  // configured paths actually exist.
+  if (!project.configPath) {
+    report("warn", "no kraftwerk.yml", "recommended as project root marker — `kraftwerk init` scaffolds one");
+  } else {
+    const cfg = project.config as Record<string, string | undefined>;
+    const keys = Object.keys(cfg);
+    report(
+      "ok",
+      `${path.basename(project.configPath)} well-formed`,
+      keys.length ? keys.map((k) => `${k}: ${cfg[k]}`).join(", ") : "empty — defaults apply"
+    );
+    if (!cfg.name) report("info", "name not set in kraftwerk.yml", "inspector header falls back to the folder name");
+    const isDir = async (p: string): Promise<boolean> =>
+      (await stat(p).catch(() => null))?.isDirectory() ?? false;
+    for (const key of ["workflows", "knowledge", "agents", "output"] as const) {
+      const value = cfg[key];
+      if (!value) continue;
+      const abs = path.resolve(project.root, value);
+      if (await isDir(abs)) continue;
+      if (key === "output") {
+        report("info", `output: ${value}`, "directory not created yet — appears on first run");
+      } else {
+        report("fail", `${key}: ${value}`, "configured directory does not exist");
+        failures++;
+      }
+    }
+  }
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];
   if (!project.workflowsRoot) {
     report("warn", "no workflows root", "expected src/workflows/ or workflows/ — `kraftwerk init` scaffolds one");

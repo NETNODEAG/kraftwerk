@@ -153,6 +153,7 @@ model: sonnet          # optional; harness default when omitted
 effort: medium         # optional: low | medium | high | xhigh | max
 workflows: [tagline, website-check]
 knowledge: [customer-support]   # OKF bundles the member consults & maintains
+skills: [report-html]           # optional allowlist; omit = all skills, [] = none
 ```
 
 Sessions with a member are ordinary chats scoped `{ kind: "team", member }`,
@@ -168,6 +169,29 @@ options and the thinking budget via `MAX_THINKING_TOKENS`; codex gets a
 `CODEX_CONFIG` env override (`model`, `model_reasoning_effort`); pi gets
 `--model`/`--thinking` flags. Members are created and edited in the UI (or by
 editing the files — the definition is read fresh for each new session).
+
+### Skills in chat
+
+Chats — general ones and team sessions — can use skills: Claude-style
+instruction packages, one folder per skill with a `SKILL.md` (YAML
+frontmatter `name` + `description`, then the instructions). Two roots are
+discovered, with a project skill shadowing a same-named user skill:
+
+```
+<project>/.claude/skills/<name>/SKILL.md   # git-tracked, per project
+~/.claude/skills/<name>/SKILL.md           # personal, per user
+```
+
+Every chat lists its visible skills as context ("## Your skills"), so the
+agent reaches for one when the request matches. Typing `/` in the composer
+opens an autocomplete over them; sending `/<name> <args>` expands the
+skill's SKILL.md into the prompt — which is why this works identically on
+claude, codex, and pi. Natively on top of that, claude discovers
+`.claude/skills` itself (a team member's `skills:` allowlist narrows that
+via ACP session options) and pi loads each visible skill folder via
+`--skill`. Team members take an optional `skills:` list in `agent.yml`:
+omitted means all discovered skills, an empty list means none, otherwise
+it's the allowlist. `GET /api/skills` returns what's discovered.
 
 ### Routines — scheduled prompts
 
@@ -405,8 +429,9 @@ Living examples:
 [`../agent-playground/src/workflows/tagline/`](../agent-playground/src/workflows/tagline/)
 and [`../agent-playground/src/workflows/pitch/`](../agent-playground/src/workflows/pitch/);
 `check`/`if` in [`../agent-playground/src/workflows/helpdesk-check/`](../agent-playground/src/workflows/helpdesk-check/).
-v1 is deliberately linear — approval loops, AGENTS.md-style context files
-and skills stay on the roadmap; anything non-linear is a TS workflow.
+v1 is deliberately linear — approval loops and AGENTS.md-style context files
+stay on the roadmap (skills exist in chat, not in workflow runs); anything
+non-linear is a TS workflow.
 
 ### MCP servers alongside the workflow
 

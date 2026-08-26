@@ -47,12 +47,11 @@ function ensureBuilt(): string {
 
 export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
   const staticDir = ensureBuilt();
-  const outputDir = opts.output
-    ? path.resolve(cwd, opts.output)
-    : (await resolveProject(cwd)).outputDir;
+  const project = await resolveProject(cwd);
+  const outputDir = opts.output ? path.resolve(cwd, opts.output) : project.outputDir;
   const port = Number(opts.port ?? "1981");
 
-  await startInspector({ outputDir, staticDir, port });
+  await startInspector({ outputDir, staticDir, port, projectRoot: project.root });
   console.log(
     `${chalk.green("✔")} Inspector: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)

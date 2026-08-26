@@ -16,6 +16,13 @@ import { TeamScreen } from "./team";
 export function App() {
   const path = useHashPath();
   const seg = path.split("/").filter(Boolean);
+  const [projectName, setProjectName] = useState("");
+  useEffect(() => {
+    fetch("/api/meta")
+      .then((r) => r.json())
+      .then((d: { projectName?: string }) => setProjectName(d.projectName ?? ""))
+      .catch(() => {});
+  }, []);
 
   let screen: React.ReactNode;
   if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} />;
@@ -41,18 +48,17 @@ export function App() {
             <span />
           </span>
           <b>kraftwerk</b>
-          <small>inspector</small>
+          {projectName && <span className="env-name" title="Project (kraftwerk.yml: name)">{projectName}</span>}
         </a>
         <nav>
-          <a href="#/">runs</a>
-          <a href="#/workflows">workflows</a>
-          <a href="#/chats">chat</a>
-          <a href="#/team">team</a>
+          <a href="#/team">agents</a>
           <a href="#/knowledge">context &amp; knowledge</a>
+          <a href="#/workflows">workflows</a>
+          <a href="#/">workflow runs</a>
+          <a href="#/chats" className="nav-apart">chat</a>
         </nav>
         <span className="spacer" />
-        <OutDir />
-        <ThemeToggle />
+        <ProjectInfo />
       </header>
       <main className="shell">{screen}</main>
     </>
@@ -85,15 +91,68 @@ function Home() {
   );
 }
 
-function OutDir() {
-  const [dir, setDir] = useState("");
+/** Project facts behind an ⓘ icon: dirs, workflow + run counts. */
+function ProjectInfo() {
+  const [open, setOpen] = useState(false);
+  const [runs, setRuns] = useState<{ outputDir: string; runs: RunListItem[] } | null>(null);
+  const [wfs, setWfs] = useState<{ root: string; workflows: unknown[] } | null>(null);
+  const [version, setVersion] = useState("");
+
   useEffect(() => {
-    fetch("/api/runs")
+    if (!open) return;
+    fetch("/api/runs").then((r) => r.json()).then(setRuns).catch(() => {});
+    fetch("/api/workflows").then((r) => r.json()).then(setWfs).catch(() => {});
+    fetch("/api/meta")
       .then((r) => r.json())
-      .then((d: { outputDir: string }) => setDir(d.outputDir))
+      .then((d: { version: string }) => setVersion(d.version))
       .catch(() => {});
-  }, []);
-  return <span className="outdir" title={dir}>{dir}</span>;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".info-wrap")) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const latest = runs?.runs[0];
+  return (
+    <span className="info-wrap">
+      <button
+        className="info-btn"
+        title="Project info"
+        aria-label="Project info"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden>
+          <path d="M11 7h2v2h-2V7Zm0 4h2v6h-2v-6Zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="info-pop">
+          <div className="info-row">
+            <span className="microlabel">Workflows</span>
+            <span className="info-v">{wfs ? `${wfs.workflows.length} discovered` : "…"}</span>
+            <code className="info-path" title={wfs?.root}>{wfs?.root ?? ""}</code>
+          </div>
+          <div className="info-row">
+            <span className="microlabel">Runs</span>
+            <span className="info-v">
+              {runs ? `${runs.runs.length} total` : "…"}
+              {latest ? ` · latest ${latest.status}` : ""}
+            </span>
+            <code className="info-path" title={runs?.outputDir}>{runs?.outputDir ?? ""}</code>
+          </div>
+          <div className="info-row info-actions">
+            <span className="microlabel">Theme</span>
+            <ThemeToggle />
+          </div>
+          <div className="info-row info-actions">
+            <span className="microlabel">Version</span>
+            <span className="info-v mono">{version ? `kraftwerk ${version}` : "…"}</span>
+          </div>
+        </div>
+      )}
+    </span>
+  );
 }
 
 function ThemeToggle() {

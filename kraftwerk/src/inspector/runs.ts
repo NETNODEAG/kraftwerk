@@ -4,7 +4,7 @@ import { getOutputDir } from "./context.js";
 
 /**
  * Filesystem + trace.jsonl reading for the inspector. The output directory
- * holds one folder per run (run-YYYY-MM-DD-HHMM-SS); every run folder has a
+ * holds one folder per run (runs/<stamp>-<workflow>, legacy run-* at the root);
  * trace.jsonl written by the framework plus the run's working files.
  */
 
@@ -218,15 +218,15 @@ function shortenPath(p: string): string {
 }
 
 export async function listRuns(): Promise<RunListItem[]> {
-  let entries: string[];
-  try {
-    entries = (await fs.readdir(getOutputDir())).filter((e) => e.startsWith("run-"));
-  } catch {
-    return [];
-  }
+  // New runs live under <output>/runs/; legacy run-* folders sit at the root.
+  const current = (await fs.readdir(path.join(getOutputDir(), "runs")).catch(() => []))
+    .filter((e) => RUN_ID_RE.test(e) && !e.startsWith("run-"));
+  const legacy = (await fs.readdir(getOutputDir()).catch(() => []))
+    .filter((e) => e.startsWith("run-") && RUN_ID_RE.test(e));
+  const entries = [...current, ...legacy];
   const items = await Promise.all(
     entries.map(async (id): Promise<RunListItem | null> => {
-      const runDir = path.join(getOutputDir(), id);
+      const runDir = safeRunDir(id);
       const st = await fs.stat(runDir).catch(() => null);
       if (!st?.isDirectory()) return null;
       const events = await readTrace(runDir);
@@ -251,12 +251,21 @@ export async function listRuns(): Promise<RunListItem[]> {
       };
     })
   );
-  return (items.filter(Boolean) as RunListItem[]).sort((a, b) => b.id.localeCompare(a.id));
+  // Newest first; strip the legacy "run-" prefix so both id styles compare by stamp.
+  const stampOf = (r: RunListItem) => r.id.replace(/^run-/, "");
+  return (items.filter(Boolean) as RunListItem[]).sort((a, b) =>
+    stampOf(b).localeCompare(stampOf(a))
+  );
 }
 
+/** "2026-08-25-1432-07-hello" (runs/ subdir) or legacy "run-…" (output root). */
+export const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 export function safeRunDir(id: string): string {
-  if (!/^run-[0-9-]+$/.test(id)) throw new Error("invalid run id");
-  return path.join(getOutputDir(), id);
+  if (!RUN_ID_RE.test(id)) throw new Error("invalid run id");
+  return id.startsWith("run-")
+    ? path.join(getOutputDir(), id)
+    : path.join(getOutputDir(), "runs", id);
 }
 
 export async function getRun(id: string): Promise<RunDetail | null> {

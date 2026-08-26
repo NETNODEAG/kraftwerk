@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatAgentId, ChatMeta, StoredChatEvent } from "./types";
+import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
 import { Link, navigate, usePoll, fmtWhen } from "./shared";
 
 /**
@@ -219,7 +219,7 @@ export function ChatThread({ id }: { id: string }) {
         </span>
       </div>
       <Thread id={id} events={events} busy={busy} />
-      <Composer id={id} busy={busy} />
+      <Composer id={id} busy={busy} scope={meta.scope} />
     </div>
   );
 }
@@ -418,8 +418,52 @@ function PermissionCard({
   );
 }
 
-function Composer({ id, busy }: { id: string; busy: boolean }) {
+function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: ChatScope }) {
   const [text, setText] = useState("");
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [sel, setSel] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  // Skills the /-menu offers: all discovered ones, narrowed by the team
+  // member's allowlist when this is a team session (mirrors the server).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const d = await fetch("/api/skills").then((r) => r.json());
+        let list: SkillInfo[] = d.skills ?? [];
+        if (scope?.kind === "team") {
+          const m = await fetch(`/api/team/${encodeURIComponent(scope.member)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          if (m && Array.isArray(m.skills)) {
+            const allowed = new Set(m.skills.map((n: string) => n.toLowerCase()));
+            list = list.filter((s) => allowed.has(s.name.toLowerCase()));
+          }
+        }
+        if (alive) setSkills(list);
+      } catch {
+        /* skills menu is optional */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  // The menu is open while the draft is just "/<partial-name>".
+  const slashQuery = /^\/([\w-]*)$/.exec(text)?.[1];
+  const matches =
+    slashQuery !== undefined && !dismissed
+      ? skills.filter((s) => s.name.toLowerCase().startsWith(slashQuery.toLowerCase()))
+      : [];
+  const menuOpen = matches.length > 0;
+  const selIdx = Math.min(sel, matches.length - 1);
+
+  function pick(skill: SkillInfo) {
+    setText(`/${skill.name} `);
+    setSel(0);
+  }
 
   async function send() {
     const t = text.trim();
@@ -434,12 +478,56 @@ function Composer({ id, busy }: { id: string; busy: boolean }) {
 
   return (
     <div className="composer">
+      {menuOpen && (
+        <div className="skill-menu">
+          {matches.map((s, i) => (
+            <button
+              key={s.name}
+              className={i === selIdx ? "active" : ""}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(s);
+              }}
+            >
+              <b>/{s.name}</b>
+              {s.description && <span> — {s.description}</span>}
+              <span className="skill-src">{s.source}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <textarea
         value={text}
-        placeholder={busy ? "agent is working…" : "message  ·  Enter to send, Shift+Enter for newline"}
+        placeholder={
+          busy
+            ? "agent is working…"
+            : "message  ·  Enter to send, Shift+Enter for newline, / for skills"
+        }
         rows={Math.min(6, Math.max(1, text.split("\n").length))}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSel(0);
+          setDismissed(false);
+        }}
         onKeyDown={(e) => {
+          if (menuOpen) {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              return setSel((selIdx + 1) % matches.length);
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              return setSel((selIdx - 1 + matches.length) % matches.length);
+            }
+            if (e.key === "Tab" || e.key === "Enter") {
+              e.preventDefault();
+              return pick(matches[selIdx]);
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              return setDismissed(true);
+            }
+          }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             void send();

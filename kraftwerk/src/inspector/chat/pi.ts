@@ -42,6 +42,7 @@ export function startPiBackend(
   const tuningArgs = [
     ...(tuning.model ? ["--model", tuning.model] : []),
     ...(tuning.effort ? ["--thinking", tuning.effort] : []),
+    ...(tuning.skillDirs ?? []).flatMap((dir) => ["--skill", dir]),
   ];
 
   return {

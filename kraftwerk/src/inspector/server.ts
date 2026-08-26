@@ -1,13 +1,15 @@
 import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { setOutputDir, getOutputDir } from "./context.js";
+import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
+import { resolveProject } from "../config.js";
 import { listRuns, getRun, readRunFile } from "./runs.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
 import {
   cancelChat,
   createChat,
+  deleteChat,
   getChat,
   listChats,
   postMessage,
@@ -31,6 +33,7 @@ import {
   teamRoot,
   type SaveMemberInput,
 } from "./team.js";
+import { listSkills } from "./skills.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -89,9 +92,30 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+/** Package version, read once. Works from src/ (tsx) and dist/ alike. */
+let pkgVersion: string | undefined;
+async function getPkgVersion(): Promise<string> {
+  if (pkgVersion === undefined) {
+    try {
+      const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
+      pkgVersion = (JSON.parse(raw) as { version?: string }).version ?? "";
+    } catch {
+      pkgVersion = "";
+    }
+  }
+  return pkgVersion;
+}
+
 async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise<void> {
   const seg = url.pathname.split("/").filter(Boolean); // ["api", ...]
   const method = req.method ?? "GET";
+
+  // GET /api/meta — package version + project name ("environment") for the UI
+  if (seg.length === 2 && seg[1] === "meta" && method === "GET") {
+    const project = await resolveProject(getProjectRoot()).catch(() => null);
+    const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
+    return json(res, { version: await getPkgVersion(), projectName });
+  }
 
   // GET /api/runs
   if (seg.length === 2 && seg[1] === "runs" && method === "GET") {
@@ -258,6 +282,11 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // GET /api/skills — discovered skills (project + user .claude/skills)
+  if (seg.length === 2 && seg[1] === "skills" && method === "GET") {
+    return json(res, { skills: await listSkills() });
+  }
+
   // GET/POST /api/team — member list / create a member
   if (seg.length === 2 && seg[1] === "team") {
     if (method === "GET") {
@@ -366,6 +395,16 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // DELETE /api/chats/:id
+  if (seg.length === 3 && seg[1] === "chats" && method === "DELETE") {
+    try {
+      const result = await deleteChat(seg[2]);
+      return json(res, result, result.error ? 404 : 200);
+    } catch {
+      return json(res, { error: "invalid chat id" }, 400);
+    }
+  }
+
   // GET /api/chats/:id
   if (seg.length === 3 && seg[1] === "chats" && method === "GET") {
     try {
@@ -463,11 +502,14 @@ export interface InspectorOptions {
   outputDir: string;
   staticDir: string;
   port: number;
+  /** Consumer project root; defaults to the parent of outputDir. */
+  projectRoot?: string;
 }
 
 /** Start the server; resolves once it listens. Runs until the process ends. */
 export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   setOutputDir(opts.outputDir);
+  if (opts.projectRoot) setProjectRoot(opts.projectRoot);
   startRoutineScheduler();
   const server = http.createServer(async (req, res) => {
     try {

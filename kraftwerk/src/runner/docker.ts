@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runStamp } from "../workflow.js";
+import { newRunId, runDirFor } from "../workflow.js";
 
 /**
  * Docker sandbox runner: one container per workflow run.
@@ -33,12 +33,14 @@ const frameworkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 export interface SandboxOptions {
   /** Consumer project root (where output/ lives). */
   projectRoot: string;
+  /** Output directory; defaults to <projectRoot>/output (kraftwerk.yml `output:` may differ). */
+  outputDir?: string;
   /** Workflow folder (folder mode) or .yml file path. */
   workflowPath: string;
   /** Workflow name as declared in the YAML (used for `kraftwerk run <name>`). */
   workflowName: string;
   request: string;
-  /** Pre-chosen run id (run-...); generated when omitted. */
+  /** Pre-chosen run id; generated from workflow name + stamp when omitted. */
   runId?: string;
   /** Forward the host SSH agent + known_hosts into the container. */
   ssh?: boolean;
@@ -98,8 +100,8 @@ export async function runSandboxed(opts: SandboxOptions): Promise<SandboxHandle>
     throw new Error(`Image "${IMAGE}" not found — run \`kraftwerk runner build\` first.`);
   }
 
-  const runId = opts.runId ?? `run-${runStamp()}`;
-  const runDir = path.join(opts.projectRoot, "output", runId);
+  const runId = opts.runId ?? newRunId(opts.workflowName);
+  const runDir = runDirFor(opts.outputDir ?? path.join(opts.projectRoot, "output"), runId);
   await mkdir(runDir, { recursive: true });
   const containerName = `kw-${runId}`;
 
@@ -116,8 +118,8 @@ export async function runSandboxed(opts: SandboxOptions): Promise<SandboxHandle>
     "--memory", opts.memory ?? "2g",
     "--cpus", opts.cpus ?? "2",
     "-v", `${wfAbs}:${wfTarget}:ro`,
-    "-v", `${runDir}:/work/output/${runId}`,
-    "-e", `KRAFTWERK_RUN_DIR=/work/output/${runId}`,
+    "-v", `${runDir}:/work/output/runs/${runId}`,
+    "-e", `KRAFTWERK_RUN_DIR=/work/output/runs/${runId}`,
   ];
 
   const envFile = path.join(opts.projectRoot, ENV_FILE);

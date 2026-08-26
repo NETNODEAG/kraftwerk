@@ -150,11 +150,19 @@ export async function startAcpBackend(
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     clientInfo: { name: "kraftwerk-inspector", version: "1.0.0" },
   });
+  // Claude-only session options ride on _meta.claudeCode.options (the
+  // adapter spreads them into the Agent SDK options): model override,
+  // skill allowlist (undefined = all discovered skills), extra work dirs.
+  const claudeOptions: Record<string, unknown> = {
+    ...(tuning.model ? { model: tuning.model } : {}),
+    ...(tuning.skills ? { skills: tuning.skills } : {}),
+    ...(tuning.addDirs?.length ? { additionalDirectories: tuning.addDirs } : {}),
+  };
   const session = await conn.newSession({
     cwd,
     mcpServers: [],
-    ...(agent === "claude" && tuning.model
-      ? { _meta: { claudeCode: { options: { model: tuning.model } } } }
+    ...(agent === "claude" && Object.keys(claudeOptions).length
+      ? { _meta: { claudeCode: { options: claudeOptions } } }
       : {}),
   });
   const sessionId = session.sessionId;

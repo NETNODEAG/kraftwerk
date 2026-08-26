@@ -18,7 +18,7 @@ import { runUi } from "./ui.js";
 /**
  * kraftwerk — the kraftwerk CLI.
  *
- *   kraftwerk init                    scaffold kraftwerk.yml + workflows/ + example
+ *   kraftwerk init                    scaffold kraftwerk.yml + kraftwerk-data/ (workflow, agent, knowledge)
  *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
@@ -144,7 +144,7 @@ program
   .option("--from <source>", "Workflows from a git remote: github:org/repo[@ref] or git URL")
   .option("--sandbox", "Run inside the Docker sandbox container (image: kraftwerk-runner)")
   .option("--ssh", "Forward the SSH agent + known_hosts into the sandbox (only with --sandbox)")
-  .option("--run-id <id>", "Pin the run folder name (output/<id>), e.g. for external triggers")
+  .option("--run-id <id>", "Pin the run folder name (output/runs/<id>), e.g. for external triggers")
   .action(async (
     name: string | undefined,
     requestParts: string[],
@@ -203,8 +203,10 @@ program
 
     if (opts.sandbox) {
       const { runSandboxed } = await import("../runner/docker.js");
+      const { resolveProject } = await import("../config.js");
       const handle = await runSandboxed({
         projectRoot: baseDir,
+        outputDir: opts.from ? undefined : (await resolveProject(baseDir)).outputDir,
         workflowPath: entry.path,
         workflowName: workflow.name,
         request,
@@ -216,16 +218,14 @@ program
       process.exit(await handle.finished);
     }
 
-    if (opts.runId) {
-      process.env.KRAFTWERK_RUN_DIR = path.resolve("output", opts.runId);
-    } else if (!process.env.KRAFTWERK_RUN_DIR) {
+    if (opts.runId || !process.env.KRAFTWERK_RUN_DIR) {
       // Root the run dir explicitly: at the project's output dir (honors
       // kraftwerk.yml `output:` and works from subdirs); for remote runs at
       // the caller's cwd — never inside the clone cache.
-      const { runStamp } = await import("../workflow.js");
+      const { newRunId, runDirFor } = await import("../workflow.js");
       const { resolveProject } = await import("../config.js");
       const outBase = opts.from ? path.resolve("output") : (await resolveProject(baseDir)).outputDir;
-      process.env.KRAFTWERK_RUN_DIR = path.join(outBase, `run-${runStamp()}`);
+      process.env.KRAFTWERK_RUN_DIR = runDirFor(outBase, opts.runId ?? newRunId(workflow.name));
     }
 
     // Machine/quiet mode: workflow narration must not pollute stdout — the
@@ -254,7 +254,7 @@ program
 
 program
   .command("init")
-  .description("Scaffold the project: kraftwerk.yml, workflows/ with an example, .gitignore")
+  .description("Scaffold the project: kraftwerk.yml, kraftwerk-data/ (example workflow, agent max, demo knowledge), .gitignore")
   .action(async () => {
     await runInit(process.cwd());
   });
@@ -281,7 +281,7 @@ runs
 runs
   .command("show")
   .description("Show one run in detail: phases, gates, cost")
-  .argument("<runId>", "Folder name under output/, see `kraftwerk runs`")
+  .argument("<runId>", "Folder name under output/runs/, see `kraftwerk runs`")
   .option("--json", "Machine-readable output (all trace events)")
   .action(async (runId: string, opts: { json?: boolean }) => {
     await showRun(process.cwd(), runId, opts);

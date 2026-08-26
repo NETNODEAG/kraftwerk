@@ -8,7 +8,7 @@ import { envelopeContract } from "./envelope.js";
 import { checkScript, containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
 import { Run } from "./run.js";
 import { summaryTable } from "./stats.js";
-import { runStamp, type RunResult, type WorkflowDefinition } from "./workflow.js";
+import { newRunId, type RunResult, type WorkflowDefinition } from "./workflow.js";
 
 /**
  * YAML-configured workflows (v1: a linear sequence of gated agent steps).
@@ -324,7 +324,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       // the run directory upfront so it can mount/watch it by name.
       const runDir = process.env.KRAFTWERK_RUN_DIR
         ? path.resolve(process.env.KRAFTWERK_RUN_DIR)
-        : path.resolve("output", `run-${runStamp()}`);
+        : path.resolve("output", "runs", newRunId(raw.name));
       await mkdir(runDir, { recursive: true });
 
       const run = new Run({

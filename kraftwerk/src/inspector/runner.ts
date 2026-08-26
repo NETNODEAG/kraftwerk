@@ -2,6 +2,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, openSync, closeSync } from "node:fs";
 import path from "node:path";
 import { getProjectRoot } from "./context.js";
+import { RUN_ID_RE, safeRunDir } from "./runs.js";
+import { newRunId } from "../workflow.js";
 
 /**
  * Workflow trigger for the web UI. The inspector stays decoupled from the
@@ -13,11 +15,6 @@ import { getProjectRoot } from "./context.js";
  * mounted read-only, run dir bind-mounted back into output/ (see
  * kraftwerk/src/runner/docker.ts).
  */
-
-function stamp(d = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}-${p(d.getSeconds())}`;
-}
 
 export function dockerStatus(): { available: boolean; image: boolean } {
   const daemon = spawnSync("docker", ["version", "--format", "ok"], {
@@ -44,9 +41,9 @@ export function triggerRun(opts: {
     if (!docker.image) throw new Error('Image "kraftwerk-runner" missing — run `kraftwerk runner build`.');
   }
 
-  const runId = `run-${stamp()}`;
-  // Matches the CLI's --run-id resolution: output/<id> under the project root.
-  const runDir = path.join(getProjectRoot(), "output", runId);
+  const runId = newRunId(opts.workflowName);
+  // Matches the CLI's --run-id resolution: <output dir>/runs/<id>.
+  const runDir = safeRunDir(runId);
   mkdirSync(runDir, { recursive: true });
   const log = openSync(path.join(runDir, "trigger.log"), "a");
 
@@ -68,7 +65,7 @@ export function triggerRun(opts: {
 
 export function stopRun(runId: string): boolean {
   // Sandboxed runs run in container kw-<runId>; docker stop ends them.
-  if (!/^run-[0-9-]+$/.test(runId)) return false;
+  if (!RUN_ID_RE.test(runId)) return false;
   return (
     spawnSync("docker", ["stop", `kw-${runId}`], { stdio: "ignore", timeout: 30_000 }).status === 0
   );

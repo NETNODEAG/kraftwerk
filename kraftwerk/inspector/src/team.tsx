@@ -3,6 +3,7 @@ import type {
   ChatMeta,
   KnowledgeIndex,
   RoutineStatus,
+  SkillInfo,
   TeamMember,
   TeamMemberDetail,
   WorkflowSummary,
@@ -48,7 +49,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     <div className={`runs-screen team-screen ${slug ? "has-sessions" : ""}`}>
       <aside className="runs-side">
         <div className="side-head">
-          <span className="microlabel">team</span>
+          <span className="microlabel">agents</span>
           <span className="spacer" />
           <Link href="/team/new" className="open-raw">
             + new
@@ -118,9 +119,25 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
             <div className="side-row-body">
               <div className="side-row-top">
                 <span className="side-wf">{c.title || "new session"}</span>
+              </div>
+              <div className="side-row-sub">
                 <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
               </div>
             </div>
+            <button
+              type="button"
+              className="row-x"
+              title="delete session"
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!window.confirm(`Delete session "${c.title || c.id}"?`)) return;
+                await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
+                if (c.id === chatId) navigate(`/team/${encodeURIComponent(slug)}`);
+              }}
+            >
+              ✕
+            </button>
           </Link>
         ))}
         {data && sessions.length === 0 && <div className="viewer-note">no sessions yet</div>}
@@ -135,7 +152,7 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
   return (
     <div className="new-chat">
       <div className="page-head">
-        <h1>team</h1>
+        <h1>agents</h1>
       </div>
       <section className="panel new-chat-panel">
         <div className="panel-head">
@@ -165,6 +182,7 @@ function MemberView({ slug }: { slug: string }) {
   const [member, setMember] = useState<TeamMemberDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [roleOpen, setRoleOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -181,7 +199,7 @@ function MemberView({ slug }: { slug: string }) {
   if (!member) return <div className="empty">loading…</div>;
 
   return (
-    <div>
+    <div className="member-view">
       <div className="detail-head">
         <span className="team-emoji-lg">{member.emoji}</span>
         <h1>{member.name}</h1>
@@ -204,55 +222,92 @@ function MemberView({ slug }: { slug: string }) {
           {creating ? "starting…" : "new session"}
         </button>
       </div>
-      {member.description && <div className="know-intro" style={{ padding: "0 2px 14px" }}>{member.description}</div>}
-
       <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">role — system prompt</span>
-          <span className="spacer" />
-          <span className="side-meta">agents/{member.slug}/system.md</span>
-        </div>
-        <div className="viewer-body">
-          <pre>{member.system || "(empty — edit this agent to give it a role)"}</pre>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">connected workflows</span>
-        </div>
-        {member.workflows.length === 0 ? (
-          <div className="viewer-note">
-            none — connect workflows in the editor and the agent will know it can run them.
+        <div className="m3-list">
+          <button type="button" className="m3-row m3-toggle" onClick={() => setRoleOpen(!roleOpen)}>
+            <span className="m3-ico">▤</span>
+            <span className="m3-body">
+              <span className="m3-head">role</span>
+              {!roleOpen && (
+                <span className="m3-sub m3-ellipsis">
+                  {(member.system || "").trim().split("\n")[0] ||
+                    "empty — edit this agent to give it a role"}
+                </span>
+              )}
+            </span>
+            <span className={`m3-chev ${roleOpen ? "open" : ""}`}>▾</span>
+          </button>
+          {roleOpen && (
+            <div className="m3-expand">
+              <pre>{member.system || "(empty — edit this agent to give it a role)"}</pre>
+              <div className="m3-sub" style={{ marginTop: 10 }}>
+                agents/{member.slug}/system.md
+              </div>
+            </div>
+          )}
+          <div className="m3-row">
+            <span className="m3-ico">⚙</span>
+            <span className="m3-body">
+              <span className="m3-head">workflows</span>
+              {member.workflows.length === 0 ? (
+                <span className="m3-sub">none connected — the agent can run any workflow you connect</span>
+              ) : (
+                <span className="m3-chips">
+                  {member.workflows.map((w) => (
+                    <Link key={w} href={`/workflows/${encodeURIComponent(w)}`} className="chip">
+                      {w}
+                    </Link>
+                  ))}
+                </span>
+              )}
+            </span>
+            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
+              edit
+            </Link>
           </div>
-        ) : (
-          <div className="team-wf-list">
-            {member.workflows.map((w) => (
-              <Link key={w} href={`/workflows/${encodeURIComponent(w)}`} className="chip">
-                {w}
-              </Link>
-            ))}
+          <div className="m3-row">
+            <span className="m3-ico">◆</span>
+            <span className="m3-body">
+              <span className="m3-head">knowledge</span>
+              {member.knowledge.length === 0 ? (
+                <span className="m3-sub">none connected — connected bundles are read and kept current by the agent</span>
+              ) : (
+                <span className="m3-chips">
+                  {member.knowledge.map((b) => (
+                    <Link key={b} href={`/knowledge/${encodeURIComponent(b)}`} className="chip">
+                      {b}
+                    </Link>
+                  ))}
+                </span>
+              )}
+            </span>
+            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
+              edit
+            </Link>
           </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">connected knowledge</span>
+          <div className="m3-row">
+            <span className="m3-ico">/</span>
+            <span className="m3-body">
+              <span className="m3-head">skills</span>
+              {member.skills === undefined ? (
+                <span className="m3-sub">all discovered skills (default) — invoke with /name in a session</span>
+              ) : member.skills.length === 0 ? (
+                <span className="m3-sub">none — this agent runs without skills</span>
+              ) : (
+                <span className="m3-chips">
+                  {member.skills.map((s) => (
+                    <span key={s} className="chip">
+                      /{s}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
+            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
+              edit
+            </Link>
+          </div>
         </div>
-        {member.knowledge.length === 0 ? (
-          <div className="viewer-note">
-            none — connect knowledge bundles in the editor and the agent will read and maintain them.
-          </div>
-        ) : (
-          <div className="team-wf-list">
-            {member.knowledge.map((b) => (
-              <Link key={b} href={`/knowledge/${encodeURIComponent(b)}`} className="chip">
-                {b}
-              </Link>
-            ))}
-          </div>
-        )}
       </section>
 
       <RoutinesPanel slug={slug} />
@@ -336,60 +391,78 @@ function RoutinesPanel({ slug }: { slug: string }) {
         </div>
       )}
       {routines.length > 0 && (
-        <table className="know-table">
-          <tbody>
-            {routines.map((r) => (
-              <tr key={r.id}>
-                <td>
-                  <b>{r.name}</b>
-                  {!r.enabled && <span className="chip stale">off</span>}
+        <div className="m3-list">
+          {routines.map((r) => (
+            <div key={r.id} className="m3-row">
+              <span className="m3-ico">◷</span>
+              <span className="m3-body">
+                <span className="m3-head">
+                  {r.name}
                   {r.lastError && (
                     <span className="chip stale" title={r.lastError}>
                       error
                     </span>
                   )}
-                </td>
-                <td className="know-type">
+                </span>
+                <span className="m3-sub">
                   <code>{r.schedule}</code>
-                </td>
-                <td className="know-type">
-                  {r.enabled && r.nextRunAt ? `next ${fmtWhen(r.nextRunAt)}` : "—"}
-                </td>
-                <td className="know-type">
+                  {!r.enabled
+                    ? " · paused"
+                    : r.nextRunAt
+                      ? ` · next ${fmtWhen(r.nextRunAt)}`
+                      : ""}
+                  {" · "}
                   {r.lastChatId ? (
                     <Link href={`/team/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}>
-                      last {fmtWhen(r.lastRunAt)}
+                      last run {fmtWhen(r.lastRunAt)}
                     </Link>
                   ) : (
                     "never ran"
                   )}
-                </td>
-                <td className="know-flags">
-                  <button className="open-raw" disabled={busyId === r.id} onClick={() => runNow(r.id)}>
-                    {busyId === r.id ? "starting…" : "▶ run now"}
-                  </button>{" "}
-                  <button
-                    className="open-raw"
-                    onClick={() =>
-                      setForm({
-                        id: r.id,
-                        name: r.name,
-                        schedule: r.schedule,
-                        prompt: r.prompt,
-                        enabled: r.enabled,
-                      })
-                    }
-                  >
-                    edit
-                  </button>{" "}
-                  <button className="open-raw" onClick={() => void remove(r.id)}>
-                    delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </span>
+              </span>
+              <button className="open-raw" disabled={busyId === r.id} onClick={() => runNow(r.id)}>
+                {busyId === r.id ? "starting…" : "▶ run"}
+              </button>
+              <button
+                className="open-raw"
+                onClick={() =>
+                  setForm({
+                    id: r.id,
+                    name: r.name,
+                    schedule: r.schedule,
+                    prompt: r.prompt,
+                    enabled: r.enabled,
+                  })
+                }
+              >
+                edit
+              </button>
+              <button className="open-raw" onClick={() => void remove(r.id)}>
+                delete
+              </button>
+              <label
+                className="m3-switch"
+                title={r.enabled ? "enabled — click to pause" : "paused — click to enable"}
+              >
+                <input
+                  type="checkbox"
+                  checked={r.enabled}
+                  onChange={() =>
+                    void post({
+                      id: r.id,
+                      name: r.name,
+                      schedule: r.schedule,
+                      prompt: r.prompt,
+                      enabled: !r.enabled,
+                    })
+                  }
+                />
+                <span className="m3-switch-track" />
+              </label>
+            </div>
+          ))}
+        </div>
       )}
       {form && (
         <div className="team-form">
@@ -465,6 +538,8 @@ function MemberEditor({ slug }: { slug?: string }) {
     system: string;
     workflows: string[];
     knowledge: string[];
+    skillsAll: boolean;
+    skills: string[];
   } | null>(slug ? null : defaults());
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -472,6 +547,8 @@ function MemberEditor({ slug }: { slug?: string }) {
   const available = wfData?.workflows ?? [];
   const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
   const bundles = kData?.bundles ?? [];
+  const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
+  const allSkills = sData?.skills ?? [];
 
   useEffect(() => {
     if (!slug) return;
@@ -488,6 +565,8 @@ function MemberEditor({ slug }: { slug?: string }) {
           system: m.system,
           workflows: m.workflows,
           knowledge: m.knowledge ?? [],
+          skillsAll: m.skills === undefined,
+          skills: m.skills ?? [],
         })
       )
       .catch(() => setError("agent not found"));
@@ -504,6 +583,8 @@ function MemberEditor({ slug }: { slug?: string }) {
       system: "",
       workflows: [] as string[],
       knowledge: [] as string[],
+      skillsAll: true,
+      skills: [] as string[],
     };
   }
 
@@ -514,7 +595,8 @@ function MemberEditor({ slug }: { slug?: string }) {
     const res = await fetch(slug ? `/api/team/${encodeURIComponent(slug)}` : "/api/team", {
       method: slug ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(form),
+      // skillsAll = no allowlist: omit the skills key entirely.
+      body: JSON.stringify({ ...form, skills: form.skillsAll ? undefined : form.skills }),
     });
     const body = await res.json();
     setSaving(false);
@@ -653,6 +735,41 @@ function MemberEditor({ slug }: { slug?: string }) {
                 </label>
               ))}
               {bundles.length === 0 && <div className="viewer-note">no knowledge bundles in this project</div>}
+            </div>
+          </div>
+          <div className="team-field">
+            <span className="team-field-label">connected skills — instruction packages from .claude/skills; invoked with /name in sessions</span>
+            <div className="wf-checks">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.skillsAll}
+                  onChange={(e) => set({ skillsAll: e.target.checked })}
+                />
+                <b>all skills</b>
+                <span className="opt-hint"> — every discovered skill, including future ones</span>
+              </label>
+              {!form.skillsAll &&
+                allSkills.map((s) => (
+                  <label key={s.name}>
+                    <input
+                      type="checkbox"
+                      checked={form.skills.includes(s.name)}
+                      onChange={(e) =>
+                        set({
+                          skills: e.target.checked
+                            ? [...form.skills, s.name]
+                            : form.skills.filter((n) => n !== s.name),
+                        })
+                      }
+                    />
+                    <b>/{s.name}</b>
+                    {s.description && <span className="opt-hint"> — {s.description}</span>}
+                  </label>
+                ))}
+              {!form.skillsAll && allSkills.length === 0 && (
+                <div className="viewer-note">no skills found (.claude/skills, project or user)</div>
+              )}
             </div>
           </div>
           {error && <div className="msg error">✕ {error}</div>}

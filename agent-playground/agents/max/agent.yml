@@ -4,5 +4,5 @@ description: Runs and explains this project's workflows
 harness: claude
 model: sonnet
 effort: medium
-workflows:
-knowledge:
+workflows: []
+knowledge: []
