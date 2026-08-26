@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type {
+  BundleDetail,
   ChatMeta,
+  ConceptDetail,
   KnowledgeIndex,
   RoutineStatus,
   SkillInfo,
@@ -45,8 +49,29 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   else if (slug) main = <MemberView key={slug} slug={slug} />;
   else main = <TeamHome hasMembers={members.length > 0} root={data?.root} />;
 
+  // Linked knowledge bundles of the selected agent → right sidebar on the
+  // profile and chat views (not while editing). Hidden state persists.
+  const kBundles =
+    (mode === "member" || mode === "chat") && slug
+      ? (members.find((m) => m.slug === slug)?.knowledge ?? [])
+      : [];
+  const [kOpen, setKOpen] = useState(() => localStorage.getItem("kw-kside") !== "hidden");
+  const [kWidth, setKWidth] = useState(() => Number(localStorage.getItem("kw-kside-w")) || 460);
+  const showKnowledge = kBundles.length > 0 && kOpen;
+  function toggleKnowledge(open: boolean): void {
+    setKOpen(open);
+    localStorage.setItem("kw-kside", open ? "open" : "hidden");
+  }
+  function resizeKnowledge(w: number): void {
+    setKWidth(w);
+    localStorage.setItem("kw-kside-w", String(w));
+  }
+
   return (
-    <div className={`runs-screen team-screen ${slug ? "has-sessions" : ""}`}>
+    <div
+      className={`runs-screen team-screen ${slug ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
+      style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
+    >
       <aside className="runs-side">
         <div className="side-head">
           <span className="microlabel">agents</span>
@@ -78,7 +103,198 @@ export function TeamScreen({ seg }: { seg: string[] }) {
       </aside>
       {slug && <SessionsSide slug={slug} chatId={chatId} />}
       <div className="runs-main">{main}</div>
+      {showKnowledge && (
+        <KnowledgeSide bundles={kBundles} onHide={() => toggleKnowledge(false)} onResize={resizeKnowledge} />
+      )}
+      {kBundles.length > 0 && !kOpen && (
+        <button className="kside-reopen" onClick={() => toggleKnowledge(true)} title="Show knowledge sidebar">
+          ◆ knowledge
+        </button>
+      )}
     </div>
+  );
+}
+
+/* ---------- knowledge sidebar ---------- */
+
+function KnowledgeSide({
+  bundles,
+  onHide,
+  onResize,
+}: {
+  bundles: string[];
+  onHide: () => void;
+  onResize: (w: number) => void;
+}) {
+  const [details, setDetails] = useState<Record<string, BundleDetail | null>>({});
+  const [openId, setOpenId] = useState<string | null>(null); // "<bundle>::<concept id>"
+  // key -> full concept (null = failed to load); rendered html derives from it.
+  const [concepts, setConcepts] = useState<Record<string, ConceptDetail | null>>({});
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  useEffect(() => {
+    setDetails({});
+    for (const b of bundles) {
+      fetch(`/api/knowledge/${encodeURIComponent(b)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: BundleDetail | null) => setDetails((prev) => ({ ...prev, [b]: d })))
+        .catch(() => setDetails((prev) => ({ ...prev, [b]: null })));
+    }
+  }, [bundles.join(",")]);
+
+  async function toggle(bundle: string, id: string): Promise<void> {
+    const key = `${bundle}::${id}`;
+    if (openId === key) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(key);
+    if (concepts[key] !== undefined) return;
+    try {
+      const r = await fetch(
+        `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(id)}`
+      );
+      const concept = r.ok ? ((await r.json()) as ConceptDetail) : null;
+      setConcepts((prev) => ({ ...prev, [key]: concept }));
+    } catch {
+      setConcepts((prev) => ({ ...prev, [key]: null }));
+    }
+  }
+
+  // Saves the full raw file (frontmatter + body) — the server stamps
+  // provenance as human:user, same as the knowledge screen's editor.
+  async function save(bundle: string, id: string): Promise<void> {
+    const key = `${bundle}::${id}`;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const r = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, content: draft }),
+      });
+      const body = (await r.json()) as ConceptDetail & { error?: string };
+      if (body.error) {
+        setSaveError(body.error);
+      } else {
+        setConcepts((prev) => ({ ...prev, [key]: body }));
+        setEditKey(null);
+      }
+    } catch (err) {
+      setSaveError((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <aside className="runs-side knowledge-side">
+      <div
+        className="kside-resizer"
+        title="Drag to resize"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startW = (e.currentTarget.parentElement as HTMLElement).offsetWidth;
+          const move = (ev: MouseEvent) =>
+            onResize(Math.min(900, Math.max(280, startW + (startX - ev.clientX))));
+          const up = () => {
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mouseup", up);
+          };
+          window.addEventListener("mousemove", move);
+          window.addEventListener("mouseup", up);
+        }}
+      />
+      <div className="side-head">
+        <span className="microlabel">knowledge</span>
+        <span className="spacer" />
+        <button className="open-raw" onClick={onHide} title="Hide knowledge sidebar">
+          hide ✕
+        </button>
+      </div>
+      <div className="side-list">
+        {bundles.map((b) => {
+          const detail = details[b];
+          return (
+            <div key={b} className="kside-bundle">
+              <Link href={`/knowledge/${encodeURIComponent(b)}`} className="kside-bundle-name">
+                {b} {detail ? <span className="num">({detail.concepts.length})</span> : null}
+              </Link>
+              {detail === null && <div className="viewer-note">bundle not found</div>}
+              {detail?.concepts.map((c) => {
+                const key = `${b}::${c.id}`;
+                const open = openId === key;
+                return (
+                  <div key={c.id} className="kside-concept">
+                    <button className={`kside-row ${open ? "active" : ""}`} onClick={() => toggle(b, c.id)}>
+                      <span className="kside-title">{c.title || c.id}</span>
+                      {c.stale && <span className="kside-stale">stale</span>}
+                    </button>
+                    {open && editKey !== key && (
+                      <div className="kside-body md-body">
+                        {concepts[key] === undefined ? (
+                          <span className="viewer-note">loading…</span>
+                        ) : concepts[key] === null ? (
+                          <span className="viewer-note">could not load concept</span>
+                        ) : (
+                          <>
+                            <div className="kside-actions">
+                              <button
+                                className="open-raw"
+                                onClick={() => {
+                                  setDraft(concepts[key]!.raw);
+                                  setEditKey(key);
+                                  setSaveError("");
+                                }}
+                              >
+                                ✎ edit
+                              </button>
+                            </div>
+                            <div
+                              dangerouslySetInnerHTML={{
+                                __html: DOMPurify.sanitize(
+                                  marked.parse(concepts[key]!.body ?? "", { async: false })
+                                ),
+                              }}
+                            />
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {open && editKey === key && (
+                      <div className="kside-body kside-edit">
+                        <textarea
+                          className="concept-edit"
+                          value={draft}
+                          rows={Math.min(28, Math.max(10, draft.split("\n").length + 2))}
+                          onChange={(e) => setDraft(e.target.value)}
+                          spellCheck={false}
+                        />
+                        <div className="kside-actions">
+                          <button className="open-raw" disabled={saving} onClick={() => setEditKey(null)}>
+                            cancel
+                          </button>
+                          <button className="open-raw" disabled={saving} onClick={() => save(b, c.id)}>
+                            {saving ? "saving…" : "✓ save"}
+                          </button>
+                        </div>
+                        {saveError && <div className="msg error">✕ {saveError}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {detail && detail.concepts.length === 0 && (
+                <div className="viewer-note">no concepts yet</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </aside>
   );
 }
 

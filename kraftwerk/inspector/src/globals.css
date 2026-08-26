@@ -765,6 +765,53 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 
 .team-screen { grid-template-columns: 240px minmax(0, 1fr); }
 .team-screen.has-sessions { grid-template-columns: 240px 260px minmax(0, 1fr); }
+.team-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr) var(--kside-w, 460px); }
+
+/* Knowledge sidebar: linked OKF bundles of the selected agent. */
+.knowledge-side { position: sticky; border-left: 1px solid var(--outline-variant); border-right: 0; }
+.kside-resizer { position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 4; }
+.kside-resizer:hover { background: color-mix(in srgb, var(--primary) 25%, transparent); }
+.kside-bundle { padding: 6px 0; }
+.kside-bundle + .kside-bundle { border-top: 1px solid var(--outline-variant); }
+.kside-bundle-name {
+  display: block; padding: 6px 14px; font-size: 12px; font-weight: 600;
+  color: var(--on-surface); text-decoration: none;
+}
+.kside-bundle-name:hover { color: var(--primary); }
+.kside-bundle-name .num { font-weight: 400; color: var(--on-surface-variant); }
+.kside-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 5px 14px 5px 20px; font-size: 12px; color: var(--on-surface-variant);
+}
+.kside-row:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); color: var(--on-surface); }
+.kside-row.active { color: var(--on-surface); font-weight: 500; }
+.kside-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kside-stale {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--error, #b3261e); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
+}
+.kside-body.md-body {
+  height: auto; overflow: visible; padding: 6px 14px 10px 20px; font-size: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
+}
+.concept-md { height: auto; overflow: visible; }
+
+.kside-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 2px 0 6px; }
+.kside-edit { padding: 6px 14px 10px 20px; border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.kside-edit .concept-edit { width: 100%; box-sizing: border-box; }
+.kside-edit .kside-actions { margin-top: 8px; }
+
+.kside-reopen {
+  position: fixed; right: 14px; top: 60px; z-index: 5;
+  font-size: 11px; color: var(--on-surface-variant);
+  background: var(--surface-container-high); border: 1px solid var(--outline-variant);
+  border-radius: 999px; padding: 4px 12px;
+}
+.kside-reopen:hover { color: var(--on-surface); background: var(--surface-container-highest, var(--surface-container-high)); }
+@media (max-width: 1099px) {
+  .knowledge-side, .kside-reopen { display: none; }
+  .team-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr); }
+}
 .team-emoji { font-size: 17px; line-height: 1.3; flex: none; }
 .team-emoji-lg { font-size: 34px; line-height: 1; }
 .member-view { display: flex; flex-direction: column; gap: 16px; }
@@ -892,6 +939,6 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .wf-checks .opt-hint { color: var(--outline); font-size: 11.5px; }
 
 @media (max-width: 900px) {
-  .team-screen, .team-screen.has-sessions { grid-template-columns: 1fr; }
+  .team-screen, .team-screen.has-sessions, .team-screen.has-sessions.has-knowledge { grid-template-columns: 1fr; }
   .team-form-row { flex-direction: column; align-items: stretch; }
 }

@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
 import { Link, usePoll } from "./shared";
@@ -310,6 +312,12 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [view, setView] = useState<"rendered" | "source">("rendered");
+  // Concept bodies are (often agent-)generated markdown — sanitize before injecting.
+  const html = useMemo(
+    () => (concept ? DOMPurify.sanitize(marked.parse(concept.body, { async: false })) : ""),
+    [concept?.body]
+  );
 
   const load = () => {
     fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`)
@@ -425,9 +433,25 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
               </div>
             </>
           ) : (
-            <div className="viewer-body">
-              <pre>{concept.body.trim() || "(empty body)"}</pre>
-            </div>
+            <>
+              <div className="viewer-note md-toolbar">
+                <div className="tabs">
+                  <button className={view === "rendered" ? "active" : ""} onClick={() => setView("rendered")}>
+                    rendered
+                  </button>
+                  <button className={view === "source" ? "active" : ""} onClick={() => setView("source")}>
+                    source
+                  </button>
+                </div>
+              </div>
+              <div className="viewer-body">
+                {view === "rendered" ? (
+                  <div className="md-body concept-md" dangerouslySetInnerHTML={{ __html: html }} />
+                ) : (
+                  <pre>{concept.body.trim() || "(empty body)"}</pre>
+                )}
+              </div>
+            </>
           )}
           {saveError && <div className="msg error">✕ {saveError}</div>}
         </section>
