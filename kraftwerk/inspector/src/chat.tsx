@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
 import { Link, navigate, usePoll, fmtWhen } from "./shared";
 
@@ -337,12 +339,18 @@ function Thread({ id, events, busy }: { id: string; events: StoredChatEvent[]; b
   );
 }
 
+/** Agent replies are markdown — render them (sanitized; images/links included). */
+function AgentMessage({ text }: { text: string }) {
+  const html = useMemo(() => DOMPurify.sanitize(marked.parse(text, { async: false })), [text]);
+  return <div className="msg agent md-body chat-md" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function BlockView({ b, chatId }: { b: Block; chatId: string }) {
   switch (b.kind) {
     case "user":
       return <div className="msg user">{b.text}</div>;
     case "agent":
-      return <div className="msg agent">{b.text}</div>;
+      return <AgentMessage text={b.text} />;
     case "thought":
       return (
         <details className="msg thought">

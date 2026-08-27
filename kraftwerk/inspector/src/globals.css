@@ -634,6 +634,10 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   border-radius: 20px 20px 20px 6px;
   padding: 10px 16px;
 }
+/* Agent bubbles hold rendered markdown: undo md-body's pane sizing, keep bubble padding. */
+.msg.agent.chat-md { white-space: normal; height: auto; overflow: visible; padding: 10px 16px; font-size: 14px; }
+.msg.agent.chat-md img { border-radius: 10px; margin: 4px 0; display: block; }
+.msg.agent.chat-md pre { max-width: 100%; }
 .msg.error { align-self: flex-start; color: var(--error); font-size: 12.5px; }
 .msg.thought { align-self: flex-start; max-width: 76ch; }
 .msg.thought summary {

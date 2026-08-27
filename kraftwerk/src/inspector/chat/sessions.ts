@@ -36,6 +36,8 @@ interface ChatState {
   pendingPermissions: Map<string, (optionId: string | null) => void>;
   /** Serializes appendEvent calls so events.jsonl stays ordered. */
   writeChain: Promise<void>;
+  /** True right after a backend spawn: the next prompt must carry scope context. */
+  needsContext: boolean;
 }
 
 const states = new Map<string, ChatState>();
@@ -53,6 +55,7 @@ async function loadState(id: string): Promise<ChatState | null> {
     busy: false,
     pendingPermissions: new Map(),
     writeChain: Promise.resolve(),
+    needsContext: true,
   };
   // Two racing loads: keep whichever registered first.
   return states.get(id) ?? (states.set(id, state), state);
@@ -257,14 +260,27 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
   return "";
 }
 
+/**
+ * Every chat renders in the inspector UI, so agents should know two things:
+ * replies are markdown, and run artifacts are addressable over the
+ * inspector's own file endpoint (relative URLs keep working wherever the
+ * inspector is reachable — localhost, LAN, tunnel).
+ */
+const RENDERING_BLOCK =
+  `## Chat rendering\n` +
+  `Your replies render as markdown in the inspector chat: headings, lists, tables, code blocks, ` +
+  `links and images all work. Files inside a workflow run's output folder are served by the ` +
+  `inspector itself at /api/runs/<run-id>/file?name=<relative-path>&raw=1 — embed an image inline ` +
+  `with ![alt](/api/runs/<run-id>/file?name=picture.png&raw=1), or link any artifact the same way. ` +
+  `Prefer these relative /api/... URLs over file paths when showing results: they render directly ` +
+  `in this chat and keep working wherever the inspector is reachable.`;
+
 async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
   const [base, skills] = await Promise.all([
     baseScopeContext(scope, agent),
     availableSkills(scope),
   ]);
-  const block = skillsBlock(skills);
-  if (!block) return base;
-  return base ? `${base}\n\n${block}` : block;
+  return [base, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /* ---------- backend lifecycle ---------- */
@@ -325,6 +341,9 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
       : await startAcpBackend(agent, cwd, hooks, tuning);
+  // Fresh process = fresh context window: re-send scope context with the
+  // next prompt (matters for chats resumed after an inspector restart).
+  state.needsContext = true;
   return state.backend;
 }
 
@@ -356,6 +375,7 @@ export async function createChat(opts: {
     busy: false,
     pendingPermissions: new Map(),
     writeChain: Promise.resolve(),
+    needsContext: true,
   });
   return meta;
 }
@@ -394,7 +414,10 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
   void (async () => {
     try {
       const backend = await ensureBackend(state);
-      const context = isFirst ? await scopeContext(state.meta.scope, state.meta.agent) : "";
+      const context = state.needsContext
+        ? await scopeContext(state.meta.scope, state.meta.agent)
+        : "";
+      state.needsContext = false;
       // "/<skill> args" expands to the skill's instructions for the agent;
       // the thread keeps the short form the user typed.
       const body = await expandSkillInvocation(state.meta.scope, text);
