@@ -79,7 +79,7 @@ export function DashboardScreen() {
 
       <TeamRow members={teamData?.members} chats={chats} />
 
-      <ActivityFeed runs={runs} chats={chats} bundles={bundles} />
+      <ActivityFeed runs={runs} chats={chats} bundles={bundles} members={teamData?.members ?? []} />
     </div>
   );
 }
@@ -155,10 +155,12 @@ function ActivityFeed({
   runs,
   chats,
   bundles,
+  members,
 }: {
   runs: RunListItem[];
   chats: BusyChat[];
   bundles: BundleInfo[];
+  members: TeamMember[];
 }) {
   const feed = useMemo(() => {
     const items: FeedItem[] = [];
@@ -173,11 +175,18 @@ function ActivityFeed({
       });
     }
     for (const c of chats) {
+      // Team sessions show the teammate (emoji + name), others the harness + scope.
+      const member =
+        c.scope.kind === "team"
+          ? members.find((m) => c.scope.kind === "team" && m.slug === c.scope.member)
+          : undefined;
       items.push({
         at: c.updatedAt,
         kind: "session",
         title: c.title || "new chat",
-        sub: `${c.agent} · ${chatScopeLabel(c)}`,
+        sub: member
+          ? `${member.emoji} ${member.name} · ${c.agent}`
+          : `${c.agent} · ${chatScopeLabel(c)}`,
         href: chatHref(c),
         lamp: c.busy ? "running" : "ok",
       });
@@ -200,7 +209,7 @@ function ActivityFeed({
         return run !== 0 ? run : b.at.localeCompare(a.at);
       })
       .slice(0, 15);
-  }, [runs, chats, bundles]);
+  }, [runs, chats, bundles, members]);
 
   return (
     <section className="panel dash-feed">
