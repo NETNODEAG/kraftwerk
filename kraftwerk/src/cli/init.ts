@@ -24,6 +24,7 @@ workflows: ${DATA_DIR}/workflows   # where workflows live
 output: ${DATA_DIR}/output         # where run artifacts land (git-ignored)
 knowledge: ${DATA_DIR}/knowledge   # OKF knowledge bundles
 agents: ${DATA_DIR}/agents         # team agent definitions
+skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packages)
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}
@@ -71,6 +72,20 @@ project's kraftwerk workflows, and you consult the knowledge bundles you
 have access to before answering questions they cover.
 `;
 
+const SKILL_TEMPLATE = `---
+name: daily-summary
+description: Summarize what happened in this workspace today (runs, knowledge updates)
+---
+
+# Daily summary
+
+When invoked, produce a short summary of today's activity in this workspace:
+
+1. List today's workflow runs and their status.
+2. Mention knowledge concepts updated today, if any.
+3. Keep it under 10 lines, plain markdown.
+`;
+
 const DEMO_BUNDLE = "demo-customer-support";
 
 const DEMO_CONCEPT = `---
@@ -110,6 +125,9 @@ export async function runInit(cwd: string): Promise<void> {
   // Team agent "max".
   await put(`${DATA_DIR}/agents/max/agent.yml`, AGENT_YML_TEMPLATE);
   await put(`${DATA_DIR}/agents/max/system.md`, AGENT_SYSTEM_TEMPLATE);
+
+  // Example workspace skill.
+  await put(`${DATA_DIR}/skills/daily-summary/SKILL.md`, SKILL_TEMPLATE);
 
   // Demo knowledge bundle, through the canonical OKF write path so
   // index.md and log.md come out consistent.

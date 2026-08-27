@@ -76,8 +76,8 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
 /* ---------- skills ---------- */
 
 /**
- * Skills visible to a chat: every discovered skill (project + user
- * .claude/skills), narrowed by the team member's allowlist when the chat
+ * Skills visible to a chat: every discovered skill (workspace skills root
+ * + .claude/skills roots), narrowed by the team member's allowlist when the chat
  * is a team session (absent allowlist = all, empty = none).
  */
 async function availableSkills(scope: ChatScope): Promise<SkillInfo[]> {

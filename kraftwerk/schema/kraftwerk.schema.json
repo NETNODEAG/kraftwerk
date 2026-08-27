@@ -35,6 +35,10 @@
     "agents": {
       "type": "string",
       "description": "Team agent-definition root relative to this file. Default: agents"
+    },
+    "skills": {
+      "type": "string",
+      "description": "Workspace skill root (one folder per skill with a SKILL.md) relative to this file. Default: skills"
     }
   }
 }

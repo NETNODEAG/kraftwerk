@@ -33,7 +33,7 @@ import {
   teamRoot,
   type SaveMemberInput,
 } from "./team.js";
-import { listSkills } from "./skills.js";
+import { getSkill, listSkills, skillsRoot } from "./skills.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -282,9 +282,16 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET /api/skills — discovered skills (project + user .claude/skills)
+  // GET /api/skills — discovered skills (workspace root + .claude/skills + ~/.claude/skills)
   if (seg.length === 2 && seg[1] === "skills" && method === "GET") {
-    return json(res, { skills: await listSkills() });
+    const [root, skills] = await Promise.all([skillsRoot(), listSkills()]);
+    return json(res, { root, skills });
+  }
+
+  // GET /api/skills/:name — one skill with SKILL.md content + bundled files
+  if (seg.length === 3 && seg[1] === "skills" && method === "GET") {
+    const skill = await getSkill(decodeURIComponent(seg[2]));
+    return skill ? json(res, skill) : json(res, { error: "not found" }, 404);
   }
 
   // GET/POST /api/team — member list / create a member

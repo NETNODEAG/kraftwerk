@@ -32,7 +32,7 @@ export type {
   TeamMember,
   TeamMemberDetail,
 } from "../../src/inspector/team";
-export type { SkillInfo } from "../../src/inspector/skills";
+export type { SkillDetail, SkillInfo } from "../../src/inspector/skills";
 export type {
   Routine,
   RoutineStatus,

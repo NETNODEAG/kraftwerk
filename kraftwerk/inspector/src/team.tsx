@@ -954,7 +954,7 @@ function MemberEditor({ slug }: { slug?: string }) {
             </div>
           </div>
           <div className="team-field">
-            <span className="team-field-label">connected skills — instruction packages from .claude/skills; invoked with /name in sessions</span>
+            <span className="team-field-label">connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions</span>
             <div className="wf-checks">
               <label>
                 <input

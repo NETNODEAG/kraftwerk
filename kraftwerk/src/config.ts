@@ -20,6 +20,7 @@ import { parse } from "yaml";
  *   output: output             # run-artifact directory, relative to the file
  *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
  *   agents: agents             # team agent-definition root, relative to the file
+ *   skills: skills             # workspace skill root, relative to the file
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -49,6 +50,8 @@ export interface ProjectConfig {
   knowledge?: string;
   /** Team agent-definition root relative to the project root. Default: agents */
   agents?: string;
+  /** Workspace skill root relative to the project root. Default: skills */
+  skills?: string;
 }
 
 export interface Project {
@@ -127,10 +130,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents, skills)`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents"];
+  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills"];
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(

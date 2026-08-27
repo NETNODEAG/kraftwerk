@@ -757,6 +757,15 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 .chip.stale, .chip.deprecated { border-color: transparent; color: var(--on-error-container); background: var(--error-container); }
 .chip.draft { border-color: color-mix(in srgb, var(--primary) 45%, var(--outline-variant)); color: var(--primary); }
 
+/* ---------- skills screen ---------- */
+.lamp.dim { background: var(--outline-variant); }
+.chip.skill-src { flex: none; }
+.chip.skill-src.workspace { border-color: transparent; background: var(--success-container); color: var(--on-success-container); }
+.chip.skill-src.project, .chip.skill-src.user { color: var(--on-surface-variant); }
+.skills-local-head { border-top: 1px solid var(--outline-variant); margin-top: 10px; }
+.skill-desc { margin: -6px 2px 14px; }
+.skill-path { word-break: break-all; }
+
 .know-sub { display: flex; align-items: center; gap: 8px; margin: -8px 2px 14px; }
 .know-sub .rid { font-family: var(--font-mono), monospace; font-size: 12px; color: var(--on-surface-variant); }
 .know-meta { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px; font-size: 13px; }
