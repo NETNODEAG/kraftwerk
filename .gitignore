@@ -6,6 +6,7 @@ dist/
 .env
 .env.*
 agent-playground/src/workflows/helpdesk-check/
+agent-playground/src/workflows/nn-article-to-pdf/
 agent-playground/knowledge/*
 !agent-playground/knowledge/demo-customer-support/
 agent-playground/agents/*
