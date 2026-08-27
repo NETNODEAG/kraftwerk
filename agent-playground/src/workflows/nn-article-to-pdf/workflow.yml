@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: nn-article-to-pdf
+description: "NETNODE article to PDF: a netnode.ch article URL resolved via the NodeHive API (router + JSON:API) and rendered as a well-readable PDF incl. teaser image — fully deterministic scripts, no LLM"
+
+workspace: |
+  Files: article.json (raw JSON:API node incl. teaser image), inputs.json
+  (article metadata + file manifest), inputs/ (the article as markdown, teaser
+  image inlined as data URI), document.html (styled single-document HTML),
+  document.pdf (final PDF rendered via headless Chrome).
+
+steps:
+  - name: fetch article
+    run: scripts/fetch.sh
+    gates:
+      - file_non_empty: inputs.json
+      - file_non_empty: article.json
+      - contains: { file: inputs.json, text: '"uuid"', label: node resolved via router }
+      - contains: { file: inputs.json, text: '"files"', label: manifest lists the markdown file }
+
+  - name: render html
+    run: scripts/render-html.sh
+    gates:
+      - file_non_empty: document.html
+      - contains: { file: document.html, text: "</html>", label: complete document }
+
+  - name: render pdf
+    run: scripts/render-pdf.sh
+    gates:
+      - file_non_empty: document.pdf
+      - contains: { file: document.pdf, text: "%PDF", label: valid PDF header }
+
+  - name: output results
+    run: scripts/output.sh

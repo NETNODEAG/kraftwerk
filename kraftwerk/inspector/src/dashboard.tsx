@@ -12,12 +12,12 @@ import { createChatAndOpen } from "./chat";
 import { Link, usePoll, fmtWhen } from "./shared";
 
 /**
- * Dashboard (#/): the landing page, built around the agent team — each
- * member as a colleague card with a direct "chat" button and live
- * working/idle state. Below: stat tiles for every artifact kind, the
- * sessions working right now, and one merged recent-changes feed across
- * runs, sessions, and knowledge — all composed client-side from the
- * existing endpoints, no dedicated API.
+ * Dashboard (#/): the work surface, not an admin panel. The agent team —
+ * each member as a colleague card with a direct "chat" button and live
+ * working/idle state — plus one merged activity feed (working items
+ * pinned first) across runs, sessions, and knowledge. Inventory counts
+ * and config live behind the nav, not here. All composed client-side
+ * from the existing endpoints, no dedicated API.
  */
 
 type BusyChat = ChatMeta & { busy: boolean };
@@ -42,105 +42,44 @@ function chatScopeLabel(c: ChatMeta): string {
 export function DashboardScreen() {
   const runsData = usePoll<{ outputDir: string; runs: RunListItem[] }>("/api/runs", false);
   const chatsData = usePoll<{ chats: BusyChat[] }>("/api/chats", false);
-  const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const knowData = usePoll<KnowledgeIndex>("/api/knowledge", false);
   const teamData = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
+  const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const skillsData = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
+  const meta = usePoll<{ projectName?: string; projectIcon?: string }>("/api/meta", false);
 
   const runs = runsData?.runs ?? [];
   const chats = chatsData?.chats ?? [];
   const bundles: BundleInfo[] = knowData?.bundles ?? [];
-  const active = chats.filter((c) => c.busy);
-  const concepts = bundles.reduce((n, b) => n + b.concepts, 0);
   const workspaceSkills = (skillsData?.skills ?? []).filter((s) => s.source === "workspace");
+  const mini: Array<[count: number | undefined, label: string, href: string]> = [
+    [wfData?.workflows.length, "workflows", "/workflows"],
+    [runsData ? runs.length : undefined, "runs", "/runs"],
+    [knowData ? bundles.length : undefined, "bundles", "/knowledge"],
+    [skillsData ? workspaceSkills.length : undefined, "skills", "/skills"],
+    [chatsData ? chats.length : undefined, "sessions", "/chats"],
+  ];
 
   return (
     <div className="dash">
       <div className="page-head">
-        <h1>dashboard</h1>
+        <h1>
+          {meta?.projectIcon ? `${meta.projectIcon} ` : ""}
+          {meta?.projectName || "workspace"}
+        </h1>
+        <span className="spacer" />
+        <span className="dash-mini">
+          {mini.map(([count, label, href]) => (
+            <Link key={label} href={href}>
+              <b className="num">{count ?? "…"}</b> {label}
+            </Link>
+          ))}
+        </span>
       </div>
 
       <TeamRow members={teamData?.members} chats={chats} />
 
-      <div className="dash-stats">
-        <StatTile href="/workflows" label="workflows" value={wfData ? wfData.workflows.length : undefined} />
-        <StatTile
-          href="/runs"
-          label="workflow runs"
-          value={runsData ? runs.length : undefined}
-          sub={runs.some((r) => r.status === "running") ? `${runs.filter((r) => r.status === "running").length} running` : undefined}
-        />
-        <StatTile href="/team" label="agents" value={teamData ? teamData.members.length : undefined} />
-        <StatTile
-          href="/knowledge"
-          label="knowledge"
-          value={knowData ? bundles.length : undefined}
-          sub={knowData ? `${concepts} concepts` : undefined}
-        />
-        <StatTile href="/skills" label="skills" value={skillsData ? workspaceSkills.length : undefined} sub="workspace" />
-        <StatTile
-          href="/chats"
-          label="sessions"
-          value={chatsData ? chats.length : undefined}
-          sub={active.length > 0 ? `${active.length} active` : undefined}
-        />
-      </div>
-
-      <div className="dash-cols">
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">active sessions</span>
-          </div>
-          {active.length === 0 ? (
-            <div className="viewer-note">nothing running right now</div>
-          ) : (
-            <div className="m3-list">
-              {active.map((c) => (
-                <Link key={c.id} href={chatHref(c)} className="m3-row m3-link">
-                  <span className="lamp running" />
-                  <span className="m3-body">
-                    <span className="m3-head">{c.title || "new chat"}</span>
-                    <span className="m3-sub">
-                      {c.agent} · {chatScopeLabel(c)}
-                    </span>
-                  </span>
-                  <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-                  <span className="m3-chev">›</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">recent runs</span>
-            <span className="spacer" />
-            <Link href="/runs" className="open-raw">
-              all runs
-            </Link>
-          </div>
-          {runs.length === 0 ? (
-            <div className="viewer-note">no runs yet</div>
-          ) : (
-            <div className="m3-list">
-              {runs.slice(0, 8).map((r) => (
-                <Link key={r.id} href={`/runs/${r.id}`} className="m3-row m3-link">
-                  <span className={`lamp ${runLamp(r.status)}`} />
-                  <span className="m3-body">
-                    <span className="m3-head">{r.workflow ?? r.id}</span>
-                    <span className="m3-sub">{r.request || r.id}</span>
-                  </span>
-                  <span className="side-when num">{fmtWhen(r.updatedAt)}</span>
-                  <span className="m3-chev">›</span>
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <RecentChanges runs={runs} chats={chats} bundles={bundles} />
+      <ActivityFeed runs={runs} chats={chats} bundles={bundles} />
     </div>
   );
 }
@@ -201,27 +140,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
   );
 }
 
-function StatTile({
-  href,
-  label,
-  value,
-  sub,
-}: {
-  href: string;
-  label: string;
-  value?: number;
-  sub?: string;
-}) {
-  return (
-    <Link href={href} className="dash-stat">
-      <span className="dash-num num">{value ?? "…"}</span>
-      <span className="microlabel">{label}</span>
-      {sub && <span className="dash-sub">{sub}</span>}
-    </Link>
-  );
-}
-
-/* ---------- recent changes feed ---------- */
+/* ---------- activity feed ---------- */
 
 interface FeedItem {
   at: string;
@@ -232,7 +151,7 @@ interface FeedItem {
   lamp: string;
 }
 
-function RecentChanges({
+function ActivityFeed({
   runs,
   chats,
   bundles,
@@ -274,13 +193,23 @@ function RecentChanges({
         lamp: "ok",
       });
     }
-    return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+    // Anything still working comes first; the rest by recency.
+    return items
+      .sort((a, b) => {
+        const run = Number(b.lamp === "running") - Number(a.lamp === "running");
+        return run !== 0 ? run : b.at.localeCompare(a.at);
+      })
+      .slice(0, 15);
   }, [runs, chats, bundles]);
 
   return (
     <section className="panel dash-feed">
       <div className="panel-head">
-        <span className="microlabel">recent changes</span>
+        <span className="microlabel">activity</span>
+        <span className="spacer" />
+        <Link href="/runs" className="open-raw">
+          all runs
+        </Link>
       </div>
       {feed.length === 0 ? (
         <div className="viewer-note">nothing yet — run a workflow or start a session</div>

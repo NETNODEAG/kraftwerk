@@ -321,6 +321,17 @@ function Viewer({ id, name, live }: { id: string; name: string; live: boolean })
       </div>
     );
   }
+  if (ext === "pdf") {
+    // The browser's built-in PDF viewer; no sandbox — it would block the
+    // viewer plugin, and the file is same-origin from the run folder.
+    return (
+      <div className="viewer">
+        <div className="viewer-body">
+          <iframe src={rawUrl} title={name} />
+        </div>
+      </div>
+    );
+  }
   if (IMG.has(ext)) {
     return (
       <div className="viewer">
