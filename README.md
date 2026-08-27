@@ -4,12 +4,42 @@
 
 # kraftwerk
 
+**Agentic workspace.** Kraftwerk is an open-source agentic workspace for
+organisations. It is where people and AI agents get work done together.
+
+## Why it exists
+
+AI work often lives in individual silos: personal prompts, Claude Code
+sessions, scripts, and one-off automations.
+
+Kraftwerk turns that into shared, repeatable ways of working across a team or
+organisation.
+
+## How it works
+
+Kraftwerk brings together:
+
+- **Agents** — Claude Code, Codex, Pi, and others
+- **Skills** — reusable capabilities and ways of working
+- **Knowledge** — shared organisational and project context
+- **Workflows** — repeatable multi-step processes
+- **Verification** — deterministic gates that check the work
+
+## The shift
+
+From everyone using AI individually → to the organisation working agentically.
+
+Kraftwerk is the shared place where that work lives, runs, and improves over
+time.
+
+## Under the hood
+
 Run AI agents as steps in a workflow, with your code in charge. You write the
 sequence. The agent does the open-ended work inside each step. Deterministic
 code checks whether it actually worked before the run moves on. "Agent
 proposes, code disposes."
 
-## Why
+## Why gated workflows
 
 Most agent frameworks hand the whole job to a model and hope. That falls apart
 the moment a step half-works, because nothing catches it and the mistake
