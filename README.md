@@ -5,7 +5,7 @@
 # kraftwerk
 
 **Agentic workspace.** Kraftwerk is an open-source agentic workspace for
-organisations. It is where people and AI agents get work done together.
+teams. It is where people and AI agents get work done together.
 
 ## Why it exists
 

@@ -66,5 +66,5 @@
   <use href="#word" stroke="#ffd9ec" stroke-width="2.4"/>
 
   <!-- tagline -->
-  <text x="404" y="298" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="21" letter-spacing="9" fill="#2de2e6" filter="url(#glowSoft)">AI WORKFLOW AS CODE</text>
+  <text x="404" y="298" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="19" letter-spacing="7" fill="#2de2e6" filter="url(#glowSoft)">AGENTIC WORKSPACE FOR TEAMS</text>
 </svg>
