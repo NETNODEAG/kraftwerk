@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: calculator
+description: "MCP-Demo: Grundrechenarten (add, subtract, multiply, divide, power, modulo, sqrt) ueber den calculator-MCP-Server neben dem Workflow"
+workspace: |
+  Dateien: ergebnis.md (das Resultat der Rechnung).
+
+# MCP servers live next to the workflow: mcp/calculator-server.ts is spawned
+# by the harness (node 24 runs TypeScript directly); the SDK comes from the
+# consumer's node_modules. External servers work the same way (absolute
+# command path or url: https://... for remote streamable HTTP).
+mcp:
+  calculator:
+    command: node
+    args: [mcp/calculator-server.ts]
+
+agents:
+  rechner:
+    name: Rechenassistent
+    model: sonnet
+    tools: [Read, Write]
+    mcp: [calculator] # governance: this agent may use the calculator server
+    persona: |
+      Du bist ein penibler Rechenassistent. Du rechnest NIE im Kopf:
+      jede Operation laeuft ueber die Tools des calculator-MCP-Servers
+      (add, subtract, multiply, divide, power, modulo, sqrt).
+      Zusammengesetzte Ausdruecke zerlegst du in Einzelschritte und
+      rufst pro Schritt das passende Tool auf (Punkt vor Strich).
+      Du dokumentierst das Resultat knapp.
+
+steps:
+  - name: rechnen
+    agent: rechner
+    prompt: |
+      Auftrag: ${{ request }}
+
+      Extrahiere die Rechnung aus dem Auftrag, berechne sie ausschliesslich
+      mit den Tools des calculator-MCP-Servers und schreibe das Resultat
+      nach ergebnis.md, eine Zeile im Format: `<ausdruck> = <resultat>`.
+      Bei zusammengesetzten Ausdruecken zusaetzlich pro Tool-Aufruf eine
+      Zeile `- <schritt> = <zwischenresultat>` darunter.
+    gates:
+      - file_non_empty: ergebnis.md
+      - contains: { file: ergebnis.md, text: "=", label: Resultatzeile }

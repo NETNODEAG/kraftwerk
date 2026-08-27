@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: markdown-to-pdf
+description: "Markdown to PDF: one or more markdown files (paths, globs or a directory in the request) rendered into a single well-readable PDF — fully deterministic scripts, no LLM"
+
+workspace: |
+  Files: inputs.json (manifest of collected markdown files), inputs/ (copies
+  of the source files in order), document.html (styled single-document HTML),
+  document.pdf (final PDF rendered via headless Chrome).
+
+steps:
+  - name: collect
+    run: scripts/collect.sh
+    gates:
+      - file_non_empty: inputs.json
+      - contains: { file: inputs.json, text: '"count"', label: manifest has file count }
+      - contains: { file: inputs.json, text: '"files"', label: manifest lists files }
+
+  - name: render html
+    run: scripts/render-html.sh
+    gates:
+      - file_non_empty: document.html
+      - contains: { file: document.html, text: "</html>", label: complete document }
+
+  - name: render pdf
+    run: scripts/render-pdf.sh
+    gates:
+      - file_non_empty: document.pdf
+      - contains: { file: document.pdf, text: "%PDF", label: valid PDF header }
+
+  - name: output results
+    run: scripts/output.sh

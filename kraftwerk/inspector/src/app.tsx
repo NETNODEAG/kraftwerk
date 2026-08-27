@@ -5,14 +5,16 @@ import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
 import { ChatScreen } from "./chat";
+import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { TeamScreen } from "./team";
 
 /**
- * Shell + hash router. Routes: #/ (redirect to latest run), #/runs/<id>,
- * #/workflows, #/workflows/<slug>, #/knowledge[/<bundle>[/<concept-path>]],
- * #/skills[/<name>], #/team[/new | /<slug>[/edit | /chat/<chatId>]].
+ * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
+ * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
+ * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
+ * #/team[/new | /<slug>[/edit | /chat/<chatId>]].
  */
 export function App() {
   const path = useHashPath();
@@ -45,6 +47,7 @@ export function App() {
 
   let screen: React.ReactNode;
   if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} />;
+  else if (seg[0] === "runs") screen = <LatestRun />;
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
   else if (seg[0] === "chats") screen = <ChatScreen id={seg[1]} />;
@@ -58,7 +61,7 @@ export function App() {
         conceptId={seg.length > 2 ? seg.slice(2).map(decodeURIComponent).join("/") : undefined}
       />
     );
-  } else screen = <Home />;
+  } else screen = <DashboardScreen />;
 
   return (
     <>
@@ -74,7 +77,7 @@ export function App() {
           <a href="#/team">agents</a>
           <a href="#/knowledge">context &amp; knowledge</a>
           <a href="#/workflows">workflows</a>
-          <a href="#/">workflow runs</a>
+          <a href="#/runs">workflow runs</a>
           <a href="#/skills">skills</a>
           <a href="#/chats" className="nav-apart">chat</a>
         </nav>
@@ -86,8 +89,8 @@ export function App() {
   );
 }
 
-/** The runs screen lives at #/runs/<id>; land on the latest run. */
-function Home() {
+/** The runs screen lives at #/runs/<id>; #/runs lands on the latest run. */
+function LatestRun() {
   const [empty, setEmpty] = useState<{ outputDir: string } | null>(null);
   useEffect(() => {
     let alive = true;

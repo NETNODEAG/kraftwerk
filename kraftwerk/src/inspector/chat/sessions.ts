@@ -5,7 +5,7 @@ import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
-import { getMember } from "../team.js";
+import { getMember, listMembers } from "../team.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
@@ -228,19 +228,43 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
     );
   }
   if (scope.kind === "kraftwerk") {
-    const [{ workflows }, runs] = await Promise.all([listWorkflows(), listRuns()]);
+    const [{ workflows }, runs, knowledge, members] = await Promise.all([
+      listWorkflows(),
+      listRuns(),
+      knowledgeIndex().catch(() => ({ bundles: [] })),
+      listMembers().catch(() => []),
+    ]);
     const wfLines = workflows
-      .map((w) => `- ${w.name ?? w.slug}: ${w.description ?? ""} (${w.steps} steps, ${w.agents} agents)`)
+      .map((w) => `- ${w.slug}: ${w.description ?? w.name ?? ""} (${w.steps} steps, ${w.agents} agents)`)
       .join("\n");
     const runLines = runs
       .slice(0, 10)
       .map((r) => `- ${r.id} — ${r.workflow ?? "?"} [${r.status}] ${r.request ?? ""}`.trim())
       .join("\n");
+    const bundleLines = knowledge.bundles
+      .map((b) => `- ${b.name} (${b.concepts} concepts${b.updatedAt ? `, updated ${b.updatedAt.slice(0, 10)}` : ""})`)
+      .join("\n");
+    const memberLines = members
+      .map((m) => `- ${m.emoji} ${m.name} (${m.slug})${m.description ? `: ${m.description}` : ""}`)
+      .join("\n");
     return (
       `You are the assistant inside the kraftwerk inspector, a UI for a workflow-as-code agent framework. ` +
-      `The consumer project root is ${getProjectRoot()}; run outputs live in ${getOutputDir()} (one folder per run under runs/, each with a trace.jsonl and working files).\n\n` +
-      `Workflows in this project:\n${wfLines || "(none)"}\n\nRecent runs:\n${runLines || "(none)"}\n\n` +
-      `Answer questions about workflows and runs by reading these files. Do not modify run outputs unless asked.`
+      `The consumer project root is ${getProjectRoot()}; run outputs live in ${getOutputDir()} (one folder per run under runs/, each with a trace.jsonl and working files). ` +
+      `Everything below is current — no need to re-discover the project layout or the CLI before acting.\n\n` +
+      `## Workflows\n${wfLines || "(none)"}\n\n` +
+      `Run one directly with:\n` +
+      `  KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"\n` +
+      `The command blocks until the run finishes and prints the run id; artifacts land in the output ` +
+      `folder above. When the user's request matches a workflow, run it instead of doing the work by hand.\n\n` +
+      `## Recent runs\n${runLines || "(none)"}\n\n` +
+      `## Knowledge\nOKF bundles in this project:\n${bundleLines || "(none)"}\n` +
+      `Read with \`npx kraftwerk knowledge list [bundle]\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
+      `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor kraftwerk-chat/${agent}\` ` +
+      `(stamps provenance, maintains index.md/log.md — never hand-edit those).\n\n` +
+      `## Team agents\n${memberLines || "(none)"}\n` +
+      `These are persistent agent teammates (defined under agents/); the user talks to them on the ` +
+      `Agents screen. Point the user there when a request clearly belongs to one of them.\n\n` +
+      `Answer questions about workflows and runs by reading the files above. Do not modify run outputs unless asked.`
     );
   }
   if (scope.kind === "run") {
