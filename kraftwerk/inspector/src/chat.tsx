@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
-import { Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
+import { Link, navigate, useExpertMode } from "./shared";
 
 /**
- * Chat screen: sidebar with all chats plus a thread view. History comes
- * from GET /api/chats/:id; live events stream over SSE. The thread is a
- * pure replay of the event log — text chunks merge into agent messages,
- * tool calls render as activity cards, permission requests as decision
- * cards with buttons.
+ * Chat building blocks: the thread view (event-log replay — text chunks
+ * merge into agent messages, tool calls render as activity cards,
+ * permission requests as decision cards with buttons), the new-chat pane,
+ * and the composer. General chats live on the team screen under the
+ * "General Chats" entry; history comes from GET /api/chats/:id, live
+ * events stream over SSE.
  */
 
 const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
@@ -17,59 +18,6 @@ const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
   { id: "codex", label: "codex", hint: "Codex (ChatGPT) via ACP" },
   { id: "pi", label: "pi", hint: "pi coding agent" },
 ];
-
-export function ChatScreen({ id }: { id?: string }) {
-  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
-  // Team sessions live on the team screen, not in the general chat list.
-  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "team");
-
-  return (
-    <div className="runs-screen">
-      <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">chats</span>
-          <span className="spacer" />
-          <Link href="/chats" className="open-raw">
-            + new
-          </Link>
-        </div>
-        <div className="side-list">
-          {chats.map((c) => (
-            <Link
-              key={c.id}
-              href={`/chats/${c.id}`}
-              className={`side-row ${c.id === id ? "active" : ""}`}
-            >
-              <span className={`lamp ${c.busy ? "running" : "pending"}`} />
-              <div className="side-row-body">
-                <div className="side-row-top">
-                  <span className="side-wf">{c.title || "new chat"}</span>
-                  <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-                </div>
-                <div className="side-row-sub">
-                  <span className="side-req">
-                    {c.agent}
-                    {c.scope.kind === "run"
-                      ? ` · ${c.scope.runId}`
-                      : c.scope.kind === "kraftwerk"
-                        ? " · kraftwerk"
-                        : c.scope.kind === "knowledge"
-                          ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
-                          : ""}
-                  </span>
-                </div>
-              </div>
-            </Link>
-          ))}
-          {data && chats.length === 0 && <div className="viewer-note">no chats yet</div>}
-        </div>
-      </aside>
-      <div className="runs-main chat-main">
-        {id ? <ChatThread key={id} id={id} /> : <NewChat />}
-      </div>
-    </div>
-  );
-}
 
 /* ---------- new chat ---------- */
 
@@ -87,12 +35,12 @@ export async function createChatAndOpen(
     navigate(
       meta.scope?.kind === "team"
         ? `/team/${encodeURIComponent(meta.scope.member)}/chat/${meta.id}`
-        : `/chats/${meta.id}`
+        : `/team/chats/${meta.id}`
     );
   }
 }
 
-function NewChat() {
+export function NewChat() {
   const [agent, setAgent] = useState<ChatAgentId>("claude");
   const [kraftwerkAware, setKraftwerkAware] = useState(true);
   const [creating, setCreating] = useState(false);

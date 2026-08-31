@@ -4,7 +4,6 @@ import { navigate, setExpertMode, useExpertMode, useHashPath } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
-import { ChatScreen } from "./chat";
 import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
@@ -14,7 +13,8 @@ import { TeamScreen } from "./team";
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
  * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
- * #/team[/new | /<slug>[/edit | /chat/<chatId>]].
+ * #/team[/new | /chats[/<chatId>] | /<slug>[/edit | /chat/<chatId>]].
+ * Legacy #/chats[/<id>] links land on the team screen's General Chats.
  */
 export function App() {
   const path = useHashPath();
@@ -52,7 +52,7 @@ export function App() {
   else if (seg[0] === "runs") screen = <LatestRun />;
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
-  else if (seg[0] === "chats") screen = <ChatScreen id={seg[1]} />;
+  else if (seg[0] === "chats") screen = <TeamScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
@@ -85,7 +85,6 @@ export function App() {
           <a href="#/workflows">workflows</a>
           <a href="#/runs">workflow runs</a>
           <a href="#/skills">skills</a>
-          <a href="#/chats" className="nav-apart">chat</a>
         </nav>
         <span className="spacer" />
         <ExpertToggle />

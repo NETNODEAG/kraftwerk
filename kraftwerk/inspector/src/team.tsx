@@ -12,7 +12,7 @@ import type {
   TeamMemberDetail,
   WorkflowSummary,
 } from "./types";
-import { ChatThread, createChatAndOpen } from "./chat";
+import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Link, navigate, usePoll, fmtWhen } from "./shared";
 
 /**
@@ -28,11 +28,22 @@ const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const EMOJI_PRESETS = ["🤖", "🧑‍💻", "🎧", "🛠️", "📊", "✍️", "🔍", "🧹", "📦", "🚀"];
 
 export function TeamScreen({ seg }: { seg: string[] }) {
-  // seg (after /team): [] | [new] | [slug] | [slug, edit] | [slug, chat, chatId]
-  const slug = seg[0] && seg[0] !== "new" ? decodeURIComponent(seg[0]) : undefined;
+  // seg (after /team): [] | [new] | [chats] | [chats, chatId] | [slug] | [slug, edit] | [slug, chat, chatId]
+  const slug =
+    seg[0] && seg[0] !== "new" && seg[0] !== "chats" ? decodeURIComponent(seg[0]) : undefined;
   const mode =
-    seg[0] === "new" ? "new" : seg[1] === "edit" ? "edit" : seg[1] === "chat" ? "chat" : slug ? "member" : "home";
-  const chatId = mode === "chat" ? seg[2] : undefined;
+    seg[0] === "new"
+      ? "new"
+      : seg[0] === "chats"
+        ? "chats"
+        : seg[1] === "edit"
+          ? "edit"
+          : seg[1] === "chat"
+            ? "chat"
+            : slug
+              ? "member"
+              : "home";
+  const chatId = mode === "chat" ? seg[2] : mode === "chats" ? seg[1] : undefined;
 
   const data = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
   const members = data?.members ?? [];
@@ -45,6 +56,14 @@ export function TeamScreen({ seg }: { seg: string[] }) {
       <div className="chat-main">
         <ChatThread key={chatId} id={chatId} />
       </div>
+    );
+  else if (mode === "chats")
+    main = chatId ? (
+      <div className="chat-main">
+        <ChatThread key={chatId} id={chatId} />
+      </div>
+    ) : (
+      <NewChat />
     );
   else if (slug) main = <MemberView key={slug} slug={slug} />;
   else main = <TeamHome hasMembers={members.length > 0} root={data?.root} />;
@@ -69,7 +88,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
 
   return (
     <div
-      className={`runs-screen team-screen ${slug ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
+      className={`runs-screen team-screen ${slug || mode === "chats" ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
       style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
     >
       <aside className="runs-side">
@@ -87,7 +106,9 @@ export function TeamScreen({ seg }: { seg: string[] }) {
               href={`/team/${encodeURIComponent(m.slug)}`}
               className={`side-row ${m.slug === slug ? "active" : ""}`}
             >
-              <span className="team-emoji">{m.emoji}</span>
+              <span className="agent-avatar sm">
+                <span aria-hidden>{m.emoji}</span>
+              </span>
               <div className="side-row-body">
                 <div className="side-row-top">
                   <span className="side-wf">{m.name}</span>
@@ -100,8 +121,24 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           ))}
           {data && members.length === 0 && <div className="viewer-note">no agents yet</div>}
         </div>
+        <div className="side-pinned">
+          <Link href="/team/chats" className={`side-row ${mode === "chats" ? "active" : ""}`}>
+            <span className="agent-avatar sm">
+              <span aria-hidden>💬</span>
+            </span>
+            <div className="side-row-body">
+              <div className="side-row-top">
+                <span className="side-wf">General Chats</span>
+              </div>
+              <div className="side-row-sub">
+                <span className="side-req">chats without an agent</span>
+              </div>
+            </div>
+          </Link>
+        </div>
       </aside>
       {slug && <SessionsSide slug={slug} chatId={chatId} />}
+      {mode === "chats" && <GeneralChatsSide chatId={chatId} />}
       <div className="runs-main">{main}</div>
       {showKnowledge && (
         <KnowledgeSide bundles={kBundles} onHide={() => toggleKnowledge(false)} onResize={resizeKnowledge} />
@@ -362,6 +399,71 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
   );
 }
 
+/* ---------- general chats sidebar ---------- */
+
+// Chats that don't belong to an agent (scope kind != team) — the former
+// standalone chat screen, now living under the agents screen.
+function GeneralChatsSide({ chatId }: { chatId?: string }) {
+  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
+  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "team");
+
+  return (
+    <aside className="runs-side">
+      <div className="side-head">
+        <span className="microlabel">chats</span>
+        <span className="spacer" />
+        <Link href="/team/chats" className="open-raw">
+          + new
+        </Link>
+      </div>
+      <div className="side-list">
+        {chats.map((c) => (
+          <Link
+            key={c.id}
+            href={`/team/chats/${c.id}`}
+            className={`side-row ${c.id === chatId ? "active" : ""}`}
+          >
+            <span className={`lamp ${c.busy ? "running" : "pending"}`} />
+            <div className="side-row-body">
+              <div className="side-row-top">
+                <span className="side-wf">{c.title || "new chat"}</span>
+              </div>
+              <div className="side-row-sub">
+                <span className="side-req">
+                  {c.agent}
+                  {c.scope.kind === "run"
+                    ? ` · ${c.scope.runId}`
+                    : c.scope.kind === "kraftwerk"
+                      ? " · kraftwerk"
+                      : c.scope.kind === "knowledge"
+                        ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
+                        : ""}
+                </span>
+                <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="row-x"
+              title="delete chat"
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!window.confirm(`Delete chat "${c.title || c.id}"?`)) return;
+                await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
+                if (c.id === chatId) navigate("/team/chats");
+              }}
+            >
+              ✕
+            </button>
+          </Link>
+        ))}
+        {data && chats.length === 0 && <div className="viewer-note">no chats yet</div>}
+      </div>
+    </aside>
+  );
+}
+
 /* ---------- home ---------- */
 
 function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) {
@@ -417,7 +519,9 @@ function MemberView({ slug }: { slug: string }) {
   return (
     <div className="member-view">
       <div className="detail-head">
-        <span className="team-emoji-lg">{member.emoji}</span>
+        <span className="agent-avatar lg">
+          <span aria-hidden>{member.emoji}</span>
+        </span>
         <h1>{member.name}</h1>
         <span className="chip agent">{member.harness}</span>
         {member.model && <span className="chip">{member.model}</span>}

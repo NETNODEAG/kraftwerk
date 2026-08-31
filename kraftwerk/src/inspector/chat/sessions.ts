@@ -42,6 +42,34 @@ interface ChatState {
 
 const states = new Map<string, ChatState>();
 
+/** Kill a chat's agent subprocess; the next message spawns a fresh one. */
+function dropBackend(state: ChatState): void {
+  state.backend?.dispose();
+  state.backend = null;
+}
+
+// Idle reaper: a finished chat must not keep its agent subprocess alive
+// forever (one ACP adapter + one harness binary per chat adds up fast —
+// hourly routines used to leak a process pair per tick). History is on
+// disk and ensureBackend re-sends scope context, so reaping just costs
+// the next message one respawn. busy=true covers the whole turn including
+// pending permission prompts, so nothing is killed mid-work.
+const IDLE_BACKEND_MS = 15 * 60_000;
+const reaper = setInterval(() => {
+  const cutoff = Date.now() - IDLE_BACKEND_MS;
+  for (const state of states.values()) {
+    if (state.backend && !state.busy && Date.parse(state.meta.updatedAt) < cutoff) {
+      dropBackend(state);
+    }
+  }
+}, 60_000);
+reaper.unref?.();
+
+/** Server shutdown: no agent subprocess may outlive the inspector. */
+export function disposeAllBackends(): void {
+  for (const state of states.values()) dropBackend(state);
+}
+
 async function loadState(id: string): Promise<ChatState | null> {
   const existing = states.get(id);
   if (existing) return existing;
@@ -448,12 +476,15 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
       const promptText = context ? `<context>\n${context}\n</context>\n\n${body}` : body;
       const stopReason = await backend.prompt(promptText);
       emit(state, { type: "turn_end", stopReason });
+      // Routine sessions are one-shot and unattended: release the agent
+      // process as soon as the turn ends instead of waiting for the reaper.
+      const scope = state.meta.scope;
+      if (scope.kind === "team" && scope.routine) dropBackend(state);
     } catch (err) {
       emit(state, { type: "error", message: (err as Error).message });
       // A failed turn may mean a dead subprocess; drop it so the next
       // message spawns a fresh agent (thread history stays on disk).
-      state.backend?.dispose();
-      state.backend = null;
+      dropBackend(state);
     } finally {
       state.busy = false;
       void writeMeta(state.meta).catch(() => {});
@@ -480,7 +511,7 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   for (const resolve of state.pendingPermissions.values()) resolve(null);
-  state.backend?.dispose();
+  dropBackend(state);
   states.delete(id);
   await fs.rm(safeChatDir(id), { recursive: true, force: true });
   return {};

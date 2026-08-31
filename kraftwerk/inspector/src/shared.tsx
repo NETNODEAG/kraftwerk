@@ -123,6 +123,20 @@ export function fmtWhen(iso?: string): string {
   return sameDay ? hm : `${d.toISOString().slice(5, 10)} ${hm}`;
 }
 
+/** Relative recency ("just now", "5m ago", "3d ago"); older than a week falls back to the date. */
+export function fmtAgo(iso?: string): string {
+  if (!iso) return "—";
+  const ms = Date.now() - Date.parse(iso);
+  if (ms < 60e3) return "just now";
+  const m = Math.floor(ms / 60e3);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toISOString().slice(5, 10);
+}
+
 /** Live elapsed time for a running phase/run. */
 export function Elapsed({ since }: { since?: string }) {
   const [, force] = useState(0);

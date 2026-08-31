@@ -257,7 +257,8 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
 .expert-toggle.on .expert-track { background: var(--primary); }
 .expert-toggle.on .expert-knob { left: 13px; background: var(--on-primary, var(--surface)); }
 
-/* Simple mode hides the machinery: harness chips, working dirs. */
+/* Simple mode hides the machinery: top navigation, harness chips, working dirs. */
+html[data-expert="off"] .topbar nav,
 html[data-expert="off"] .chat-thread .detail-head .chip.agent,
 html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 
@@ -539,6 +540,8 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 }
 .run-btn:hover { box-shadow: var(--elev-1); filter: brightness(1.06); }
 .run-btn:disabled { opacity: 0.38; cursor: not-allowed; filter: none; box-shadow: none; }
+/* M3 tonal button: secondary actions next to the one filled primary. */
+.run-btn.tonal { color: var(--on-secondary-container); background: var(--secondary-container); }
 .run-opts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 12px; }
 .run-opts label {
   display: inline-flex; align-items: center; gap: 8px;
@@ -573,6 +576,9 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 }
 .side-head .spacer { flex: 1; }
 .side-list { flex: 1; overflow-y: auto; padding: 6px; }
+/* Pinned entry below the scrolling list (e.g. General Chats on the agents screen). */
+.side-pinned { padding: 6px; border-top: 1px solid var(--outline-variant); }
+.side-pinned .side-row { margin-bottom: 0; }
 .side-row {
   display: flex; align-items: flex-start; gap: 9px;
   padding: 9px 12px; border-radius: 12px; margin-bottom: 2px;
@@ -837,6 +843,25 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 /* ---------- dashboard ---------- */
 .dash { width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px 28px 40px; box-sizing: border-box; }
 
+/* Quick actions: start work right from the dashboard. */
+.dash-actions { display: flex; gap: 10px; margin: 0 0 18px; }
+.wf-pick-wrap { position: relative; }
+.wf-pick-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 280px; max-height: 340px; overflow-y: auto;
+  background: var(--surface-container); border: 1px solid var(--outline-variant);
+  border-radius: 12px; padding: 6px; box-shadow: var(--elev-2, 0 8px 24px rgb(0 0 0 / 0.18));
+  display: flex; flex-direction: column;
+}
+.wf-pick-item {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  border-radius: 8px; text-decoration: none; color: inherit;
+}
+.wf-pick-item:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.wf-pick-name { font-size: 13px; font-weight: 500; }
+.wf-pick-desc { font-size: 11.5px; color: var(--on-surface-variant); }
+.wf-pick-empty { padding: 8px 10px; font-size: 12px; color: var(--on-surface-variant); }
+
 /* Team cards: the agents as colleagues, chat one click away. */
 .dash-team { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .dash-team-empty { margin-bottom: 18px; }
@@ -844,37 +869,101 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
   display: flex; flex-direction: column;
   background: var(--surface-container-low, var(--surface-container));
   border: 1px solid var(--outline-variant); border-radius: 16px; overflow: hidden;
+  cursor: pointer;
 }
+.dash-member:hover { border-color: var(--outline); }
+/* Idle agents get a hollow lamp; only actual work pulses green. */
+.lamp.idle { background: transparent; border: 1.5px solid var(--outline-variant); }
 .dash-member-id {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 20px 16px 12px; text-align: center; text-decoration: none; color: inherit; flex: 1;
 }
 .dash-member-id:hover .dash-member-name { color: var(--primary); }
-.dash-member-emoji { font-size: 40px; line-height: 1; }
-.dash-member-name { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 600; }
-.dash-member-desc {
-  font-size: 12px; color: var(--on-surface-variant); line-height: 1.5;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
+.dash-member-name { font-size: 15px; font-weight: 600; }
 .dash-member-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 10px 14px; border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
 }
 .dash-member-state { font-size: 11px; color: var(--on-surface-variant); }
 .dash-member-state a { color: var(--primary); text-decoration: none; }
-.dash-chat-btn { padding: 5px 14px; font-size: 12px; }
+/* Card chat buttons: outlined, so the page keeps a single filled primary. */
+.dash-chat-btn {
+  padding: 4px 13px; font-size: 12px;
+  color: var(--primary); background: transparent;
+  border: 1px solid var(--outline);
+}
+.dash-chat-btn:hover {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  box-shadow: none; filter: none;
+}
 
 .dash-feed { margin: 0; }
+
+/* Agent avatars: the agent as a face, not a dot. Emoji in a tonal circle,
+   one visual language across feed, team cards, and the agents sidebar; an
+   optional lamp becomes a presence badge on the avatar's shoulder. */
+.agent-avatar {
+  position: relative; flex: none;
+  width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--secondary-container);
+  font-size: 19px; line-height: 1;
+}
+.agent-avatar .lamp {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 10px; height: 10px;
+  border: 2px solid var(--surface-container-low);
+}
+/* On an avatar, idle reads as a muted "offline" dot rather than hollow. */
+.agent-avatar .lamp.idle { background: var(--outline-variant); }
+.agent-avatar.sm { width: 30px; height: 30px; font-size: 15px; }
+.agent-avatar.lg { width: 56px; height: 56px; font-size: 28px; }
+.agent-avatar.lg .lamp { width: 12px; height: 12px; right: 1px; bottom: 1px; }
+
+/* Failed-runs attention strip: recent failures should not depend on scroll position. */
+.dash-alert {
+  display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 14px;
+  padding: 9px 14px; text-align: left; cursor: pointer; font-size: 12.5px;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent); border-radius: 12px;
+  background: var(--error-container); color: var(--on-error-container);
+}
+.dash-alert:hover { filter: brightness(1.04); }
+
+/* Feed filter chips (all / runs / chats / knowledge). */
+.dash-feed-filter { display: flex; gap: 6px; }
+.feed-chip {
+  font-size: 11px; border: 1px solid var(--outline-variant); border-radius: 8px;
+  padding: 2px 10px; background: transparent; color: var(--on-surface-variant); cursor: pointer;
+}
+.feed-chip:hover { color: var(--on-surface); }
+.feed-chip.on { border-color: transparent; background: var(--primary-container); color: var(--on-primary-container); }
+.feed-chip.on.failed { background: var(--error-container); color: var(--on-error-container); }
+
+/* Day separators in the feed; rows keep their hairlines between groups. */
+.feed-day { padding: 12px 18px 3px; border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.feed-group:first-child .feed-day { border-top: none; padding-top: 6px; }
+.feed-group + .feed-group .m3-row { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.feed-group .feed-day + .m3-row { border-top: none; }
+
 /* Compact inventory, top right on the title line. */
 .dash-mini { display: flex; gap: 18px; font-size: 12px; color: var(--on-surface-variant); flex-wrap: wrap; }
 .dash-mini a { color: inherit; text-decoration: none; }
-.dash-mini a:hover { color: var(--primary); }
+.dash-mini a:hover { color: var(--primary); text-decoration: underline; }
 .dash-mini b { font-weight: 600; color: var(--on-surface); }
 .dash-mini a:hover b { color: var(--primary); }
 .chip.dash-kind { flex: none; }
-.chip.dash-kind.run { border-color: transparent; background: var(--secondary-container); color: var(--on-secondary-container); }
+/* Labeled status chips: outcome as a word, not a color-only dot. */
+.chip.status { flex: none; border-color: transparent; font-family: var(--font-sans), sans-serif; font-weight: 500; }
+.chip.status.ok { background: var(--success-container); color: var(--on-success-container); }
+.chip.status.failed { background: var(--error-container); color: var(--on-error-container); }
+.chip.status.running { background: var(--primary-container); color: var(--on-primary-container); }
+.chip.status.aborted { background: var(--surface-container-high); color: var(--on-surface-variant); }
+.chip.dash-kind.run { border-color: transparent; background: var(--primary-container); color: var(--on-primary-container); }
 .chip.dash-kind.session { border-color: transparent; background: var(--tertiary-container); color: var(--on-tertiary-container); }
 .chip.dash-kind.knowledge { border-color: transparent; background: var(--success-container); color: var(--on-success-container); }
+/* Simple mode: inventory counts and kind chips are machinery. */
+html[data-expert="off"] .dash-mini,
+html[data-expert="off"] .chip.dash-kind { display: none; }
 
 /* ---------- skills screen ---------- */
 .lamp.dim { background: var(--outline-variant); }
@@ -947,8 +1036,6 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
   .knowledge-side, .kside-reopen { display: none; }
   .team-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr); }
 }
-.team-emoji { font-size: 17px; line-height: 1.3; flex: none; }
-.team-emoji-lg { font-size: 34px; line-height: 1; }
 .member-view { display: flex; flex-direction: column; gap: 16px; }
 .member-view .detail-head { margin-bottom: 0; }
 

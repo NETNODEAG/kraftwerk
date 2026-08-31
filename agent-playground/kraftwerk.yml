@@ -9,7 +9,16 @@ knowledge: knowledge
 agents: agents
 skills: skills
 port: 1981
-# switcher:   # other kraftwerk workspaces — the header name becomes a dropdown
-#   - name: other space
-#     url: https://localhost:1985
-#     icon: "🛰"
+switcher:   # other kraftwerk workspaces — the header name becomes a dropdown
+  - name: "james"
+    url: http://localhost:2026
+    icon: "⚡"
+  - name: "kraftwerk-demo"
+    url: http://localhost:1982
+    icon: "🧪"
+  - name: "frontend.netnode.ch"
+    url: http://localhost:1983
+    icon: "🌐"
+  - name: "DevOps Cabin"
+    url: http://localhost:1984
+    icon: "🛠"

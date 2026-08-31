@@ -10,6 +10,7 @@ import {
   cancelChat,
   createChat,
   deleteChat,
+  disposeAllBackends,
   getChat,
   listChats,
   postMessage,
@@ -523,6 +524,15 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   setOutputDir(opts.outputDir);
   if (opts.projectRoot) setProjectRoot(opts.projectRoot);
   startRoutineScheduler();
+  // Chat agent subprocesses must die with the server — signals bypass
+  // "exit" handlers, so hook the signals themselves.
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.once(sig, () => {
+      disposeAllBackends();
+      process.exit(sig === "SIGINT" ? 130 : 143);
+    });
+  }
+  process.once("exit", disposeAllBackends);
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");

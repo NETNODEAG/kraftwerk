@@ -14,6 +14,7 @@ import {
   Lamp,
   StatusWord,
   Elapsed,
+  useExpertMode,
 } from "./shared";
 
 /**
@@ -77,10 +78,12 @@ function RunDetailView({ id }: { id: string }) {
   const live = run?.status === "running";
   const [tab, setTab] = useState<"run" | "artifacts" | null>(null);
   const [stopping, setStopping] = useState(false);
+  const expert = useExpertMode();
 
   if (!run) return <div className="empty">loading…</div>;
   const sandboxed = run.files.some((f) => f.name === "runner.json");
   const active = tab ?? (live ? "run" : "artifacts");
+  const fileCount = expert ? run.files.length : run.files.filter((f) => !isMachineFile(f.name)).length;
 
   async function stop() {
     setStopping(true);
@@ -124,7 +127,7 @@ function RunDetailView({ id }: { id: string }) {
             className={active === "artifacts" ? "active" : ""}
             onClick={() => setTab("artifacts")}
           >
-            artifacts <span className="num">({run.files.length})</span>
+            artifacts <span className="num">({fileCount})</span>
           </button>
         </nav>
       </div>
@@ -251,26 +254,55 @@ function PhaseRow({ p }: { p: PhaseView }) {
 
 const IMG = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
+/** Files the machinery writes for itself — noise outside expert mode. */
+export function isMachineFile(name: string): boolean {
+  return name === "runner.json" || name.endsWith(".jsonl") || name.endsWith(".log");
+}
+
+/** Result-first default: named reports, then anything renderable, machine files last. */
+function defaultArtifact(files: FileView[]): string | null {
+  const named = ["report.html", "recommendation.md"];
+  const hit = named.find((n) => files.some((f) => f.name === n));
+  if (hit) return hit;
+  const rank = (n: string) => {
+    const ext = n.split(".").pop()?.toLowerCase() ?? "";
+    if (["html", "md", "markdown", "pdf"].includes(ext) || IMG.has(ext)) return 0;
+    return isMachineFile(n) ? 2 : 1;
+  };
+  let best: FileView | null = null;
+  for (const f of files) if (!best || rank(f.name) < rank(best.name)) best = f;
+  return best?.name ?? null;
+}
+
 function ArtifactsTab({ id, files, live }: { id: string; files: FileView[]; live: boolean }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const expert = useExpertMode();
+  const visible = useMemo(
+    () => (expert ? files : files.filter((f) => !isMachineFile(f.name))),
+    [files, expert]
+  );
 
-  // Default selection: the most interesting artifact.
+  // Turning expert off while a machine file is open: fall back to a result.
   useEffect(() => {
-    if (selected || files.length === 0) return;
-    const prefer = ["report.html", "recommendation.md", "trace.jsonl"];
-    setSelected(prefer.find((n) => files.some((f) => f.name === n)) ?? files[0].name);
-  }, [files, selected]);
+    if (!expert && selected && isMachineFile(selected)) setSelected(null);
+  }, [expert, selected]);
+
+  // Default selection: the run's result, never the trace.
+  useEffect(() => {
+    if (selected || visible.length === 0) return;
+    setSelected(defaultArtifact(visible));
+  }, [visible, selected]);
 
   return (
     <div className="art-layout">
       <section className="panel art-files">
         <div className="panel-head">
           <span className="microlabel">
-            files <span className="num">({files.length})</span>
+            files <span className="num">({visible.length})</span>
           </span>
         </div>
         <div className="file-list">
-          {files.map((f) => (
+          {visible.map((f) => (
             <button
               key={f.name}
               className={`file-row ${selected === f.name ? "active" : ""}`}
@@ -280,7 +312,11 @@ function ArtifactsTab({ id, files, live }: { id: string; files: FileView[]; live
               <span className="fsize num">{fmtSize(f.size)}</span>
             </button>
           ))}
-          {files.length === 0 && <div className="viewer-note">no files yet</div>}
+          {visible.length === 0 && (
+            <div className="viewer-note">
+              {files.length > 0 ? "no result files — raw run files live in expert mode" : "no files yet"}
+            </div>
+          )}
         </div>
       </section>
 
