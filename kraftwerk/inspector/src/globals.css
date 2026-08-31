@@ -7,6 +7,10 @@
   --font-sans: "Roboto";
   --font-mono: "Roboto Mono";
 
+  /* Fixed topbar height — sticky sidebars and the chat pane subtract it
+     from the viewport, so it must not depend on the topbar's content. */
+  --topbar-h: 53px;
+
   /* M3 color roles — dark scheme, seed #F5A623 (kraftwerk gold). */
   --primary: #f2bd57;
   --on-primary: #422c00;
@@ -108,8 +112,9 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 
 .topbar {
   position: sticky; top: 0; z-index: 10;
+  height: var(--topbar-h);
   display: flex; align-items: center; gap: 14px;
-  padding: 10px 20px;
+  padding: 0 20px;
   background: color-mix(in srgb, var(--surface-container) 92%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--outline-variant);
@@ -565,7 +570,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .runs-screen { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
 
 .runs-side {
-  position: sticky; top: 47px; height: calc(100vh - 47px);
+  position: sticky; top: var(--topbar-h); height: calc(100vh - var(--topbar-h));
   display: flex; flex-direction: column;
   border-right: 1px solid var(--outline-variant); background: var(--surface-container-low);
 }
@@ -682,7 +687,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 
 /* ---------- chat ---------- */
 
-.chat-main { display: flex; flex-direction: column; height: calc(100vh - 47px); padding: 16px 20px; }
+.chat-main { display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h)); padding: 16px 20px; }
 .chat-thread { display: flex; flex-direction: column; flex: 1; min-height: 0; max-width: 980px; width: 100%; margin: 0 auto; }
 .chat-thread .detail-head { flex: none; }
 .chat-thread .detail-head .rid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
@@ -808,7 +813,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .agent-pick-btn.active span { color: var(--on-secondary-container); }
 
 @media (max-width: 940px) {
-  .chat-main { height: auto; min-height: calc(100vh - 47px); }
+  .chat-main { height: auto; min-height: calc(100vh - var(--topbar-h)); }
   .agent-pick { grid-template-columns: 1fr; }
 }
 
