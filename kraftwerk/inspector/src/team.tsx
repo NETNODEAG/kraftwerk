@@ -5,6 +5,7 @@ import type {
   BundleDetail,
   ChatMeta,
   ConceptDetail,
+  ConceptInfo,
   KnowledgeIndex,
   RoutineStatus,
   SkillInfo,
@@ -172,6 +173,7 @@ function KnowledgeSide({
   const [openId, setOpenId] = useState<string | null>(null); // "<bundle>::<concept id>"
   // key -> full concept (null = failed to load); rendered html derives from it.
   const [concepts, setConcepts] = useState<Record<string, ConceptDetail | null>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [editKey, setEditKey] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -251,7 +253,10 @@ function KnowledgeSide({
         }}
       />
       <div className="side-head">
-        <span className="microlabel">knowledge</span>
+        <span className="kside-headline">
+          <span className="microlabel">knowledge</span>
+          <span className="kside-hint">read &amp; kept current by this agent</span>
+        </span>
         <span className="spacer" />
         <button className="open-raw" onClick={onHide} title="Hide knowledge sidebar">
           hide ✕
@@ -260,76 +265,135 @@ function KnowledgeSide({
       <div className="side-list">
         {bundles.map((b) => {
           const detail = details[b];
+          const shut = collapsed[b] === true;
           return (
             <div key={b} className="kside-bundle">
-              <Link href={`/knowledge/${encodeURIComponent(b)}`} className="kside-bundle-name">
-                {b} {detail ? <span className="num">({detail.concepts.length})</span> : null}
-              </Link>
-              {detail === null && <div className="viewer-note">bundle not found</div>}
-              {detail?.concepts.map((c) => {
-                const key = `${b}::${c.id}`;
-                const open = openId === key;
-                return (
-                  <div key={c.id} className="kside-concept">
-                    <button className={`kside-row ${open ? "active" : ""}`} onClick={() => toggle(b, c.id)}>
-                      <span className="kside-title">{c.title || c.id}</span>
-                      {c.stale && <span className="kside-stale">stale</span>}
-                    </button>
-                    {open && editKey !== key && (
-                      <div className="kside-body md-body">
-                        {concepts[key] === undefined ? (
-                          <span className="viewer-note">loading…</span>
-                        ) : concepts[key] === null ? (
-                          <span className="viewer-note">could not load concept</span>
-                        ) : (
-                          <>
-                            <div className="kside-actions">
-                              <button
-                                className="open-raw"
-                                onClick={() => {
-                                  setDraft(concepts[key]!.raw);
-                                  setEditKey(key);
-                                  setSaveError("");
-                                }}
-                              >
-                                ✎ edit
-                              </button>
-                            </div>
-                            <div
-                              dangerouslySetInnerHTML={{
-                                __html: DOMPurify.sanitize(
-                                  marked.parse(concepts[key]!.body ?? "", { async: false })
-                                ),
-                              }}
-                            />
-                          </>
+              <div className="kside-bundle-head">
+                <button
+                  className="kside-bundle-toggle"
+                  aria-expanded={!shut}
+                  onClick={() => setCollapsed({ ...collapsed, [b]: !shut })}
+                >
+                  <span className={`kside-chev ${shut ? "" : "open"}`} aria-hidden>
+                    ▸
+                  </span>
+                  <span className="kside-bundle-name">{b}</span>
+                  {detail && <span className="kside-count num">{detail.concepts.length}</span>}
+                </button>
+                <Link
+                  href={`/knowledge/${encodeURIComponent(b)}`}
+                  className="kside-open"
+                  title="Open this bundle on the knowledge screen"
+                >
+                  ↗
+                </Link>
+              </div>
+              {!shut && detail === null && <div className="viewer-note">bundle not found</div>}
+              {!shut &&
+                detail?.concepts.map((c) => {
+                  const key = `${b}::${c.id}`;
+                  const open = openId === key;
+                  const conceptHref = `/knowledge/${encodeURIComponent(b)}/${c.id
+                    .split("/")
+                    .map(encodeURIComponent)
+                    .join("/")}`;
+                  return (
+                    <div key={c.id} className={`kside-concept ${open ? "open" : ""}`}>
+                      <button
+                        className="kside-row"
+                        aria-expanded={open}
+                        title={c.description || undefined}
+                        onClick={() => toggle(b, c.id)}
+                      >
+                        <span className={`kside-chev ${open ? "open" : ""}`} aria-hidden>
+                          ▸
+                        </span>
+                        <span className="kside-title">{c.title || c.id}</span>
+                        {c.stale && (
+                          <span
+                            className="kside-stale"
+                            title="Past its stale-after date — ask the agent to re-verify it"
+                          >
+                            stale
+                          </span>
                         )}
-                      </div>
-                    )}
-                    {open && editKey === key && (
-                      <div className="kside-body kside-edit">
-                        <textarea
-                          className="concept-edit"
-                          value={draft}
-                          rows={Math.min(28, Math.max(10, draft.split("\n").length + 2))}
-                          onChange={(e) => setDraft(e.target.value)}
-                          spellCheck={false}
-                        />
-                        <div className="kside-actions">
-                          <button className="open-raw" disabled={saving} onClick={() => setEditKey(null)}>
-                            cancel
-                          </button>
-                          <button className="open-raw" disabled={saving} onClick={() => save(b, c.id)}>
-                            {saving ? "saving…" : "✓ save"}
-                          </button>
+                      </button>
+                      {open && (
+                        <div
+                          className="kside-card"
+                          ref={(el) => el?.scrollIntoView({ block: "nearest" })}
+                        >
+                          {concepts[key] === undefined ? (
+                            <div className="viewer-note">loading…</div>
+                          ) : concepts[key] === null ? (
+                            <div className="viewer-note">could not load concept</div>
+                          ) : editKey === key ? (
+                            <div className="kside-edit">
+                              <textarea
+                                className="concept-edit"
+                                value={draft}
+                                rows={Math.min(28, Math.max(10, draft.split("\n").length + 2))}
+                                onChange={(e) => setDraft(e.target.value)}
+                                spellCheck={false}
+                              />
+                              <div className="kside-actions">
+                                <button
+                                  className="open-raw"
+                                  disabled={saving}
+                                  onClick={() => setEditKey(null)}
+                                >
+                                  cancel
+                                </button>
+                                <button
+                                  className="open-raw"
+                                  disabled={saving}
+                                  onClick={() => save(b, c.id)}
+                                >
+                                  {saving ? "saving…" : "✓ save"}
+                                </button>
+                              </div>
+                              {saveError && <div className="msg error">✕ {saveError}</div>}
+                            </div>
+                          ) : (
+                            <>
+                              <div className="kside-card-bar">
+                                {c.type && <span className="kside-type">{c.type}</span>}
+                                {conceptUpdatedAt(c) && (
+                                  <span className="kside-updated num">
+                                    updated {fmtWhen(conceptUpdatedAt(c)!)}
+                                  </span>
+                                )}
+                                <span className="spacer" />
+                                <button
+                                  className="open-raw"
+                                  onClick={() => {
+                                    setDraft(concepts[key]!.raw);
+                                    setEditKey(key);
+                                    setSaveError("");
+                                  }}
+                                >
+                                  ✎ edit
+                                </button>
+                                <Link href={conceptHref} className="open-raw">
+                                  open ↗
+                                </Link>
+                              </div>
+                              <div
+                                className="kside-md md-body"
+                                dangerouslySetInnerHTML={{
+                                  __html: DOMPurify.sanitize(
+                                    marked.parse(concepts[key]!.body ?? "", { async: false })
+                                  ),
+                                }}
+                              />
+                            </>
+                          )}
                         </div>
-                        {saveError && <div className="msg error">✕ {saveError}</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {detail && detail.concepts.length === 0 && (
+                      )}
+                    </div>
+                  );
+                })}
+              {!shut && detail && detail.concepts.length === 0 && (
                 <div className="viewer-note">no concepts yet</div>
               )}
             </div>
@@ -338,6 +402,14 @@ function KnowledgeSide({
       </div>
     </aside>
   );
+}
+
+/** Latest of a concept's generated/verified timestamps, for the card meta. */
+function conceptUpdatedAt(c: ConceptInfo): string | undefined {
+  const times = [c.generated?.at, ...c.verified.map((v) => v.at)].filter(
+    (t): t is string => typeof t === "string" && t.length > 0
+  );
+  return times.sort().pop();
 }
 
 /* ---------- landing ---------- */

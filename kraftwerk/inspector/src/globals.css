@@ -1003,33 +1003,78 @@ html[data-expert="off"] .chip.dash-kind { display: none; }
 .knowledge-side { position: sticky; border-left: 1px solid var(--outline-variant); border-right: 0; }
 .kside-resizer { position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 4; }
 .kside-resizer:hover { background: color-mix(in srgb, var(--primary) 25%, transparent); }
-.kside-bundle { padding: 6px 0; }
+.kside-headline { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kside-hint { font-size: 10.5px; color: var(--on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.kside-bundle { padding: 6px 8px 10px; }
 .kside-bundle + .kside-bundle { border-top: 1px solid var(--outline-variant); }
-.kside-bundle-name {
-  display: block; padding: 6px 14px; font-size: 12px; font-weight: 600;
-  color: var(--on-surface); text-decoration: none;
+.kside-bundle-head { display: flex; align-items: center; gap: 2px; padding: 2px 0; }
+.kside-bundle-toggle {
+  display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0;
+  padding: 6px 8px; border-radius: 10px; text-align: left;
 }
-.kside-bundle-name:hover { color: var(--primary); }
-.kside-bundle-name .num { font-weight: 400; color: var(--on-surface-variant); }
+.kside-bundle-toggle:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); }
+.kside-bundle-name {
+  font-size: 12px; font-weight: 600; color: var(--on-surface);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kside-count {
+  flex: none; font-size: 10.5px; line-height: 17px; color: var(--on-surface-variant);
+  background: var(--surface-container-highest); border-radius: 999px; padding: 0 7px;
+}
+.kside-open {
+  flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: 50%; color: var(--on-surface-variant); font-size: 13px;
+}
+.kside-open:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
+
+/* Chevron shared by bundle + concept rows: points right, rotates open. */
+.kside-chev {
+  flex: none; width: 13px; font-size: 11px; line-height: 1; color: var(--on-surface-variant);
+  display: inline-block; transition: transform 140ms ease;
+}
+.kside-chev.open { transform: rotate(90deg); }
+
 .kside-row {
-  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
-  padding: 5px 14px 5px 20px; font-size: 12px; color: var(--on-surface-variant);
+  display: flex; align-items: center; gap: 7px; width: 100%; text-align: left;
+  padding: 6px 8px 6px 18px; font-size: 12px; color: var(--on-surface-variant);
+  border-radius: 10px;
 }
 .kside-row:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); color: var(--on-surface); }
-.kside-row.active { color: var(--on-surface); font-weight: 500; }
+.kside-concept.open > .kside-row {
+  background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 500;
+}
+.kside-concept.open > .kside-row .kside-chev { color: inherit; }
 .kside-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kside-stale {
-  font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
+  flex: none; font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--error, #b3261e); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
+  cursor: help;
 }
-.kside-body.md-body {
-  height: auto; overflow: visible; padding: 6px 14px 10px 20px; font-size: 12px;
+
+/* Expanded concept: an inset card — meta bar on top, full body below. */
+.kside-card {
+  margin: 4px 0 10px 18px; border-radius: 12px; overflow: hidden;
+  background: var(--surface-container-high);
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 70%, transparent);
+}
+.kside-card > .viewer-note { padding: 12px 14px; }
+.kside-card-bar {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
+  background: color-mix(in srgb, var(--surface-container-highest) 65%, transparent);
 }
+.kside-type {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--on-surface-variant); border: 1px solid var(--outline-variant);
+  border-radius: 999px; padding: 1px 7px;
+}
+.kside-updated { font-size: 10.5px; color: var(--on-surface-variant); }
+.kside-md.md-body { height: auto; overflow: visible; padding: 12px 14px 14px; font-size: 12px; }
 .concept-md { height: auto; overflow: visible; }
 
-.kside-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 2px 0 6px; }
-.kside-edit { padding: 6px 14px 10px 20px; border-bottom: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.kside-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 2px 0 0; }
+.kside-edit { padding: 10px 12px; }
 .kside-edit .concept-edit { width: 100%; box-sizing: border-box; }
 .kside-edit .kside-actions { margin-top: 8px; }
 
