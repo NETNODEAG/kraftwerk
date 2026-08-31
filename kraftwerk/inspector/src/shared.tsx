@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 /* ---------- hash routing ---------- */
 
@@ -23,6 +23,41 @@ export function Link({
   ...rest
 }: { href: string } & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
   return <a href={`#${href}`} {...rest} />;
+}
+
+/* ---------- expert mode ---------- */
+
+// Expert mode = the full view (tool activity, harness names, paths).
+// Off = radically simplified UI for non-technical use. Persisted per
+// browser; also mirrored to <html data-expert> so CSS can hide chrome.
+const EXPERT_KEY = "kw-expert";
+let expertOn = (() => {
+  try {
+    return localStorage.getItem(EXPERT_KEY) !== "off";
+  } catch {
+    return true;
+  }
+})();
+const expertListeners = new Set<() => void>();
+document.documentElement.dataset.expert = expertOn ? "on" : "off";
+
+export function setExpertMode(on: boolean): void {
+  expertOn = on;
+  document.documentElement.dataset.expert = on ? "on" : "off";
+  try {
+    localStorage.setItem(EXPERT_KEY, on ? "on" : "off");
+  } catch {}
+  expertListeners.forEach((fn) => fn());
+}
+
+export function useExpertMode(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      expertListeners.add(cb);
+      return () => expertListeners.delete(cb);
+    },
+    () => expertOn
+  );
 }
 
 /* ---------- polling ---------- */

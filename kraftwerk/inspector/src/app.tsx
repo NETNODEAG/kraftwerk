@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RunListItem } from "./types";
-import { navigate, useHashPath } from "./shared";
+import { navigate, setExpertMode, useExpertMode, useHashPath } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -21,12 +21,14 @@ export function App() {
   const seg = path.split("/").filter(Boolean);
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
+  const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   useEffect(() => {
     fetch("/api/meta")
       .then((r) => r.json())
-      .then((d: { projectName?: string; projectIcon?: string }) => {
+      .then((d: { projectName?: string; projectIcon?: string; switcher?: SwitcherEntry[] }) => {
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
+        setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       })
       .catch(() => {});
   }, []);
@@ -66,13 +68,17 @@ export function App() {
   return (
     <>
       <header className="topbar">
-        <a href="#/" className="wordmark">
-          <span className="lamp-block">
-            <span />
-          </span>
-          <b>kraftwerk</b>
-          {projectName && <span className="env-name" title="Project (kraftwerk.yml: name)">{projectName}</span>}
-        </a>
+        <span className="wordmark">
+          <a href="#/" className="wordmark-link">
+            <span className="lamp-block">
+              <span />
+            </span>
+            <b>kraftwerk</b>
+          </a>
+          {projectName && (
+            <WorkspaceSwitcher name={projectName} icon={projectIcon} entries={switcher} />
+          )}
+        </span>
         <nav>
           <a href="#/team">agents</a>
           <a href="#/knowledge">context &amp; knowledge</a>
@@ -82,10 +88,71 @@ export function App() {
           <a href="#/chats" className="nav-apart">chat</a>
         </nav>
         <span className="spacer" />
+        <ExpertToggle />
         <ProjectInfo />
       </header>
       <main className="shell">{screen}</main>
     </>
+  );
+}
+
+/** One workspace-switcher entry (kraftwerk.yml: switcher). */
+interface SwitcherEntry {
+  name: string;
+  url: string;
+  icon?: string;
+}
+
+/**
+ * The workspace name in the header. With `switcher:` entries in
+ * kraftwerk.yml it becomes a dropdown linking to the other kraftwerk
+ * instances; without, it stays a plain label.
+ */
+function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string; entries: SwitcherEntry[] }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".switcher-wrap")) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  if (entries.length === 0) {
+    return <span className="env-name" title="Project (kraftwerk.yml: name)">{name}</span>;
+  }
+  return (
+    <span className="switcher-wrap">
+      <button
+        className="env-name env-switch"
+        title="Switch workspace (kraftwerk.yml: switcher)"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {name}
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden>
+          <path d="M7 10l5 5 5-5H7Z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="switcher-pop" role="menu">
+          <span className="switcher-item current" aria-current="true">
+            <span className="switcher-icon">{icon || "•"}</span>
+            <span className="switcher-name">{name}</span>
+            <span className="switcher-hint">current</span>
+          </span>
+          {entries.map((e) => (
+            <a key={e.url} className="switcher-item" role="menuitem" href={e.url}>
+              <span className="switcher-icon">{e.icon || "•"}</span>
+              <span className="switcher-name">{e.name}</span>
+              <code className="switcher-url">{e.url.replace(/^https?:\/\//, "")}</code>
+            </a>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -112,6 +179,27 @@ function LatestRun() {
       No runs found in <code>{empty.outputDir}</code>. Start one with{" "}
       <code>kraftwerk run &lt;workflow&gt; &lt;request&gt;</code> or from a workflow page.
     </div>
+  );
+}
+
+/**
+ * Expert mode switch: on = the full view, off = radically simplified UI
+ * (tool activity collapses to "working…", harness/paths hidden).
+ */
+function ExpertToggle() {
+  const on = useExpertMode();
+  return (
+    <button
+      className={`expert-toggle ${on ? "on" : ""}`}
+      title={on ? "Expert mode on — full detail" : "Expert mode off — simplified view"}
+      aria-pressed={on}
+      onClick={() => setExpertMode(!on)}
+    >
+      <span className="expert-track">
+        <span className="expert-knob" />
+      </span>
+      expert
+    </button>
   );
 }
 

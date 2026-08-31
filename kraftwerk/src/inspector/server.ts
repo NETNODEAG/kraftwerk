@@ -114,7 +114,12 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
   if (seg.length === 2 && seg[1] === "meta" && method === "GET") {
     const project = await resolveProject(getProjectRoot()).catch(() => null);
     const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
-    return json(res, { version: await getPkgVersion(), projectName, projectIcon: project?.config.icon ?? "" });
+    return json(res, {
+      version: await getPkgVersion(),
+      projectName,
+      projectIcon: project?.config.icon ?? "",
+      switcher: project?.config.switcher ?? [],
+    });
   }
 
   // GET /api/runs

@@ -96,6 +96,16 @@ directory, default `output/`), `knowledge:` (OKF knowledge-bundle root,
 default `knowledge/`), and `agents:` (team agent-definition root, default
 `agents/`).
 
+`switcher:` links other kraftwerk workspaces from the inspector header —
+the workspace name becomes a dropdown listing them:
+
+```yaml
+switcher:
+  - name: other space
+    url: https://localhost:1985
+    icon: "🛰"   # optional
+```
+
 ### Triggering from CI / cron / webhooks
 
 `run --json` is the machine mode: non-interactive, one JSON result object

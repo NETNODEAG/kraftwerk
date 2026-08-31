@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
-import { Link, navigate, usePoll, fmtWhen } from "./shared";
+import { Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
 
 /**
  * Chat screen: sidebar with all chats plus a thread view. History comes
@@ -306,7 +306,13 @@ function toBlocks(events: StoredChatEvent[]): Block[] {
 }
 
 function Thread({ id, events, busy }: { id: string; events: StoredChatEvent[]; busy: boolean }) {
-  const blocks = useMemo(() => toBlocks(events), [events]);
+  const expert = useExpertMode();
+  const blocks = useMemo(() => {
+    const all = toBlocks(events);
+    // Simple mode: no tool activity, no thinking — the conversation plus
+    // the "working…" indicator below is the whole story.
+    return expert ? all : all.filter((b) => b.kind !== "tool" && b.kind !== "thought");
+  }, [events, expert]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 

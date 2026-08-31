@@ -39,6 +39,31 @@
     "skills": {
       "type": "string",
       "description": "Workspace skill root (one folder per skill with a SKILL.md) relative to this file. Default: skills"
+    },
+    "switcher": {
+      "type": "array",
+      "description": "Other kraftwerk workspaces, shown as a switcher dropdown on the workspace name in the inspector header",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Display name of the other workspace"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https?://",
+            "description": "URL the other workspace's inspector runs on, e.g. \"https://localhost:1985\""
+          },
+          "icon": {
+            "type": "string",
+            "description": "Optional emoji shown next to the entry, e.g. \"🛰\""
+          }
+        }
+      }
     }
   }
 }

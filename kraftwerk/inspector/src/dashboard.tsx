@@ -9,7 +9,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { createChatAndOpen } from "./chat";
-import { Link, usePoll, fmtWhen } from "./shared";
+import { Link, usePoll, fmtWhen, useExpertMode } from "./shared";
 
 /**
  * Dashboard (#/): the work surface, not an admin panel. The agent team —
@@ -162,6 +162,7 @@ function ActivityFeed({
   bundles: BundleInfo[];
   members: TeamMember[];
 }) {
+  const expert = useExpertMode();
   const feed = useMemo(() => {
     const items: FeedItem[] = [];
     for (const r of runs) {
@@ -184,9 +185,12 @@ function ActivityFeed({
         at: c.updatedAt,
         kind: "session",
         title: c.title || "new chat",
+        // Simple mode drops the harness name — who worked, not what ran it.
         sub: member
-          ? `${member.emoji} ${member.name} · ${c.agent}`
-          : `${c.agent} · ${chatScopeLabel(c)}`,
+          ? `${member.emoji} ${member.name}${expert ? ` · ${c.agent}` : ""}`
+          : expert
+            ? `${c.agent} · ${chatScopeLabel(c)}`
+            : chatScopeLabel(c),
         href: chatHref(c),
         lamp: c.busy ? "running" : "ok",
       });
@@ -209,7 +213,7 @@ function ActivityFeed({
         return run !== 0 ? run : b.at.localeCompare(a.at);
       })
       .slice(0, 15);
-  }, [runs, chats, bundles, members]);
+  }, [runs, chats, bundles, members, expert]);
 
   return (
     <section className="panel dash-feed">

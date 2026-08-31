@@ -9,3 +9,7 @@ knowledge: knowledge
 agents: agents
 skills: skills
 port: 1981
+# switcher:   # other kraftwerk workspaces — the header name becomes a dropdown
+#   - name: other space
+#     url: https://localhost:1985
+#     icon: "🛰"

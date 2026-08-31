@@ -115,6 +115,7 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   border-bottom: 1px solid var(--outline-variant);
 }
 .wordmark { display: flex; align-items: center; gap: 10px; }
+.wordmark-link { display: flex; align-items: center; gap: 10px; }
 .wordmark .lamp-block {
   width: 26px; height: 26px; border-radius: 9px;
   background: var(--primary);
@@ -134,6 +135,42 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   border: 1px solid var(--outline-variant);
   white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
 }
+/* Workspace switcher: the env-name pill becomes a dropdown when
+   kraftwerk.yml defines switcher: entries (links to other instances). */
+.switcher-wrap { position: relative; display: inline-flex; }
+.env-switch {
+  display: inline-flex; align-items: center; gap: 4px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.env-switch:hover {
+  color: var(--on-surface);
+  background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+}
+.env-switch svg { flex: none; opacity: 0.7; }
+.switcher-pop {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
+  min-width: 240px; max-width: min(360px, 90vw);
+  background: var(--surface-container-high);
+  border-radius: 12px; box-shadow: var(--elev-2);
+  padding: 6px;
+}
+.switcher-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: 8px;
+  font-size: 13px; color: var(--on-surface);
+  transition: background 120ms ease;
+}
+a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.switcher-item.current { cursor: default; }
+.switcher-icon { flex: none; width: 18px; text-align: center; font-size: 14px; }
+.switcher-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.switcher-hint { margin-left: auto; font-size: 11px; color: var(--on-surface-variant); }
+.switcher-url {
+  margin-left: auto; padding-left: 12px;
+  font-size: 11px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;
+}
+
 .topbar .spacer { flex: 1; }
 .topbar nav {
   display: flex; gap: 4px;
@@ -195,6 +232,34 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--on-surface);
 }
+
+/* ---------- expert mode ---------- */
+
+.expert-toggle {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 8px; margin-right: 2px; border-radius: 999px;
+  font-family: var(--font-mono), monospace; font-size: 11px;
+  letter-spacing: 0.5px; color: var(--on-surface-variant);
+  transition: color 120ms ease;
+}
+.expert-toggle:hover { color: var(--on-surface); }
+.expert-track {
+  position: relative; width: 26px; height: 15px; border-radius: 999px;
+  background: color-mix(in srgb, var(--on-surface) 14%, transparent);
+  transition: background 140ms ease;
+}
+.expert-knob {
+  position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+  border-radius: 50%; background: var(--surface);
+  transition: left 140ms ease, background 140ms ease;
+}
+.expert-toggle.on { color: var(--on-surface); }
+.expert-toggle.on .expert-track { background: var(--primary); }
+.expert-toggle.on .expert-knob { left: 13px; background: var(--on-primary, var(--surface)); }
+
+/* Simple mode hides the machinery: harness chips, working dirs. */
+html[data-expert="off"] .chat-thread .detail-head .chip.agent,
+html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 
 .shell { max-width: 1240px; margin: 0 auto; padding: 26px 20px 80px; }
 

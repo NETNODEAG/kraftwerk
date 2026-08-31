@@ -21,6 +21,10 @@ import { parse } from "yaml";
  *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
  *   agents: agents             # team agent-definition root, relative to the file
  *   skills: skills             # workspace skill root, relative to the file
+ *   switcher:                  # other kraftwerk workspaces, linked from the header dropdown
+ *     - name: other space
+ *       url: https://localhost:1985
+ *       icon: "🛰"              # optional emoji shown next to the entry
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -34,6 +38,16 @@ export const CONFIG_SCHEMA_URL =
 export const CONFIG_FILENAMES = ["kraftwerk.yml", "kraftwerk.yaml"];
 
 const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
+
+/** One entry of the workspace switcher: another kraftwerk instance to link to. */
+export interface SwitcherEntry {
+  /** Display name of the other workspace. */
+  name: string;
+  /** URL the other workspace's inspector runs on, e.g. https://localhost:1985 */
+  url: string;
+  /** Optional emoji shown next to the entry. */
+  icon?: string;
+}
 
 export interface ProjectConfig {
   /** Display name of the project ("environment"), shown in the inspector header. */
@@ -52,6 +66,8 @@ export interface ProjectConfig {
   agents?: string;
   /** Workspace skill root relative to the project root. Default: skills */
   skills?: string;
+  /** Other kraftwerk workspaces, shown as a switcher dropdown in the inspector header. */
+  switcher?: SwitcherEntry[];
 }
 
 export interface Project {
@@ -130,10 +146,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents, skills)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents, skills, switcher)`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills"];
+  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher"];
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(
@@ -144,9 +160,38 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
       if (typeof config[key] !== "number" || !Number.isInteger(config[key])) {
         throw new Error(`${path.basename(configPath)}: port must be an integer`);
       }
+    } else if (key === "switcher") {
+      validateSwitcher(configPath, config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
   }
   return config as ProjectConfig;
+}
+
+function validateSwitcher(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (!Array.isArray(value)) {
+    throw new Error(`${file}: switcher must be a list of { name, url, icon? } entries`);
+  }
+  value.forEach((entry, i) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(`${file}: switcher[${i}] must be a mapping with name and url`);
+    }
+    const e = entry as Record<string, unknown>;
+    for (const key of Object.keys(e)) {
+      if (!["name", "url", "icon"].includes(key)) {
+        throw new Error(`${file}: switcher[${i}]: unknown key "${key}" (allowed: name, url, icon)`);
+      }
+    }
+    if (typeof e.name !== "string" || !e.name.trim()) {
+      throw new Error(`${file}: switcher[${i}]: name must be a non-empty string`);
+    }
+    if (typeof e.url !== "string" || !/^https?:\/\//.test(e.url)) {
+      throw new Error(`${file}: switcher[${i}]: url must be an http(s) URL`);
+    }
+    if (e.icon !== undefined && typeof e.icon !== "string") {
+      throw new Error(`${file}: switcher[${i}]: icon must be a string`);
+    }
+  });
 }
