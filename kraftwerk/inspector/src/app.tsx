@@ -13,8 +13,9 @@ import { TeamScreen } from "./team";
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
  * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
- * #/team[/new | /chats[/<chatId>] | /<slug>[/edit | /chat/<chatId>]].
- * Legacy #/chats[/<id>] links land on the team screen's General Chats.
+ * #/agents[/new | /chats[/<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]].
+ * A bare #/agents/<slug> opens the agent's most recent session; the profile
+ * lives at /info. Legacy #/team/* and #/chats[/<id>] links still land here.
  */
 export function App() {
   const path = useHashPath();
@@ -54,7 +55,7 @@ export function App() {
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
   else if (seg[0] === "chats") screen = <TeamScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
+  else if (seg[0] === "agents" || seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
     screen = (
@@ -80,7 +81,7 @@ export function App() {
           )}
         </span>
         <nav>
-          <a href="#/team">agents</a>
+          <a href="#/agents">agents</a>
           <a href="#/knowledge">context &amp; knowledge</a>
           <a href="#/workflows">workflows</a>
           <a href="#/runs">workflow runs</a>

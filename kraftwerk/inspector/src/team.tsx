@@ -28,7 +28,9 @@ const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const EMOJI_PRESETS = ["🤖", "🧑‍💻", "🎧", "🛠️", "📊", "✍️", "🔍", "🧹", "📦", "🚀"];
 
 export function TeamScreen({ seg }: { seg: string[] }) {
-  // seg (after /team): [] | [new] | [chats] | [chats, chatId] | [slug] | [slug, edit] | [slug, chat, chatId]
+  // seg (after /agents): [] | [new] | [chats] | [chats, chatId] | [slug] |
+  // [slug, info] | [slug, edit] | [slug, chat, chatId]. A bare slug lands on
+  // the agent's most recent session; the profile lives at /info.
   const slug =
     seg[0] && seg[0] !== "new" && seg[0] !== "chats" ? decodeURIComponent(seg[0]) : undefined;
   const mode =
@@ -38,11 +40,13 @@ export function TeamScreen({ seg }: { seg: string[] }) {
         ? "chats"
         : seg[1] === "edit"
           ? "edit"
-          : seg[1] === "chat"
-            ? "chat"
-            : slug
-              ? "member"
-              : "home";
+          : seg[1] === "info"
+            ? "info"
+            : seg[1] === "chat"
+              ? "chat"
+              : slug
+                ? "member"
+                : "home";
   const chatId = mode === "chat" ? seg[2] : mode === "chats" ? seg[1] : undefined;
 
   const data = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
@@ -65,13 +69,14 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     ) : (
       <NewChat />
     );
-  else if (slug) main = <MemberView key={slug} slug={slug} />;
+  else if (mode === "info" && slug) main = <MemberView key={slug} slug={slug} />;
+  else if (slug) main = <MemberLanding key={slug} slug={slug} />;
   else main = <TeamHome hasMembers={members.length > 0} root={data?.root} />;
 
   // Linked knowledge bundles of the selected agent → right sidebar on the
   // profile and chat views (not while editing). Hidden state persists.
   const kBundles =
-    (mode === "member" || mode === "chat") && slug
+    (mode === "member" || mode === "info" || mode === "chat") && slug
       ? (members.find((m) => m.slug === slug)?.knowledge ?? [])
       : [];
   const [kOpen, setKOpen] = useState(() => localStorage.getItem("kw-kside") !== "hidden");
@@ -95,7 +100,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
         <div className="side-head">
           <span className="microlabel">agents</span>
           <span className="spacer" />
-          <Link href="/team/new" className="open-raw">
+          <Link href="/agents/new" className="open-raw">
             + new
           </Link>
         </div>
@@ -103,7 +108,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           {members.map((m) => (
             <Link
               key={m.slug}
-              href={`/team/${encodeURIComponent(m.slug)}`}
+              href={`/agents/${encodeURIComponent(m.slug)}`}
               className={`side-row ${m.slug === slug ? "active" : ""}`}
             >
               <span className="agent-avatar sm">
@@ -122,7 +127,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           {data && members.length === 0 && <div className="viewer-note">no agents yet</div>}
         </div>
         <div className="side-pinned">
-          <Link href="/team/chats" className={`side-row ${mode === "chats" ? "active" : ""}`}>
+          <Link href="/agents/chats" className={`side-row ${mode === "chats" ? "active" : ""}`}>
             <span className="agent-avatar sm">
               <span aria-hidden>💬</span>
             </span>
@@ -335,6 +340,36 @@ function KnowledgeSide({
   );
 }
 
+/* ---------- landing ---------- */
+
+/**
+ * A bare #/agents/<slug> URL jumps straight into the agent's most recent
+ * session; with no sessions yet it shows the profile instead.
+ */
+function MemberLanding({ slug }: { slug: string }) {
+  const [noSessions, setNoSessions] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setNoSessions(false);
+    fetch("/api/chats")
+      .then((r) => r.json())
+      .then((d: { chats: ChatMeta[] }) => {
+        if (!alive) return;
+        // /api/chats is sorted by updatedAt desc — first match is the latest.
+        const latest = d.chats.find((c) => c.scope.kind === "team" && c.scope.member === slug);
+        if (latest) {
+          navigate(`/agents/${encodeURIComponent(slug)}/chat/${latest.id}`, { replace: true });
+        } else setNoSessions(true);
+      })
+      .catch(() => alive && setNoSessions(true));
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
+  if (!noSessions) return <div className="empty">loading…</div>;
+  return <MemberView slug={slug} />;
+}
+
 /* ---------- sessions sidebar ---------- */
 
 function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
@@ -349,6 +384,9 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
       <div className="side-head">
         <span className="microlabel">sessions</span>
         <span className="spacer" />
+        <Link href={`/agents/${encodeURIComponent(slug)}/info`} className="open-raw" title="agent profile & settings">
+          profile
+        </Link>
         <button
           className="open-raw"
           disabled={creating}
@@ -365,7 +403,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
         {sessions.map((c) => (
           <Link
             key={c.id}
-            href={`/team/${encodeURIComponent(slug)}/chat/${c.id}`}
+            href={`/agents/${encodeURIComponent(slug)}/chat/${c.id}`}
             className={`side-row ${c.id === chatId ? "active" : ""}`}
           >
             <span className={`lamp ${c.busy ? "running" : "pending"}`} />
@@ -386,7 +424,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
                 e.stopPropagation();
                 if (!window.confirm(`Delete session "${c.title || c.id}"?`)) return;
                 await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
-                if (c.id === chatId) navigate(`/team/${encodeURIComponent(slug)}`);
+                if (c.id === chatId) navigate(`/agents/${encodeURIComponent(slug)}`);
               }}
             >
               ✕
@@ -412,7 +450,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
       <div className="side-head">
         <span className="microlabel">chats</span>
         <span className="spacer" />
-        <Link href="/team/chats" className="open-raw">
+        <Link href="/agents/chats" className="open-raw">
           + new
         </Link>
       </div>
@@ -420,7 +458,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
         {chats.map((c) => (
           <Link
             key={c.id}
-            href={`/team/chats/${c.id}`}
+            href={`/agents/chats/${c.id}`}
             className={`side-row ${c.id === chatId ? "active" : ""}`}
           >
             <span className={`lamp ${c.busy ? "running" : "pending"}`} />
@@ -451,7 +489,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
                 e.stopPropagation();
                 if (!window.confirm(`Delete chat "${c.title || c.id}"?`)) return;
                 await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
-                if (c.id === chatId) navigate("/team/chats");
+                if (c.id === chatId) navigate("/agents/chats");
               }}
             >
               ✕
@@ -485,7 +523,7 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
           knowledge bundles, runs the workflows for you, and keeps the knowledge current.
         </div>
         <div style={{ padding: "0 16px 16px" }}>
-          <button className="run-btn" onClick={() => navigate("/team/new")}>
+          <button className="run-btn" onClick={() => navigate("/agents/new")}>
             {hasMembers ? "+ new agent" : "create your first agent"}
           </button>
         </div>
@@ -496,11 +534,26 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
 
 /* ---------- member profile ---------- */
 
+/**
+ * Agent profile with in-place editing: role, workflows, knowledge, and
+ * skills save right here (full PUT with the changed section merged in).
+ * Identity fields (name, emoji, harness, model, …) stay in the full editor.
+ */
 function MemberView({ slug }: { slug: string }) {
   const [member, setMember] = useState<TeamMemberDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [creating, setCreating] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
+  const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "skills">("");
+  const [roleDraft, setRoleDraft] = useState("");
+  const [listDraft, setListDraft] = useState<string[]>([]);
+  const [allSkillsDraft, setAllSkillsDraft] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const wfData = usePoll<{ workflows: WorkflowSummary[] }>("/api/workflows", false);
+  const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
+  const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
 
   useEffect(() => {
     let alive = true;
@@ -513,8 +566,63 @@ function MemberView({ slug }: { slug: string }) {
     };
   }, [slug]);
 
+  async function save(patch: {
+    system?: string;
+    workflows?: string[];
+    knowledge?: string[];
+    skills?: string[];
+  }): Promise<void> {
+    if (!member) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/team/${encodeURIComponent(slug)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        // Full member + the changed section; an absent skills key = all skills.
+        body: JSON.stringify({
+          name: member.name,
+          emoji: member.emoji,
+          description: member.description,
+          harness: member.harness,
+          model: member.model,
+          effort: member.effort,
+          system: member.system,
+          workflows: member.workflows,
+          knowledge: member.knowledge,
+          skills: member.skills,
+          ...patch,
+        }),
+      });
+      const body = await res.json();
+      if (body.error) setError(body.error);
+      else {
+        setMember(body);
+        setEditing("");
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  function toggleDraft(name: string, on: boolean): void {
+    setListDraft(on ? [...listDraft, name] : listDraft.filter((n) => n !== name));
+  }
+
   if (gone) return <div className="empty">agent not found</div>;
   if (!member) return <div className="empty">loading…</div>;
+
+  const editActions = (patch: Parameters<typeof save>[0]) => (
+    <div className="team-form-row" style={{ marginTop: 8 }}>
+      <button className="run-btn" disabled={saving} onClick={() => void save(patch)}>
+        {saving ? "saving…" : "save"}
+      </button>
+      <button className="open-raw" disabled={saving} onClick={() => (setEditing(""), setError(""))}>
+        cancel
+      </button>
+    </div>
+  );
 
   return (
     <div className="member-view">
@@ -527,7 +635,7 @@ function MemberView({ slug }: { slug: string }) {
         {member.model && <span className="chip">{member.model}</span>}
         {member.effort && <span className="chip">effort: {member.effort}</span>}
         <span className="spacer" />
-        <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
+        <Link href={`/agents/${encodeURIComponent(slug)}/edit`} className="open-raw">
           edit
         </Link>
         <button
@@ -551,25 +659,69 @@ function MemberView({ slug }: { slug: string }) {
               {!roleOpen && (
                 <span className="m3-sub m3-ellipsis">
                   {(member.system || "").trim().split("\n")[0] ||
-                    "empty — edit this agent to give it a role"}
+                    "empty — expand to give this agent a role"}
                 </span>
               )}
             </span>
             <span className={`m3-chev ${roleOpen ? "open" : ""}`}>▾</span>
           </button>
-          {roleOpen && (
+          {roleOpen && editing !== "role" && (
             <div className="m3-expand">
-              <pre>{member.system || "(empty — edit this agent to give it a role)"}</pre>
-              <div className="m3-sub" style={{ marginTop: 10 }}>
-                agents/{member.slug}/system.md
+              <pre>{member.system || "(empty — click edit to give this agent a role)"}</pre>
+              <div className="team-form-row" style={{ marginTop: 10 }}>
+                <button
+                  className="open-raw"
+                  onClick={() => {
+                    setRoleDraft(member.system);
+                    setEditing("role");
+                    setError("");
+                  }}
+                >
+                  ✎ edit role
+                </button>
+                <span className="spacer" />
+                <span className="m3-sub">agents/{member.slug}/system.md</span>
               </div>
+            </div>
+          )}
+          {roleOpen && editing === "role" && (
+            <div className="m3-expand">
+              <textarea
+                className="concept-edit"
+                rows={Math.min(24, Math.max(8, roleDraft.split("\n").length + 2))}
+                value={roleDraft}
+                placeholder={"You are the ... for this project. Your job is ..."}
+                onChange={(e) => setRoleDraft(e.target.value)}
+                spellCheck={false}
+              />
+              {editActions({ system: roleDraft })}
             </div>
           )}
           <div className="m3-row">
             <span className="m3-ico">⚙</span>
             <span className="m3-body">
               <span className="m3-head">workflows</span>
-              {member.workflows.length === 0 ? (
+              {editing === "workflows" ? (
+                <>
+                  <div className="wf-checks">
+                    {(wfData?.workflows ?? []).map((w) => (
+                      <label key={w.slug}>
+                        <input
+                          type="checkbox"
+                          checked={listDraft.includes(w.slug)}
+                          onChange={(e) => toggleDraft(w.slug, e.target.checked)}
+                        />
+                        <b>{w.slug}</b>
+                        {w.description && <span className="opt-hint"> — {w.description}</span>}
+                      </label>
+                    ))}
+                    {(wfData?.workflows ?? []).length === 0 && (
+                      <div className="viewer-note">no workflows in this project</div>
+                    )}
+                  </div>
+                  {editActions({ workflows: listDraft })}
+                </>
+              ) : member.workflows.length === 0 ? (
                 <span className="m3-sub">none connected — the agent can run any workflow you connect</span>
               ) : (
                 <span className="m3-chips">
@@ -581,15 +733,44 @@ function MemberView({ slug }: { slug: string }) {
                 </span>
               )}
             </span>
-            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
-              edit
-            </Link>
+            {editing !== "workflows" && (
+              <button
+                className="open-raw"
+                onClick={() => {
+                  setListDraft(member.workflows);
+                  setEditing("workflows");
+                  setError("");
+                }}
+              >
+                edit
+              </button>
+            )}
           </div>
           <div className="m3-row">
             <span className="m3-ico">◆</span>
             <span className="m3-body">
               <span className="m3-head">knowledge</span>
-              {member.knowledge.length === 0 ? (
+              {editing === "knowledge" ? (
+                <>
+                  <div className="wf-checks">
+                    {(kData?.bundles ?? []).map((b) => (
+                      <label key={b.name}>
+                        <input
+                          type="checkbox"
+                          checked={listDraft.includes(b.name)}
+                          onChange={(e) => toggleDraft(b.name, e.target.checked)}
+                        />
+                        <b>{b.name}</b>
+                        <span className="opt-hint"> — {b.concepts} concepts</span>
+                      </label>
+                    ))}
+                    {(kData?.bundles ?? []).length === 0 && (
+                      <div className="viewer-note">no knowledge bundles in this project</div>
+                    )}
+                  </div>
+                  {editActions({ knowledge: listDraft })}
+                </>
+              ) : member.knowledge.length === 0 ? (
                 <span className="m3-sub">none connected — connected bundles are read and kept current by the agent</span>
               ) : (
                 <span className="m3-chips">
@@ -601,15 +782,54 @@ function MemberView({ slug }: { slug: string }) {
                 </span>
               )}
             </span>
-            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
-              edit
-            </Link>
+            {editing !== "knowledge" && (
+              <button
+                className="open-raw"
+                onClick={() => {
+                  setListDraft(member.knowledge);
+                  setEditing("knowledge");
+                  setError("");
+                }}
+              >
+                edit
+              </button>
+            )}
           </div>
           <div className="m3-row">
             <span className="m3-ico">/</span>
             <span className="m3-body">
               <span className="m3-head">skills</span>
-              {member.skills === undefined ? (
+              {editing === "skills" ? (
+                <>
+                  <div className="wf-checks">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={allSkillsDraft}
+                        onChange={(e) => setAllSkillsDraft(e.target.checked)}
+                      />
+                      <b>all skills</b>
+                      <span className="opt-hint"> — every discovered skill, including future ones</span>
+                    </label>
+                    {!allSkillsDraft &&
+                      (sData?.skills ?? []).map((s) => (
+                        <label key={s.name}>
+                          <input
+                            type="checkbox"
+                            checked={listDraft.includes(s.name)}
+                            onChange={(e) => toggleDraft(s.name, e.target.checked)}
+                          />
+                          <b>/{s.name}</b>
+                          {s.description && <span className="opt-hint"> — {s.description}</span>}
+                        </label>
+                      ))}
+                    {!allSkillsDraft && (sData?.skills ?? []).length === 0 && (
+                      <div className="viewer-note">no skills found (.claude/skills, project or user)</div>
+                    )}
+                  </div>
+                  {editActions({ skills: allSkillsDraft ? undefined : listDraft })}
+                </>
+              ) : member.skills === undefined ? (
                 <span className="m3-sub">all discovered skills (default) — invoke with /name in a session</span>
               ) : member.skills.length === 0 ? (
                 <span className="m3-sub">none — this agent runs without skills</span>
@@ -623,11 +843,22 @@ function MemberView({ slug }: { slug: string }) {
                 </span>
               )}
             </span>
-            <Link href={`/team/${encodeURIComponent(slug)}/edit`} className="open-raw">
-              edit
-            </Link>
+            {editing !== "skills" && (
+              <button
+                className="open-raw"
+                onClick={() => {
+                  setAllSkillsDraft(member.skills === undefined);
+                  setListDraft(member.skills ?? []);
+                  setEditing("skills");
+                  setError("");
+                }}
+              >
+                edit
+              </button>
+            )}
           </div>
         </div>
+        {error && <div className="msg error">✕ {error}</div>}
       </section>
 
       <RoutinesPanel slug={slug} />
@@ -680,7 +911,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
     const body = await res.json();
     setBusyId("");
     if (body.error) setError(body.error);
-    else if (body.chatId) navigate(`/team/${encodeURIComponent(slug)}/chat/${body.chatId}`);
+    else if (body.chatId) navigate(`/agents/${encodeURIComponent(slug)}/chat/${body.chatId}`);
   }
 
   async function remove(id: string) {
@@ -733,7 +964,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
                       : ""}
                   {" · "}
                   {r.lastChatId ? (
-                    <Link href={`/team/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}>
+                    <Link href={`/agents/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}>
                       last run {fmtWhen(r.lastRunAt)}
                     </Link>
                   ) : (
@@ -921,13 +1152,13 @@ function MemberEditor({ slug }: { slug?: string }) {
     const body = await res.json();
     setSaving(false);
     if (body.error) setError(body.error);
-    else navigate(`/team/${encodeURIComponent(body.slug)}`);
+    else navigate(`/agents/${encodeURIComponent(body.slug)}/info`);
   }
 
   async function remove() {
     if (!slug || !window.confirm(`Delete agent "${slug}" and its definition folder?`)) return;
     await fetch(`/api/team/${encodeURIComponent(slug)}`, { method: "DELETE" }).catch(() => {});
-    navigate("/team");
+    navigate("/agents");
   }
 
   if (!form) return <div className="empty">{error || "loading…"}</div>;

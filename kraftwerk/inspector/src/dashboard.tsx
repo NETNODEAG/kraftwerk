@@ -32,7 +32,7 @@ const runStatusLabel = (s: RunListItem["status"]) =>
   s === "ok" ? "done" : s === "running" ? "working" : s === "aborted" ? "stopped" : "failed";
 
 function chatHref(c: ChatMeta): string {
-  return c.scope.kind === "team" ? `/team/${c.scope.member}/chat/${c.id}` : `/team/chats/${c.id}`;
+  return c.scope.kind === "team" ? `/agents/${c.scope.member}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
 function chatScopeLabel(c: ChatMeta): string {
@@ -69,7 +69,7 @@ export function DashboardScreen() {
     [runsData ? runs.length : undefined, "runs", "/runs"],
     [knowData ? bundles.length : undefined, "bundles", "/knowledge"],
     [skillsData ? workspaceSkills.length : undefined, "skills", "/skills"],
-    [chatsData ? chats.length : undefined, "chats", "/team/chats"],
+    [chatsData ? chats.length : undefined, "chats", "/agents/chats"],
   ];
 
   // Recent failures deserve a visible flag, not a scroll position.
@@ -134,7 +134,7 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
   // One filled primary per view (M3): chat is the front door; the rest is tonal.
   return (
     <div className="dash-actions">
-      <button className="run-btn dash-newchat" onClick={() => navigate("/team/chats")}>
+      <button className="run-btn dash-newchat" onClick={() => navigate("/agents/chats")}>
         💬 new chat
       </button>
       <span className="wf-pick-wrap">
@@ -175,7 +175,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
     return (
       <section className="panel dash-team-empty">
         <div className="viewer-note">
-          No agent teammates yet — <Link href="/team/new">create your first agent</Link> and it
+          No agent teammates yet — <Link href="/agents/new">create your first agent</Link> and it
           will show up here, ready to chat.
         </div>
       </section>
@@ -187,7 +187,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
         const sessions = chats.filter((c) => c.scope.kind === "team" && c.scope.member === m.slug);
         const working = sessions.find((c) => c.busy);
         const last = sessions[0]; // /api/chats is sorted by updatedAt desc
-        const open = () => navigate(`/team/${encodeURIComponent(m.slug)}`);
+        const open = () => navigate(`/agents/${encodeURIComponent(m.slug)}`);
         return (
           // The whole card opens the agent; inner controls stop the bubble.
           <div
@@ -212,7 +212,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
               <span className="dash-member-state">
                 {working ? (
                   <Link
-                    href={`/team/${encodeURIComponent(m.slug)}/chat/${working.id}`}
+                    href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     working…

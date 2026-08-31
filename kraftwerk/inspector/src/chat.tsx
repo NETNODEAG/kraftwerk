@@ -34,8 +34,8 @@ export async function createChatAndOpen(
   if (meta.id) {
     navigate(
       meta.scope?.kind === "team"
-        ? `/team/${encodeURIComponent(meta.scope.member)}/chat/${meta.id}`
-        : `/team/chats/${meta.id}`
+        ? `/agents/${encodeURIComponent(meta.scope.member)}/chat/${meta.id}`
+        : `/agents/chats/${meta.id}`
     );
   }
 }
@@ -160,8 +160,8 @@ export function ChatThread({ id }: { id: string }) {
           </Link>
         )}
         {meta.scope.kind === "team" && (
-          <Link href={`/team/${encodeURIComponent(meta.scope.member)}`} className="chip">
-            team:{meta.scope.member}
+          <Link href={`/agents/${encodeURIComponent(meta.scope.member)}/info`} className="chip">
+            agent:{meta.scope.member}
           </Link>
         )}
         <span className="rid" title={meta.cwd}>
