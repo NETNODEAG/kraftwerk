@@ -607,6 +607,9 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .side-meta { font-family: var(--font-mono), monospace; font-size: 10.5px; color: var(--on-surface-variant); }
 
 .runs-main { padding: 18px 22px 40px; min-width: 0; }
+/* The chat pane sizes itself to the viewport and brings its own padding —
+   the wrapper's padding would push the composer below the fold. */
+.runs-main:has(> .chat-main) { padding: 0; }
 .runs-main .detail-head .spacer { flex: 1; }
 
 .tabs {
