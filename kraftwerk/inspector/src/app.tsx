@@ -88,6 +88,7 @@ export function App() {
           <a href="#/skills">skills</a>
         </nav>
         <span className="spacer" />
+        <RelaunchNote />
         <ExpertToggle />
         <ProjectInfo />
       </header>
@@ -179,6 +180,70 @@ function LatestRun() {
       No runs found in <code>{empty.outputDir}</code>. Start one with{" "}
       <code>kraftwerk run &lt;workflow&gt; &lt;request&gt;</code> or from a workflow page.
     </div>
+  );
+}
+
+/**
+ * "vX ready — relaunch": shown when a newer install landed on disk while
+ * this server keeps running the old code (npm upgrade, dev release). Click
+ * restarts the supervised server (POST /api/restart), waits for the new
+ * version to answer, then reloads the page.
+ */
+function RelaunchNote() {
+  const [meta, setMeta] = useState<{
+    version: string;
+    diskVersion?: string;
+    restartable?: boolean;
+  } | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
+        if (alive) setMeta(d);
+      } catch {}
+      if (alive) timer = setTimeout(tick, 30_000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const target =
+    meta?.restartable && meta.diskVersion && meta.diskVersion !== meta.version
+      ? meta.diskVersion
+      : null;
+
+  async function relaunch(): Promise<void> {
+    if (!target) return;
+    setRestarting(true);
+    await fetch("/api/restart", { method: "POST" }).catch(() => {});
+    // Wait until the respawned server answers with the on-disk version.
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
+        if (d.version === target) break;
+      } catch {}
+    }
+    location.reload();
+  }
+
+  if (!target && !restarting) return null;
+  return (
+    <button
+      className="relaunch-note"
+      disabled={restarting}
+      title={`v${target} is installed on disk, the server still runs v${meta?.version}. Click to relaunch with the new version.`}
+      onClick={() => void relaunch()}
+    >
+      {restarting ? "relaunching…" : `↻ v${target} ready — relaunch`}
+    </button>
   );
 }
 

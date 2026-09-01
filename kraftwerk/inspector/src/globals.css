@@ -238,6 +238,16 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   color: var(--on-surface);
 }
 
+/* "vX ready — relaunch" pill: a newer install is on disk; click restarts the server. */
+.relaunch-note {
+  margin-right: 10px; padding: 4px 12px; border-radius: 999px;
+  font: inherit; font-size: 12px; cursor: pointer;
+  color: var(--primary); border: 1px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.relaunch-note:hover { background: color-mix(in srgb, var(--primary) 18%, transparent); }
+.relaunch-note:disabled { opacity: 0.7; cursor: default; }
+
 /* ---------- expert mode ---------- */
 
 .expert-toggle {

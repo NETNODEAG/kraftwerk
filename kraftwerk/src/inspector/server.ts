@@ -101,17 +101,26 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-/** Package version, read once. Works from src/ (tsx) and dist/ alike. */
+/** Exit code the `kraftwerk ui` supervisor treats as "relaunch me". */
+export const RESTART_EXIT_CODE = 75;
+
+/** Whether a supervisor is around to respawn us (set by `kraftwerk ui`). */
+const supervised = (): boolean => process.env.KRAFTWERK_UI_SUPERVISED === "1";
+
+/** Package version as it is on disk right now (re-read per call, detects upgrades). */
+async function getDiskVersion(): Promise<string> {
+  try {
+    const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
+    return (JSON.parse(raw) as { version?: string }).version ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Package version this process loaded with, read once. Works from src/ (tsx) and dist/ alike. */
 let pkgVersion: string | undefined;
 async function getPkgVersion(): Promise<string> {
-  if (pkgVersion === undefined) {
-    try {
-      const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
-      pkgVersion = (JSON.parse(raw) as { version?: string }).version ?? "";
-    } catch {
-      pkgVersion = "";
-    }
-  }
+  pkgVersion ??= await getDiskVersion();
   return pkgVersion;
 }
 
@@ -125,10 +134,27 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
     return json(res, {
       version: await getPkgVersion(),
+      // A differing disk version means an upgrade landed while this process
+      // runs — the UI offers a relaunch when a supervisor can respawn us.
+      diskVersion: await getDiskVersion(),
+      restartable: supervised(),
       projectName,
       projectIcon: project?.config.icon ?? "",
       switcher: project?.config.switcher ?? [],
     });
+  }
+
+  // POST /api/restart — exit with the respawn code; the `kraftwerk ui` supervisor relaunches
+  if (seg.length === 2 && seg[1] === "restart" && method === "POST") {
+    if (!supervised()) {
+      return json(res, { error: "not supervised — restart `kraftwerk ui` manually" }, 400);
+    }
+    json(res, { ok: true });
+    setTimeout(() => {
+      disposeAllBackends();
+      process.exit(RESTART_EXIT_CODE);
+    }, 150);
+    return;
   }
 
   // GET /api/runs

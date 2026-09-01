@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
 import { resolveProject } from "../config.js";
-import { startInspector } from "../inspector/server.js";
+import { RESTART_EXIT_CODE, startInspector } from "../inspector/server.js";
 
 /**
  * `kraftwerk ui` — start the inspector web UI pointed at the current
@@ -12,6 +12,11 @@ import { startInspector } from "../inspector/server.js";
  * this package); the frontend is a prebuilt Vite bundle shipped in
  * inspector/dist. Nothing to install at runtime — the server starts
  * instantly and runs in the foreground until Ctrl-C.
+ *
+ * The command is a thin supervisor: the actual server runs as a child
+ * process and is respawned whenever it exits with RESTART_EXIT_CODE
+ * (POST /api/restart, offered by the UI when a newer version landed on
+ * disk) — the fresh process loads the freshly installed code.
  */
 
 /** Package root is two levels up from this file (src/cli/ or dist/cli/). */
@@ -46,6 +51,8 @@ function ensureBuilt(): string {
 }
 
 export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
+  if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(opts);
+
   const staticDir = ensureBuilt();
   const project = await resolveProject(cwd);
   const outputDir = opts.output ? path.resolve(cwd, opts.output) : project.outputDir;
@@ -57,4 +64,30 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
     `${chalk.green("✔")} Kraftwerk UI: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
   );
+}
+
+/**
+ * Respawn loop around the real server. Spawns this same bin script via the
+ * current node — works identically for global installs, local node_modules,
+ * npx, and a file: dev checkout. Any exit other than RESTART_EXIT_CODE
+ * (including Ctrl-C, which signals the whole foreground group) ends the loop.
+ */
+async function superviseUi(opts: { port?: string; output?: string }): Promise<void> {
+  const args = [
+    process.argv[1],
+    "ui",
+    ...(opts.port ? ["--port", opts.port] : []),
+    ...(opts.output ? ["--output", opts.output] : []),
+  ];
+  for (;;) {
+    const child = spawn(process.execPath, args, {
+      stdio: "inherit",
+      env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1" },
+    });
+    const code = await new Promise<number | null>((resolve) => {
+      child.once("exit", (c, signal) => resolve(signal ? null : c));
+    });
+    if (code !== RESTART_EXIT_CODE) process.exit(code ?? 0);
+    console.log(chalk.dim("↻ relaunching the UI with the current install ..."));
+  }
 }
