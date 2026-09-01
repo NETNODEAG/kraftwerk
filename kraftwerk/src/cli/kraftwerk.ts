@@ -12,6 +12,7 @@ import { renderCreateBrief } from "./create-brief.js";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
+import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
 
@@ -23,6 +24,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
  *   kraftwerk knowledge ...           Context & Knowledge: OKF bundles (list/get/put/verify/...)
+ *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run)
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
@@ -288,6 +290,7 @@ runs
   });
 
 registerKnowledgeCommands(program);
+registerRoutineCommands(program);
 
 program
   .command("ui")
