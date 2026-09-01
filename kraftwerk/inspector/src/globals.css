@@ -1,5 +1,6 @@
 /* kraftwerk inspector — Material Design 3. Tonal surfaces, pill buttons,
-   state layers. Gold-seeded palette keeps the kraftwerk identity.
+   state layers. Typeform-style palette: warm cream + near-black monochrome,
+   black pill buttons in light, cream-on-charcoal in dark.
    Dark is the native mode; light is the day shift. */
 
 :root {
@@ -11,18 +12,19 @@
      from the viewport, so it must not depend on the topbar's content. */
   --topbar-h: 53px;
 
-  /* M3 color roles — dark scheme, seed #F5A623 (kraftwerk gold). */
-  --primary: #f2bd57;
-  --on-primary: #422c00;
-  --primary-container: #5f4100;
-  --on-primary-container: #ffdea9;
-  --secondary: #d9c4a0;
-  --on-secondary: #3b2f15;
-  --secondary-container: #53452a;
-  --on-secondary-container: #f6e0bb;
-  --tertiary: #b1cfa1;
-  --tertiary-container: #354d2a;
-  --on-tertiary-container: #cdebbb;
+  /* M3 color roles — dark scheme. Typeform charcoal: warm near-black
+     surfaces, cream text, primary = cream (the inverted black button). */
+  --primary: #f4efea;
+  --on-primary: #191919;
+  --primary-container: #3a3733;
+  --on-primary-container: #f4efea;
+  --secondary: #cfc9c0;
+  --on-secondary: #24231f;
+  --secondary-container: #3a3733;
+  --on-secondary-container: #e8e2d9;
+  --tertiary: #b8c2a2;
+  --tertiary-container: #38402b;
+  --on-tertiary-container: #d8e0c4;
   --error: #ffb4ab;
   --on-error: #690005;
   --error-container: #93000a;
@@ -30,18 +32,18 @@
   --success: #8fd48c;
   --success-container: #12411a;
   --on-success-container: #aaf2a4;
-  --surface: #16130e;
-  --on-surface: #eae1d6;
-  --on-surface-variant: #cfc5b4;
-  --surface-container-lowest: #100d08;
-  --surface-container-low: #1e1b14;
-  --surface-container: #221f18;
-  --surface-container-high: #2d2921;
-  --surface-container-highest: #38332b;
-  --outline: #99907f;
-  --outline-variant: #4d4639;
-  --inverse-surface: #eae1d6;
-  --inverse-on-surface: #34302a;
+  --surface: #191919;
+  --on-surface: #f4efea;
+  --on-surface-variant: #b5b0a8;
+  --surface-container-lowest: #121211;
+  --surface-container-low: #201f1e;
+  --surface-container: #262523;
+  --surface-container-high: #2f2d2a;
+  --surface-container-highest: #3a3733;
+  --outline: #8f8a82;
+  --outline-variant: #44423e;
+  --inverse-surface: #f4efea;
+  --inverse-on-surface: #2f2d2a;
 
   --elev-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
   --elev-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
@@ -51,36 +53,38 @@
 }
 
 :root[data-theme="light"] {
-  --primary: #7e5700;
+  /* Typeform light: signature warm cream ground, white cards, near-black
+     text, primary = black (the classic black pill button). */
+  --primary: #191919;
   --on-primary: #ffffff;
-  --primary-container: #ffdea9;
-  --on-primary-container: #281900;
-  --secondary: #6d5c3f;
+  --primary-container: #e7e0d7;
+  --on-primary-container: #191919;
+  --secondary: #5e5b56;
   --on-secondary: #ffffff;
-  --secondary-container: #f6e0bb;
-  --on-secondary-container: #251a04;
-  --tertiary: #4c6540;
-  --tertiary-container: #cdebbb;
-  --on-tertiary-container: #0a2005;
+  --secondary-container: #e7e0d7;
+  --on-secondary-container: #2a2926;
+  --tertiary: #66705a;
+  --tertiary-container: #dde2cf;
+  --on-tertiary-container: #232818;
   --error: #ba1a1a;
   --on-error: #ffffff;
   --error-container: #ffdad6;
   --on-error-container: #410002;
   --success: #2e6b30;
-  --success-container: #b0f1ab;
-  --on-success-container: #002204;
-  --surface: #fff8f2;
-  --on-surface: #201b13;
-  --on-surface-variant: #4e4639;
+  --success-container: #d3ecd0;
+  --on-success-container: #0b2e10;
+  --surface: #f4efea;
+  --on-surface: #191919;
+  --on-surface-variant: #5e5b56;
   --surface-container-lowest: #ffffff;
-  --surface-container-low: #faf2e9;
-  --surface-container: #f4ede3;
-  --surface-container-high: #eee7dd;
-  --surface-container-highest: #e9e1d8;
-  --outline: #807663;
-  --outline-variant: #d2c5b1;
-  --inverse-surface: #35302a;
-  --inverse-on-surface: #faf0e7;
+  --surface-container-low: #faf7f3;
+  --surface-container: #ece6df;
+  --surface-container-high: #e6dfd6;
+  --surface-container-highest: #ded6cb;
+  --outline: #8a857c;
+  --outline-variant: #d8d1c7;
+  --inverse-surface: #2b2a27;
+  --inverse-on-surface: #f6f2ec;
 
   --elev-1: 0 1px 2px rgba(32, 27, 19, 0.18), 0 1px 3px 1px rgba(32, 27, 19, 0.08);
   --elev-2: 0 1px 2px rgba(32, 27, 19, 0.18), 0 2px 6px 2px rgba(32, 27, 19, 0.08);
@@ -120,16 +124,14 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   border-bottom: 1px solid var(--outline-variant);
 }
 .wordmark { display: flex; align-items: center; gap: 10px; }
-.wordmark-link { display: flex; align-items: center; gap: 10px; }
-.wordmark .lamp-block {
+/* Home is the project icon, not a brand mark — the workspace is the star. */
+.home-link {
   width: 26px; height: 26px; border-radius: 9px;
-  background: var(--primary);
   display: grid; place-items: center;
+  font-size: 15px; line-height: 1;
+  transition: background 120ms ease;
 }
-.wordmark .lamp-block span { width: 8px; height: 8px; border-radius: 50%; background: var(--on-primary); }
-.wordmark b {
-  font-size: 15px; font-weight: 500; letter-spacing: 0;
-}
+.home-link:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
 .wordmark small {
   font-size: 12px; color: var(--on-surface-variant);
 }
@@ -880,8 +882,12 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .wf-pick-desc { font-size: 11.5px; color: var(--on-surface-variant); }
 .wf-pick-empty { padding: 8px 10px; font-size: 12px; color: var(--on-surface-variant); }
 
-/* Team cards: the agents as colleagues, chat one click away. */
-.dash-team { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-bottom: 18px; }
+/* Team cards: the agents as colleagues, chat one click away.
+   Six columns on a full-width dashboard, collapsing on narrow viewports. */
+.dash-team { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 18px; }
+@media (max-width: 1100px) { .dash-team { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 800px) { .dash-team { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px) { .dash-team { grid-template-columns: repeat(2, 1fr); } }
 .dash-team-empty { margin-bottom: 18px; }
 .dash-member {
   display: flex; flex-direction: column;

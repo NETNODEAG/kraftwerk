@@ -70,11 +70,8 @@ export function App() {
     <>
       <header className="topbar">
         <span className="wordmark">
-          <a href="#/" className="wordmark-link">
-            <span className="lamp-block">
-              <span />
-            </span>
-            <b>kraftwerk</b>
+          <a href="#/" className="home-link" title="Dashboard">
+            {projectIcon || "◦"}
           </a>
           {projectName && (
             <WorkspaceSwitcher name={projectName} icon={projectIcon} entries={switcher} />
