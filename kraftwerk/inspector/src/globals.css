@@ -978,6 +978,7 @@ html[data-expert="off"] .chip.dash-kind { display: none; }
 .chip.skill-src { flex: none; }
 .chip.skill-src.workspace { border-color: transparent; background: var(--success-container); color: var(--on-success-container); }
 .chip.skill-src.project, .chip.skill-src.user { color: var(--on-surface-variant); }
+.chip.skill-src.agent { border-color: transparent; background: var(--secondary-container); color: var(--on-secondary-container); }
 .skills-local-head { border-top: 1px solid var(--outline-variant); margin-top: 10px; }
 .skill-desc { margin: -6px 2px 14px; }
 .skill-path { word-break: break-all; }

@@ -387,7 +387,8 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
   const [dismissed, setDismissed] = useState(false);
 
   // Skills the /-menu offers: all discovered ones, narrowed by the team
-  // member's allowlist when this is a team session (mirrors the server).
+  // member's allowlist when this is a team session, plus the member's own
+  // agent skills, which always apply and shadow shared ones (mirrors the server).
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -395,13 +396,21 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
         const d = await fetch("/api/skills").then((r) => r.json());
         let list: SkillInfo[] = d.skills ?? [];
         if (scope?.kind === "team") {
-          const m = await fetch(`/api/team/${encodeURIComponent(scope.member)}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null);
+          const [m, own] = await Promise.all([
+            fetch(`/api/team/${encodeURIComponent(scope.member)}`)
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null),
+            fetch(`/api/team/${encodeURIComponent(scope.member)}/skills`)
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null),
+          ]);
           if (m && Array.isArray(m.skills)) {
             const allowed = new Set(m.skills.map((n: string) => n.toLowerCase()));
             list = list.filter((s) => allowed.has(s.name.toLowerCase()));
           }
+          const agentSkills: SkillInfo[] = own?.skills ?? [];
+          const shadowed = new Set(agentSkills.map((s) => s.name.toLowerCase()));
+          list = [...agentSkills, ...list.filter((s) => !shadowed.has(s.name.toLowerCase()))];
         }
         if (alive) setSkills(list);
       } catch {

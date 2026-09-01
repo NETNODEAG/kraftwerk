@@ -15,6 +15,7 @@ const SOURCE_LABEL: Record<SkillInfo["source"], string> = {
   workspace: "workspace",
   project: ".claude",
   user: "global",
+  agent: "agent",
 };
 
 function sourceChip(source: SkillInfo["source"]) {

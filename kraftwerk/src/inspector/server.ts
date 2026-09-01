@@ -34,7 +34,15 @@ import {
   teamRoot,
   type SaveMemberInput,
 } from "./team.js";
-import { getSkill, listSkills, skillsRoot } from "./skills.js";
+import {
+  deleteAgentSkill,
+  getSkill,
+  listAgentSkills,
+  listSkills,
+  readSkill,
+  saveAgentSkill,
+  skillsRoot,
+} from "./skills.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -312,6 +320,41 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       } catch (err) {
         return json(res, { error: (err as Error).message }, 400);
       }
+    }
+  }
+
+  // GET/POST /api/team/:slug/skills — the agent's own skills / create or update one
+  if (seg.length === 4 && seg[1] === "team" && seg[3] === "skills") {
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "GET") return json(res, { skills: await listAgentSkills(slug) });
+      if (method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { name?: string; content?: string };
+        return json(res, await saveAgentSkill(slug, String(body.name ?? ""), String(body.content ?? "")));
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET/DELETE /api/team/:slug/skills/:name — one agent skill with content / delete
+  if (seg.length === 5 && seg[1] === "team" && seg[3] === "skills") {
+    const slug = decodeURIComponent(seg[2]);
+    const name = decodeURIComponent(seg[4]);
+    try {
+      if (method === "GET") {
+        const skill = (await listAgentSkills(slug)).find(
+          (s) => s.name.toLowerCase() === name.toLowerCase()
+        );
+        if (!skill) return json(res, { error: "not found" }, 404);
+        return json(res, { ...skill, content: await readSkill(skill) });
+      }
+      if (method === "DELETE") {
+        await deleteAgentSkill(slug, name);
+        return json(res, { ok: true });
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
     }
   }
 

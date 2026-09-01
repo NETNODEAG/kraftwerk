@@ -205,13 +205,19 @@ editing the files — the definition is read fresh for each new session).
 
 Chats — general ones and team sessions — can use skills: Claude-style
 instruction packages, one folder per skill with a `SKILL.md` (YAML
-frontmatter `name` + `description`, then the instructions). Two roots are
-discovered, with a project skill shadowing a same-named user skill:
+frontmatter `name` + `description`, then the instructions). Discovered
+roots, each shadowing same-named skills in the roots below it:
 
 ```
-<project>/.claude/skills/<name>/SKILL.md   # git-tracked, per project
-~/.claude/skills/<name>/SKILL.md           # personal, per user
+<project>/agents/<slug>/skills/<name>/SKILL.md   # private to that one team agent
+<project>/<skills root>/<name>/SKILL.md          # workspace, git-tracked (kraftwerk.yml `skills`, default skills/)
+<project>/.claude/skills/<name>/SKILL.md         # git-tracked, per project
+~/.claude/skills/<name>/SKILL.md                 # personal, per user
 ```
+
+Agent skills are visible only to that agent's sessions and always apply —
+a member's `skills:` allowlist narrows the shared roots only. They're
+managed in the agent profile ("own skills") or by editing the files.
 
 Every chat lists its visible skills as context ("## Your skills"), so the
 agent reaches for one when the request matches. Typing `/` in the composer

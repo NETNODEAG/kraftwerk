@@ -108,16 +108,20 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
 
 /**
  * Skills visible to a chat: every discovered skill (workspace skills root
- * + .claude/skills roots), narrowed by the team member's allowlist when the chat
- * is a team session (absent allowlist = all, empty = none).
+ * + .claude/skills roots, plus the member's own agents/<slug>/skills for team
+ * sessions), narrowed by the team member's allowlist when the chat is a team
+ * session (absent allowlist = all, empty = none). The agent's own skills
+ * always apply — the allowlist narrows shared skills only.
  */
 async function availableSkills(scope: ChatScope): Promise<SkillInfo[]> {
-  const all = await listSkills().catch(() => [] as SkillInfo[]);
-  if (scope.kind !== "team" || all.length === 0) return all;
+  const all = await listSkills(scope.kind === "team" ? scope.member : undefined).catch(
+    () => [] as SkillInfo[]
+  );
+  if (scope.kind !== "team") return all;
   const member = await getMember(scope.member).catch(() => null);
   if (!member || member.skills === undefined) return all;
   const allowed = new Set(member.skills.map((n) => n.toLowerCase()));
-  return all.filter((s) => allowed.has(s.name.toLowerCase()));
+  return all.filter((s) => s.source === "agent" || allowed.has(s.name.toLowerCase()));
 }
 
 /** "## Your skills" context block (empty when no skills are visible). */

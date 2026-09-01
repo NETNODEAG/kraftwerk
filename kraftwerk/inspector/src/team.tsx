@@ -1123,7 +1123,7 @@ function MemberView({ slug }: { slug: string }) {
           <div className="m3-row">
             <span className="m3-ico">/</span>
             <span className="m3-body">
-              <span className="m3-head">skills</span>
+              <span className="m3-head">shared skills</span>
               {editing === "skills" ? (
                 <>
                   <div className="wf-checks">
@@ -1186,8 +1186,147 @@ function MemberView({ slug }: { slug: string }) {
         {error && <div className="msg error">✕ {error}</div>}
       </section>
 
+      <AgentSkillsPanel slug={slug} />
       <RoutinesPanel slug={slug} />
     </div>
+  );
+}
+
+/* ---------- agent skills (agents/<slug>/skills, private to this agent) ---------- */
+
+// Frontmatter without a name: the folder name is the skill name, so a
+// rename in the form never fights the file contents.
+const AGENT_SKILL_TEMPLATE = `---
+description: What this skill is for (one line)
+---
+
+Instructions this agent follows when the skill applies or is invoked with /<name>.
+`;
+
+function AgentSkillsPanel({ slug }: { slug: string }) {
+  const data = usePoll<{ skills: SkillInfo[] }>(
+    `/api/team/${encodeURIComponent(slug)}/skills`,
+    false
+  );
+  const skills = data?.skills ?? [];
+  const [form, setForm] = useState<{ name: string; content: string; isNew: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function edit(name: string): Promise<void> {
+    setError("");
+    const r = await fetch(
+      `/api/team/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`
+    );
+    const body = await r.json().catch(() => null);
+    if (!r.ok || !body || body.error) return void setError(body?.error ?? "could not load skill");
+    setForm({ name, content: body.content ?? "", isNew: false });
+  }
+
+  async function save(): Promise<void> {
+    if (!form) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch(`/api/team/${encodeURIComponent(slug)}/skills`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: form.name, content: form.content }),
+    });
+    const body = await res.json().catch(() => ({ error: "save failed" }));
+    setSaving(false);
+    if (body.error) setError(body.error);
+    else setForm(null);
+  }
+
+  async function remove(name: string): Promise<void> {
+    if (!window.confirm(`Delete skill "/${name}" of this agent (its folder is removed)?`)) return;
+    await fetch(`/api/team/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    }).catch(() => {});
+    if (form?.name === name) setForm(null);
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="microlabel">own skills — only this agent</span>
+        <span className="spacer" />
+        {!form && (
+          <button
+            className="open-raw"
+            onClick={() => {
+              setForm({ name: "", content: AGENT_SKILL_TEMPLATE, isNew: true });
+              setError("");
+            }}
+          >
+            + new skill
+          </button>
+        )}
+      </div>
+      {skills.length === 0 && !form && (
+        <div className="viewer-note">
+          none — skills in <code>agents/{slug}/skills/</code> are private to this agent; skills for
+          every agent live in the workspace skills folder.
+        </div>
+      )}
+      {skills.length > 0 && !form && (
+        <div className="m3-list">
+          {skills.map((s) => (
+            <div key={s.name} className="m3-row">
+              <span className="m3-ico">/</span>
+              <span className="m3-body">
+                <span className="m3-head">/{s.name}</span>
+                <span className="m3-sub">{s.description || <code>SKILL.md</code>}</span>
+              </span>
+              <button className="open-raw" onClick={() => void edit(s.name)}>
+                ✎ edit
+              </button>
+              <button className="open-raw" onClick={() => void remove(s.name)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {form && (
+        <div className="team-form">
+          <div className="team-form-row">
+            <label className="team-field" style={{ flex: 1 }}>
+              name — invoked as /&lt;name&gt;
+              <input
+                value={form.name}
+                placeholder="e.g. report-html"
+                disabled={!form.isNew}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </label>
+          </div>
+          <label className="team-field">
+            SKILL.md — frontmatter (description) + the instructions
+            <textarea
+              className="concept-edit"
+              rows={Math.min(28, Math.max(12, form.content.split("\n").length + 2))}
+              value={form.content}
+              spellCheck={false}
+              onChange={(e) => setForm({ ...form, content: e.target.value })}
+            />
+          </label>
+          <div className="team-form-row">
+            <button
+              className="run-btn"
+              disabled={saving || !form.name.trim()}
+              onClick={() => void save()}
+            >
+              {saving ? "saving…" : "save"}
+            </button>
+            <button className="open-raw" disabled={saving} onClick={() => setForm(null)}>
+              cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <div className="msg error">✕ {error}</div>}
+    </section>
   );
 }
 
