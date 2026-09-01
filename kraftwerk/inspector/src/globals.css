@@ -995,6 +995,23 @@ html[data-expert="off"] .chip.dash-kind { display: none; }
 
 /* ---------- team ---------- */
 
+/* Agent groups in the /agents sidebar; expert mode drags rows between them. */
+.side-group { border-radius: 10px; }
+.side-group + .side-group { margin-top: 12px; }
+.side-group.drop-over { outline: 1.5px dashed var(--primary); outline-offset: -1.5px; background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.side-group-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px 2px; }
+.side-group-count { font-size: 10px; color: var(--on-surface-variant); }
+.side-group-x { padding: 0 4px; font: inherit; font-size: 11px; color: var(--on-surface-variant); background: transparent; border: none; cursor: pointer; opacity: 0; }
+.side-group:hover .side-group-x { opacity: 1; }
+.side-group-x:hover { color: var(--on-surface); }
+.side-group-empty { padding: 6px 10px 8px; font-size: 11px; color: var(--on-surface-variant); }
+.side-row.dragging { opacity: 0.4; }
+.side-group-add { display: block; margin: 12px 10px 4px; padding: 4px 10px; font: inherit; font-size: 11px; color: var(--on-surface-variant); background: transparent; border: 1px dashed var(--outline-variant); border-radius: 8px; cursor: pointer; text-align: left; }
+.side-group-add:hover { color: var(--primary); border-color: var(--outline); }
+.side-group-new { padding: 10px 10px 4px; }
+.side-group-new input { width: 100%; box-sizing: border-box; }
+.side-group-rename { flex: 1; min-width: 0; font: inherit; font-size: 11px; }
+
 .team-screen { grid-template-columns: 240px minmax(0, 1fr); }
 .team-screen.has-sessions { grid-template-columns: 240px 260px minmax(0, 1fr); }
 .team-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr) var(--kside-w, 460px); }

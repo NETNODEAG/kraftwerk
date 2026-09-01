@@ -325,7 +325,37 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
       .then(setConcept)
       .catch(() => setGone(true));
   };
-  useEffect(load, [bundle, conceptId]);
+
+  // Poll so agent-written updates appear without a manual refresh; paused while
+  // editing, and state identity is kept when nothing changed to avoid re-renders.
+  useEffect(() => {
+    if (editing) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`,
+          { cache: "no-store" }
+        );
+        if (r.ok) {
+          const c = (await r.json()) as ConceptDetail;
+          if (alive) {
+            setGone(false);
+            setConcept((prev) => (JSON.stringify(prev) === JSON.stringify(c) ? prev : c));
+          }
+        } else if (r.status === 404 && alive) {
+          setGone(true);
+        }
+      } catch {}
+      if (alive) timer = setTimeout(tick, 6000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [bundle, conceptId, editing]);
 
   async function verify() {
     setVerifying(true);

@@ -27,6 +27,8 @@ export interface TeamMember {
   harness: ChatAgentId;
   model?: string;
   effort?: string;
+  /** Optional group ("Team Content"); absent = ungrouped. */
+  group?: string;
   /** Workflow slugs this member knows about and may run. */
   workflows: string[];
   /** Knowledge bundles (OKF) this member works with. */
@@ -75,6 +77,7 @@ interface MemberYaml {
   harness?: unknown;
   model?: unknown;
   effort?: unknown;
+  group?: unknown;
   workflows?: unknown;
   knowledge?: unknown;
   skills?: unknown;
@@ -90,6 +93,7 @@ function normalize(slug: string, raw: MemberYaml): TeamMember {
     harness: HARNESSES.includes(harness) ? harness : "claude",
     ...(raw.model ? { model: String(raw.model) } : {}),
     ...(raw.effort ? { effort: String(raw.effort) } : {}),
+    ...(raw.group ? { group: String(raw.group) } : {}),
     workflows: Array.isArray(raw.workflows) ? raw.workflows.map(String) : [],
     knowledge: Array.isArray(raw.knowledge) ? raw.knowledge.map(String) : [],
     ...(Array.isArray(raw.skills) ? { skills: raw.skills.map(String) } : {}),
@@ -139,6 +143,8 @@ export interface SaveMemberInput {
   harness: string;
   model?: string;
   effort?: string;
+  /** Group name; omitted/empty = ungrouped. */
+  group?: string;
   workflows?: string[];
   knowledge?: string[];
   /** Omit for "all skills"; a list (possibly empty) restricts to those names. */
@@ -166,6 +172,7 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
     harness: input.harness,
     ...(input.model?.trim() ? { model: input.model.trim() } : {}),
     ...(input.effort ? { effort: input.effort } : {}),
+    ...(input.group?.trim() ? { group: input.group.trim() } : {}),
     workflows: (input.workflows ?? []).map(String),
     knowledge: (input.knowledge ?? []).map(String),
     ...(input.skills ? { skills: input.skills.map(String) } : {}),

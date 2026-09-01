@@ -14,7 +14,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
-import { Link, navigate, usePoll, fmtWhen } from "./shared";
+import { Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
 
 /**
  * Team: persistent agent teammates ("employees"), each defined in
@@ -51,7 +51,149 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   const chatId = mode === "chat" ? seg[2] : mode === "chats" ? seg[1] : undefined;
 
   const data = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
-  const members = data?.members ?? [];
+  const expert = useExpertMode();
+
+  // Agent groups: persisted per agent (agent.yml `group:`); a freshly created,
+  // still-empty group lives in localStorage until an agent is dropped into it.
+  const [extraGroups, setExtraGroups] = useState<string[]>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("kw-agent-groups") ?? "[]");
+      return Array.isArray(v) ? v.map(String) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [addingGroup, setAddingGroup] = useState(false);
+  const [groupDraft, setGroupDraft] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [dragSlug, setDragSlug] = useState<string | null>(null);
+  const [dropGroup, setDropGroup] = useState<string | null>(null); // "" = ungrouped
+  // Optimistic moves, applied over poll data until the server confirms them.
+  const [moved, setMoved] = useState<Record<string, string>>({});
+
+  const members = (data?.members ?? []).map((m) =>
+    moved[m.slug] !== undefined ? { ...m, group: moved[m.slug] || undefined } : m
+  );
+  useEffect(() => {
+    setMoved((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const m of data?.members ?? []) {
+        if (next[m.slug] !== undefined && (m.group ?? "") === next[m.slug]) {
+          delete next[m.slug];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [data]);
+
+  const groups = [
+    ...new Set([...members.map((m) => m.group ?? "").filter(Boolean), ...extraGroups]),
+  ].sort((a, b) => a.localeCompare(b));
+  const ungrouped = members.filter((m) => !m.group);
+
+  function saveExtraGroups(gs: string[]): void {
+    setExtraGroups(gs);
+    try {
+      localStorage.setItem("kw-agent-groups", JSON.stringify(gs));
+    } catch {}
+  }
+
+  function addGroup(): void {
+    const g = groupDraft.trim();
+    setAddingGroup(false);
+    setGroupDraft("");
+    if (g && !groups.includes(g)) saveExtraGroups([...extraGroups, g]);
+  }
+
+  // Rename = move every member of the group; renaming onto an existing group
+  // merges into it. Empty created groups just rename in localStorage.
+  function renameGroup(from: string, to: string): void {
+    setRenaming(null);
+    const next = to.trim();
+    if (!next || next === from) return;
+    for (const m of members.filter((x) => x.group === from)) void moveToGroup(m.slug, next);
+    if (extraGroups.includes(from)) {
+      saveExtraGroups([...new Set(extraGroups.map((g) => (g === from ? next : g)))]);
+    }
+  }
+
+  // saveMember rewrites agent.yml + system.md wholesale, so a group move must
+  // carry the complete member: fetch the detail first, then PUT it back.
+  async function moveToGroup(memberSlug: string, group: string): Promise<void> {
+    const current = members.find((m) => m.slug === memberSlug);
+    if ((current?.group ?? "") === group) return;
+    setMoved((prev) => ({ ...prev, [memberSlug]: group }));
+    try {
+      const r = await fetch(`/api/team/${encodeURIComponent(memberSlug)}`);
+      if (!r.ok) throw new Error();
+      const full = (await r.json()) as TeamMemberDetail;
+      const res = await fetch(`/api/team/${encodeURIComponent(memberSlug)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...full, group: group || undefined }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setMoved((prev) => {
+        const next = { ...prev };
+        delete next[memberSlug];
+        return next;
+      });
+    }
+  }
+
+  // Drop-target props for one group section ("" = ungrouped); expert only.
+  const dropProps = (g: string) =>
+    expert
+      ? {
+          onDragOver: (e: React.DragEvent) => {
+            if (dragSlug == null) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (dropGroup !== g) setDropGroup(g);
+          },
+          onDrop: (e: React.DragEvent) => {
+            e.preventDefault();
+            const s = e.dataTransfer.getData("text/plain") || dragSlug;
+            if (s) void moveToGroup(s, g);
+            setDragSlug(null);
+            setDropGroup(null);
+          },
+        }
+      : {};
+
+  const memberRow = (m: TeamMember) => (
+    <Link
+      key={m.slug}
+      href={`/agents/${encodeURIComponent(m.slug)}`}
+      className={`side-row ${m.slug === slug ? "active" : ""} ${dragSlug === m.slug ? "dragging" : ""}`}
+      draggable={expert}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", m.slug);
+        e.dataTransfer.effectAllowed = "move";
+        setDragSlug(m.slug);
+      }}
+      onDragEnd={() => {
+        setDragSlug(null);
+        setDropGroup(null);
+      }}
+    >
+      <span className="agent-avatar sm">
+        <span aria-hidden>{m.emoji}</span>
+      </span>
+      <div className="side-row-body">
+        <div className="side-row-top">
+          <span className="side-wf">{m.name}</span>
+        </div>
+        <div className="side-row-sub">
+          <span className="side-req">{m.description || m.harness}</span>
+        </div>
+      </div>
+    </Link>
+  );
 
   let main: React.ReactNode;
   if (mode === "new") main = <MemberEditor key="new" />;
@@ -106,26 +248,96 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           </Link>
         </div>
         <div className="side-list">
-          {members.map((m) => (
-            <Link
-              key={m.slug}
-              href={`/agents/${encodeURIComponent(m.slug)}`}
-              className={`side-row ${m.slug === slug ? "active" : ""}`}
-            >
-              <span className="agent-avatar sm">
-                <span aria-hidden>{m.emoji}</span>
-              </span>
-              <div className="side-row-body">
-                <div className="side-row-top">
-                  <span className="side-wf">{m.name}</span>
+          <div
+            className={`side-group ${dragSlug && dropGroup === "" ? "drop-over" : ""}`}
+            {...dropProps("")}
+          >
+            {ungrouped.map(memberRow)}
+            {dragSlug != null && ungrouped.length === 0 && (
+              <div className="side-group-empty">no group — drop here</div>
+            )}
+          </div>
+          {groups.map((g) => {
+            const its = members.filter((m) => m.group === g);
+            return (
+              <div
+                key={g}
+                className={`side-group ${dragSlug && dropGroup === g ? "drop-over" : ""}`}
+                {...dropProps(g)}
+              >
+                <div className="side-group-head">
+                  {renaming === g ? (
+                    <input
+                      className="side-group-rename"
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") renameGroup(g, renameDraft);
+                        if (e.key === "Escape") setRenaming(null);
+                      }}
+                      onBlur={() => renameGroup(g, renameDraft)}
+                    />
+                  ) : (
+                    <span className="microlabel">{g}</span>
+                  )}
+                  <span className="side-group-count num">{its.length}</span>
+                  <span className="spacer" />
+                  {expert && renaming !== g && (
+                    <button
+                      className="side-group-x"
+                      title="Rename group"
+                      onClick={() => {
+                        setRenaming(g);
+                        setRenameDraft(g);
+                      }}
+                    >
+                      ✎
+                    </button>
+                  )}
+                  {expert && its.length === 0 && extraGroups.includes(g) && (
+                    <button
+                      className="side-group-x"
+                      title="Remove empty group"
+                      onClick={() => saveExtraGroups(extraGroups.filter((x) => x !== g))}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <div className="side-row-sub">
-                  <span className="side-req">{m.description || m.harness}</span>
-                </div>
+                {its.map(memberRow)}
+                {its.length === 0 && (
+                  <div className="side-group-empty">
+                    {expert ? "drag agents here" : "no agents"}
+                  </div>
+                )}
               </div>
-            </Link>
-          ))}
+            );
+          })}
           {data && members.length === 0 && <div className="viewer-note">no agents yet</div>}
+          {expert &&
+            (addingGroup ? (
+              <div className="side-group-new">
+                <input
+                  autoFocus
+                  value={groupDraft}
+                  placeholder="group name, e.g. Team Content"
+                  onChange={(e) => setGroupDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addGroup();
+                    if (e.key === "Escape") {
+                      setAddingGroup(false);
+                      setGroupDraft("");
+                    }
+                  }}
+                  onBlur={addGroup}
+                />
+              </div>
+            ) : (
+              <button className="side-group-add" onClick={() => setAddingGroup(true)}>
+                + group
+              </button>
+            ))}
         </div>
         <div className="side-pinned">
           <Link href="/agents/chats" className={`side-row ${mode === "chats" ? "active" : ""}`}>
@@ -179,33 +391,73 @@ function KnowledgeSide({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  // Poll bundle details so agent-written knowledge shows up without a manual
+  // refresh; per-bundle state identity is kept when nothing changed.
   useEffect(() => {
     setDetails({});
-    for (const b of bundles) {
-      fetch(`/api/knowledge/${encodeURIComponent(b)}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d: BundleDetail | null) => setDetails((prev) => ({ ...prev, [b]: d })))
-        .catch(() => setDetails((prev) => ({ ...prev, [b]: null })));
-    }
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await Promise.all(
+        bundles.map(async (b) => {
+          try {
+            const r = await fetch(`/api/knowledge/${encodeURIComponent(b)}`, { cache: "no-store" });
+            const d = r.ok ? ((await r.json()) as BundleDetail) : null;
+            if (alive)
+              setDetails((prev) =>
+                JSON.stringify(prev[b]) === JSON.stringify(d) ? prev : { ...prev, [b]: d }
+              );
+          } catch {
+            if (alive) setDetails((prev) => (b in prev ? prev : { ...prev, [b]: null }));
+          }
+        })
+      );
+      if (alive) timer = setTimeout(tick, 6000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, [bundles.join(",")]);
 
-  async function toggle(bundle: string, id: string): Promise<void> {
+  // Load + keep the expanded concept card current; paused while it's being edited.
+  useEffect(() => {
+    if (!openId || editKey === openId) return;
+    const sep = openId.indexOf("::");
+    const bundle = openId.slice(0, sep);
+    const id = openId.slice(sep + 2);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(id)}`,
+          { cache: "no-store" }
+        );
+        const concept = r.ok ? ((await r.json()) as ConceptDetail) : null;
+        if (alive)
+          setConcepts((prev) =>
+            JSON.stringify(prev[openId]) === JSON.stringify(concept)
+              ? prev
+              : { ...prev, [openId]: concept }
+          );
+      } catch {
+        // Keep whatever we last loaded; only mark failed if we never loaded it.
+        if (alive) setConcepts((prev) => (openId in prev ? prev : { ...prev, [openId]: null }));
+      }
+      if (alive) timer = setTimeout(tick, 6000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [openId, editKey]);
+
+  function toggle(bundle: string, id: string): void {
     const key = `${bundle}::${id}`;
-    if (openId === key) {
-      setOpenId(null);
-      return;
-    }
-    setOpenId(key);
-    if (concepts[key] !== undefined) return;
-    try {
-      const r = await fetch(
-        `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(id)}`
-      );
-      const concept = r.ok ? ((await r.json()) as ConceptDetail) : null;
-      setConcepts((prev) => ({ ...prev, [key]: concept }));
-    } catch {
-      setConcepts((prev) => ({ ...prev, [key]: null }));
-    }
+    setOpenId(openId === key ? null : key);
   }
 
   // Saves the full raw file (frontmatter + body) — the server stamps
@@ -659,6 +911,7 @@ function MemberView({ slug }: { slug: string }) {
           harness: member.harness,
           model: member.model,
           effort: member.effort,
+          group: member.group,
           system: member.system,
           workflows: member.workflows,
           knowledge: member.knowledge,
@@ -1158,6 +1411,7 @@ function MemberEditor({ slug }: { slug?: string }) {
     harness: string;
     model: string;
     effort: string;
+    group: string;
     system: string;
     workflows: string[];
     knowledge: string[];
@@ -1185,6 +1439,7 @@ function MemberEditor({ slug }: { slug?: string }) {
           harness: m.harness,
           model: m.model ?? "",
           effort: m.effort ?? "",
+          group: m.group ?? "",
           system: m.system,
           workflows: m.workflows,
           knowledge: m.knowledge ?? [],
@@ -1203,6 +1458,7 @@ function MemberEditor({ slug }: { slug?: string }) {
       harness: "claude",
       model: "",
       effort: "",
+      group: "",
       system: "",
       workflows: [] as string[],
       knowledge: [] as string[],
@@ -1269,14 +1525,24 @@ function MemberEditor({ slug }: { slug?: string }) {
               </button>
             ))}
           </div>
-          <label className="team-field">
-            description
-            <input
-              value={form.description}
-              placeholder="one line: what this agent is for"
-              onChange={(e) => set({ description: e.target.value })}
-            />
-          </label>
+          <div className="team-form-row">
+            <label className="team-field" style={{ flex: 1 }}>
+              description
+              <input
+                value={form.description}
+                placeholder="one line: what this agent is for"
+                onChange={(e) => set({ description: e.target.value })}
+              />
+            </label>
+            <label className="team-field" style={{ width: 180 }}>
+              group
+              <input
+                value={form.group}
+                placeholder="none"
+                onChange={(e) => set({ group: e.target.value })}
+              />
+            </label>
+          </div>
           <div className="team-form-row">
             <label className="team-field" style={{ width: 140 }}>
               harness
