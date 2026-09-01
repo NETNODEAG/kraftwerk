@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
 import { Icon, Link, usePoll } from "./shared";
+import { exportBundlePdf } from "./export";
 
 /**
  * Context & Knowledge: OKF bundles under the project's knowledge/ root.
@@ -144,6 +145,9 @@ function BundleView({ name }: { name: string }) {
         <h1>{name}</h1>
         <span className="count">{data.concepts.length} concepts</span>
         <span className="spacer" />
+        <button className="open-raw" onClick={() => void exportBundlePdf(name)}>
+          <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
+        </button>
         <button
           className="run-btn"
           onClick={() => void createChatAndOpen("claude", { kind: "knowledge", bundle: name })}

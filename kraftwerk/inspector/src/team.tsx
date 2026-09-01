@@ -15,6 +15,7 @@ import type {
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
+import { exportBundlePdf } from "./export";
 
 /**
  * Team: persistent agent teammates ("employees"), each defined in
@@ -576,6 +577,13 @@ function KnowledgeSide({
                   </span>
                   <span className="kside-bundle-name">{b}</span>
                   {detail && <span className="kside-count num">{detail.concepts.length}</span>}
+                </button>
+                <button
+                  className="kside-open"
+                  title="Export this bundle as PDF"
+                  onClick={() => void exportBundlePdf(b)}
+                >
+                  <Icon name="picture_as_pdf" className="ms-sm" />
                 </button>
                 <Link
                   href={`/knowledge/${encodeURIComponent(b)}`}
