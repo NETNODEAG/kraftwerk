@@ -157,6 +157,9 @@ export async function startAcpBackend(
     ...(tuning.model ? { model: tuning.model } : {}),
     ...(tuning.skills ? { skills: tuning.skills } : {}),
     ...(tuning.addDirs?.length ? { additionalDirectories: tuning.addDirs } : {}),
+    // Chrome browser tools when available (needs subscription auth; a
+    // no-op on API-key auth, where Claude Code keeps the integration off).
+    extraArgs: { chrome: null },
   };
   const session = await conn.newSession({
     cwd,

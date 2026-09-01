@@ -47,6 +47,9 @@ function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
     ...inv.tools,
     ...(inv.clis ?? []).map((name) => `Bash(${name}:*)`),
     ...mcpNames.map((name) => `mcp__${name}`),
+    // Chrome browser tools (spawned with --chrome below); absent when the
+    // integration is off, and an unused allowlist entry is harmless.
+    "mcp__claude-in-chrome",
   ];
   const args = [
     "-p",
@@ -58,6 +61,9 @@ function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
     "--permission-mode", "acceptEdits",
     // Keep the run hermetic: no user/project settings, hooks, or CLAUDE.md.
     "--setting-sources", "",
+    // Chrome browser tools when available (needs subscription auth; a
+    // no-op on API-key auth, where Claude Code keeps the integration off).
+    "--chrome",
   ];
   if (mcpNames.length > 0) {
     const mcpServers = Object.fromEntries(

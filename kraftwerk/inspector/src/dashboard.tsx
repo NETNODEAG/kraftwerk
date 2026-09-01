@@ -92,9 +92,8 @@ export function DashboardScreen() {
             </Link>
           ))}
         </span>
+        <QuickActions workflows={wfData?.workflows ?? []} />
       </div>
-
-      <QuickActions workflows={wfData?.workflows ?? []} />
 
       <TeamRow members={teamData?.members.filter((m) => !m.archived)} chats={chats} />
 
@@ -193,7 +192,6 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
       {(members ?? []).map((m) => {
         const sessions = chats.filter((c) => c.scope.kind === "team" && c.scope.member === m.slug);
         const working = sessions.find((c) => c.busy);
-        const last = sessions[0]; // /api/chats is sorted by updatedAt desc
         const open = () => navigate(`/agents/${encodeURIComponent(m.slug)}`);
         return (
           // The whole card opens the agent; inner controls stop the bubble.
@@ -214,22 +212,17 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
                 <span className={`lamp ${working ? "running" : "idle"}`} />
               </span>
               <span className="dash-member-name">{m.name}</span>
+              {m.description && <span className="dash-member-desc">{m.description}</span>}
             </div>
             <div className="dash-member-foot">
               <span className="dash-member-state">
-                {working ? (
+                {working && (
                   <Link
                     href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     working…
                   </Link>
-                ) : last ? (
-                  <span title={new Date(last.updatedAt).toLocaleString()}>
-                    last active {fmtAgo(last.updatedAt)}
-                  </span>
-                ) : (
-                  "never talked yet"
                 )}
               </span>
               <button

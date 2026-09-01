@@ -310,6 +310,19 @@ const nowIso = (): string => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
  * Re-emit content with `generated: { by, at }` stamped, using the yaml
  * Document API so every other frontmatter key (and comments) round-trips.
  */
+/**
+ * Guarantee a frontmatter block: content saved without one (an editor
+ * losing the `---` fence, plain text pasted into the UI) reuses the
+ * existing file's frontmatter and becomes the new body; with no existing
+ * frontmatter either, a minimal one is synthesized.
+ */
+function ensureFrontmatter(content: string, existingRaw: string | null): string {
+  if (splitFrontmatter(content).fmText !== null) return content;
+  const existingFm = existingRaw === null ? null : splitFrontmatter(existingRaw).fmText;
+  const fm = existingFm ?? "type: Note";
+  return `---\n${fm}\n---\n\n${content.replace(/^\n+/, "")}`;
+}
+
 function stampGenerated(raw: string, actor: string): string {
   const { fmText, body } = splitFrontmatter(raw);
   if (fmText === null) throw new Error("concept needs a YAML frontmatter block (--- ... ---)");
@@ -320,7 +333,7 @@ function stampGenerated(raw: string, actor: string): string {
   const fm = doc.toJS() as Record<string, unknown> | null;
   if (!fm || typeof fm !== "object") throw new Error("frontmatter is not a mapping");
   if (typeof fm.type !== "string" || !fm.type.trim()) {
-    throw new Error('frontmatter needs a non-empty "type" field (spec §4.1)');
+    doc.set("type", "Note"); // spec §4.1: type is required — default rather than reject
   }
   const node = doc.createNode({ by: actor, at: nowIso() });
   (node as { flow?: boolean }).flow = true;
@@ -347,8 +360,9 @@ export async function writeConcept(
 ): Promise<WriteResult> {
   const cleanId = safeConceptId(id);
   const file = conceptFile(root, bundle, cleanId);
-  const stamped = stampGenerated(content, actor);
-  const created = !(await fs.stat(file).catch(() => null));
+  const existing = await fs.readFile(file, "utf8").catch(() => null);
+  const stamped = stampGenerated(ensureFrontmatter(content, existing), actor);
+  const created = existing === null;
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, stamped);
   const concept = parseConceptContent(bundle, cleanId, stamped);
