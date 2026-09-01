@@ -31,6 +31,7 @@ import {
   getMember,
   listMembers,
   saveMember,
+  setMemberArchived,
   teamRoot,
   type SaveMemberInput,
 } from "./team.js";
@@ -403,6 +404,16 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       } catch (err) {
         return json(res, { error: (err as Error).message }, 400);
       }
+    }
+  }
+
+  // POST /api/team/:slug/archive — archive/unarchive a member ({ archived: boolean })
+  if (seg.length === 4 && seg[1] === "team" && seg[3] === "archive" && method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req)) as { archived?: boolean };
+      return json(res, await setMemberArchived(decodeURIComponent(seg[2]), body.archived === true));
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
     }
   }
 

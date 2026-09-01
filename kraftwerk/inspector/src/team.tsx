@@ -89,10 +89,16 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     });
   }, [data]);
 
+  // Archived members leave the roster (and its groups) for a collapsed
+  // section at the bottom; unarchiving puts them right back.
+  const active = members.filter((m) => !m.archived);
+  const archivedMembers = members.filter((m) => m.archived);
+  const [showArchived, setShowArchived] = useState(false);
+
   const groups = [
-    ...new Set([...members.map((m) => m.group ?? "").filter(Boolean), ...extraGroups]),
+    ...new Set([...active.map((m) => m.group ?? "").filter(Boolean), ...extraGroups]),
   ].sort((a, b) => a.localeCompare(b));
-  const ungrouped = members.filter((m) => !m.group);
+  const ungrouped = active.filter((m) => !m.group);
 
   function saveExtraGroups(gs: string[]): void {
     setExtraGroups(gs);
@@ -195,6 +201,27 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     </Link>
   );
 
+  // Archived rows: no dragging, land on the profile (where unarchive lives).
+  const archivedRow = (m: TeamMember) => (
+    <Link
+      key={m.slug}
+      href={`/agents/${encodeURIComponent(m.slug)}/info`}
+      className={`side-row archived-row ${m.slug === slug ? "active" : ""}`}
+    >
+      <span className="agent-avatar sm">
+        <span aria-hidden>{m.emoji}</span>
+      </span>
+      <div className="side-row-body">
+        <div className="side-row-top">
+          <span className="side-wf">{m.name}</span>
+        </div>
+        <div className="side-row-sub">
+          <span className="side-req">{m.description || m.harness}</span>
+        </div>
+      </div>
+    </Link>
+  );
+
   let main: React.ReactNode;
   if (mode === "new") main = <MemberEditor key="new" />;
   else if (mode === "edit" && slug) main = <MemberEditor key={slug} slug={slug} />;
@@ -214,7 +241,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     );
   else if (mode === "info" && slug) main = <MemberView key={slug} slug={slug} />;
   else if (slug) main = <MemberLanding key={slug} slug={slug} />;
-  else main = <TeamHome hasMembers={members.length > 0} root={data?.root} />;
+  else main = <TeamHome hasMembers={active.length > 0} root={data?.root} />;
 
   // Linked knowledge bundles of the selected agent → right sidebar on the
   // profile and chat views (not while editing). Hidden state persists.
@@ -243,11 +270,29 @@ export function TeamScreen({ seg }: { seg: string[] }) {
         <div className="side-head">
           <span className="microlabel">agents</span>
           <span className="spacer" />
-          <Link href="/agents/new" className="open-raw">
-            <Icon name="add" className="ms-sm" /> new
-          </Link>
+          {expert && (
+            <Link href="/agents/new" className="open-raw">
+              <Icon name="add" className="ms-sm" /> new
+            </Link>
+          )}
         </div>
         <div className="side-list">
+          <Link
+            href="/agents/chats"
+            className={`side-row side-general ${mode === "chats" ? "active" : ""}`}
+          >
+            <span className="agent-avatar sm">
+              <span aria-hidden>💬</span>
+            </span>
+            <div className="side-row-body">
+              <div className="side-row-top">
+                <span className="side-wf">General Chats</span>
+              </div>
+              <div className="side-row-sub">
+                <span className="side-req">chats without an agent</span>
+              </div>
+            </div>
+          </Link>
           <div
             className={`side-group ${dragSlug && dropGroup === "" ? "drop-over" : ""}`}
             {...dropProps("")}
@@ -258,7 +303,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
             )}
           </div>
           {groups.map((g) => {
-            const its = members.filter((m) => m.group === g);
+            const its = active.filter((m) => m.group === g);
             return (
               <div
                 key={g}
@@ -314,6 +359,21 @@ export function TeamScreen({ seg }: { seg: string[] }) {
               </div>
             );
           })}
+          {archivedMembers.length > 0 && (
+            <div className="side-group side-archived">
+              <button
+                className="side-archived-toggle"
+                aria-expanded={showArchived}
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                <span className="microlabel">archived</span>
+                <span className="side-group-count num">{archivedMembers.length}</span>
+                <span className="spacer" />
+                <Icon name={showArchived ? "expand_less" : "expand_more"} className="ms-sm" />
+              </button>
+              {showArchived && archivedMembers.map(archivedRow)}
+            </div>
+          )}
           {data && members.length === 0 && <div className="viewer-note">no agents yet</div>}
           {expert &&
             (addingGroup ? (
@@ -338,21 +398,6 @@ export function TeamScreen({ seg }: { seg: string[] }) {
                 <Icon name="add" className="ms-sm" /> group
               </button>
             ))}
-        </div>
-        <div className="side-pinned">
-          <Link href="/agents/chats" className={`side-row ${mode === "chats" ? "active" : ""}`}>
-            <span className="agent-avatar sm">
-              <span aria-hidden>💬</span>
-            </span>
-            <div className="side-row-body">
-              <div className="side-row-top">
-                <span className="side-wf">General Chats</span>
-              </div>
-              <div className="side-row-sub">
-                <span className="side-req">chats without an agent</span>
-              </div>
-            </div>
-          </Link>
         </div>
       </aside>
       {slug && <SessionsSide slug={slug} chatId={chatId} />}
@@ -829,6 +874,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
 /* ---------- home ---------- */
 
 function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) {
+  const expert = useExpertMode();
   return (
     <div className="new-chat">
       <div className="page-head">
@@ -846,11 +892,17 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
           is a persistent conversation with that agent; it knows its connected workflows and
           knowledge bundles, runs the workflows for you, and keeps the knowledge current.
         </div>
-        <div style={{ padding: "0 16px 16px" }}>
-          <button className="run-btn" onClick={() => navigate("/agents/new")}>
-            <><Icon name="add" className="ms-sm" /> {hasMembers ? "new agent" : "create your first agent"}</>
-          </button>
-        </div>
+        {expert ? (
+          <div style={{ padding: "0 16px 16px" }}>
+            <button className="run-btn" onClick={() => navigate("/agents/new")}>
+              <><Icon name="add" className="ms-sm" /> {hasMembers ? "new agent" : "create your first agent"}</>
+            </button>
+          </div>
+        ) : (
+          <div className="settings-note" style={{ padding: "0 16px 16px" }}>
+            Creating agents needs expert mode — flip the switch in the top bar.
+          </div>
+        )}
       </section>
     </div>
   );
@@ -935,6 +987,24 @@ function MemberView({ slug }: { slug: string }) {
     setListDraft(on ? [...listDraft, name] : listDraft.filter((n) => n !== name));
   }
 
+  async function setArchived(archived: boolean): Promise<void> {
+    setSaving(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/team/${encodeURIComponent(slug)}/archive`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      const body = await r.json();
+      if (body.error) setError(body.error);
+      else setMember(body);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setSaving(false);
+  }
+
   if (gone) return <div className="empty">agent not found</div>;
   if (!member) return <div className="empty">loading…</div>;
 
@@ -959,21 +1029,38 @@ function MemberView({ slug }: { slug: string }) {
         <span className="chip agent">{member.harness}</span>
         {member.model && <span className="chip">{member.model}</span>}
         {member.effort && <span className="chip">effort: {member.effort}</span>}
+        {member.archived && <span className="chip archived-chip"><Icon name="inventory_2" className="ms-sm" /> archived</span>}
         <span className="spacer" />
         <Link href={`/agents/${encodeURIComponent(slug)}/edit`} className="open-raw">
           edit
         </Link>
-        <button
-          className="run-btn"
-          disabled={creating}
-          onClick={async () => {
-            setCreating(true);
-            await createChatAndOpen("claude", { kind: "team", member: slug });
-            setCreating(false);
-          }}
-        >
-          {creating ? "starting…" : "new session"}
-        </button>
+        {member.archived ? (
+          <button className="run-btn tonal" disabled={saving} onClick={() => void setArchived(false)}>
+            <Icon name="unarchive" className="ms-sm" /> {saving ? "…" : "unarchive"}
+          </button>
+        ) : (
+          <>
+            <button
+              className="open-raw"
+              disabled={saving}
+              title="Hide this agent from the roster — restorable any time"
+              onClick={() => void setArchived(true)}
+            >
+              <Icon name="archive" className="ms-sm" /> archive
+            </button>
+            <button
+              className="run-btn"
+              disabled={creating}
+              onClick={async () => {
+                setCreating(true);
+                await createChatAndOpen("claude", { kind: "team", member: slug });
+                setCreating(false);
+              }}
+            >
+              {creating ? "starting…" : "new session"}
+            </button>
+          </>
+        )}
       </div>
       <section className="panel">
         <div className="m3-list">

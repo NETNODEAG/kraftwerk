@@ -38,6 +38,8 @@ export interface TeamMember {
    * Absent = all discovered skills; empty list = no skills.
    */
   skills?: string[];
+  /** Archived: hidden from the active roster, restorable any time. */
+  archived?: boolean;
 }
 
 export interface TeamMemberDetail extends TeamMember {
@@ -81,6 +83,7 @@ interface MemberYaml {
   workflows?: unknown;
   knowledge?: unknown;
   skills?: unknown;
+  archived?: unknown;
 }
 
 function normalize(slug: string, raw: MemberYaml): TeamMember {
@@ -97,6 +100,7 @@ function normalize(slug: string, raw: MemberYaml): TeamMember {
     workflows: Array.isArray(raw.workflows) ? raw.workflows.map(String) : [],
     knowledge: Array.isArray(raw.knowledge) ? raw.knowledge.map(String) : [],
     ...(Array.isArray(raw.skills) ? { skills: raw.skills.map(String) } : {}),
+    ...(raw.archived === true ? { archived: true } : {}),
   };
 }
 
@@ -165,6 +169,12 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
   const dir = path.join(await teamRoot(), slug);
   await fs.mkdir(dir, { recursive: true });
 
+  // Profile edits must not silently unarchive: carry the flag over.
+  const existing = await fs
+    .readFile(path.join(dir, "agent.yml"), "utf8")
+    .then((raw) => (parse(raw) ?? {}) as MemberYaml)
+    .catch(() => null);
+
   const yml: Record<string, unknown> = {
     name,
     emoji: input.emoji?.trim() || "🤖",
@@ -176,9 +186,26 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
     workflows: (input.workflows ?? []).map(String),
     knowledge: (input.knowledge ?? []).map(String),
     ...(input.skills ? { skills: input.skills.map(String) } : {}),
+    ...(existing?.archived === true ? { archived: true } : {}),
   };
   await fs.writeFile(path.join(dir, "agent.yml"), stringify(yml));
   await fs.writeFile(path.join(dir, "system.md"), (input.system ?? "").trim() + "\n");
+  return (await getMember(slug))!;
+}
+
+/** Archive/unarchive a member: toggles `archived:` in agent.yml, nothing else. */
+export async function setMemberArchived(slug: string, archived: boolean): Promise<TeamMemberDetail> {
+  const dir = path.join(await teamRoot(), safeMemberSlug(slug));
+  let raw: MemberYaml;
+  try {
+    raw = (parse(await fs.readFile(path.join(dir, "agent.yml"), "utf8")) ?? {}) as MemberYaml;
+  } catch {
+    throw new Error("agent not found");
+  }
+  const yml = { ...raw } as Record<string, unknown>;
+  if (archived) yml.archived = true;
+  else delete yml.archived;
+  await fs.writeFile(path.join(dir, "agent.yml"), stringify(yml));
   return (await getMember(slug))!;
 }
 

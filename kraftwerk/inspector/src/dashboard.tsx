@@ -96,7 +96,7 @@ export function DashboardScreen() {
 
       <QuickActions workflows={wfData?.workflows ?? []} />
 
-      <TeamRow members={teamData?.members} chats={chats} />
+      <TeamRow members={teamData?.members.filter((m) => !m.archived)} chats={chats} />
 
       {failed.length > 0 && filter !== "failed" && (
         <button className="dash-alert" onClick={() => setFilter("failed")}>
@@ -171,12 +171,19 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
 
 /** The team, as colleague cards: presence from live sessions + a chat button. */
 function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[] }) {
+  const expert = useExpertMode();
   if (members && members.length === 0) {
     return (
       <section className="panel dash-team-empty">
         <div className="viewer-note">
-          No agent teammates yet — <Link href="/agents/new">create your first agent</Link> and it
-          will show up here, ready to chat.
+          {expert ? (
+            <>
+              No agent teammates yet — <Link href="/agents/new">create your first agent</Link> and
+              it will show up here, ready to chat.
+            </>
+          ) : (
+            <>No agent teammates yet — ask an expert-mode user to create one.</>
+          )}
         </div>
       </section>
     );
