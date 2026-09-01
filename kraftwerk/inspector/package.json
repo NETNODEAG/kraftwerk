@@ -23,6 +23,7 @@
   "dependencies": {
     "@fontsource/roboto": "^5.3.0",
     "@fontsource/roboto-mono": "^5.3.0",
+    "@material-symbols/font-400": "^0.47.0",
     "dompurify": "^3.4.14",
     "marked": "^18.0.11"
   }

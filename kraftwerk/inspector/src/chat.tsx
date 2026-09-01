@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
-import { Link, navigate, useExpertMode } from "./shared";
+import { Icon, Link, navigate, useExpertMode } from "./shared";
 
 /**
  * Chat building blocks: the thread view (event-log replay — text chunks
@@ -327,7 +327,7 @@ function BlockView({ b, chatId }: { b: Block; chatId: string }) {
     case "permission":
       return <PermissionCard b={b} chatId={chatId} />;
     case "error":
-      return <div className="msg error">✕ {b.text}</div>;
+      return <div className="msg error"><Icon name="error" className="ms-sm" /> {b.text}</div>;
   }
 }
 
@@ -510,11 +510,11 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
           className="stop-btn"
           onClick={() => fetch(`/api/chats/${id}/cancel`, { method: "POST" }).catch(() => {})}
         >
-          ■ stop
+          <Icon name="stop" className="ms-sm" /> stop
         </button>
       ) : (
         <button className="run-btn" disabled={!text.trim()} onClick={send}>
-          send
+          <Icon name="send" className="ms-sm" /> send
         </button>
       )}
     </div>

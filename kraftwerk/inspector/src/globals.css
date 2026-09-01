@@ -112,6 +112,19 @@ a { color: inherit; text-decoration: none; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 code, pre, .mono { font-family: var(--font-mono), monospace; }
 
+/* Material Symbols Rounded (Icon in shared.tsx). Sized to sit inline with
+   13-14px UI text; parents that flex-align get perfect centering for free. */
+.ms {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+  font-size: 18px; line-height: 1;
+  vertical-align: -4px;
+  flex: none;
+  user-select: none;
+}
+.ms.ms-fill { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20; }
+.ms.ms-sm { font-size: 15px; vertical-align: -3px; }
+.ms.ms-lg { font-size: 22px; vertical-align: -5px; }
+
 /* ---------- chrome ---------- */
 
 .topbar {
@@ -135,47 +148,61 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 .wordmark small {
   font-size: 12px; color: var(--on-surface-variant);
 }
+/* The workspace name IS the title of the topbar — no pill, real type. */
 .wordmark .env-name {
-  font-size: 12px; font-weight: 500; letter-spacing: 0.01em;
-  color: var(--on-surface-variant);
-  padding: 2px 9px; border-radius: 999px;
-  border: 1px solid var(--outline-variant);
-  white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--on-surface);
+  padding: 4px 8px; border-radius: 10px;
+  white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
 }
-/* Workspace switcher: the env-name pill becomes a dropdown when
-   kraftwerk.yml defines switcher: entries (links to other instances). */
+/* Workspace switcher: the title becomes a dropdown when kraftwerk.yml
+   defines switcher: entries (links to other instances). */
 .switcher-wrap { position: relative; display: inline-flex; }
 .env-switch {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: 5px;
   transition: background 120ms ease, color 120ms ease;
 }
-.env-switch:hover {
-  color: var(--on-surface);
-  background: color-mix(in srgb, var(--on-surface) 8%, transparent);
-}
-.env-switch svg { flex: none; opacity: 0.7; }
+.env-switch:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.env-switch svg { flex: none; opacity: 0.55; }
 .switcher-pop {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
-  min-width: 240px; max-width: min(360px, 90vw);
+  position: absolute; top: calc(100% + 10px); left: 0; z-index: 20;
+  min-width: 320px; max-width: min(440px, 90vw);
   background: var(--surface-container-high);
-  border-radius: 12px; box-shadow: var(--elev-2);
-  padding: 6px;
+  border-radius: 16px; box-shadow: var(--elev-3);
+  padding: 8px;
+}
+.switcher-head {
+  padding: 8px 12px 6px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.6px; color: var(--on-surface-variant);
 }
 .switcher-item {
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 10px; border-radius: 8px;
-  font-size: 13px; color: var(--on-surface);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 12px;
+  color: var(--on-surface);
   transition: background 120ms ease;
 }
 a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
 .switcher-item.current { cursor: default; }
-.switcher-icon { flex: none; width: 18px; text-align: center; font-size: 14px; }
-.switcher-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.switcher-hint { margin-left: auto; font-size: 11px; color: var(--on-surface-variant); }
-.switcher-url {
-  margin-left: auto; padding-left: 12px;
-  font-size: 11px; color: var(--on-surface-variant);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;
+.switcher-icon {
+  flex: none; width: 36px; height: 36px; border-radius: 11px;
+  display: grid; place-items: center;
+  background: var(--secondary-container); font-size: 18px; line-height: 1;
+}
+.switcher-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.switcher-name {
+  font-size: 14px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.switcher-sub {
+  font-size: 11.5px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.switcher-hint {
+  margin-left: auto; flex: none;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--on-surface-variant);
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--outline-variant);
 }
 
 .topbar .spacer { flex: 1; }
@@ -187,10 +214,12 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   .topbar nav { position: static; transform: none; margin-left: 12px; }
 }
 .topbar nav a {
+  display: inline-flex; align-items: center; gap: 6px;
   font-size: 13px; font-weight: 500; letter-spacing: 0.01em; text-transform: capitalize;
   color: var(--on-surface-variant); padding: 6px 14px; border-radius: 999px;
   transition: background 120ms ease, color 120ms ease;
 }
+.topbar nav a .ms { font-size: 17px; }
 .topbar nav a:hover {
   color: var(--on-surface);
   background: color-mix(in srgb, var(--on-surface) 8%, transparent);
@@ -1064,9 +1093,10 @@ html[data-expert="off"] .chip.dash-kind { display: none; }
 
 /* Chevron shared by bundle + concept rows: points right, rotates open. */
 .kside-chev {
-  flex: none; width: 13px; font-size: 11px; line-height: 1; color: var(--on-surface-variant);
+  flex: none; width: 15px; line-height: 1; color: var(--on-surface-variant);
   display: inline-block; transition: transform 140ms ease;
 }
+.kside-chev .ms { font-size: 15px; vertical-align: 0; display: block; }
 .kside-chev.open { transform: rotate(90deg); }
 
 .kside-row {
@@ -1137,13 +1167,15 @@ button.m3-toggle:hover { background: color-mix(in srgb, var(--on-surface) 4%, tr
   font-size: 14px; color: var(--on-secondary-container); background: var(--secondary-container);
   border-radius: 50%;
 }
+.m3-ico .ms { font-size: 17px; vertical-align: 0; }
 .m3-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .m3-head { font-size: 13.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 .m3-sub { font-size: 12px; color: var(--on-surface-variant); line-height: 1.5; }
 .m3-sub code { font-size: 11px; }
 .m3-sub a { color: inherit; }
 .m3-ellipsis { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.m3-chev { flex: none; color: var(--on-surface-variant); font-size: 11px; transition: transform 140ms ease; }
+.m3-chev { flex: none; color: var(--on-surface-variant); display: inline-flex; transition: transform 140ms ease; }
+.m3-chev .ms { vertical-align: 0; }
 .m3-chev.open { transform: rotate(180deg); }
 .m3-expand { padding: 2px 18px 16px 64px; }
 .m3-expand pre { margin: 0; white-space: pre-wrap; font: 12.5px/1.65 var(--font-mono), monospace; }

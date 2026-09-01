@@ -14,7 +14,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
-import { Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
+import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
 
 /**
  * Team: persistent agent teammates ("employees"), each defined in
@@ -244,7 +244,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           <span className="microlabel">agents</span>
           <span className="spacer" />
           <Link href="/agents/new" className="open-raw">
-            + new
+            <Icon name="add" className="ms-sm" /> new
           </Link>
         </div>
         <div className="side-list">
@@ -292,7 +292,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
                         setRenameDraft(g);
                       }}
                     >
-                      ✎
+                      <Icon name="edit" className="ms-sm" />
                     </button>
                   )}
                   {expert && its.length === 0 && extraGroups.includes(g) && (
@@ -301,7 +301,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
                       title="Remove empty group"
                       onClick={() => saveExtraGroups(extraGroups.filter((x) => x !== g))}
                     >
-                      ✕
+                      <Icon name="close" className="ms-sm" />
                     </button>
                   )}
                 </div>
@@ -335,7 +335,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
               </div>
             ) : (
               <button className="side-group-add" onClick={() => setAddingGroup(true)}>
-                + group
+                <Icon name="add" className="ms-sm" /> group
               </button>
             ))}
         </div>
@@ -363,7 +363,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
       )}
       {kBundles.length > 0 && !kOpen && (
         <button className="kside-reopen" onClick={() => toggleKnowledge(true)} title="Show knowledge sidebar">
-          ◆ knowledge
+          <Icon name="menu_book" className="ms-sm" /> knowledge
         </button>
       )}
     </div>
@@ -511,7 +511,7 @@ function KnowledgeSide({
         </span>
         <span className="spacer" />
         <button className="open-raw" onClick={onHide} title="Hide knowledge sidebar">
-          hide ✕
+          hide <Icon name="close" className="ms-sm" />
         </button>
       </div>
       <div className="side-list">
@@ -527,7 +527,7 @@ function KnowledgeSide({
                   onClick={() => setCollapsed({ ...collapsed, [b]: !shut })}
                 >
                   <span className={`kside-chev ${shut ? "" : "open"}`} aria-hidden>
-                    ▸
+                    <Icon name="chevron_right" className="ms-sm" />
                   </span>
                   <span className="kside-bundle-name">{b}</span>
                   {detail && <span className="kside-count num">{detail.concepts.length}</span>}
@@ -558,7 +558,7 @@ function KnowledgeSide({
                         onClick={() => toggle(b, c.id)}
                       >
                         <span className={`kside-chev ${open ? "open" : ""}`} aria-hidden>
-                          ▸
+                          <Icon name="chevron_right" className="ms-sm" />
                         </span>
                         <span className="kside-title">{c.title || c.id}</span>
                         {c.stale && (
@@ -601,10 +601,10 @@ function KnowledgeSide({
                                   disabled={saving}
                                   onClick={() => save(b, c.id)}
                                 >
-                                  {saving ? "saving…" : "✓ save"}
+                                  {saving ? "saving…" : <><Icon name="check" className="ms-sm" /> save</>}
                                 </button>
                               </div>
-                              {saveError && <div className="msg error">✕ {saveError}</div>}
+                              {saveError && <div className="msg error"><Icon name="error" className="ms-sm" /> {saveError}</div>}
                             </div>
                           ) : (
                             <>
@@ -624,7 +624,7 @@ function KnowledgeSide({
                                     setSaveError("");
                                   }}
                                 >
-                                  ✎ edit
+                                  <Icon name="edit" className="ms-sm" /> edit
                                 </button>
                                 <Link href={conceptHref} className="open-raw">
                                   open ↗
@@ -720,7 +720,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
             setCreating(false);
           }}
         >
-          {creating ? "…" : "+ new"}
+          {creating ? "…" : <><Icon name="add" className="ms-sm" /> new</>}
         </button>
       </div>
       <div className="side-list">
@@ -751,7 +751,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
                 if (c.id === chatId) navigate(`/agents/${encodeURIComponent(slug)}`);
               }}
             >
-              ✕
+              <Icon name="close" className="ms-sm" />
             </button>
           </Link>
         ))}
@@ -775,7 +775,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
         <span className="microlabel">chats</span>
         <span className="spacer" />
         <Link href="/agents/chats" className="open-raw">
-          + new
+          <Icon name="add" className="ms-sm" /> new
         </Link>
       </div>
       <div className="side-list">
@@ -816,7 +816,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
                 if (c.id === chatId) navigate("/agents/chats");
               }}
             >
-              ✕
+              <Icon name="close" className="ms-sm" />
             </button>
           </Link>
         ))}
@@ -848,7 +848,7 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
         </div>
         <div style={{ padding: "0 16px 16px" }}>
           <button className="run-btn" onClick={() => navigate("/agents/new")}>
-            {hasMembers ? "+ new agent" : "create your first agent"}
+            <><Icon name="add" className="ms-sm" /> {hasMembers ? "new agent" : "create your first agent"}</>
           </button>
         </div>
       </section>
@@ -978,7 +978,7 @@ function MemberView({ slug }: { slug: string }) {
       <section className="panel">
         <div className="m3-list">
           <button type="button" className="m3-row m3-toggle" onClick={() => setRoleOpen(!roleOpen)}>
-            <span className="m3-ico">▤</span>
+            <span className="m3-ico"><Icon name="badge" /></span>
             <span className="m3-body">
               <span className="m3-head">role</span>
               {!roleOpen && (
@@ -988,7 +988,7 @@ function MemberView({ slug }: { slug: string }) {
                 </span>
               )}
             </span>
-            <span className={`m3-chev ${roleOpen ? "open" : ""}`}>▾</span>
+            <span className={`m3-chev ${roleOpen ? "open" : ""}`}><Icon name="expand_more" className="ms-sm" /></span>
           </button>
           {roleOpen && editing !== "role" && (
             <div className="m3-expand">
@@ -1002,7 +1002,7 @@ function MemberView({ slug }: { slug: string }) {
                     setError("");
                   }}
                 >
-                  ✎ edit role
+                  <Icon name="edit" className="ms-sm" /> edit role
                 </button>
                 <span className="spacer" />
                 <span className="m3-sub">agents/{member.slug}/system.md</span>
@@ -1023,7 +1023,7 @@ function MemberView({ slug }: { slug: string }) {
             </div>
           )}
           <div className="m3-row">
-            <span className="m3-ico">⚙</span>
+            <span className="m3-ico"><Icon name="account_tree" /></span>
             <span className="m3-body">
               <span className="m3-head">workflows</span>
               {editing === "workflows" ? (
@@ -1072,7 +1072,7 @@ function MemberView({ slug }: { slug: string }) {
             )}
           </div>
           <div className="m3-row">
-            <span className="m3-ico">◆</span>
+            <span className="m3-ico"><Icon name="menu_book" /></span>
             <span className="m3-body">
               <span className="m3-head">knowledge</span>
               {editing === "knowledge" ? (
@@ -1121,7 +1121,7 @@ function MemberView({ slug }: { slug: string }) {
             )}
           </div>
           <div className="m3-row">
-            <span className="m3-ico">/</span>
+            <span className="m3-ico"><Icon name="extension" /></span>
             <span className="m3-body">
               <span className="m3-head">shared skills</span>
               {editing === "skills" ? (
@@ -1183,7 +1183,7 @@ function MemberView({ slug }: { slug: string }) {
             )}
           </div>
         </div>
-        {error && <div className="msg error">✕ {error}</div>}
+        {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
       </section>
 
       <AgentSkillsPanel slug={slug} />
@@ -1259,7 +1259,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
               setError("");
             }}
           >
-            + new skill
+            <Icon name="add" className="ms-sm" /> new skill
           </button>
         )}
       </div>
@@ -1273,16 +1273,16 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
         <div className="m3-list">
           {skills.map((s) => (
             <div key={s.name} className="m3-row">
-              <span className="m3-ico">/</span>
+              <span className="m3-ico"><Icon name="extension" /></span>
               <span className="m3-body">
                 <span className="m3-head">/{s.name}</span>
                 <span className="m3-sub">{s.description || <code>SKILL.md</code>}</span>
               </span>
               <button className="open-raw" onClick={() => void edit(s.name)}>
-                ✎ edit
+                <Icon name="edit" className="ms-sm" /> edit
               </button>
               <button className="open-raw" onClick={() => void remove(s.name)}>
-                ✕
+                <Icon name="close" className="ms-sm" />
               </button>
             </div>
           ))}
@@ -1325,7 +1325,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
           </div>
         </div>
       )}
-      {error && <div className="msg error">✕ {error}</div>}
+      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
     </section>
   );
 }
@@ -1395,7 +1395,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
             className="open-raw"
             onClick={() => setForm({ name: "", schedule: "0 9 * * 1-5", prompt: "", enabled: true })}
           >
-            + new routine
+            <Icon name="add" className="ms-sm" /> new routine
           </button>
         )}
       </div>
@@ -1409,7 +1409,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
         <div className="m3-list">
           {routines.map((r) => (
             <div key={r.id} className="m3-row">
-              <span className="m3-ico">◷</span>
+              <span className="m3-ico"><Icon name="schedule" /></span>
               <span className="m3-body">
                 <span className="m3-head">
                   {r.name}
@@ -1437,7 +1437,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
                 </span>
               </span>
               <button className="open-raw" disabled={busyId === r.id} onClick={() => runNow(r.id)}>
-                {busyId === r.id ? "starting…" : "▶ run"}
+                {busyId === r.id ? "starting…" : <><Icon name="play_arrow" className="ms-sm" /> run</>}
               </button>
               <button
                 className="open-raw"
@@ -1535,7 +1535,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
           </div>
         </div>
       )}
-      {error && <div className="msg error">✕ {error}</div>}
+      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
     </section>
   );
 }
@@ -1800,7 +1800,7 @@ function MemberEditor({ slug }: { slug?: string }) {
               )}
             </div>
           </div>
-          {error && <div className="msg error">✕ {error}</div>}
+          {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
           <div className="team-form-row">
             <button className="run-btn" disabled={!form.name.trim() || saving} onClick={save}>
               {saving ? "saving…" : slug ? "save" : "create"}

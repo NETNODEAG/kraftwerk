@@ -1,5 +1,20 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+/* ---------- icons ---------- */
+
+/**
+ * Material Symbols Rounded (self-hosted variable font, imported in
+ * main.tsx). `name` is the symbol's ligature name, e.g. "edit",
+ * "play_arrow". `fill` switches to the filled variant (M3 active state).
+ */
+export function Icon({ name, fill, className }: { name: string; fill?: boolean; className?: string }) {
+  return (
+    <span className={`ms material-symbols-rounded${fill ? " ms-fill" : ""}${className ? ` ${className}` : ""}`} aria-hidden>
+      {name}
+    </span>
+  );
+}
+
 /* ---------- hash routing ---------- */
 
 /** Current route path from the hash: "#/runs/x" → "/runs/x". */

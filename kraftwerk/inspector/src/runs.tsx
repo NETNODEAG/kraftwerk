@@ -15,6 +15,7 @@ import {
   StatusWord,
   Elapsed,
   useExpertMode,
+  Icon,
 } from "./shared";
 
 /**
@@ -60,7 +61,7 @@ function SideRow({ r, active }: { r: RunListItem; active: boolean }) {
         </div>
         <div className="side-row-sub">
           <span className="side-req" title={r.request}>
-            {r.status === "running" && r.currentPhase ? `▸ ${r.currentPhase}` : (r.request ?? "")}
+            {r.status === "running" && r.currentPhase ? `${r.currentPhase}` : (r.request ?? "")}
           </span>
           <span className="side-meta num">
             {r.status === "running" ? <Elapsed since={r.startedAt} /> : fmtDuration(r.durationMs)}
@@ -104,11 +105,11 @@ function RunDetailView({ id }: { id: string }) {
           )}
         </h1>
         <StatusWord status={run.status} />
-        {sandboxed && <span className="chip sandbox-chip">⬒ sandbox</span>}
+        {sandboxed && <span className="chip sandbox-chip"><Icon name="science" className="ms-sm" /> sandbox</span>}
         <span className="rid">{id.replace(/^run-/, "")}</span>
         {live && sandboxed && (
           <button className="stop-btn" onClick={stop} disabled={stopping}>
-            {stopping ? "stopping…" : "■ stop"}
+            {stopping ? "stopping…" : <><Icon name="stop" className="ms-sm" /> stop</>}
           </button>
         )}
         <span className="spacer" />
@@ -236,7 +237,7 @@ function PhaseRow({ p }: { p: PhaseView }) {
         <div className="gate-line">
           {p.gates.map((g) => (
             <span key={g.gate} className={`gate ${g.passed ? "" : "failed"}`} title={g.failure ?? ""}>
-              {g.passed ? "✓" : "✕"} {g.gate}
+              <Icon name={g.passed ? "check" : "close"} className="ms-sm" /> {g.gate}
             </span>
           ))}
         </div>

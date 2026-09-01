@@ -3,7 +3,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
-import { Link, usePoll } from "./shared";
+import { Icon, Link, usePoll } from "./shared";
 
 /**
  * Context & Knowledge: OKF bundles under the project's knowledge/ root.
@@ -24,7 +24,7 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
           <span className="microlabel">bundles</span>
           <span className="spacer" />
           <Link href="/knowledge" className="open-raw">
-            + new
+            <Icon name="add" className="ms-sm" /> new
           </Link>
         </div>
         <div className="side-list">
@@ -118,7 +118,7 @@ function KnowledgeHome({ root }: { root?: string }) {
             {creating ? "creating…" : "create"}
           </button>
         </div>
-        {error && <div className="msg error">✕ {error}</div>}
+        {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
       </section>
     </div>
   );
@@ -168,7 +168,7 @@ function BundleView({ name }: { name: string }) {
                     href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}
                     className="m3-row m3-link"
                   >
-                    <span className="m3-ico">{typeIcon(c.type)}</span>
+                    <span className="m3-ico"><Icon name={typeIcon(c.type)} /></span>
                     <span className="m3-body">
                       <span className="m3-head">
                         {c.title}
@@ -187,7 +187,7 @@ function BundleView({ name }: { name: string }) {
                       </span>
                     </span>
                     <TrustBadge tier={c.trustTier} />
-                    <span className="m3-chev">›</span>
+                    <span className="m3-chev"><Icon name="chevron_right" className="ms-sm" /></span>
                   </Link>
                 ))}
               </Fragment>
@@ -200,14 +200,14 @@ function BundleView({ name }: { name: string }) {
   );
 }
 
-/** Leading icon per OKF concept type. */
+/** Leading icon (Material Symbol name) per OKF concept type. */
 function typeIcon(type?: string): string {
   switch ((type ?? "").toLowerCase()) {
-    case "reference": return "▤";
-    case "policy": return "§";
-    case "guide": case "howto": return "➤";
-    case "decision": return "⚖";
-    default: return "◆";
+    case "reference": return "article";
+    case "policy": return "gavel";
+    case "guide": case "howto": return "route";
+    case "decision": return "balance";
+    default: return "menu_book";
   }
 }
 
@@ -407,10 +407,10 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
           curate in chat
         </button>
         <button className="run-btn" disabled={verifying} onClick={verify}>
-          {verifying ? "verifying…" : "✓ verify (human)"}
+          {verifying ? "verifying…" : <><Icon name="check" className="ms-sm" /> verify (human)</>}
         </button>
       </div>
-      {concept.error && <div className="msg error">✕ {concept.error}</div>}
+      {concept.error && <div className="msg error"><Icon name="error" className="ms-sm" /> {concept.error}</div>}
 
       <div className="detail-cols">
         <section className="panel">
@@ -432,7 +432,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
                   cancel
                 </button>
                 <button className="open-raw" disabled={saving} onClick={save}>
-                  {saving ? "saving…" : "✓ save"}
+                  {saving ? "saving…" : <><Icon name="check" className="ms-sm" /> save</>}
                 </button>
               </>
             ) : (
@@ -444,7 +444,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
                   setSaveError("");
                 }}
               >
-                ✎ edit
+                <Icon name="edit" className="ms-sm" /> edit
               </button>
             )}
           </div>
@@ -483,7 +483,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
               </div>
             </>
           )}
-          {saveError && <div className="msg error">✕ {saveError}</div>}
+          {saveError && <div className="msg error"><Icon name="error" className="ms-sm" /> {saveError}</div>}
         </section>
 
         <aside className="detail-rail">

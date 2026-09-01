@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
-import { Link, navigate, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "./shared";
+import { Icon, Link, navigate, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "./shared";
 
 export function WorkflowView({ slug }: { slug: string }) {
   const wf = usePoll<WorkflowDetail>(`/api/workflows/${encodeURIComponent(slug)}`, false);
@@ -180,7 +180,7 @@ function RunPanel({ slug, lastRequest }: { slug: string; lastRequest?: string })
           onKeyDown={(e) => e.key === "Enter" && launch()}
         />
         <button className="run-btn" onClick={launch} disabled={busy || !request.trim() || (sandbox && !sandboxReady)}>
-          {busy ? "starting…" : sandbox ? "▶ run in sandbox" : "▶ run locally"}
+          {busy ? "starting…" : <><Icon name="play_arrow" className="ms-sm" /> {sandbox ? "run in sandbox" : "run locally"}</>}
         </button>
       </div>
       <div className="run-opts">

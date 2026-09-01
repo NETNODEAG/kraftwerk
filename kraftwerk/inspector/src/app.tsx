@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RunListItem } from "./types";
-import { navigate, setExpertMode, useExpertMode, useHashPath } from "./shared";
+import { Icon, navigate, setExpertMode, useExpertMode, useHashPath } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -71,18 +71,18 @@ export function App() {
       <header className="topbar">
         <span className="wordmark">
           <a href="#/" className="home-link" title="Dashboard">
-            {projectIcon || "◦"}
+            {projectIcon || <Icon name="home" />}
           </a>
           {projectName && (
             <WorkspaceSwitcher name={projectName} icon={projectIcon} entries={switcher} />
           )}
         </span>
         <nav>
-          <a href="#/agents">agents</a>
-          <a href="#/knowledge">context &amp; knowledge</a>
-          <a href="#/workflows">workflows</a>
-          <a href="#/runs">workflow runs</a>
-          <a href="#/skills">skills</a>
+          <a href="#/agents"><Icon name="groups" /> agents</a>
+          <a href="#/knowledge"><Icon name="menu_book" /> context &amp; knowledge</a>
+          <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
+          <a href="#/runs"><Icon name="history" /> workflow runs</a>
+          <a href="#/skills"><Icon name="extension" /> skills</a>
         </nav>
         <span className="spacer" />
         <RelaunchNote />
@@ -130,22 +130,26 @@ function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string
         onClick={() => setOpen((v) => !v)}
       >
         {name}
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden>
-          <path d="M7 10l5 5 5-5H7Z" />
-        </svg>
+        <Icon name="expand_more" />
       </button>
       {open && (
         <div className="switcher-pop" role="menu">
+          <div className="switcher-head">Workspaces</div>
           <span className="switcher-item current" aria-current="true">
             <span className="switcher-icon">{icon || "•"}</span>
-            <span className="switcher-name">{name}</span>
+            <span className="switcher-text">
+              <span className="switcher-name">{name}</span>
+              <span className="switcher-sub">this workspace</span>
+            </span>
             <span className="switcher-hint">current</span>
           </span>
           {entries.map((e) => (
             <a key={e.url} className="switcher-item" role="menuitem" href={e.url}>
               <span className="switcher-icon">{e.icon || "•"}</span>
-              <span className="switcher-name">{e.name}</span>
-              <code className="switcher-url">{e.url.replace(/^https?:\/\//, "")}</code>
+              <span className="switcher-text">
+                <span className="switcher-name">{e.name}</span>
+                <span className="switcher-sub">{e.url.replace(/^https?:\/\//, "")}</span>
+              </span>
             </a>
           ))}
         </div>
@@ -239,7 +243,7 @@ function RelaunchNote() {
       title={`v${target} is installed on disk, the server still runs v${meta?.version}. Click to relaunch with the new version.`}
       onClick={() => void relaunch()}
     >
-      {restarting ? "relaunching…" : `↻ v${target} ready — relaunch`}
+      {restarting ? "relaunching…" : <><Icon name="restart_alt" className="ms-sm" /> v{target} ready — relaunch</>}
     </button>
   );
 }
@@ -296,9 +300,7 @@ function ProjectInfo() {
         aria-label="Project info"
         onClick={() => setOpen((v) => !v)}
       >
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden>
-          <path d="M11 7h2v2h-2V7Zm0 4h2v6h-2v-6Zm1-9a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z" />
-        </svg>
+        <Icon name="info" />
       </button>
       {open && (
         <div className="info-pop">

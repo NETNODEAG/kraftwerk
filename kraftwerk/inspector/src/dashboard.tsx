@@ -9,7 +9,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { createChatAndOpen } from "./chat";
-import { Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
+import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
 
 /**
  * Dashboard (#/): the work surface, not an admin panel. Quick actions to
@@ -135,7 +135,7 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
   return (
     <div className="dash-actions">
       <button className="run-btn dash-newchat" onClick={() => navigate("/agents/chats")}>
-        💬 new chat
+        <Icon name="forum" /> new chat
       </button>
       <span className="wf-pick-wrap">
         <button
@@ -144,7 +144,7 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
-          ▶ run workflow
+          <Icon name="play_arrow" /> run workflow
         </button>
         {open && (
           <div className="wf-pick-pop" role="menu">
@@ -232,7 +232,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
                   void createChatAndOpen("claude", { kind: "team", member: m.slug });
                 }}
               >
-                💬 chat
+                <Icon name="chat_bubble" className="ms-sm" /> chat
               </button>
             </div>
           </div>
@@ -385,7 +385,7 @@ function ActivityFeed({
           ))}
           {filter === "failed" && (
             <button className="feed-chip on failed" onClick={() => setFilter("all")}>
-              failed ✕
+              failed <Icon name="close" className="ms-sm" />
             </button>
           )}
         </span>
@@ -422,7 +422,7 @@ function ActivityFeed({
                   <span className="side-when num" title={new Date(f.at).toLocaleString()}>
                     {fmtAgo(f.at)}
                   </span>
-                  <span className="m3-chev">›</span>
+                  <span className="m3-chev"><Icon name="chevron_right" /></span>
                 </Link>
               </div>
             );
