@@ -58,7 +58,7 @@ const pkg = JSON.parse(
 
 const program = new Command()
   .name("kraftwerk")
-  .description("kraftwerk CLI: discover, validate, and run YAML workflows")
+  .description("kraftwerk — agentic workspace for teams: agents, skills, knowledge, workflows, and the inspector UI")
   .version(pkg.version);
 
 const agentLabel = (workflow: LoadedWorkflow): string =>

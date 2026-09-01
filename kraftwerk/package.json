@@ -1,7 +1,7 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.21.0",
-  "description": "Deterministic workflow-as-code framework: agents (persona + model + tools + harness) run in bounded phases on headless CLI harnesses (claude -p, codex exec, pi); code owns the control flow, envelopes + gates judge the results",
+  "version": "0.21.1",
+  "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
     "workflow",
