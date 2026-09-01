@@ -1,0 +1,220 @@
+import { useEffect, useState } from "react";
+import { Icon } from "./shared";
+
+/**
+ * Workspace settings (#/settings): edits the UI-manageable subset of
+ * kraftwerk.yml (name, icon, switcher) — the server rewrites the file
+ * comment-preservingly. Everything else (paths, port) is shown read-only
+ * with a pointer to the file.
+ */
+
+interface SwitcherRow {
+  name: string;
+  url: string;
+  icon?: string;
+}
+
+interface SettingsData {
+  root: string;
+  configPath: string;
+  exists: boolean;
+  config: {
+    name?: string;
+    icon?: string;
+    port?: number;
+    workflows?: string;
+    output?: string;
+    knowledge?: string;
+    agents?: string;
+    skills?: string;
+    switcher?: SwitcherRow[];
+  };
+  resolved: { workflowsRoot: string | null; outputDir: string; port: number };
+}
+
+export function SettingsScreen() {
+  const [data, setData] = useState<SettingsData | null>(null);
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("");
+  const [switcher, setSwitcher] = useState<SwitcherRow[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d: SettingsData) => {
+        setData(d);
+        setName(d.config.name ?? "");
+        setIcon(d.config.icon ?? "");
+        setSwitcher(d.config.switcher ?? []);
+      })
+      .catch(() => setError("could not load settings"));
+  }, []);
+
+  const touch = () => {
+    setDirty(true);
+    setSaved(false);
+    setError("");
+  };
+
+  async function save(): Promise<void> {
+    setSaving(true);
+    setError("");
+    try {
+      const r = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, icon, switcher }),
+      });
+      const d = (await r.json()) as SettingsData & { error?: string };
+      if (!r.ok) throw new Error(d.error || "save failed");
+      setData(d);
+      setSwitcher(d.config.switcher ?? []);
+      setDirty(false);
+      setSaved(true);
+      // Nudge the app shell to refetch /api/meta so header + favicon update now.
+      window.dispatchEvent(new Event("kw-meta-refresh"));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const setRow = (i: number, patch: Partial<SwitcherRow>): void => {
+    setSwitcher((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    touch();
+  };
+
+  if (!data) return <div className="empty">{error || "loading…"}</div>;
+
+  const paths: [string, string | undefined, string][] = [
+    ["port", String(data.resolved.port), "kraftwerk ui listens here (CLI --port wins)"],
+    ["workflows", data.resolved.workflowsRoot ?? "— none found", "workflow definitions"],
+    ["output", data.resolved.outputDir, "run artifacts"],
+    ["knowledge", data.config.knowledge ?? "knowledge", "OKF knowledge bundles"],
+    ["agents", data.config.agents ?? "agents", "team agent definitions"],
+    ["skills", data.config.skills ?? "skills", "workspace skills"],
+  ];
+
+  return (
+    <div className="settings-screen">
+      <div className="settings-head">
+        <h1><Icon name="settings" className="ms-lg" /> Settings</h1>
+        <span className="spacer" />
+        {error && <span className="settings-err">{error}</span>}
+        {saved && !dirty && <span className="settings-saved"><Icon name="check" className="ms-sm" /> saved</span>}
+        <button className="run-btn" disabled={saving || !dirty} onClick={() => void save()}>
+          {saving ? "saving…" : "save changes"}
+        </button>
+      </div>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">workspace</span>
+        </div>
+        <div className="team-form">
+          <div className="team-form-row">
+            <label className="team-field" style={{ width: 90 }}>
+              icon
+              <input
+                value={icon}
+                placeholder="🤖"
+                onChange={(e) => {
+                  setIcon(e.target.value);
+                  touch();
+                }}
+              />
+            </label>
+            <label className="team-field" style={{ flex: 1 }}>
+              name
+              <input
+                value={name}
+                placeholder="my workspace"
+                onChange={(e) => {
+                  setName(e.target.value);
+                  touch();
+                }}
+              />
+            </label>
+          </div>
+          <div className="settings-note">Shown in the header, browser tab and to other workspaces discovering this one.</div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">workspace switcher</span>
+          <span className="spacer" />
+          <button
+            className="run-btn tonal"
+            onClick={() => {
+              setSwitcher((rows) => [...rows, { name: "", url: "http://localhost:" }]);
+              touch();
+            }}
+          >
+            <Icon name="add" className="ms-sm" /> add entry
+          </button>
+        </div>
+        <div className="team-form">
+          {switcher.length === 0 && <div className="settings-note">No manual entries.</div>}
+          {switcher.map((row, i) => (
+            <div className="team-form-row" key={i}>
+              <label className="team-field" style={{ width: 70 }}>
+                icon
+                <input value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
+              </label>
+              <label className="team-field" style={{ flex: 1 }}>
+                name
+                <input value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
+              </label>
+              <label className="team-field" style={{ flex: 1.4 }}>
+                url
+                <input value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
+              </label>
+              <button
+                className="row-x settings-row-x"
+                title="remove entry"
+                onClick={() => {
+                  setSwitcher((rows) => rows.filter((_, j) => j !== i));
+                  touch();
+                }}
+              >
+                <Icon name="close" className="ms-sm" />
+              </button>
+            </div>
+          ))}
+          <div className="settings-note">
+            Running workspaces on this machine are discovered automatically — manual entries are for
+            remote instances or extra links.
+          </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">paths &amp; port</span>
+          <span className="spacer" />
+          <code className="settings-file" title={data.configPath}>
+            {data.exists ? data.configPath : `${data.configPath} (not created yet)`}
+          </code>
+        </div>
+        <div className="settings-kv-list">
+          {paths.map(([key, value, hint]) => (
+            <div className="settings-kv" key={key}>
+              <span className="microlabel">{key}</span>
+              <code>{value}</code>
+              <span className="settings-kv-hint">{hint}</span>
+            </div>
+          ))}
+        </div>
+        <div className="settings-note" style={{ padding: "0 18px 14px" }}>
+          Read-only here — edit <code>kraftwerk.yml</code> directly to change these.
+        </div>
+      </section>
+    </div>
+  );
+}

@@ -202,6 +202,33 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--success); margin-right: 5px; vertical-align: 1px;
 }
+
+/* settings page (#/settings) */
+.settings-screen { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.settings-head { display: flex; align-items: center; gap: 12px; }
+.settings-head h1 {
+  margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em;
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.settings-head .spacer { flex: 1; }
+.settings-saved { font-size: 12.5px; color: var(--success); display: inline-flex; align-items: center; gap: 4px; }
+.settings-saved .ms { vertical-align: 0; }
+.settings-err { font-size: 12.5px; color: var(--error); }
+.settings-note { font-size: 12px; color: var(--on-surface-variant); }
+.settings-note code { font-size: 11px; }
+.settings-row-x { align-self: flex-end; opacity: 1; margin-bottom: 6px; }
+.settings-file {
+  font-size: 11px; color: var(--on-surface-variant);
+  max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.settings-kv-list { display: flex; flex-direction: column; padding: 6px 0 10px; }
+.settings-kv {
+  display: grid; grid-template-columns: 110px 1fr; column-gap: 14px; row-gap: 1px;
+  padding: 8px 18px; align-items: baseline;
+}
+.settings-kv + .settings-kv { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
+.settings-kv code { font-size: 12px; overflow-wrap: break-word; word-break: break-all; }
+.settings-kv-hint { grid-column: 2; font-size: 11px; color: var(--on-surface-variant); }
 .switcher-hint {
   margin-left: auto; flex: none;
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
@@ -274,7 +301,7 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--on-surface);
 }
-.update-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.update-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; text-decoration: none; }
 .update-btn:disabled { opacity: 0.6; cursor: default; }
 .update-btn .ms { vertical-align: 0; }
 .update-result {

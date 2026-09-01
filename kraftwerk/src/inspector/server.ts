@@ -44,6 +44,7 @@ import {
   skillsRoot,
 } from "./skills.js";
 import { discoverInstances, registerInstance, unregisterInstance } from "./instances.js";
+import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -167,6 +168,21 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       projectIcon: project?.config.icon ?? "",
       switcher,
     });
+  }
+
+  // GET /api/settings — kraftwerk.yml (parsed + resolved paths) for the settings page
+  if (seg.length === 2 && seg[1] === "settings" && method === "GET") {
+    return json(res, await getSettings());
+  }
+
+  // PUT /api/settings — write the UI-editable subset (name, icon, switcher) back
+  if (seg.length === 2 && seg[1] === "settings" && method === "PUT") {
+    try {
+      const input = JSON.parse(await readBody(req)) as SaveSettingsInput;
+      return json(res, await saveSettings(input));
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
   }
 
   // GET /api/update-check — ask the npm registry for the latest published version

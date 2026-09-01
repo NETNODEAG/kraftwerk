@@ -8,6 +8,7 @@ import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { TeamScreen } from "./team";
+import { SettingsScreen } from "./settings";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
@@ -43,9 +44,16 @@ export function App() {
       if (alive) timer = setTimeout(tick, 30_000);
     };
     void tick();
+    // Settings saves dispatch this so header + favicon update immediately.
+    const refresh = () => {
+      clearTimeout(timer);
+      void tick();
+    };
+    window.addEventListener("kw-meta-refresh", refresh);
     return () => {
       alive = false;
       clearTimeout(timer);
+      window.removeEventListener("kw-meta-refresh", refresh);
     };
   }, []);
   // Browser-tab title + favicon carry the instance identity so multiple
@@ -70,6 +78,7 @@ export function App() {
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
   else if (seg[0] === "chats") screen = <TeamScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
+  else if (seg[0] === "settings") screen = <SettingsScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -337,6 +346,12 @@ function ProjectInfo() {
               {latest ? ` · latest ${latest.status}` : ""}
             </span>
             <code className="info-path" title={runs?.outputDir}>{runs?.outputDir ?? ""}</code>
+          </div>
+          <div className="info-row info-actions">
+            <span className="microlabel">Workspace</span>
+            <a className="update-btn" href="#/settings" onClick={() => setOpen(false)}>
+              <Icon name="settings" className="ms-sm" /> settings
+            </a>
           </div>
           <div className="info-row info-actions">
             <span className="microlabel">Theme</span>
