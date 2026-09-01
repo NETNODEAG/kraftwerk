@@ -198,6 +198,10 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   font-size: 11.5px; color: var(--on-surface-variant);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--success); margin-right: 5px; vertical-align: 1px;
+}
 .switcher-hint {
   margin-left: auto; flex: none;
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
@@ -257,17 +261,29 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   font-size: 11px; color: var(--on-surface-variant);
   overflow-wrap: break-word; word-break: break-all;
 }
-.info-actions { flex-direction: row; align-items: center; justify-content: space-between; }
+.info-actions { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .info-actions .theme-btn { flex: none; }
-.theme-btn {
+.theme-btn,
+.update-btn {
   border: 1px solid var(--outline); border-radius: 999px; padding: 6px 14px;
   font-size: 12.5px; font-weight: 500; color: var(--on-surface-variant);
   transition: background 120ms ease, color 120ms ease;
 }
-.theme-btn:hover {
+.theme-btn:hover,
+.update-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 10%, transparent);
   color: var(--on-surface);
 }
+.update-btn { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.update-btn:disabled { opacity: 0.6; cursor: default; }
+.update-btn .ms { vertical-align: 0; }
+.update-result {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--on-surface-variant);
+}
+.update-result .ms { vertical-align: 0; color: var(--success); }
+.update-result.newer { color: var(--primary); font-weight: 500; flex-basis: 100%; }
+.update-result.newer code { font-size: 11px; }
 
 /* "vX ready — relaunch" pill: a newer install is on disk; click restarts the server. */
 .relaunch-note {

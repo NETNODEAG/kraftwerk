@@ -43,6 +43,7 @@ import {
   saveAgentSkill,
   skillsRoot,
 } from "./skills.js";
+import { discoverInstances, registerInstance, unregisterInstance } from "./instances.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -124,14 +125,38 @@ async function getPkgVersion(): Promise<string> {
   return pkgVersion;
 }
 
+/** Package name from package.json (registry lookups). */
+async function getPkgName(): Promise<string> {
+  try {
+    const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
+    return (JSON.parse(raw) as { name?: string }).name ?? "";
+  } catch {
+    return "";
+  }
+}
+
 async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise<void> {
   const seg = url.pathname.split("/").filter(Boolean); // ["api", ...]
   const method = req.method ?? "GET";
 
-  // GET /api/meta — package version + project name ("environment") for the UI
+  // GET /api/meta — package version + project name ("environment") for the UI.
+  // ?probe=1 marks a discovery probe from another instance: answer identity
+  // only, skip our own discovery (two instances must not probe each other
+  // recursively).
   if (seg.length === 2 && seg[1] === "meta" && method === "GET") {
     const project = await resolveProject(getProjectRoot()).catch(() => null);
     const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
+    const manual = project?.config.switcher ?? [];
+    const discovered = url.searchParams.get("probe") === "1" ? [] : await discoverInstances();
+    // Manual switcher entries keep their configured name/icon; discovered
+    // instances that duplicate one only contribute the live flag.
+    const norm = (u: string) => u.replace(/\/+$/, "").replace("127.0.0.1", "localhost").toLowerCase();
+    const manualUrls = new Set(manual.map((e) => norm(e.url)));
+    const liveUrls = new Set(discovered.map((d) => norm(d.url)));
+    const switcher = [
+      ...manual.map((e) => (liveUrls.has(norm(e.url)) ? { ...e, live: true } : e)),
+      ...discovered.filter((d) => !manualUrls.has(norm(d.url))),
+    ];
     return json(res, {
       version: await getPkgVersion(),
       // A differing disk version means an upgrade landed while this process
@@ -140,8 +165,24 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       restartable: supervised(),
       projectName,
       projectIcon: project?.config.icon ?? "",
-      switcher: project?.config.switcher ?? [],
+      switcher,
     });
+  }
+
+  // GET /api/update-check — ask the npm registry for the latest published version
+  if (seg.length === 2 && seg[1] === "update-check" && method === "GET") {
+    const name = await getPkgName();
+    const current = await getDiskVersion();
+    try {
+      const r = await fetch(`https://registry.npmjs.org/${name}/latest`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const latest = ((await r.json()) as { version?: string }).version ?? "";
+      return json(res, { name, current, latest });
+    } catch {
+      return json(res, { name, current, latest: "", error: "npm registry unreachable" }, 502);
+    }
   }
 
   // POST /api/restart — exit with the respawn code; the `kraftwerk ui` supervisor relaunches
@@ -598,10 +639,14 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.once(sig, () => {
       disposeAllBackends();
+      unregisterInstance();
       process.exit(sig === "SIGINT" ? 130 : 143);
     });
   }
-  process.once("exit", disposeAllBackends);
+  process.once("exit", () => {
+    disposeAllBackends();
+    unregisterInstance();
+  });
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -613,6 +658,10 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(opts.port, () => resolve(server));
+    server.listen(opts.port, () => {
+      const addr = server.address();
+      void registerInstance(typeof addr === "object" && addr ? addr.port : opts.port);
+      resolve(server);
+    });
   });
 }

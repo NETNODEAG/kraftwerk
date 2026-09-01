@@ -23,15 +23,30 @@ export function App() {
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
+  // Polled (not fetched once): the switcher auto-discovers other running
+  // instances via ~/.kraftwerk/instances, so entries come and go.
   useEffect(() => {
-    fetch("/api/meta")
-      .then((r) => r.json())
-      .then((d: { projectName?: string; projectIcon?: string; switcher?: SwitcherEntry[] }) => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const d = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
+          projectName?: string;
+          projectIcon?: string;
+          switcher?: SwitcherEntry[];
+        };
+        if (!alive) return;
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
-      })
-      .catch(() => {});
+      } catch {}
+      if (alive) timer = setTimeout(tick, 30_000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
   }, []);
   // Browser-tab title + favicon carry the instance identity so multiple
   // open kraftwerks stay distinguishable (kraftwerk.yml: name, icon).
@@ -94,17 +109,20 @@ export function App() {
   );
 }
 
-/** One workspace-switcher entry (kraftwerk.yml: switcher). */
+/** One workspace-switcher entry (kraftwerk.yml `switcher:` or auto-discovered). */
 interface SwitcherEntry {
   name: string;
   url: string;
   icon?: string;
+  /** Verified running right now (instance registry probe). */
+  live?: boolean;
 }
 
 /**
- * The workspace name in the header. With `switcher:` entries in
- * kraftwerk.yml it becomes a dropdown linking to the other kraftwerk
- * instances; without, it stays a plain label.
+ * The workspace name in the header. Becomes a dropdown when other
+ * workspaces are known — running local instances are discovered
+ * automatically (~/.kraftwerk/instances), `switcher:` entries in
+ * kraftwerk.yml add manual/remote ones. Plain label otherwise.
  */
 function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string; entries: SwitcherEntry[] }) {
   const [open, setOpen] = useState(false);
@@ -148,7 +166,10 @@ function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string
               <span className="switcher-icon">{e.icon || "•"}</span>
               <span className="switcher-text">
                 <span className="switcher-name">{e.name}</span>
-                <span className="switcher-sub">{e.url.replace(/^https?:\/\//, "")}</span>
+                <span className="switcher-sub">
+                  {e.live && <span className="live-dot" title="running" />}
+                  {e.url.replace(/^https?:\/\//, "")}
+                </span>
               </span>
             </a>
           ))}
@@ -324,10 +345,63 @@ function ProjectInfo() {
           <div className="info-row info-actions">
             <span className="microlabel">Version</span>
             <span className="info-v mono">{version ? `kraftwerk ${version}` : "…"}</span>
+            <UpdateCheck />
           </div>
         </div>
       )}
     </span>
+  );
+}
+
+function semverLt(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0);
+  }
+  return false;
+}
+
+/** Manual "check for updates": asks the server to query the npm registry. */
+function UpdateCheck() {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "err">("idle");
+  const [info, setInfo] = useState<{ name: string; current: string; latest: string } | null>(null);
+
+  async function check(): Promise<void> {
+    setState("busy");
+    try {
+      const r = await fetch("/api/update-check", { cache: "no-store" });
+      const d = (await r.json()) as { name: string; current: string; latest: string };
+      if (!r.ok || !d.latest) throw new Error();
+      setInfo(d);
+      setState("done");
+    } catch {
+      setState("err");
+    }
+  }
+
+  if (state === "done" && info) {
+    const newer = semverLt(info.current, info.latest);
+    return newer ? (
+      <span className="update-result newer">
+        v{info.latest} available — <code>npm i -g {info.name}@latest</code>
+      </span>
+    ) : (
+      <span className="update-result">
+        <Icon name="check" className="ms-sm" /> up to date
+      </span>
+    );
+  }
+  return (
+    <button className="update-btn" disabled={state === "busy"} onClick={() => void check()}>
+      {state === "busy" ? (
+        "checking…"
+      ) : state === "err" ? (
+        "npm unreachable — retry"
+      ) : (
+        <><Icon name="sync" className="ms-sm" /> check for updates</>
+      )}
+    </button>
   );
 }
 
