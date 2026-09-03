@@ -28,6 +28,24 @@ export function useHashPath(): string {
   return path;
 }
 
+/**
+ * Browser-tab title: app.tsx owns the base ("<project> — kraftwerk"),
+ * screens may prepend a page part ("<session> · <agent>") while mounted.
+ */
+let baseTitle = "kraftwerk inspector";
+let pageTitle = "";
+function applyTitle(): void {
+  document.title = pageTitle ? `${pageTitle} — ${baseTitle}` : baseTitle;
+}
+export function setBaseTitle(t: string): void {
+  baseTitle = t;
+  applyTitle();
+}
+export function setPageTitle(t: string): void {
+  pageTitle = t;
+  applyTitle();
+}
+
 export function navigate(to: string, opts?: { replace?: boolean }): void {
   if (opts?.replace) window.location.replace(`#${to}`);
   else window.location.hash = to;

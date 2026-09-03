@@ -229,7 +229,11 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
-        <ChatThread key={chatId} id={chatId} />
+        <ChatThread
+          key={chatId}
+          id={chatId}
+          agentName={members.find((m) => m.slug === slug)?.name ?? slug}
+        />
       </div>
     );
   else if (mode === "chats")

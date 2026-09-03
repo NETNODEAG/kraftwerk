@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
-import { Icon, Link, navigate, useExpertMode } from "./shared";
+import { Icon, Link, navigate, setPageTitle, useExpertMode } from "./shared";
 
 /**
  * Chat building blocks: the thread view (event-log replay — text chunks
@@ -97,7 +97,7 @@ export function NewChat() {
 
 /* ---------- thread ---------- */
 
-export function ChatThread({ id }: { id: string }) {
+export function ChatThread({ id, agentName }: { id: string; agentName?: string }) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
@@ -136,6 +136,25 @@ export function ChatThread({ id }: { id: string }) {
     return false;
   }, [events]);
 
+  // Session title: server names the chat after the first message, but the
+  // meta we hold was fetched before that — fall back to the first user
+  // message so the heading + tab update live.
+  const title = useMemo(() => {
+    if (meta?.title) return meta.title;
+    const first = events.find((e) => e.type === "user_message");
+    return first && first.type === "user_message"
+      ? first.text.replace(/\s+/g, " ").trim().slice(0, 80)
+      : "";
+  }, [meta, events]);
+
+  // Browser tab: "<session> · <agent> — <project>".
+  useEffect(() => {
+    if (!meta) return;
+    const who = agentName ?? (meta.scope.kind === "team" ? meta.scope.member : meta.agent);
+    setPageTitle([title || "new chat", who].filter(Boolean).join(" · "));
+    return () => setPageTitle("");
+  }, [meta, title, agentName]);
+
   if (gone) return <div className="empty">chat not found</div>;
   if (!meta) return <div className="empty">loading…</div>;
 
@@ -143,7 +162,7 @@ export function ChatThread({ id }: { id: string }) {
     <div className="chat-thread">
       <div className="detail-head">
         <span className={`lamp ${busy ? "running" : "ok"}`} />
-        <h1>{meta.title || "new chat"}</h1>
+        <h1>{title || "new chat"}</h1>
         <span className="chip agent">{meta.agent}</span>
         {meta.scope.kind === "run" && (
           <Link href={`/runs/${meta.scope.runId}`} className="chip">

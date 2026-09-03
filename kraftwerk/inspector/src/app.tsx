@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RunListItem } from "./types";
-import { Icon, navigate, setExpertMode, useExpertMode, useHashPath } from "./shared";
+import { Icon, navigate, setBaseTitle, setExpertMode, useExpertMode, useHashPath } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -59,7 +59,7 @@ export function App() {
   // Browser-tab title + favicon carry the instance identity so multiple
   // open kraftwerks stay distinguishable (kraftwerk.yml: name, icon).
   useEffect(() => {
-    document.title = projectName ? `${projectName} — kraftwerk` : "kraftwerk inspector";
+    setBaseTitle(projectName ? `${projectName} — kraftwerk` : "kraftwerk inspector");
     if (!projectIcon) return;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="0.9em" font-size="85">${projectIcon}</text></svg>`;
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
