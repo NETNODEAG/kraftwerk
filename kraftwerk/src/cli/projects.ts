@@ -72,7 +72,7 @@ async function resolveRef(ref: string, needRoot = true): Promise<WorkspaceEntry>
 export function registerProjectCommands(program: Command): void {
   const projects = program
     .command("projects")
-    .description("Known kraftwerk projects on this machine: list, start a stopped UI, forget");
+    .description("Known kraftwerk projects on this machine: list, start a stopped UI, stop a running one, forget");
 
   projects
     .command("list", { isDefault: true })
