@@ -233,6 +233,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
           key={chatId}
           id={chatId}
           agentName={members.find((m) => m.slug === slug)?.name ?? slug}
+          agentDescription={members.find((m) => m.slug === slug)?.description}
         />
       </div>
     );

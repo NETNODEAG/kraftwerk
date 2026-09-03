@@ -97,7 +97,15 @@ export function NewChat() {
 
 /* ---------- thread ---------- */
 
-export function ChatThread({ id, agentName }: { id: string; agentName?: string }) {
+export function ChatThread({
+  id,
+  agentName,
+  agentDescription,
+}: {
+  id: string;
+  agentName?: string;
+  agentDescription?: string;
+}) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
@@ -147,13 +155,13 @@ export function ChatThread({ id, agentName }: { id: string; agentName?: string }
       : "";
   }, [meta, events]);
 
-  // Browser tab: "<session> · <agent> — <project>".
+  // Browser tab: "<agent> · <agent description> · <session> — <project>".
   useEffect(() => {
     if (!meta) return;
     const who = agentName ?? (meta.scope.kind === "team" ? meta.scope.member : meta.agent);
-    setPageTitle([title || "new chat", who].filter(Boolean).join(" · "));
+    setPageTitle([who, agentDescription, title || "new chat"].filter(Boolean).join(" · "));
     return () => setPageTitle("");
-  }, [meta, title, agentName]);
+  }, [meta, title, agentName, agentDescription]);
 
   if (gone) return <div className="empty">chat not found</div>;
   if (!meta) return <div className="empty">loading…</div>;
