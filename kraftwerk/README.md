@@ -7,7 +7,7 @@ happened to set them up, and every result is checked before anyone relies on
 it.
 
 ```bash
-npm install -g @netnodeag/kraftwerk    # or run any command below via npx @netnodeag/kraftwerk
+npm install -g @netnodeag/kraftwerk
 
 cd your-project
 kraftwerk init                         # scaffold the workspace
