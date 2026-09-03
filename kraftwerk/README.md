@@ -6,6 +6,18 @@ knowledge, skills and workflows belong to the team, not to the person who
 happened to set them up, and every result is checked before anyone relies on
 it.
 
+```bash
+npm install -g @netnodeag/kraftwerk    # or run any command below via npx @netnodeag/kraftwerk
+
+cd your-project
+kraftwerk init                         # scaffold the workspace
+kraftwerk doctor                       # check harnesses, docker, workflows, env vars
+kraftwerk ui                           # open it at http://localhost:1981
+```
+
+Needs Node 20+ and at least one agent harness (Claude Code, Codex, or Pi).
+Details in [Install](#install).
+
 **Why teams need it.** AI work today lives in individual silos: personal
 prompts, Claude Code sessions, scripts, and one-off automations. Kraftwerk
 gives a team or organisation one place where AI use becomes shared,
@@ -40,15 +52,56 @@ file gates). Failed checks are corrected in the same session, never by a cold
 restart. Every run leaves a `trace.jsonl` event log and ends with a
 time/token/cost summary table.
 
+## Install
+
+Requirements: **Node 20+** and at least one agent harness on your PATH —
+Claude Code (`claude`), Codex (`codex`), or Pi (`pi`). See
+[Harnesses](#harnesses) for how to get them. `kraftwerk doctor` verifies
+the lot and names whatever is missing.
+
+**Global install** — recommended, gives you `kraftwerk` in every project:
+
+```bash
+npm install -g @netnodeag/kraftwerk
+kraftwerk --version
+```
+
+**Without installing** — every command works prefixed with `npx`, at the
+cost of a download per call:
+
+```bash
+npx @netnodeag/kraftwerk --version
+```
+
+Upgrading is the same command with `@latest`. A running inspector serves
+the version it started with, so restart each UI afterwards; it offers a
+relaunch by itself once a newer version is on disk.
+
+```bash
+npm install -g @netnodeag/kraftwerk@latest
+kraftwerk projects                 # every workspace on this machine, running or not
+```
+
 ## Consume
 
 Zero-setup consumer (YAML workflows only): a repo containing workflow
 folders under `workflows/` (or `src/workflows/`) IS a complete consumer —
-no package.json, no install:
+no package.json, no local dependency:
 
 ```bash
-npx @netnodeag/kraftwerk init      # scaffold kraftwerk.yml + workflows/ + example
+cd your-project
+kraftwerk init                     # scaffold kraftwerk.yml + kraftwerk-data/ (workflow, agent, knowledge)
+kraftwerk doctor                   # preflight: harness CLIs, docker, workflows, declared env vars
+kraftwerk run hello "Was ist kraftwerk?"
+kraftwerk ui                       # inspector on http://localhost:1981
+```
+
+The same without a global install:
+
+```bash
+npx @netnodeag/kraftwerk init
 npx @netnodeag/kraftwerk run hello "Was ist kraftwerk?"
+npx @netnodeag/kraftwerk ui
 ```
 
 Your own workflows are just more folders under `workflows/` — a
@@ -72,8 +125,9 @@ import { defineAgent, Run, runCli, fileNonEmpty, envelopeContract } from "kraftw
 
 ## CLI — kraftwerk
 
-Ships with the package (`npx @netnodeag/kraftwerk …` anywhere, `npm link` in
-the checkout for a global `kraftwerk`). Workflows are auto-discovered under
+Ships with the package: `kraftwerk …` after a global install, or
+`npx @netnodeag/kraftwerk …` anywhere without one (`npm link` in a dev
+checkout also gives you the bare command). Workflows are auto-discovered under
 `src/workflows/` (or `workflows/`): every folder with a `workflow.yml` and
 every top-level `.yml` file. Every command works from any subdirectory —
 the CLI walks up to the project root (marked by `kraftwerk.yml`, a
@@ -87,6 +141,7 @@ kraftwerk run                           # interactive: pick workflow, type the r
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
 kraftwerk knowledge                     # Context & Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
+kraftwerk projects                      # every workspace on this machine; projects start|stop|forget <ref>
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered — schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths

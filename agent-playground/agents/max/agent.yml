@@ -1,6 +1,6 @@
-name: Max - Workflow Runner
+name: Max
 emoji: 🛠️
-description: Runs and explains this project's workflows
+description: Workflow Runner
 harness: claude
 model: sonnet
 effort: medium

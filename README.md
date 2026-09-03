@@ -10,6 +10,18 @@ knowledge, skills and workflows belong to the team, not to the person who
 happened to set them up, and every result is checked before anyone relies on
 it.
 
+```bash
+npm install -g @netnodeag/kraftwerk    # or run any command below via npx @netnodeag/kraftwerk
+
+cd your-project
+kraftwerk init                         # scaffold the workspace
+kraftwerk doctor                       # check harnesses, docker, workflows, env vars
+kraftwerk ui                           # open it at http://localhost:1981
+```
+
+Needs Node 20+ and at least one agent harness (Claude Code, Codex, or Pi).
+Details in [Install](#install).
+
 ## Why teams need it
 
 AI work today lives in individual silos: personal prompts, Claude Code
@@ -96,17 +108,57 @@ the same harness share one resumed session; steps on different harnesses
 share state only through the run's files. Every run writes a `trace.jsonl`
 event log and ends with a table of time, tokens, and cost per step.
 
-## Get started
+## Install
 
 Kraftwerk is on npm as
 [`@netnodeag/kraftwerk`](https://www.npmjs.com/package/@netnodeag/kraftwerk).
-Any project becomes a workspace with one command, no install:
+You need Node 20 or newer, plus at least one agent harness on your PATH
+(Claude Code, Codex, or Pi). `kraftwerk doctor` checks all of it.
+
+**Global install** — recommended, gives you the `kraftwerk` command in
+every project:
+
+```bash
+npm install -g @netnodeag/kraftwerk
+kraftwerk --version
+```
+
+**Or without installing** — every command below also works prefixed with
+`npx @netnodeag/kraftwerk`, at the cost of a download per call:
+
+```bash
+npx @netnodeag/kraftwerk --version
+```
+
+## Get started
+
+Any project becomes a workspace with one command. Run `init` in the repo
+you want to work in:
 
 ```bash
 cd your-project
-npx @netnodeag/kraftwerk init                    # scaffold kraftwerk.yml + workflows/ + example
+kraftwerk init                        # scaffold kraftwerk.yml + kraftwerk-data/ (workflow, agent, knowledge)
+kraftwerk doctor                      # preflight: harness CLIs, docker, workflows, env vars
+kraftwerk run hello "What is kraftwerk?"
+kraftwerk ui                          # open the workspace at http://localhost:1981
+```
+
+The same, without a global install:
+
+```bash
+cd your-project
+npx @netnodeag/kraftwerk init
 npx @netnodeag/kraftwerk run hello "What is kraftwerk?"
-npx @netnodeag/kraftwerk ui                      # open the workspace
+npx @netnodeag/kraftwerk ui
+```
+
+To upgrade later, install again and restart any running UI — an inspector
+serves the version it started with, and offers a relaunch once a newer one
+is on disk:
+
+```bash
+npm install -g @netnodeag/kraftwerk@latest
+kraftwerk projects                    # every workspace on this machine, running or not
 ```
 
 ### Write a workflow
