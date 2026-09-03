@@ -44,7 +44,16 @@ import {
   saveAgentSkill,
   skillsRoot,
 } from "./skills.js";
-import { discoverInstances, registerInstance, unregisterInstance } from "./instances.js";
+import {
+  discoverWorkspaces,
+  forgetProject,
+  markProjectStopped,
+  registerInstance,
+  registerProject,
+  startProject,
+  tildify,
+  unregisterInstance,
+} from "./instances.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
 import {
   deleteRoutine,
@@ -149,15 +158,17 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const project = await resolveProject(getProjectRoot()).catch(() => null);
     const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
     const manual = project?.config.switcher ?? [];
-    const discovered = url.searchParams.get("probe") === "1" ? [] : await discoverInstances();
+    const discovered = url.searchParams.get("probe") === "1" ? [] : await discoverWorkspaces();
     // Manual switcher entries keep their configured name/icon; discovered
-    // instances that duplicate one only contribute the live flag.
+    // workspaces that duplicate one (same url, running) only contribute
+    // the live flag. Stopped projects never collide — they carry a root,
+    // and a manual entry pointing at the same port is just a link.
     const norm = (u: string) => u.replace(/\/+$/, "").replace("127.0.0.1", "localhost").toLowerCase();
     const manualUrls = new Set(manual.map((e) => norm(e.url)));
-    const liveUrls = new Set(discovered.map((d) => norm(d.url)));
+    const liveUrls = new Set(discovered.filter((d) => d.live).map((d) => norm(d.url)));
     const switcher = [
       ...manual.map((e) => (liveUrls.has(norm(e.url)) ? { ...e, live: true } : e)),
-      ...discovered.filter((d) => !manualUrls.has(norm(d.url))),
+      ...discovered.filter((d) => !(d.live && manualUrls.has(norm(d.url)))),
     ];
     return json(res, {
       version: await getPkgVersion(),
@@ -167,8 +178,34 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       restartable: supervised(),
       projectName,
       projectIcon: project?.config.icon ?? "",
+      projectRoot: project?.root ?? getProjectRoot(),
+      projectRootLabel: tildify(project?.root ?? getProjectRoot()),
       switcher,
     });
+  }
+
+  // POST /api/projects/start {root} — launch `kraftwerk ui` for a known
+  // project as a detached process (the switcher's Start button).
+  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "start" && method === "POST") {
+    try {
+      const { root } = JSON.parse(await readBody(req)) as { root?: string };
+      if (!root) return json(res, { error: "root required" }, 400);
+      const result = await startProject(root);
+      return json(res, result, result.ok ? 200 : 409);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // POST /api/projects/forget {root} — drop a project from the registry
+  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "forget" && method === "POST") {
+    try {
+      const { root } = JSON.parse(await readBody(req)) as { root?: string };
+      if (!root) return json(res, { error: "root required" }, 400);
+      return json(res, { ok: await forgetProject(root) });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
   }
 
   // GET /api/settings — kraftwerk.yml (parsed + resolved paths) for the settings page
@@ -667,12 +704,15 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
     process.once(sig, () => {
       disposeAllBackends();
       unregisterInstance();
+      markProjectStopped();
       process.exit(sig === "SIGINT" ? 130 : 143);
     });
   }
-  process.once("exit", () => {
+  process.once("exit", (code) => {
     disposeAllBackends();
     unregisterInstance();
+    // A self-restart (new version) is not a stop — the project stays "running".
+    if (code !== RESTART_EXIT_CODE) markProjectStopped();
   });
   const server = http.createServer(async (req, res) => {
     try {
@@ -687,7 +727,9 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
     server.once("error", reject);
     server.listen(opts.port, () => {
       const addr = server.address();
-      void registerInstance(typeof addr === "object" && addr ? addr.port : opts.port);
+      const port = typeof addr === "object" && addr ? addr.port : opts.port;
+      void registerInstance(port, getProjectRoot());
+      void registerProject(getProjectRoot());
       resolve(server);
     });
   });

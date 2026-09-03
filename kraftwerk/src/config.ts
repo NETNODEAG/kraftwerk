@@ -84,7 +84,9 @@ export interface Project {
 }
 
 const exists = async (p: string): Promise<boolean> => !!(await stat(p).catch(() => null));
-const isDir = async (p: string): Promise<boolean> =>
+
+/** True when the path exists and is a directory. */
+export const isDir = async (p: string): Promise<boolean> =>
   (await stat(p).catch(() => null))?.isDirectory() ?? false;
 
 async function findConfigFile(dir: string): Promise<string | undefined> {

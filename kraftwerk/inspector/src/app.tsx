@@ -25,6 +25,7 @@ export function App() {
   const seg = path.split("/").filter(Boolean);
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
+  const [projectRoot, setProjectRoot] = useState("");
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
@@ -36,11 +37,13 @@ export function App() {
         const d = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
           projectName?: string;
           projectIcon?: string;
+          projectRootLabel?: string;
           switcher?: SwitcherEntry[];
         };
         if (!alive) return;
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
+        setProjectRoot(d.projectRootLabel ?? "");
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -113,7 +116,7 @@ export function App() {
             {projectIcon || <Icon name="home" />}
           </a>
           {projectName && (
-            <WorkspaceSwitcher name={projectName} icon={projectIcon} entries={switcher} />
+            <WorkspaceSwitcher name={projectName} icon={projectIcon} root={projectRoot} entries={switcher} />
           )}
         </span>
         <nav>
@@ -138,18 +141,126 @@ interface SwitcherEntry {
   name: string;
   url: string;
   icon?: string;
-  /** Verified running right now (instance registry probe). */
+  /** true = verified running (probe); false = known project, not running; absent = manual entry. */
   live?: boolean;
+  /** Absolute project root (known projects only) — the key for start/forget. */
+  root?: string;
+  /** Root with ~ for home, for display. */
+  rootLabel?: string;
+  /** false when the root folder is gone (start impossible). */
+  exists?: boolean;
+}
+
+/** Path line under a workspace name, left-truncated so the tail stays readable. Expert mode only. */
+function RootLine({ label }: { label?: string }) {
+  const expert = useExpertMode();
+  if (!expert || !label) return null;
+  return (
+    <span className="switcher-root" title={label}>
+      <span dir="ltr">{label}</span>
+    </span>
+  );
+}
+
+/**
+ * A known project that is not running: no link, a Start button instead.
+ * Start asks this instance to spawn `kraftwerk ui` in the project's root
+ * (detached) and follows the link once the new inspector answers.
+ */
+function StoppedWorkspace({ entry }: { entry: SwitcherEntry }) {
+  const [state, setState] = useState<"idle" | "starting" | "error">("idle");
+  const [error, setError] = useState("");
+  const missing = entry.exists === false;
+
+  const start = async () => {
+    setState("starting");
+    setError("");
+    try {
+      const r = await fetch("/api/projects/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ root: entry.root }),
+      });
+      const d = (await r.json()) as { ok?: boolean; live?: boolean; url?: string; error?: string };
+      if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      window.dispatchEvent(new Event("kw-meta-refresh"));
+      if (d.live && d.url) {
+        window.location.assign(d.url);
+        return;
+      }
+      // Spawned but not answering yet. The target is another origin (no
+      // CORS), so ask our own server: it probes and reports the entry live.
+      for (let i = 0; i < 12; i++) {
+        await new Promise((res) => setTimeout(res, 1_000));
+        try {
+          const m = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
+            switcher?: SwitcherEntry[];
+          };
+          const hit = m.switcher?.find((e) => e.root === entry.root && e.live);
+          if (hit) {
+            window.location.assign(hit.url);
+            return;
+          }
+        } catch {}
+      }
+      throw new Error("started, but the UI did not answer yet — see ~/.kraftwerk/logs");
+    } catch (err) {
+      setState("error");
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <span className={`switcher-item stopped ${missing ? "missing" : ""}`} role="menuitem">
+      <span className="switcher-icon">{entry.icon || "•"}</span>
+      <span className="switcher-text">
+        <span className="switcher-name">{entry.name}</span>
+        <RootLine label={entry.rootLabel} />
+        <span className="switcher-sub">
+          {state === "error"
+            ? <span className="switcher-err" title={error}>{error}</span>
+            : missing
+              ? "folder missing"
+              : `stopped · ${entry.url.replace(/^https?:\/\//, "")}`}
+        </span>
+      </span>
+      <button
+        className="switcher-start"
+        disabled={missing || state === "starting"}
+        title={missing ? "The project folder no longer exists" : "Start the UI for this project"}
+        onClick={(e) => {
+          e.stopPropagation();
+          void start();
+        }}
+      >
+        {state === "starting" ? <Icon name="progress_activity" /> : <Icon name="play_arrow" />}
+        {state === "starting" ? "starting" : "start"}
+      </button>
+    </span>
+  );
 }
 
 /**
  * The workspace name in the header. Becomes a dropdown when other
  * workspaces are known — running local instances are discovered
- * automatically (~/.kraftwerk/instances), `switcher:` entries in
- * kraftwerk.yml add manual/remote ones. Plain label otherwise.
+ * automatically (~/.kraftwerk/instances), projects that ran before are
+ * remembered (~/.kraftwerk/projects) and can be started from here, and
+ * `switcher:` entries in kraftwerk.yml add manual/remote ones. Plain label
+ * otherwise. In expert mode every entry shows its root path.
  */
-function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string; entries: SwitcherEntry[] }) {
+function WorkspaceSwitcher({
+  name,
+  icon,
+  root,
+  entries,
+}: {
+  name: string;
+  icon: string;
+  root: string;
+  entries: SwitcherEntry[];
+}) {
   const [open, setOpen] = useState(false);
+  const expert = useExpertMode();
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
@@ -160,13 +271,13 @@ function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string
   }, [open]);
 
   if (entries.length === 0) {
-    return <span className="env-name" title="Project (kraftwerk.yml: name)">{name}</span>;
+    return <span className="env-name" title={root || "Project (kraftwerk.yml: name)"}>{name}</span>;
   }
   return (
     <span className="switcher-wrap">
       <button
         className="env-name env-switch"
-        title="Switch workspace (kraftwerk.yml: switcher)"
+        title={root ? `${root} — switch workspace` : "Switch workspace"}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
@@ -181,22 +292,27 @@ function WorkspaceSwitcher({ name, icon, entries }: { name: string; icon: string
             <span className="switcher-icon">{icon || "•"}</span>
             <span className="switcher-text">
               <span className="switcher-name">{name}</span>
-              <span className="switcher-sub">this workspace</span>
+              {expert && root ? <RootLine label={root} /> : <span className="switcher-sub">this workspace</span>}
             </span>
             <span className="switcher-hint">current</span>
           </span>
-          {entries.map((e) => (
-            <a key={e.url} className="switcher-item" role="menuitem" href={e.url}>
-              <span className="switcher-icon">{e.icon || "•"}</span>
-              <span className="switcher-text">
-                <span className="switcher-name">{e.name}</span>
-                <span className="switcher-sub">
-                  {e.live && <span className="live-dot" title="running" />}
-                  {e.url.replace(/^https?:\/\//, "")}
+          {entries.map((e) =>
+            e.live === false && e.root ? (
+              <StoppedWorkspace key={e.root} entry={e} />
+            ) : (
+              <a key={e.root ?? e.url} className="switcher-item" role="menuitem" href={e.url}>
+                <span className="switcher-icon">{e.icon || "•"}</span>
+                <span className="switcher-text">
+                  <span className="switcher-name">{e.name}</span>
+                  <RootLine label={e.rootLabel} />
+                  <span className="switcher-sub">
+                    {e.live && <span className="live-dot" title="running" />}
+                    {e.url.replace(/^https?:\/\//, "")}
+                  </span>
                 </span>
-              </span>
-            </a>
-          ))}
+              </a>
+            )
+          )}
         </div>
       )}
     </span>

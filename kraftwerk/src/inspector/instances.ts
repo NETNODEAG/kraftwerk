@@ -1,22 +1,49 @@
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fsSync, { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDir, resolveProject } from "../config.js";
+import { selfCommand } from "./self-command.js";
 
 /**
- * Instance registry: every running inspector writes a small json file to
- * ~/.kraftwerk/instances/<pid>.json so other local instances can discover
- * it — the workspace switcher lists running workspaces automatically, no
- * kraftwerk.yml `switcher:` config needed. Registered ports are verified
- * by probing /api/meta on read (fresh name/icon, detects port reuse);
- * entries that stop answering are pruned, so crashes leave no ghosts.
+ * Two registries under ~/.kraftwerk, two lifecycles:
+ *
+ * instances/<pid>.json — ephemeral. Every running inspector writes one so
+ * other local instances can discover it (the workspace switcher lists
+ * running workspaces automatically, no kraftwerk.yml `switcher:` needed).
+ * Registered ports are verified by probing /api/meta on read; entries
+ * that stop answering are pruned, so crashes leave no ghosts.
+ *
+ * projects/<hash(root)>.json — durable. One record per project root that
+ * ever ran the inspector on this machine, keyed by the root and never
+ * pruned automatically. Everything else (name, icon, port) is derived from
+ * the root's kraftwerk.yml at read time, so it is always current. A
+ * project that is not running can be started again from the switcher or
+ * `kraftwerk projects start` — that is what makes a killed UI findable.
  */
 
-const DIR = path.join(os.homedir(), ".kraftwerk", "instances");
+const HOME = path.join(os.homedir(), ".kraftwerk");
+const INSTANCES_DIR = path.join(HOME, "instances");
+const PROJECTS_DIR = path.join(HOME, "projects");
+const LOGS_DIR = path.join(HOME, "logs");
 
 interface InstanceFile {
   pid: number;
   port: number;
   startedAt: string;
+  /** Absolute project root this instance serves (absent in pre-0.33 files). */
+  root?: string;
+}
+
+/** Durable per-project record. The root is the key; everything else derives from it. */
+export interface ProjectRecord {
+  root: string;
+  firstSeen: string;
+  lastStarted: string;
+  /** Set on clean shutdown; older than lastStarted means the last run died. */
+  lastStopped?: string;
+  startCount: number;
 }
 
 /** A verified running instance, shaped like a switcher entry. */
@@ -25,18 +52,53 @@ export interface DiscoveredInstance {
   url: string;
   icon?: string;
   live: true;
+  root?: string;
 }
 
-const selfFile = (): string => path.join(DIR, `${process.pid}.json`);
+/**
+ * One workspace as the switcher shows it: a known project (running or
+ * not) or a running instance the projects registry doesn't know yet.
+ */
+export interface WorkspaceEntry {
+  name: string;
+  /** Where the inspector answers (live) or would answer once started. */
+  url: string;
+  icon?: string;
+  live: boolean;
+  root?: string;
+  /** Root with ~ for the home dir — what the UI prints. */
+  rootLabel?: string;
+  /** False when the root directory is gone (or no longer a project of its own); start is impossible. */
+  exists?: boolean;
+  lastStarted?: string;
+  lastStopped?: string;
+}
+
+const selfFile = (): string => path.join(INSTANCES_DIR, `${process.pid}.json`);
 
 let selfPort: number | null = null;
+let selfRoot: string | null = null;
+
+const projectKey = (root: string): string =>
+  createHash("sha1").update(path.resolve(root)).digest("hex").slice(0, 16);
+
+const projectFile = (root: string): string => path.join(PROJECTS_DIR, `${projectKey(root)}.json`);
+
+/** ~/… for display. */
+export const tildify = (p: string): string => {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p;
+};
+
+/* ---------- instances (ephemeral) ---------- */
 
 /** Write this instance's registry file (call once the server listens). */
-export async function registerInstance(port: number): Promise<void> {
+export async function registerInstance(port: number, root: string): Promise<void> {
   selfPort = port;
+  selfRoot = path.resolve(root);
   try {
-    await fs.mkdir(DIR, { recursive: true });
-    const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString() };
+    await fs.mkdir(INSTANCES_DIR, { recursive: true });
+    const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString(), root: selfRoot };
     await fs.writeFile(selfFile(), JSON.stringify(rec));
   } catch {} // best-effort — without it discovery just won't see us
 }
@@ -53,7 +115,7 @@ export function unregisterInstance(): void {
  * tells the other side to skip its own discovery — two instances probing
  * each other's /api/meta must not recurse.
  */
-async function probe(port: number): Promise<DiscoveredInstance | null> {
+async function probe(port: number): Promise<Omit<DiscoveredInstance, "root"> | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/meta?probe=1`, {
       signal: AbortSignal.timeout(400),
@@ -79,7 +141,7 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
   if (cache && Date.now() - cache.at < 5_000) return cache.entries;
   let files: string[];
   try {
-    files = await fs.readdir(DIR);
+    files = await fs.readdir(INSTANCES_DIR);
   } catch {
     return [];
   }
@@ -89,17 +151,17 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
       .map(async (f) => {
         let rec: InstanceFile;
         try {
-          rec = JSON.parse(await fs.readFile(path.join(DIR, f), "utf8")) as InstanceFile;
+          rec = JSON.parse(await fs.readFile(path.join(INSTANCES_DIR, f), "utf8")) as InstanceFile;
         } catch {
           return null;
         }
         if (rec.pid === process.pid || rec.port === selfPort) return null;
         const found = await probe(rec.port);
         if (!found) {
-          await fs.unlink(path.join(DIR, f)).catch(() => {}); // stale — prune
+          await fs.unlink(path.join(INSTANCES_DIR, f)).catch(() => {}); // stale — prune
           return null;
         }
-        return found;
+        return { ...found, root: rec.root } as DiscoveredInstance;
       })
   );
   const entries = probed
@@ -107,4 +169,239 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
   cache = { at: Date.now(), entries };
   return entries;
+}
+
+/* ---------- projects (durable) ---------- */
+
+async function readProject(file: string): Promise<ProjectRecord | null> {
+  try {
+    const rec = JSON.parse(await fs.readFile(file, "utf8")) as Partial<ProjectRecord>;
+    if (typeof rec.root !== "string") return null;
+    return {
+      root: rec.root,
+      firstSeen: rec.firstSeen ?? rec.lastStarted ?? "",
+      lastStarted: rec.lastStarted ?? rec.firstSeen ?? "",
+      lastStopped: rec.lastStopped,
+      startCount: rec.startCount ?? 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Upsert the project record for a root (call on every inspector start). */
+export async function registerProject(root: string): Promise<void> {
+  const abs = path.resolve(root);
+  const now = new Date().toISOString();
+  try {
+    await fs.mkdir(PROJECTS_DIR, { recursive: true });
+    const prev = await readProject(projectFile(abs));
+    const rec: ProjectRecord = {
+      root: abs,
+      firstSeen: prev?.firstSeen || now,
+      lastStarted: now,
+      startCount: (prev?.startCount ?? 0) + 1,
+    };
+    await fs.writeFile(projectFile(abs), JSON.stringify(rec, null, 2));
+  } catch {} // best-effort, like the instance file
+}
+
+/** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */
+export function markProjectStopped(): void {
+  if (!selfRoot) return;
+  try {
+    const file = projectFile(selfRoot);
+    const rec = JSON.parse(fsSync.readFileSync(file, "utf8")) as ProjectRecord;
+    rec.lastStopped = new Date().toISOString();
+    fsSync.writeFileSync(file, JSON.stringify(rec, null, 2));
+  } catch {}
+}
+
+/** All known projects, most recently started first. */
+export async function listProjects(): Promise<ProjectRecord[]> {
+  let files: string[];
+  try {
+    files = await fs.readdir(PROJECTS_DIR);
+  } catch {
+    return [];
+  }
+  const recs = await Promise.all(
+    files.filter((f) => f.endsWith(".json")).map((f) => readProject(path.join(PROJECTS_DIR, f)))
+  );
+  return recs
+    .filter((r): r is ProjectRecord => r != null)
+    .sort((a, b) => b.lastStarted.localeCompare(a.lastStarted));
+}
+
+/** Drop a project record (the root itself is untouched). */
+export async function forgetProject(root: string): Promise<boolean> {
+  try {
+    await fs.unlink(projectFile(root));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Name, icon and port a root would run with right now — read from its
+ * kraftwerk.yml. `exists` is false when the directory is gone or when the
+ * project resolves to an ancestor (its kraftwerk.yml was removed, or it
+ * sits inside another project): resolveProject walks up and never fails,
+ * so without this check a stale record would wear its parent's identity.
+ */
+async function describeRoot(
+  root: string
+): Promise<{ name: string; icon?: string; port: number; exists: boolean }> {
+  const fallback = { name: path.basename(root), port: 1981, exists: false };
+  if (!(await isDir(root))) return fallback;
+  try {
+    const project = await resolveProject(root);
+    if (path.resolve(project.root) !== path.resolve(root)) return fallback;
+    return {
+      name: project.config.name ?? path.basename(project.root),
+      icon: project.config.icon || undefined,
+      port: project.config.port ?? 1981,
+      exists: true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+let wsCache: { at: number; entries: WorkspaceEntry[] } | null = null;
+
+/**
+ * The switcher's view: every known project joined with the live instances,
+ * plus running instances with no project record yet. The calling instance
+ * itself is left out. Live entries first, then by last start. Cached like
+ * discoverInstances — /api/meta is polled and this stats every root.
+ */
+export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
+  if (wsCache && Date.now() - wsCache.at < 5_000) return wsCache.entries;
+  const [projects, live] = await Promise.all([listProjects(), discoverInstances()]);
+  const liveByRoot = new Map(live.filter((i) => i.root).map((i) => [i.root!, i]));
+  const consumed = new Set<DiscoveredInstance>();
+
+  const entries = (
+    await Promise.all(
+      projects
+        .filter((p) => p.root !== selfRoot)
+        .map(async (p): Promise<WorkspaceEntry> => {
+          const base = { root: p.root, rootLabel: tildify(p.root), lastStarted: p.lastStarted, lastStopped: p.lastStopped };
+          let running = liveByRoot.get(p.root);
+          let d: Awaited<ReturnType<typeof describeRoot>> | undefined;
+          if (!running) {
+            d = await describeRoot(p.root);
+            // A pre-0.33 inspector still serving this root registered no
+            // root — match it by the port the root would use, else the
+            // switcher shows the same project twice (live + stopped).
+            running = live.find((i) => !i.root && i.url === `http://localhost:${d!.port}`);
+          }
+          if (running) {
+            consumed.add(running);
+            return { ...base, name: running.name, url: running.url, icon: running.icon, live: true, exists: true };
+          }
+          return { ...base, name: d!.name, url: `http://localhost:${d!.port}`, icon: d!.icon, live: false, exists: d!.exists };
+        })
+    )
+  ).concat(
+    await Promise.all(
+      live
+        .filter((i) => !consumed.has(i))
+        .map(async (i): Promise<WorkspaceEntry> => ({
+          name: i.name,
+          url: i.url,
+          icon: i.icon,
+          live: true,
+          root: i.root,
+          rootLabel: i.root ? tildify(i.root) : undefined,
+          exists: i.root ? await isDir(i.root) : undefined,
+        }))
+    )
+  );
+  entries.sort((a, b) => {
+    if (a.live !== b.live) return a.live ? -1 : 1;
+    return (b.lastStarted ?? "").localeCompare(a.lastStarted ?? "") || a.name.localeCompare(b.name);
+  });
+  wsCache = { at: Date.now(), entries };
+  return entries;
+}
+
+/* ---------- start a project ---------- */
+
+export interface StartResult {
+  ok: boolean;
+  url?: string;
+  /** True once the new inspector answered its probe within the wait. */
+  live?: boolean;
+  pid?: number;
+  log?: string;
+  error?: string;
+}
+
+/**
+ * Launch `kraftwerk ui` for a root as a detached process (selfCommand:
+ * the bin this process runs from), logging to ~/.kraftwerk/logs/<key>.log.
+ * The reported pid is the `kraftwerk ui` supervisor, which forwards
+ * SIGTERM/SIGINT to its server child, so `kill <pid>` stops the whole UI.
+ * Waits up to ~5s for the new inspector to answer so callers can link
+ * straight to it.
+ */
+export async function startProject(root: string): Promise<StartResult> {
+  const abs = path.resolve(root);
+  const { name, port, exists } = await describeRoot(abs);
+  if (!exists) return { ok: false, error: `not a project directory (missing or moved): ${abs}` };
+  const url = `http://localhost:${port}`;
+  if (abs === selfRoot) return { ok: false, url, live: true, error: "that is this workspace" };
+
+  // Already running, or the port is taken by another kraftwerk?
+  cache = wsCache = null;
+  const live = await discoverInstances();
+  const byRoot = live.find((i) => i.root === abs);
+  if (byRoot) return { ok: true, url: byRoot.url, live: true };
+  if (port === selfPort) return { ok: false, url, error: `port ${port} is used by this workspace` };
+  const byPort = live.find((i) => i.url === url);
+  if (byPort) return { ok: false, url, error: `port ${port} is used by "${byPort.name}"` };
+
+  let log: string | undefined;
+  let stdio: ("ignore" | number)[] = ["ignore", "ignore", "ignore"];
+  try {
+    await fs.mkdir(LOGS_DIR, { recursive: true });
+    log = path.join(LOGS_DIR, `${projectKey(abs)}.log`);
+    const fd = fsSync.openSync(log, "a");
+    fsSync.writeSync(fd, `\n--- ${new Date().toISOString()} start ${name} (${abs}) ---\n`);
+    stdio = ["ignore", fd, fd];
+  } catch {}
+
+  const { cmd, args } = selfCommand(["ui"]);
+  let child: ReturnType<typeof spawn>;
+  try {
+    const env = { ...process.env };
+    delete env.KRAFTWERK_UI_SUPERVISED; // the new one runs its own supervisor
+    child = spawn(cmd, args, { cwd: abs, detached: true, stdio, env });
+    child.unref();
+  } catch (err) {
+    return { ok: false, url, log, error: (err as Error).message };
+  }
+  if (typeof stdio[1] === "number") {
+    try {
+      fsSync.closeSync(stdio[1]);
+    } catch {}
+  }
+
+  let exited: string | null = null;
+  child.once("exit", (code, signal) => {
+    exited = signal ? `killed by ${signal}` : `exited with code ${code}`;
+  });
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 300));
+    if (exited) return { ok: false, url, pid: child.pid, log, error: `kraftwerk ui ${exited}` };
+    if (await probe(port)) {
+      cache = wsCache = null;
+      return { ok: true, url, live: true, pid: child.pid, log };
+    }
+  }
+  return { ok: true, url, live: false, pid: child.pid, log };
 }

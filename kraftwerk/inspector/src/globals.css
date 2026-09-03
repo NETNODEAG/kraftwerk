@@ -202,6 +202,35 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--success); margin-right: 5px; vertical-align: 1px;
 }
+/* Project root under the name (expert mode). Truncated from the left so
+   the distinguishing tail of the path stays visible. */
+.switcher-root {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px; color: var(--on-surface-variant); opacity: 0.85;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  direction: rtl; text-align: left;
+}
+.switcher-root > span { unicode-bidi: isolate; }
+/* Known project that is not running: dimmed row, no link, a start button. */
+.switcher-item.stopped { cursor: default; }
+.switcher-item.stopped .switcher-icon { opacity: 0.55; filter: grayscale(0.6); }
+.switcher-item.stopped .switcher-name { color: var(--on-surface-variant); }
+.switcher-item.missing .switcher-name { text-decoration: line-through; }
+.switcher-err { color: var(--error); }
+.switcher-start {
+  margin-left: auto; flex: none;
+  display: inline-flex; align-items: center; gap: 3px;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  padding: 4px 10px 4px 6px; border-radius: 999px;
+  border: 1px solid var(--outline-variant); background: transparent;
+  color: var(--primary); cursor: pointer;
+  transition: background 120ms ease;
+}
+.switcher-start:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.switcher-start:disabled { opacity: 0.45; cursor: default; }
+.switcher-start .ms { font-size: 16px; }
+.switcher-start:disabled .ms { animation: kw-spin 1s linear infinite; }
+@keyframes kw-spin { to { transform: rotate(360deg); } }
 
 /* settings page (#/settings) */
 .settings-screen { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }

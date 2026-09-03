@@ -1,9 +1,11 @@
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
 import { resolveProject } from "../config.js";
+import { selfCommand } from "../inspector/self-command.js";
 import { RESTART_EXIT_CODE, startInspector } from "../inspector/server.js";
 
 /**
@@ -68,26 +70,41 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
 
 /**
  * Respawn loop around the real server. Spawns this same bin script via the
- * current node — works identically for global installs, local node_modules,
- * npx, and a file: dev checkout. Any exit other than RESTART_EXIT_CODE
- * (including Ctrl-C, which signals the whole foreground group) ends the loop.
+ * current node (selfCommand) — works identically for global installs,
+ * local node_modules, npx, and a file: dev checkout. Any exit other than
+ * RESTART_EXIT_CODE ends the loop. A SIGTERM/SIGINT to the supervisor is
+ * forwarded to the server, so `kill <supervisor pid>` (what `kraftwerk
+ * projects start` reports) takes the whole UI down; Ctrl-C signals the
+ * foreground group and reaches both anyway.
  */
 async function superviseUi(opts: { port?: string; output?: string }): Promise<void> {
-  const args = [
-    process.argv[1],
+  const { cmd, args } = selfCommand([
     "ui",
     ...(opts.port ? ["--port", opts.port] : []),
     ...(opts.output ? ["--output", opts.output] : []),
-  ];
+  ]);
   for (;;) {
-    const child = spawn(process.execPath, args, {
+    const child = spawn(cmd, args, {
       stdio: "inherit",
       env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1" },
     });
-    const code = await new Promise<number | null>((resolve) => {
-      child.once("exit", (c, signal) => resolve(signal ? null : c));
+    const forward = (sig: NodeJS.Signals) => () => {
+      child.kill(sig);
+    };
+    const handlers = { SIGTERM: forward("SIGTERM"), SIGINT: forward("SIGINT") };
+    process.on("SIGTERM", handlers.SIGTERM);
+    process.on("SIGINT", handlers.SIGINT);
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
     });
-    if (code !== RESTART_EXIT_CODE) process.exit(code ?? 0);
+    process.off("SIGTERM", handlers.SIGTERM);
+    process.off("SIGINT", handlers.SIGINT);
+    if (result.code !== RESTART_EXIT_CODE) {
+      // A signal-killed server is not a clean exit — say so in the exit code
+      // (128 + signal, the shell convention) so callers can tell.
+      if (result.signal) process.exit(128 + (os.constants.signals[result.signal] ?? 1));
+      process.exit(result.code ?? 1);
+    }
     console.log(chalk.dim("↻ relaunching the UI with the current install ..."));
   }
 }

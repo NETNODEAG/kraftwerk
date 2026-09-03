@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { resolveProject } from "../config.js";
+import { isDir, resolveProject } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 
@@ -105,8 +105,6 @@ export async function runDoctor(cwd: string): Promise<void> {
       keys.length ? keys.map((k) => `${k}: ${cfg[k]}`).join(", ") : "empty — defaults apply"
     );
     if (!cfg.name) report("info", "name not set in kraftwerk.yml", "inspector header falls back to the folder name");
-    const isDir = async (p: string): Promise<boolean> =>
-      (await stat(p).catch(() => null))?.isDirectory() ?? false;
     for (const key of ["workflows", "knowledge", "agents", "output"] as const) {
       const value = cfg[key];
       if (!value) continue;
