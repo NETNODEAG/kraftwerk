@@ -6,6 +6,7 @@ import {
   discoverWorkspaces,
   forgetProject,
   startProject,
+  stopProject,
   tildify,
   type WorkspaceEntry,
 } from "../inspector/instances.js";
@@ -17,9 +18,11 @@ import {
  *
  *   kraftwerk projects                 list: name, root, running/stopped
  *   kraftwerk projects start <ref>     relaunch `kraftwerk ui` in that root, detached
+ *   kraftwerk projects stop <ref>      SIGTERM a running UI (also ones started in a terminal)
  *   kraftwerk projects forget <ref>    drop the record (the folder stays)
  *
- * <ref> is a project name, the root's folder name, or the root path.
+ * <ref> is a project name, the root's folder name, the root path, or a
+ * port / localhost:port for running instances that recorded no root.
  */
 
 const fmtAgo = (iso?: string): string => {
@@ -43,23 +46,26 @@ const status = (e: WorkspaceEntry): string => {
   return clean ? chalk.dim("stopped") : chalk.yellow("died");
 };
 
-async function resolveRef(ref: string): Promise<WorkspaceEntry> {
-  const all = (await discoverWorkspaces()).filter((e) => e.root);
+/** Match a ref against known workspaces; `needRoot` excludes rootless live instances (start/forget need a root). */
+async function resolveRef(ref: string, needRoot = true): Promise<WorkspaceEntry> {
+  const all = (await discoverWorkspaces()).filter((e) => e.root || !needRoot);
   const abs = path.resolve(ref);
+  const port = /^\d+$/.test(ref) ? `http://localhost:${ref}` : `http://${ref.replace(/^https?:\/\//, "")}`;
   const hits = all.filter(
     (e) =>
       e.root === abs ||
       e.root === ref ||
       e.name === ref ||
-      path.basename(e.root!) === ref
+      (e.root && path.basename(e.root) === ref) ||
+      e.url === port
   );
   if (hits.length === 1) return hits[0];
   if (hits.length === 0) {
     console.error(chalk.red(`No known project "${ref}". See \`kraftwerk projects\`.`));
     process.exit(2);
   }
-  console.error(chalk.red(`"${ref}" is ambiguous — use the root path:`));
-  for (const h of hits) console.error(`  ${h.root}`);
+  console.error(chalk.red(`"${ref}" is ambiguous — use the root path or port:`));
+  for (const h of hits) console.error(`  ${h.root ?? h.url}`);
   process.exit(2);
 }
 
@@ -118,6 +124,24 @@ export function registerProjectCommands(program: Command): void {
         `${chalk.green("✔")} ${entry.name} ${r.live ? "running" : "starting"}: ${chalk.cyan(r.url)}` +
           chalk.dim(` (pid ${r.pid}${r.log ? `, log ${tildify(r.log)}` : ""})`)
       );
+    });
+
+  projects
+    .command("stop")
+    .description("Stop a running UI (SIGTERM to its server; works for terminal-started ones too)")
+    .argument("<ref>", "Project name, folder name, root path, or port")
+    .action(async (ref: string) => {
+      const entry = await resolveRef(ref, false);
+      if (!entry.live) {
+        console.log(chalk.dim(`${entry.name} is not running.`));
+        return;
+      }
+      const r = await stopProject({ root: entry.root, url: entry.url });
+      if (!r.ok) {
+        console.error(chalk.red(`Could not stop ${entry.name}: ${r.error}`));
+        process.exit(1);
+      }
+      console.log(`${chalk.green("✔")} ${entry.name} stopped ${chalk.dim(`(${entry.url.replace(/^https?:\/\//, "")})`)}`);
     });
 
   projects

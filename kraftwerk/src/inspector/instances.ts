@@ -53,6 +53,8 @@ export interface DiscoveredInstance {
   icon?: string;
   live: true;
   root?: string;
+  /** Server process id (what to signal to stop it). */
+  pid: number;
 }
 
 /**
@@ -115,7 +117,7 @@ export function unregisterInstance(): void {
  * tells the other side to skip its own discovery — two instances probing
  * each other's /api/meta must not recurse.
  */
-async function probe(port: number): Promise<Omit<DiscoveredInstance, "root"> | null> {
+async function probe(port: number): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/meta?probe=1`, {
       signal: AbortSignal.timeout(400),
@@ -161,7 +163,7 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
           await fs.unlink(path.join(INSTANCES_DIR, f)).catch(() => {}); // stale — prune
           return null;
         }
-        return { ...found, root: rec.root } as DiscoveredInstance;
+        return { ...found, root: rec.root, pid: rec.pid } as DiscoveredInstance;
       })
   );
   const entries = probed
@@ -328,6 +330,107 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
   return entries;
 }
 
+/* ---------- admin view ---------- */
+
+export type WorkspaceState = "running" | "stopped" | "died" | "missing" | "orphaned";
+
+/** A workspace with everything the admin screen shows. */
+export interface WorkspaceDetail extends WorkspaceEntry {
+  /** The instance answering this request. */
+  current?: boolean;
+  /** kraftwerk.yml present in the root itself (not inherited from an ancestor). */
+  hasConfig?: boolean;
+  /** The root directory itself is gone (vs. still there but no longer a project). */
+  dirGone?: boolean;
+  state: WorkspaceState;
+  firstSeen?: string;
+  startCount?: number;
+  counts?: { agents: number; workflows: number; runs: number; chats: number };
+}
+
+const countDirs = async (dir: string, marker?: string): Promise<number> => {
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith("."));
+    if (!marker) return dirs.length;
+    const flags = await Promise.all(dirs.map((d) => fs.stat(path.join(dir, d.name, marker)).then(() => true, () => false)));
+    return flags.filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+};
+
+const countEntries = async (dir: string): Promise<number> => {
+  try {
+    return (await fs.readdir(dir)).filter((n) => !n.startsWith(".")).length;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * Every workspace including this one, with config presence, counts of
+ * what lives in the root, and a single derived state. Not cached — the
+ * admin screen polls slowly and wants fresh counts.
+ */
+export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
+  const others = await discoverWorkspaces();
+  const all: WorkspaceEntry[] = [...others];
+  if (selfRoot && selfPort) {
+    const d = await describeRoot(selfRoot);
+    const rec = await readProject(projectFile(selfRoot));
+    all.unshift({
+      name: d.name,
+      icon: d.icon,
+      url: `http://localhost:${selfPort}`,
+      live: true,
+      root: selfRoot,
+      rootLabel: tildify(selfRoot),
+      exists: true,
+      lastStarted: rec?.lastStarted,
+      lastStopped: rec?.lastStopped,
+    });
+  }
+  return Promise.all(
+    all.map(async (e): Promise<WorkspaceDetail> => {
+      const current = !!selfRoot && e.root === selfRoot;
+      const base: WorkspaceDetail = { ...e, current, state: e.live ? "running" : "stopped" };
+      if (!e.root) return base;
+      const rec = await readProject(projectFile(e.root));
+      base.firstSeen = rec?.firstSeen;
+      base.startCount = rec?.startCount;
+      // "missing" = the folder is gone; "orphaned" = it is still there but
+      // no longer a project of its own (kraftwerk.yml removed, or it now
+      // resolves to an ancestor). Both are removable from the registry.
+      const dirGone = !(await isDir(e.root));
+      base.dirGone = dirGone;
+      if (!e.live) {
+        if (dirGone) base.state = "missing";
+        else if (e.exists === false) base.state = "orphaned";
+        else if (!(rec?.lastStopped && rec.lastStarted && rec.lastStopped >= rec.lastStarted)) base.state = "died";
+      }
+      if (e.exists === false) {
+        base.hasConfig = false;
+        return base;
+      }
+      try {
+        const project = await resolveProject(e.root);
+        base.hasConfig = !!project.configPath && path.dirname(project.configPath) === path.resolve(e.root);
+        const [agents, workflows, runs, chats] = await Promise.all([
+          countDirs(path.resolve(project.root, project.config.agents ?? "agents"), "agent.yml"),
+          project.workflowsRoot ? countDirs(project.workflowsRoot, "workflow.yml") : Promise.resolve(0),
+          countDirs(path.join(project.outputDir, "runs")),
+          countEntries(path.join(project.outputDir, "chats")),
+        ]);
+        base.counts = { agents, workflows, runs, chats };
+      } catch {
+        base.hasConfig = false;
+      }
+      return base;
+    })
+  );
+}
+
 /* ---------- start a project ---------- */
 
 export interface StartResult {
@@ -404,4 +507,37 @@ export async function startProject(root: string): Promise<StartResult> {
     }
   }
   return { ok: true, url, live: false, pid: child.pid, log };
+}
+
+/* ---------- stop a project ---------- */
+
+/**
+ * Stop a running workspace: SIGTERM to its server process, which
+ * unregisters, stamps lastStopped and exits; the `kraftwerk ui` supervisor
+ * follows. Matched by root, or by url for instances from older versions
+ * that registered no root. Waits up to ~5s for the port to go quiet.
+ */
+export async function stopProject(target: { root?: string; url?: string }): Promise<{ ok: boolean; error?: string }> {
+  if (target.root && path.resolve(target.root) === selfRoot) {
+    return { ok: false, error: "that is this workspace — stop it from its own terminal or pid" };
+  }
+  cache = wsCache = null;
+  const live = await discoverInstances();
+  const inst = live.find((i) => (target.root && i.root === path.resolve(target.root)) || (target.url && i.url === target.url));
+  if (!inst) return { ok: false, error: "not running" };
+  try {
+    process.kill(inst.pid, "SIGTERM");
+  } catch (err) {
+    return { ok: false, error: `could not signal pid ${inst.pid}: ${(err as Error).message}` };
+  }
+  const port = Number(new URL(inst.url).port);
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (!(await probe(port))) {
+      cache = wsCache = null;
+      return { ok: true };
+    }
+  }
+  return { ok: false, error: `pid ${inst.pid} still answers on ${inst.url} after 5s` };
 }

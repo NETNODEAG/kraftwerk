@@ -47,10 +47,12 @@ import {
 import {
   discoverWorkspaces,
   forgetProject,
+  listWorkspacesDetailed,
   markProjectStopped,
   registerInstance,
   registerProject,
   startProject,
+  stopProject,
   tildify,
   unregisterInstance,
 } from "./instances.js";
@@ -184,6 +186,11 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     });
   }
 
+  // GET /api/projects — every known workspace incl. this one, with state + counts (admin screen)
+  if (seg.length === 2 && seg[1] === "projects" && method === "GET") {
+    return json(res, await listWorkspacesDetailed());
+  }
+
   // POST /api/projects/start {root} — launch `kraftwerk ui` for a known
   // project as a detached process (the switcher's Start button).
   if (seg.length === 3 && seg[1] === "projects" && seg[2] === "start" && method === "POST") {
@@ -191,6 +198,18 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       const { root } = JSON.parse(await readBody(req)) as { root?: string };
       if (!root) return json(res, { error: "root required" }, 400);
       const result = await startProject(root);
+      return json(res, result, result.ok ? 200 : 409);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // POST /api/projects/stop {root | url} — SIGTERM a running workspace's server
+  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "stop" && method === "POST") {
+    try {
+      const target = JSON.parse(await readBody(req)) as { root?: string; url?: string };
+      if (!target.root && !target.url) return json(res, { error: "root or url required" }, 400);
+      const result = await stopProject(target);
       return json(res, result, result.ok ? 200 : 409);
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);

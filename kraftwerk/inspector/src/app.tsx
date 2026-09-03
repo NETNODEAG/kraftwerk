@@ -11,6 +11,7 @@ import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { TeamScreen } from "./team";
 import { SettingsScreen } from "./settings";
+import { WorkspacesScreen } from "./workspaces";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
@@ -84,6 +85,7 @@ export function App() {
   else if (seg[0] === "chats") screen = <TeamScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "settings") screen = <SettingsScreen />;
+  else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -312,6 +314,11 @@ function WorkspaceSwitcher({
                 </span>
               </a>
             )
+          )}
+          {expert && (
+            <a className="switcher-foot" href="#/workspaces" role="menuitem" onClick={() => setOpen(false)}>
+              <Icon name="hub" /> manage workspaces
+            </a>
           )}
         </div>
       )}

@@ -149,7 +149,7 @@ steps:
 npx @netnodeag/kraftwerk validate                # strict schema + semantic checks
 npx @netnodeag/kraftwerk run tagline "https://example.com"
 npx @netnodeag/kraftwerk runs                    # inspect past runs
-npx @netnodeag/kraftwerk projects                # every workspace this machine ran; `projects start <name>` relaunches a stopped UI
+npx @netnodeag/kraftwerk projects                # every workspace this machine ran; `projects start|stop <name>` relaunches or stops a UI
 ```
 
 Prefer not to write it by hand? `npx @netnodeag/kraftwerk create "<what it
