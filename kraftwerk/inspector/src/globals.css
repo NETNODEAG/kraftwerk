@@ -1278,6 +1278,56 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 
 /* knowledge activity timeline */
 .know-log { padding: 2px 0 10px; }
+
+/* ---------- knowledge wiki (bundle = pages sidebar + page) ---------- */
+.page-head .tabs { align-self: center; margin-left: 4px; }
+.tabs a {
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.01em; text-transform: capitalize;
+  color: var(--on-surface-variant); padding: 6px 16px; text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+.tabs a + a { border-left: 1px solid var(--outline); }
+.tabs a:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); color: var(--on-surface); }
+.tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); }
+.wiki { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+.wiki-side {
+  position: sticky; top: calc(var(--topbar-h) + 18px);
+  max-height: calc(100vh - var(--topbar-h) - 36px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 1px; padding: 6px 0 6px;
+  border-right: 1px solid color-mix(in srgb, var(--outline-variant) 70%, transparent);
+  padding-right: 10px;
+}
+.wiki-folder {
+  font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--on-surface-variant); padding: 12px 10px 4px;
+}
+.wiki-folder:first-child { padding-top: 4px; }
+.wiki-page {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 10px; text-decoration: none;
+  color: var(--on-surface); font-size: 13px; line-height: 1.3;
+  transition: background 100ms ease;
+}
+.wiki-page .ms-sm { color: var(--on-surface-variant); flex: none; }
+.wiki-page:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.wiki-page.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 500; }
+.wiki-page.active .ms-sm { color: var(--on-secondary-container); }
+.wiki-page-title {
+  flex: 1; min-width: 0; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.wiki-page { align-items: flex-start; }
+.wiki-page .ms-sm { margin-top: 1px; }
+.wiki-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--error); flex: none; }
+.wiki-main { min-width: 0; }
+.concept-md a { color: var(--primary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent); text-underline-offset: 2px; }
+.concept-md a:hover { text-decoration-color: var(--primary); }
+.wiki-main .member-view > .detail-head { margin-top: 0; }
+@media (max-width: 1100px) {
+  .wiki { grid-template-columns: 1fr; }
+  .wiki-side { position: static; max-height: none; border-right: 0; padding-right: 0; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .wiki-folder { width: 100%; }
+}
 .know-log-row { display: flex; gap: 10px; padding: 4px 18px; align-items: baseline; }
 .know-log-text { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.55; min-width: 0; overflow-wrap: break-word; }
 .know-log-text a { color: var(--primary); }

@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
 import { Icon, Link, usePoll } from "./shared";
-import { exportBundlePdf } from "./export";
+import { exportBundlePdf, wikilinks } from "./export";
 
 /**
  * Context & Knowledge: OKF bundles under the project's knowledge/ root.
@@ -54,10 +54,8 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
         </div>
       </aside>
       <div className="runs-main">
-        {bundle && conceptId ? (
-          <ConceptView key={`${bundle}/${conceptId}`} bundle={bundle} conceptId={conceptId} />
-        ) : bundle ? (
-          <BundleView key={bundle} name={bundle} />
+        {bundle ? (
+          <BundleView key={bundle} name={bundle} conceptId={conceptId} />
         ) : (
           <KnowledgeHome root={data?.root} />
         )}
@@ -131,7 +129,16 @@ function TrustBadge({ tier }: { tier: string }) {
   return <span className={`chip trust ${tier}`}>{tier}</span>;
 }
 
-function BundleView({ name }: { name: string }) {
+/** Route segment that selects the activity tab (#/knowledge/<bundle>/@activity). */
+const ACTIVITY_ID = "@activity";
+
+/**
+ * Bundle = small wiki: "pages" tab with a page sidebar + the selected
+ * concept in the main area (first page by default), "activity" tab with
+ * the OKF update log. The selected page lives in the URL so links stay
+ * shareable.
+ */
+function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
   const data = usePoll<BundleDetail | { error: string }>(
     `/api/knowledge/${encodeURIComponent(name)}`,
     false
@@ -139,11 +146,27 @@ function BundleView({ name }: { name: string }) {
   if (!data) return <div className="empty">loading…</div>;
   if ("error" in data) return <div className="empty">bundle not found</div>;
 
+  const tab = conceptId === ACTIVITY_ID ? "activity" : "pages";
+  const concepts = data.concepts;
+  const selected =
+    tab === "pages"
+      ? (conceptId && concepts.some((c) => c.id === conceptId) ? conceptId : concepts[0]?.id)
+      : undefined;
+  const base = `/knowledge/${encodeURIComponent(name)}`;
+
   return (
     <div className="member-view">
       <div className="page-head">
         <h1>{name}</h1>
-        <span className="count">{data.concepts.length} concepts</span>
+        <span className="count">{concepts.length} pages</span>
+        <div className="tabs">
+          <Link href={base} className={tab === "pages" ? "active" : ""}>
+            pages
+          </Link>
+          <Link href={`${base}/${ACTIVITY_ID}`} className={tab === "activity" ? "active" : ""}>
+            activity
+          </Link>
+        </div>
         <span className="spacer" />
         <button className="open-raw" onClick={() => void exportBundlePdf(name)}>
           <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
@@ -155,51 +178,48 @@ function BundleView({ name }: { name: string }) {
           curate in chat
         </button>
       </div>
-      <section className="panel">
-        {data.concepts.length === 0 ? (
+
+      {tab === "activity" ? (
+        data.log ? (
+          <ActivityPanel name={name} log={data.log} />
+        ) : (
+          <section className="panel">
+            <div className="viewer-note">no activity yet</div>
+          </section>
+        )
+      ) : concepts.length === 0 ? (
+        <section className="panel">
           <div className="viewer-note">
-            No concepts yet — start a chat to author some, or write one with{" "}
+            No pages yet — start a chat to author some, or write one with{" "}
             <code>kraftwerk knowledge put {name}/&lt;path&gt;</code>.
           </div>
-        ) : (
-          <div className="m3-list">
-            {groupByFolder(data.concepts).map(({ folder, concepts }) => (
+        </section>
+      ) : (
+        <div className="wiki">
+          <aside className="wiki-side">
+            {groupByFolder(concepts).map(({ folder, concepts: list }) => (
               <Fragment key={folder || "."}>
-                {folder && <div className="m3-subhead">{folder}/</div>}
-                {concepts.map((c) => (
+                {folder && <div className="wiki-folder">{folder}/</div>}
+                {list.map((c) => (
                   <Link
                     key={c.id}
-                    href={`/knowledge/${encodeURIComponent(name)}/${c.id}`}
-                    className="m3-row m3-link"
+                    href={`${base}/${c.id}`}
+                    className={`wiki-page ${c.id === selected ? "active" : ""}`}
+                    title={`${c.id}.md`}
                   >
-                    <span className="m3-ico"><Icon name={typeIcon(c.type)} /></span>
-                    <span className="m3-body">
-                      <span className="m3-head">
-                        {c.title}
-                        {c.status !== "stable" && <span className={`chip ${c.status}`}>{c.status}</span>}
-                        {c.stale && <span className="chip stale">stale</span>}
-                        {c.error && (
-                          <span className="chip stale" title={c.error}>
-                            invalid
-                          </span>
-                        )}
-                      </span>
-                      <span className="m3-sub">
-                        <code>{folder ? c.id.slice(folder.length + 1) : c.id}.md</code>
-                        {" · "}
-                        {c.type ?? "untyped"}
-                      </span>
-                    </span>
-                    <TrustBadge tier={c.trustTier} />
-                    <span className="m3-chev"><Icon name="chevron_right" className="ms-sm" /></span>
+                    <Icon name={typeIcon(c.type)} className="ms-sm" />
+                    <span className="wiki-page-title">{c.title}</span>
+                    {(c.stale || c.error) && <span className="wiki-dot" title={c.error ?? "stale"} />}
                   </Link>
                 ))}
               </Fragment>
             ))}
+          </aside>
+          <div className="wiki-main">
+            {selected && <ConceptView key={selected} bundle={name} conceptId={selected} />}
           </div>
-        )}
-      </section>
-      {data.log && <ActivityPanel name={name} log={data.log} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -319,8 +339,8 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const [view, setView] = useState<"rendered" | "source">("rendered");
   // Concept bodies are (often agent-)generated markdown — sanitize before injecting.
   const html = useMemo(
-    () => (concept ? DOMPurify.sanitize(marked.parse(concept.body, { async: false })) : ""),
-    [concept?.body]
+    () => (concept ? DOMPurify.sanitize(marked.parse(wikilinks(concept.body, bundle), { async: false })) : ""),
+    [concept?.body, bundle]
   );
 
   const load = () => {
@@ -404,11 +424,8 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
         )}
         {concept.stale && <span className="chip stale">stale since {concept.staleAfter?.slice(0, 10)}</span>}
         <span className="spacer" />
-        <button
-          className="open-raw"
-          onClick={() => void createChatAndOpen("claude", { kind: "knowledge", bundle })}
-        >
-          curate in chat
+        <button className="open-raw" onClick={() => void exportBundlePdf(bundle, concept.id)}>
+          <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
         </button>
         <button className="run-btn" disabled={verifying} onClick={verify}>
           {verifying ? "verifying…" : <><Icon name="check" className="ms-sm" /> verify (human)</>}
