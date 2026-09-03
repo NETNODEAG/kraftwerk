@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { RunListItem } from "./types";
 import { Icon, navigate, setBaseTitle, setExpertMode, useExpertMode, useHashPath } from "./shared";
+// Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
+const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
 import { WorkflowIndex } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -89,6 +91,19 @@ export function App() {
       />
     );
   } else screen = <DashboardScreen />;
+
+  // Document editor mode: nothing but the editor.
+  if (seg[0] === "edit" && seg[1] && seg.length > 2) {
+    return (
+      <Suspense fallback={<div className="empty">loading editor…</div>}>
+        <EditorScreen
+          key={seg.slice(1).join("/")}
+          bundle={decodeURIComponent(seg[1])}
+          conceptId={seg.slice(2).map(decodeURIComponent).join("/")}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <>

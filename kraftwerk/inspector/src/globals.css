@@ -1401,3 +1401,63 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   .team-screen, .team-screen.has-sessions, .team-screen.has-sessions.has-knowledge { grid-template-columns: 1fr; }
   .team-form-row { flex-direction: column; align-items: stretch; }
 }
+
+
+/* ---------- document editor mode (#/edit/<bundle>/<id>) ---------- */
+.editor-screen { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--surface); z-index: 50; }
+.editor-bar {
+  display: flex; align-items: center; gap: 14px; padding: 10px 20px;
+  border-bottom: 1px solid var(--outline-variant); background: var(--surface-container-low);
+  font-size: 13px;
+}
+.editor-bar .spacer { flex: 1; }
+.editor-crumb { display: inline-flex; align-items: center; gap: 6px; color: var(--on-surface-variant); font-family: var(--font-mono), monospace; font-size: 11.5px; }
+.editor-title { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-status { font-size: 11.5px; color: var(--on-surface-variant); }
+.editor-status.saving { color: var(--primary); }
+.editor-status.error { color: var(--error); }
+.editor-close {
+  display: inline-flex; align-items: center; gap: 4px; font: inherit; font-weight: 500; font-size: 13px;
+  padding: 6px 14px 6px 10px; border-radius: 999px; border: 1px solid var(--outline); background: transparent; color: var(--on-surface); cursor: pointer;
+}
+.editor-close:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.editor-doc { flex: 1; overflow-y: auto; }
+/* MDXEditor themes itself via radix palettes; map its base surfaces onto ours
+   so toolbar/dialogs/tables match the app in both themes. */
+.editor-mdx, .editor-mdx.dark-theme {
+  --basePageBg: var(--surface); --baseBg: var(--surface);
+  --baseBgSubtle: var(--surface-container-low); --baseBgHover: var(--surface-container);
+  --baseBgActive: var(--surface-container-high);
+  --baseBorder: var(--outline-variant); --baseBorderHover: var(--outline);
+  --baseText: var(--on-surface-variant); --baseTextContrast: var(--on-surface);
+  --accentText: var(--primary); --accentTextContrast: var(--on-primary-container);
+  --accentBg: var(--primary-container); --accentBgSubtle: var(--secondary-container);
+  --accentBorder: var(--primary);
+  color: var(--on-surface); background: var(--surface);
+}
+.editor-mdx.dark-theme .cm-editor { background: var(--surface-container-low); color: var(--on-surface); }
+.editor-mdx.dark-theme .cm-gutters { background: var(--surface-container); color: var(--on-surface-variant); border-color: var(--outline-variant); }
+.editor-mdx.dark-theme .cm-activeLine, .editor-mdx.dark-theme .cm-activeLineGutter { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.editor-mdx.dark-theme .cm-cursor { border-left-color: var(--on-surface); }
+.editor-mdx.dark-theme ._codeMirrorWrapper_uazmk_391, .editor-mdx.dark-theme [class*="codeMirrorWrapper"] { background: var(--surface-container-low); border-color: var(--outline-variant); }
+.editor-mdx [role="toolbar"], .editor-mdx .mdxeditor-toolbar {
+  position: sticky; top: 0; z-index: 2; border-radius: 0;
+  border-bottom: 1px solid var(--outline-variant); background: var(--surface-container-low);
+  padding: 4px 16px;
+}
+.editor-mdx .mdxeditor-root-contenteditable { max-width: 820px; margin: 0 auto; padding: 32px 40px 160px; }
+.editor-content { font-family: var(--font-sans), sans-serif; font-size: 15px; line-height: 1.65; color: var(--on-surface); min-height: 60vh; }
+.editor-content:focus { outline: none; }
+.editor-content h1 { font-size: 26px; margin: 0 0 0.4em; }
+.editor-content h2 { font-size: 20px; margin: 1.4em 0 0.4em; }
+.editor-content h3 { font-size: 16px; margin: 1.2em 0 0.3em; }
+.editor-content p { margin: 0 0 0.75em; }
+.editor-content ul, .editor-content ol { padding-left: 1.4em; margin: 0 0 0.75em; }
+.editor-content table { border-collapse: collapse; margin: 0.6em 0; }
+.editor-content th, .editor-content td { border: 1px solid var(--outline-variant); padding: 5px 10px; }
+.editor-plain {
+  display: block; width: min(820px, 100%); margin: 16px auto; min-height: 70vh; padding: 24px 40px;
+  font: 13px/1.6 var(--font-mono), monospace; color: var(--on-surface); background: var(--surface);
+  border: 1px solid var(--outline-variant); border-radius: 12px; resize: vertical;
+}
+.editor-doc .viewer-note { max-width: 820px; margin: 12px auto 0; }

@@ -16,6 +16,7 @@ import type {
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
 import { exportBundlePdf } from "./export";
+import { editorHref } from "./editor-link";
 
 /**
  * Team: persistent agent teammates ("employees"), each defined in
@@ -684,6 +685,13 @@ function KnowledgeSide({
                                 >
                                   <Icon name="edit" className="ms-sm" /> edit
                                 </button>
+                                <Link
+                                  href={editorHref(b, c.id)}
+                                  className="open-raw"
+                                  title="Full-screen document editor with autosave"
+                                >
+                                  <Icon name="edit_document" className="ms-sm" /> editor
+                                </Link>
                                 <Link href={conceptHref} className="open-raw">
                                   open ↗
                                 </Link>

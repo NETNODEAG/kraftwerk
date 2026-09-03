@@ -445,6 +445,9 @@ export async function appendLog(root: string, bundle: string, entry: string): Pr
   const lines = raw.split("\n");
   const todayIdx = lines.findIndex((l) => l.trim() === `## ${today}`);
   if (todayIdx >= 0) {
+    // Autosaving editors write the same concept many times in a row — one
+    // log line per run of identical entries is enough.
+    if (lines[todayIdx + 1]?.trim() === `* ${entry}`) return;
     lines.splice(todayIdx + 1, 0, `* ${entry}`);
   } else {
     // New day: insert right after the title (newest first).

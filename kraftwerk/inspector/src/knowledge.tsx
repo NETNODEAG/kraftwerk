@@ -5,6 +5,7 @@ import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./
 import { createChatAndOpen } from "./chat";
 import { Icon, Link, usePoll } from "./shared";
 import { exportBundlePdf, wikilinks } from "./export";
+import { editorHref } from "./editor-link";
 
 /**
  * Context & Knowledge: OKF bundles under the project's knowledge/ root.
@@ -424,6 +425,9 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
         )}
         {concept.stale && <span className="chip stale">stale since {concept.staleAfter?.slice(0, 10)}</span>}
         <span className="spacer" />
+        <Link href={editorHref(bundle, concept.id)} className="open-raw" title="Full-screen document editor with autosave">
+          <Icon name="edit_document" className="ms-sm" /> open in editor
+        </Link>
         <button className="open-raw" onClick={() => void exportBundlePdf(bundle, concept.id)}>
           <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
         </button>

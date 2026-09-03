@@ -1,15 +1,18 @@
 # kraftwerk
 
-**Agentic workspace.** Kraftwerk is an open-source agentic workspace for
-teams. It is where people and AI agents get work done together.
+**Agentic workspace.** Kraftwerk is an open-source agentic workspace where
+humans and persistent AI coworkers work on real tasks together.
 
-**Why it exists.** AI work often lives in individual silos: personal prompts,
-Claude Code sessions, scripts, and one-off automations. Kraftwerk turns that
-into shared, repeatable ways of working across a team or organisation.
+**Why it exists.** We think every team needs a place to bring persistent AI
+coworkers and humans together to get work done. Today, AI work mostly lives in
+individual silos: personal prompts, Claude Code sessions, scripts, and one-off
+automations. Kraftwerk turns individual AI use into shared, repeatable ways of
+working across a team or organisation.
 
 **How it works.** Kraftwerk brings together:
 
-- **Agents** — Claude Code, Codex, Pi, and others
+- **Agents** — persistent AI coworkers, each with its own identity and memory,
+  running on Claude Code, Codex, Pi, and others
 - **Skills** — reusable capabilities and ways of working
 - **Knowledge** — shared organisational and project context
 - **Workflows** — repeatable multi-step processes
