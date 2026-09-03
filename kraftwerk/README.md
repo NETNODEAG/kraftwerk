@@ -1,26 +1,31 @@
-# kraftwerk
+# Kraftwerk
 
 **Agentic workspace.** Kraftwerk is an open-source agentic workspace where
-humans and persistent AI coworkers work on real tasks together.
+humans and persistent AI coworkers work on real tasks together. Agents,
+knowledge, skills and workflows belong to the team, not to the person who
+happened to set them up, and every result is checked before anyone relies on
+it.
 
-**Why it exists.** We think every team needs a place to bring persistent AI
-coworkers and humans together to get work done. Today, AI work mostly lives in
-individual silos: personal prompts, Claude Code sessions, scripts, and one-off
-automations. Kraftwerk turns individual AI use into shared, repeatable ways of
-working across a team or organisation.
+**Why teams need it.** AI work today lives in individual silos: personal
+prompts, Claude Code sessions, scripts, and one-off automations. Kraftwerk
+gives a team or organisation one place where AI use becomes shared,
+repeatable practice: agents that remember and are accountable, knowledge that
+is curated and verified, workflows whose results are checked before the work
+moves on.
 
-**How it works.** Kraftwerk brings together:
+**What's in the workspace.**
 
-- **Agents** — persistent AI coworkers, each with its own identity and memory,
-  running on Claude Code, Codex, Pi, and others
+- **Agents** — persistent AI coworkers, each with its own identity, memory
+  and standing orders, running on Claude Code, Codex, Pi, and others
+- **Knowledge** — shared organisational and project context, browsed like a
+  wiki, edited with autosave, verified by humans, exportable as PDF
 - **Skills** — reusable capabilities and ways of working
-- **Knowledge** — shared organisational and project context
 - **Workflows** — repeatable multi-step processes
 - **Verification** — deterministic gates that check the work
+- **Inspector** — the web UI that brings it all together
 
-**The shift.** From everyone using AI individually → to the organisation
-working agentically. Kraftwerk is the shared place where that work lives,
-runs, and improves over time.
+This README is the reference for the framework and CLI. For the overview,
+start at the [project README](https://github.com/NETNODEAG/kraftwerk#readme).
 
 ## Under the hood
 
