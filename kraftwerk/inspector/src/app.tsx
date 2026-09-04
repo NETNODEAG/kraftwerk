@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import type { GitStatus, RunListItem } from "./types";
-import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile } from "./shared";
+import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile, setFeatures } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -14,6 +14,7 @@ import { SettingsScreen } from "./settings";
 import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
 import { ReposScreen } from "./repos";
+import { VibeablesScreen } from "./vibeables";
 import { SearchPalette } from "./search";
 
 /**
@@ -37,6 +38,7 @@ export function App() {
   const [projectRootAbs, setProjectRootAbs] = useState("");
   const [gitOn, setGitOn] = useState(false);
   const [reposOn, setReposOn] = useState(false);
+  const [vibeablesOn, setVibeablesOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
@@ -54,6 +56,7 @@ export function App() {
           projectRootLabel?: string;
           git?: boolean;
           repos?: boolean;
+          vibeables?: boolean;
           switcher?: SwitcherEntry[];
         };
         if (!alive) return;
@@ -65,6 +68,8 @@ export function App() {
         setProjectRootAbs(d.projectRoot ?? "");
         setGitOn(!!d.git);
         setReposOn(!!d.repos);
+        setVibeablesOn(!!d.vibeables);
+        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables });
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -108,6 +113,7 @@ export function App() {
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "git") screen = <GitScreen />;
   else if (seg[0] === "repos") screen = <ReposScreen />;
+  else if (seg[0] === "vibeables") screen = <VibeablesScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -162,6 +168,7 @@ export function App() {
           <a href="#/runs"><Icon name="history" /> workflow runs</a>
           <a href="#/skills"><Icon name="extension" /> skills</a>
           {reposOn && <a href="#/repos"><Icon name="source" /> repositories</a>}
+          {vibeablesOn && <a href="#/vibeables"><Icon name="web" /> vibeables</a>}
           {gitOn && <GitNavLink />}
         </nav>
         <span className="spacer" />

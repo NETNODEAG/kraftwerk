@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { gitignoreHas, ignoreEntryFor, reposRootFor, resolveProject, type Project } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { newestMtime } from "./mtime.js";
 import { git, gitNet, sshCommandFor } from "./git.js";
 
 /**
@@ -43,6 +44,8 @@ export interface RepoInfo {
   ahead?: number;
   /** Commits on the upstream not here. Absent when the branch tracks nothing. */
   behind?: number;
+  /** Newest change in the working tree (.git, node_modules and dot entries excluded); lists sort by it. */
+  updatedAt?: string;
   /** Set when git could not be read for this folder. */
   error?: string;
 }
@@ -121,11 +124,13 @@ export async function openRepos(): Promise<{ project?: Project; root?: string; o
 async function inspect(root: string, slug: string): Promise<RepoInfo> {
   const dir = path.join(root, slug);
   const info: RepoInfo = { slug, path: dir, dirty: 0 };
-  const [status, log, origin] = await Promise.all([
+  const [status, log, origin, newest] = await Promise.all([
     git(["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], dir),
     git(["log", "-1", "--format=%h%x00%s%x00%cI"], dir),
     git(["remote", "get-url", "origin"], dir),
+    newestMtime(dir),
   ]);
+  if (newest) info.updatedAt = new Date(newest).toISOString();
   if (!status.ok) return { ...info, error: status.stderr || "not a git repository" };
   if (origin.ok) info.url = origin.stdout.trim();
   if (log.ok) {

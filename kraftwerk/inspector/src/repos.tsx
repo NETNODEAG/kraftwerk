@@ -110,7 +110,8 @@ export function ReposScreen() {
     }
   };
 
-  const repos = view?.repos ?? [];
+  // Newest change first; the API lists alphabetically.
+  const repos = [...(view?.repos ?? [])].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 
   return (
     <div className="settings-screen ws-screen repos-screen">
@@ -178,7 +179,7 @@ export function ReposScreen() {
       {view?.enabled && (
         <section className="panel">
           <div className="panel-head">
-            <span className="microlabel">cloned repositories</span>
+            <span className="microlabel">cloned repositories · newest change first</span>
           </div>
           {repos.length === 0 && <div className="ws-empty">Nothing cloned yet.</div>}
           {repos.map((r) => {
@@ -192,6 +193,7 @@ export function ReposScreen() {
                     <span className="ws-name">{r.slug}</span>
                     {r.branch && <span className="repo-branch">{r.branch}</span>}
                     <span className={`ws-state ws-state-${st.cls}`}>{st.label}</span>
+                    {r.updatedAt && <span className="vibeable-when" title={r.updatedAt}>changed {fmtAgo(r.updatedAt)}</span>}
                   </div>
                   {r.url && (
                     <div className="ws-root" title={r.url}>{shortUrl(r.url)}</div>

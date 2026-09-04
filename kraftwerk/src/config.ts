@@ -33,6 +33,8 @@ import { parse } from "yaml";
  *     autosync: pull           # off | pull
  *   repos:                     # git repositories the agents work on (absent = off, bare key = on)
  *     root: kraftwerk-data/repos   # where clones land, relative to the file. Default: repos
+ *   vibeables:                 # small apps built live in a chat, rendered in the inspector (absent = off, bare key = on)
+ *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -92,6 +94,29 @@ export function reposRootFor(project: Project): string | undefined {
   return path.resolve(project.root, r.root ?? REPOS_DEFAULT_ROOT);
 }
 
+/**
+ * Vibeables: small applications the user builds live with an agent — a chat
+ * with a preview pane. Each is one folder under the root, plain files the
+ * inspector serves (or a dev command it runs). The root is part of the
+ * workspace and synced by the workspace git like agents and knowledge.
+ */
+export interface VibeablesConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where the apps live, relative to the project root. Default: kraftwerk-data/vibeables */
+  root?: string;
+}
+
+/** Where vibeables live when `vibeables.root` is not set. */
+export const VIBEABLES_DEFAULT_ROOT = "kraftwerk-data/vibeables";
+
+/** Absolute vibeables root when the feature is on, undefined otherwise. */
+export function vibeablesRootFor(project: Project): string | undefined {
+  const v = project.config.vibeables;
+  if (!v || v.enabled === false) return undefined;
+  return path.resolve(project.root, v.root ?? VIBEABLES_DEFAULT_ROOT);
+}
+
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
 export function ignoreEntryFor(projectRoot: string, dir: string): string | undefined {
   const rel = path.relative(projectRoot, path.resolve(projectRoot, dir)).split(path.sep).join("/");
@@ -139,6 +164,8 @@ export interface ProjectConfig {
   git?: GitConfig;
   /** Repositories the agents work on. Absent = off. */
   repos?: ReposConfig;
+  /** Vibeables: apps built live in a chat. Absent = off. */
+  vibeables?: VibeablesConfig;
 }
 
 export interface Project {
@@ -222,7 +249,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -261,7 +288,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
       validateGit(configPath, config[key]);
     } else if (key === "repos") {
       if (config[key] === null) config[key] = {};
-      validateRepos(configPath, config[key]);
+      validateRootBlock(configPath, "repos", config[key]);
+    } else if (key === "vibeables") {
+      if (config[key] === null) config[key] = {};
+      validateRootBlock(configPath, "vibeables", config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
@@ -324,26 +354,29 @@ function validateGit(configPath: string, value: unknown): void {
   }
 }
 
-function validateRepos(configPath: string, value: unknown): void {
+/**
+ * `repos` and `vibeables` share one shape: { enabled?, root? }. The root
+ * must never be the project itself or anything outside it — it is what
+ * remove/delete operate under, and what the workspace git may stage.
+ */
+function validateRootBlock(configPath: string, block: "repos" | "vibeables", value: unknown): void {
   const file = path.basename(configPath);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${file}: repos must be a mapping (enabled, root)`);
+    throw new Error(`${file}: ${block} must be a mapping (enabled, root)`);
   }
   const r = value as Record<string, unknown>;
   for (const key of Object.keys(r)) {
     if (!["enabled", "root"].includes(key)) {
-      throw new Error(`${file}: repos.${key} is unknown (allowed: enabled, root)`);
+      throw new Error(`${file}: ${block}.${key} is unknown (allowed: enabled, root)`);
     }
   }
   if (r.enabled !== undefined && typeof r.enabled !== "boolean") {
-    throw new Error(`${file}: repos.enabled must be true or false`);
+    throw new Error(`${file}: ${block}.enabled must be true or false`);
   }
   if (r.root !== undefined && (typeof r.root !== "string" || !r.root.trim())) {
-    throw new Error(`${file}: repos.root must be a non-empty string`);
+    throw new Error(`${file}: ${block}.root must be a non-empty string`);
   }
-  // The root is what `repos remove --force` deletes under, so it must never
-  // be the project itself or anything outside it.
   if (typeof r.root === "string" && !ignoreEntryFor(path.dirname(configPath), r.root.trim())) {
-    throw new Error(`${file}: repos.root must be a directory inside the project (not ".", ".." or an absolute path outside it)`);
+    throw new Error(`${file}: ${block}.root must be a directory inside the project (not ".", ".." or an absolute path outside it)`);
   }
 }

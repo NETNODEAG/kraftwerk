@@ -15,6 +15,7 @@ import {
   listChats,
   postMessage,
   resolvePermission,
+  setChatVibeable,
   subscribeChat,
 } from "./chat/sessions.js";
 import type { ChatAgentId, ChatScope } from "./chat/types.js";
@@ -67,6 +68,20 @@ import {
 } from "./git.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
 import { addRepo, listRepos, openRepos, removeRepo, updateRepo } from "./repos.js";
+import {
+  createVibeable,
+  deleteVibeable,
+  disposeAllDevs,
+  listVibeables,
+  openVibeables,
+  resolveVibeable,
+  serveVibeable,
+  startDev,
+  stopDev,
+  subscribeVibeable,
+  vibeableStatus,
+  type VibeableEvent,
+} from "./vibeables.js";
 import { searchAgents } from "./search.js";
 import {
   deleteRoutine,
@@ -286,6 +301,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       projectRootLabel: tildify(project?.root ?? getProjectRoot()),
       git: (project?.config.git && project.config.git.enabled !== false) === true,
       repos: (project?.config.repos && project.config.repos.enabled !== false) === true,
+      vibeables: (project?.config.vibeables && project.config.vibeables.enabled !== false) === true,
       switcher,
     });
   }
@@ -340,6 +356,71 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       return json(res, repo, 201);
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET /api/vibeables — every app folder under the vibeables root | POST {name} — create one with the starter
+  if (seg.length === 2 && seg[1] === "vibeables") {
+    if (method === "GET") return json(res, await listVibeables());
+    if (method === "POST") {
+      if ((await openVibeables()).off) return json(res, { error: "vibeables are off" }, 409);
+      try {
+        const body = JSON.parse(await readBody(req)) as { name?: unknown };
+        return json(res, await createVibeable(typeof body.name === "string" ? body.name : ""), 201);
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  const vibeableError = (err: unknown): [number, { error: string }] => {
+    const msg = (err as Error).message;
+    return [/^no vibeable/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
+  };
+
+  // GET /api/vibeables/<slug> — how the app previews: mode, static url, dev server state | DELETE — remove the folder
+  if (seg.length === 3 && seg[1] === "vibeables") {
+    try {
+      if (method === "GET") return json(res, await vibeableStatus(seg[2]));
+      if (method === "DELETE") {
+        await deleteVibeable(seg[2]);
+        return json(res, { ok: true });
+      }
+    } catch (err) {
+      const [status, body] = vibeableError(err);
+      return json(res, body, status);
+    }
+  }
+
+  // GET /api/vibeables/<slug>/events — SSE: file changes (debounced) and dev-server state
+  if (seg.length === 4 && seg[1] === "vibeables" && seg[3] === "events" && method === "GET") {
+    let dir: string;
+    try {
+      dir = (await resolveVibeable(seg[2])).dir;
+    } catch (err) {
+      const [status, body] = vibeableError(err);
+      return json(res, body, status);
+    }
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+    res.write(":ok\n\n");
+    const unsubscribe = subscribeVibeable(seg[2], dir, (ev: VibeableEvent) => res.write(`data: ${JSON.stringify(ev)}\n\n`));
+    const heartbeat = setInterval(() => res.write(":hb\n\n"), 25_000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+    return;
+  }
+
+  // POST /api/vibeables/<slug>/dev/{start,stop} — the app's dev command
+  if (seg.length === 5 && seg[1] === "vibeables" && seg[3] === "dev" && method === "POST") {
+    try {
+      if (seg[4] === "start") return json(res, await startDev(seg[2]));
+      if (seg[4] === "stop") return json(res, await stopDev(seg[2]));
+      return json(res, { error: "not found" }, 404);
+    } catch (err) {
+      const [status, body] = vibeableError(err);
+      return json(res, body, status);
     }
   }
 
@@ -449,6 +530,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     json(res, { ok: true });
     setTimeout(() => {
       disposeAllBackends();
+      disposeAllDevs();
       process.exit(RESTART_EXIT_CODE);
     }, 150);
     return;
@@ -830,6 +912,18 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     return;
   }
 
+  // POST /api/chats/:id/vibeable {slug | null} — open an app in the chat's preview pane (cwd follows), or close it
+  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "vibeable" && method === "POST") {
+    try {
+      const body = JSON.parse((await readBody(req)) || "{}") as { slug?: unknown };
+      const slug = body.slug == null || body.slug === "" ? null : String(body.slug);
+      const result = await setChatVibeable(seg[2], slug);
+      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
   // POST /api/chats/:id/{message,permission,cancel}
   if (seg.length === 4 && seg[1] === "chats" && method === "POST") {
     let body: Record<string, unknown> = {};
@@ -906,6 +1000,7 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.once(sig, () => {
       disposeAllBackends();
+      disposeAllDevs();
       unregisterInstance();
       markProjectStopped();
       process.exit(sig === "SIGINT" ? 130 : 143);
@@ -913,6 +1008,7 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   }
   process.once("exit", (code) => {
     disposeAllBackends();
+    disposeAllDevs();
     unregisterInstance();
     // A self-restart (new version) is not a stop — the project stays "running".
     if (code !== RESTART_EXIT_CODE) markProjectStopped();
@@ -922,6 +1018,8 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
       if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
+      // /vibeables/<slug>/… is an app's own files, served for the preview pane.
+      else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) await serveVibeable(req, res, url);
       else await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);

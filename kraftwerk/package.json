@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.38.1",
+  "version": "0.39.0",
   "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
@@ -53,15 +53,15 @@
   "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@types/node": "^26.2.0",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "^0.70.0",
-    "@agentclientprotocol/codex-acp": "^1.6.2",
+    "@agentclientprotocol/claude-agent-acp": "^0.74.0",
+    "@agentclientprotocol/codex-acp": "^1.10.0",
     "@agentclientprotocol/sdk": "^1.4.0",
-    "@inquirer/prompts": "^8.5.2",
+    "@inquirer/prompts": "^8.7.1",
     "ajv": "^8.20.0",
     "chalk": "^6.0.0",
     "cli-table3": "^0.6.5",

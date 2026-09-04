@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
-import { Icon, Link, navigate, setPageTitle, useExpertMode } from "./shared";
+import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
+import { VibePane, VibePicker } from "./vibeables";
 
 /**
  * Chat building blocks: the thread view (event-log replay — text chunks
@@ -109,6 +110,8 @@ export function ChatThread({
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const features = useFeatures();
 
   useEffect(() => {
     let alive = true;
@@ -167,10 +170,16 @@ export function ChatThread({
   if (!meta) return <div className="empty">loading…</div>;
 
   return (
+    <div className={`chat-split${meta.vibeable ? " open" : ""}`}>
     <div className="chat-thread">
       <div className="detail-head">
         <span className={`lamp ${busy ? "running" : "ok"}`} />
         <h1>{title || "new chat"}</h1>
+        {!meta.vibeable && features.vibeables && (
+          <button className="ws-btn vibeable-open" onClick={() => setPicker(true)} title="Build a small app live: a preview pane next to this chat" disabled={busy}>
+            <Icon name="web" className="ms-sm" /> vibeable
+          </button>
+        )}
         <span className="chip agent">{meta.agent}</span>
         {meta.scope.kind === "run" && (
           <Link href={`/runs/${meta.scope.runId}`} className="chip">
@@ -197,6 +206,18 @@ export function ChatThread({
       </div>
       <Thread id={id} events={events} busy={busy} />
       <Composer id={id} busy={busy} scope={meta.scope} />
+    </div>
+    {meta.vibeable && <VibePane key={meta.vibeable} chatId={id} slug={meta.vibeable} agentBusy={busy} onClosed={setMeta} />}
+    {picker && (
+      <VibePicker
+        chatId={id}
+        onClose={() => setPicker(false)}
+        onOpened={(m) => {
+          setMeta(m);
+          setPicker(false);
+        }}
+      />
+    )}
     </div>
   );
 }

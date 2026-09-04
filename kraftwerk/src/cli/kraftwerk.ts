@@ -14,6 +14,7 @@ import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
 import { registerProjectCommands } from "./projects.js";
 import { registerRepoCommands } from "./repos.js";
+import { registerVibeableCommands } from "./vibeables.js";
 import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
@@ -297,6 +298,7 @@ registerKnowledgeCommands(program);
 registerRoutineCommands(program);
 registerProjectCommands(program);
 registerRepoCommands(program);
+registerVibeableCommands(program);
 
 program
   .command("ui")

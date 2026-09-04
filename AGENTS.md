@@ -39,6 +39,12 @@ The persistent chat personas are **agents** — in code, routes, CSS, prose and 
 
 Git clones the agents work on are **repositories** in prose and the UI, `repos` in code, config, routes and the CLI (`ReposConfig`, `listRepos`, `/api/repos`, `kraftwerk repos`, `repos.root`). Not "projects" — that word is the registry of kraftwerk workspaces (`~/.kraftwerk/projects`). The one persisted legacy is chat `meta.json` written before 0.36 with `{ kind: "team", member }`; `store.ts` upgrades it on read, so never write that shape again.
 
+Small apps built live in a chat are **vibeables** — one folder each under `vibeables.root`, part of the workspace (synced by the workspace git, never a repository of their own). In code, config, routes and the CLI the word is `vibeables` (`VibeablesConfig`, `listVibeables`, `/api/vibeables`, `/vibeables/<slug>/` for the served files, `kraftwerk vibeables`); the singular `vibeable` names one app (`ChatMeta.vibeable`, `/api/chats/:id/vibeable`, `vibeable.yml` inside the folder). Not "repos" — a vibeable is the workspace's own work, a repository is someone else's history.
+
+## Optional features are flags in kraftwerk.yml
+
+`git`, `repos` and `vibeables` are opt-in blocks: absent = off, a bare key = on with defaults, `enabled: false` keeps the block but turns it off. A new optional feature follows the same shape and plumbing — `<name>RootFor(project)` in `src/config.ts` as the one reader of the block, validation next to the other blocks, a `<name>: boolean` in `/api/meta`, a toggle on the settings screen (`settings.ts` writes the block through the yaml Document API), and the UI hides every entry point while the flag is off (`useFeatures()` in `inspector/src/shared.tsx`).
+
 ## Learn from feedback
 
 When the user corrects how something was done, or confirms an approach worth keeping — a convention, a preference about tests or output, a workflow step that was missing — and it would apply to future work on this repo, write it into this file in the matching section (or a new one) as part of the same turn. Keep it to the rule and the reason; no session narrative. Do not record one-off instructions that only apply to the task at hand.

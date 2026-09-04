@@ -21,6 +21,8 @@ export interface ChatMeta {
   title: string;
   cwd: string;
   scope: ChatScope;
+  /** Slug of the vibeable open in this chat's preview pane (cwd is its folder while set). */
+  vibeable?: string;
   createdAt: string;
   updatedAt: string;
 }

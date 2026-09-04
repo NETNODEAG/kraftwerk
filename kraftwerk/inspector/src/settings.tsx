@@ -41,6 +41,7 @@ interface SettingsData {
     switcher?: SwitcherRow[];
     git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" };
     repos?: { enabled?: boolean; root?: string };
+    vibeables?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -71,6 +72,13 @@ function reposForm(d: SettingsData): ReposForm {
   return { enabled: r.enabled !== false, root: r.root ?? "" };
 }
 
+/** The vibeables block, same shape. */
+function vibeablesForm(d: SettingsData): ReposForm {
+  const v = d.config.vibeables;
+  if (!v) return REPOS_OFF;
+  return { enabled: v.enabled !== false, root: v.root ?? "" };
+}
+
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
@@ -79,6 +87,7 @@ export function SettingsScreen() {
   const [switcher, setSwitcher] = useState<SwitcherRow[]>([]);
   const [git, setGit] = useState<GitForm>(GIT_OFF);
   const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
+  const [vibeables, setVibeables] = useState<ReposForm>(REPOS_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -95,6 +104,7 @@ export function SettingsScreen() {
         setSwitcher(d.config.switcher ?? []);
         setGit(gitForm(d));
         setRepos(reposForm(d));
+        setVibeables(vibeablesForm(d));
       })
       .catch(() => setError("could not load settings"));
   }, []);
@@ -119,6 +129,7 @@ export function SettingsScreen() {
           switcher,
           git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) },
           repos,
+          vibeables,
         }),
       });
       const d = (await r.json()) as SettingsData & { error?: string };
@@ -127,6 +138,7 @@ export function SettingsScreen() {
       setSwitcher(d.config.switcher ?? []);
       setGit(gitForm(d));
       setRepos(reposForm(d));
+      setVibeables(vibeablesForm(d));
       setDirty(false);
       setSaved(true);
       // Nudge the app shell to refetch /api/meta so header + favicon update now.
@@ -148,6 +160,10 @@ export function SettingsScreen() {
   };
   const setReposField = (patch: Partial<ReposForm>): void => {
     setRepos((r) => ({ ...r, ...patch }));
+    touch();
+  };
+  const setVibeablesField = (patch: Partial<ReposForm>): void => {
+    setVibeables((v) => ({ ...v, ...patch }));
     touch();
   };
 
@@ -353,6 +369,36 @@ export function SettingsScreen() {
               <div className="settings-note">
                 Relative to the project root. Saving creates the folder and adds it to .gitignore; every agent gets the
                 list of clones as context and can add more with <code>kraftwerk repos add</code>.
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">vibeables</span>
+          <span className="spacer" />
+          <a className="run-btn tonal" href="#/vibeables">
+            <Icon name="web" className="ms-sm" /> open vibeables
+          </a>
+        </div>
+        <div className="agent-form">
+          <label className="settings-check">
+            <input type="checkbox" checked={vibeables.enabled} onChange={(e) => setVibeablesField({ enabled: e.target.checked })} />
+            build small apps live in a chat, with a preview pane next to the thread
+          </label>
+          {vibeables.enabled && (
+            <>
+              <div className="agent-form-row">
+                <label className="agent-field" style={{ flex: 1 }}>
+                  vibeables root
+                  <input value={vibeables.root} placeholder="kraftwerk-data/vibeables" onChange={(e) => setVibeablesField({ root: e.target.value })} />
+                </label>
+              </div>
+              <div className="settings-note">
+                Relative to the project root, one folder per app. Part of the workspace: versioned with it on the git screen, not
+                git-ignored. Every chat gets a <b>vibeable</b> button; the agent then works inside the app folder.
               </div>
             </>
           )}

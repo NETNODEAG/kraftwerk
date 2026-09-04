@@ -104,6 +104,7 @@ describe("repositories API", () => {
     assert.equal(repo.ahead, 0);
     assert.equal(repo.behind, 0);
     assert.ok(existsSync(path.join(repo.path, "README.md")));
+    assert.ok(repo.updatedAt && Date.now() - Date.parse(repo.updatedAt) < 60_000, `updatedAt is the newest file: ${repo.updatedAt}`);
     assert.equal((await add({ url: upstream })).status, 400, "same name twice");
   });
 

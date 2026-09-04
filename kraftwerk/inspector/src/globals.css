@@ -1770,3 +1770,90 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   border: 1px solid var(--outline-variant); background: transparent; cursor: pointer;
 }
 .settings-color-row input[type="text"], .settings-color-row input:not([type]) { flex: 1; min-width: 0; }
+
+/* ---------- vibeable (chat + live preview) ---------- */
+
+.chat-split { display: flex; flex: 1; min-height: 0; gap: 16px; }
+.chat-split.open .chat-thread { max-width: none; margin: 0; flex: 0 1 44%; min-width: 340px; }
+.vibeable-open { margin-left: auto; }
+.vibeable-pane {
+  flex: 1 1 56%; min-width: 0; display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface-container-low); border-radius: 16px; box-shadow: var(--elev-1); overflow: hidden;
+}
+.vibeable-bar {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--outline-variant); min-height: 44px;
+}
+.vibeable-bar-icon { color: var(--on-surface-variant); }
+.vibeable-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vibeable-mode {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
+  padding: 2px 10px; border-radius: 999px; background: var(--surface-container-highest); color: var(--on-surface-variant); white-space: nowrap;
+}
+.vibeable-mode.failed { color: var(--on-error-container); background: var(--error-container); }
+.vibeable-flash { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--primary); animation: vibeable-fade 2.5s ease forwards; white-space: nowrap; }
+@keyframes vibeable-fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+.vibeable-bar .icon-btn.active { background: var(--secondary-container); color: var(--on-secondary-container); }
+.vibeable-play { color: var(--primary); }
+.vibeable-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; display: block; }
+.vibeable-err { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; font-size: 12.5px; color: var(--on-error-container); background: var(--error-container); }
+.vibeable-err span { flex: 1; }
+.vibeable-err-x { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.vibeable-err-x:hover { background: color-mix(in srgb, var(--on-error-container) 12%, transparent); }
+.vibeable-note { flex: none; padding: 6px 14px; font-size: 12px; color: var(--on-surface-variant); border-bottom: 1px solid var(--outline-variant); }
+.vibeable-note code { font-size: 11px; }
+.vibeable-log {
+  flex: none; max-height: 180px; overflow: auto; margin: 0; padding: 8px 14px; border-top: 1px solid var(--outline-variant);
+  font-family: var(--font-mono), monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  color: var(--on-surface-variant); background: var(--surface-container);
+}
+.vibeable-pane .empty { margin: auto; border: 0; }
+
+.vibeable-overlay {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
+  background: color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+}
+.vibeable-picker {
+  width: min(560px, calc(100vw - 32px)); max-height: 76vh; display: flex; flex-direction: column;
+  background: var(--surface-container); color: var(--on-surface); border-radius: 28px; box-shadow: var(--elev-3); padding: 20px 24px 22px;
+}
+.vibeable-picker-head { display: flex; align-items: center; gap: 12px; }
+.vibeable-picker-head h2 { font-size: 20px; font-weight: 400; margin: 0; }
+.vibeable-picker-hint { margin: 8px 0 14px; font-size: 13px; color: var(--on-surface-variant); }
+.vibeable-picker-off { font-size: 13.5px; padding: 12px 0; }
+.vibeable-new { display: flex; gap: 10px; margin-bottom: 12px; }
+.vibeable-new input {
+  flex: 1; height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--outline); background: var(--surface-container-highest); color: var(--on-surface); font-size: 14px;
+}
+.vibeable-new input:focus { outline: 0; border-color: var(--primary); }
+.vibeable-picker-list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--outline-variant); padding-top: 6px; }
+.vibeable-picker-empty { padding: 16px 4px; font-size: 13px; color: var(--on-surface-variant); }
+.vibeable-repo {
+  display: flex; align-items: center; gap: 14px; padding: 10px 8px; border-radius: 12px; text-align: left; width: 100%;
+  background: transparent; border: 0; color: inherit; cursor: pointer; font: inherit;
+}
+.vibeable-repo:hover:not(:disabled) { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.vibeable-repo:disabled { opacity: 0.6; cursor: default; }
+.vibeable-repo-icon {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--secondary-container); color: var(--on-secondary-container);
+}
+.vibeable-repo-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.vibeable-repo-name { font-size: 15px; }
+.vibeable-repo-sub { font-size: 12px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vibeable-repo-go { color: var(--on-surface-variant); }
+.vibeable-picker-err { margin-top: 10px; }
+
+@media (max-width: 1100px) {
+  .chat-split.open { flex-direction: column; }
+  .chat-split.open .chat-thread { flex: none; min-width: 0; min-height: 50vh; }
+  .vibeable-pane { flex: none; min-height: 460px; }
+}
+
+.vibeables-agent { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--on-surface-variant); }
+.vibeables-agent select {
+  height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--outline-variant); background: var(--surface-container-highest); color: var(--on-surface); font-size: 12.5px;
+}
+.vibeable-when { font-size: 12px; color: var(--on-surface-variant); }
+.vibeable-row .ws-icon.vibeable-repo-icon { width: 40px; height: 40px; }
+.ws-actions a.ws-btn { text-decoration: none; }

@@ -7,6 +7,7 @@ import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
 import { getAgent, listAgents } from "../agents.js";
 import { listRepos } from "../repos.js";
+import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
@@ -214,6 +215,46 @@ async function reposContext(): Promise<string> {
   );
 }
 
+/**
+ * "## Vibeable" block: the chat has an app folder open in the preview pane.
+ * The agent works inside that folder, and everything it saves is what the
+ * user sees next — so the block spells out how the preview runs and what
+ * the sandbox rules out.
+ */
+async function vibeableContext(slug: string): Promise<string> {
+  const st = await vibeableStatus(slug).catch(() => null);
+  if (!st) {
+    return `## Vibeable\nThis chat had the vibeable "${slug}" open in its preview pane, but its folder is gone. Tell the user; do not recreate it unasked.`;
+  }
+  const dev = st.dev;
+  const mode = dev?.running
+    ? `A dev server is running (\`${dev.command}\`, port ${dev.port}${dev.ready ? "" : ", not answering yet"}); the pane shows it.`
+    : st.config.dev
+      ? `${VIBEABLE_CONFIG_FILE} declares \`dev: ${st.config.dev}\`; the dev server is not running, so the pane shows the static folder until the user starts it with the play button.`
+      : `No dev command: the pane shows the folder${st.config.dir ? ` ${st.config.dir}/` : ""} served as-is.`;
+  return (
+    `## Vibeable: ${slug}\n` +
+    `You are building a small piece of software live with the user. Your working directory is its folder: ${st.path}. ` +
+    `The user sees it rendered in a preview pane next to this chat, and every file you save reloads that preview within a second — ` +
+    `work in small visible steps, and describe what changed instead of pasting code. Think ad-hoc software, not a website: a dashboard, ` +
+    `a slideshow, a calculator, a tracker with a backend — whatever the user asks for.\n\n` +
+    `Current state: ${mode}${st.configError ? ` (${st.configError} — fix it)` : ""}\n\n` +
+    `How the preview runs:\n` +
+    `- Static mode (default): the inspector serves the folder directly at /vibeables/${slug}/ — index.html is the entry; plain HTML, CSS and ` +
+    `JavaScript with no build step. Use relative URLs (./app.js, not /app.js). ES modules and CDN imports (https://esm.sh/<pkg>) work. ` +
+    `The static preview is a sandboxed document: no localStorage, no cookies, no calls into the inspector's own /api. Keep state in memory, ` +
+    `or move to dev mode when it must persist.\n` +
+    `- Dev mode: when the app needs a build tool, a backend or a database, write ${VIBEABLE_CONFIG_FILE} with \`dev: <command>\` ` +
+    `(e.g. \`npm run dev\`, \`node server.js\`, \`python3 -m http.server $PORT\`). kraftwerk starts it inside the folder with PORT in the ` +
+    `environment and the pane embeds that server; the command must listen on $PORT (or declare \`port:\` when it cannot). Optional ` +
+    `\`dir:\` picks the folder for static mode (e.g. dist). The app brings its own backend and storage — a small node server writing JSON ` +
+    `files, SQLite, an external API — nothing of that is provided by kraftwerk.\n\n` +
+    `Rules: the folder is part of this workspace and versioned with it — do not run git yourself, the user reviews and commits from the ` +
+    `inspector's Git screen; keep secrets out of the folder (.env is git-ignored, node_modules too); leave ${VIBEABLE_CONFIG_FILE} valid YAML; ` +
+    `when you switch the app to dev mode, say so and ask the user to press play in the pane. Reply briefly — the preview shows the result.`
+  );
+}
+
 /** Base context per scope; scopeContext() appends the shared skills block. */
 async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
   if (scope.kind === "agent") {
@@ -357,21 +398,24 @@ const RENDERING_BLOCK =
   `Prefer these relative /api/... URLs over file paths when showing results: they render directly ` +
   `in this chat and keep working wherever the inspector is reachable.`;
 
-async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
+async function scopeContext(meta: ChatMeta): Promise<string> {
+  const { scope, agent } = meta;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, skills] = await Promise.all([
+  const [base, repos, vibe, skills] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
+    meta.vibeable ? vibeableContext(meta.vibeable) : Promise.resolve(""),
     availableSkills(scope),
   ]);
-  return [base, repos, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /* ---------- backend lifecycle ---------- */
 
 /** Agent sessions carry the agent's model/effort; resolved live so edits apply to new backends. */
-async function backendTuning(scope: ChatScope, agent: ChatAgentId): Promise<BackendTuning> {
+async function backendTuning(meta: ChatMeta): Promise<BackendTuning> {
+  const { scope, agent } = meta;
   const tuning: BackendTuning = {};
   if (scope.kind === "agent") {
     const def = await getAgent(scope.slug).catch(() => null);
@@ -382,7 +426,8 @@ async function backendTuning(scope: ChatScope, agent: ChatAgentId): Promise<Back
   }
   // Run chats live in the run folder — grant claude the project root so
   // project-level skills and files stay reachable.
-  if (scope.kind === "run" && agent === "claude") tuning.addDirs = [getProjectRoot()];
+  // A vibeable session works inside the app folder for the same reason.
+  if ((scope.kind === "run" || meta.vibeable) && agent === "claude") tuning.addDirs = [getProjectRoot()];
   // pi loads skills only when told: hand it every visible skill folder.
   if (agent === "pi") {
     const skills = await availableSkills(scope);
@@ -421,7 +466,7 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
     },
   };
   const { agent, cwd } = state.meta;
-  const tuning = await backendTuning(state.meta.scope, agent);
+  const tuning = await backendTuning(state.meta);
   state.backend =
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
@@ -434,13 +479,16 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
 
 /* ---------- public API (used by server.ts) ---------- */
 
+/** Where a chat's agent runs when no vibeable is open: the run folder for run chats, else the project root. */
+const defaultCwd = (scope: ChatScope): string => (scope.kind === "run" ? safeRunDir(scope.runId) : getProjectRoot());
+
 export async function createChat(opts: {
   agent: ChatAgentId;
   scope: ChatScope;
   /** Preset title (e.g. routine runs); otherwise the first message names the chat. */
   title?: string;
 }): Promise<ChatMeta> {
-  const cwd = opts.scope.kind === "run" ? safeRunDir(opts.scope.runId) : getProjectRoot();
+  const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
   const meta: ChatMeta = {
     id: newChatId(),
@@ -499,9 +547,7 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
   void (async () => {
     try {
       const backend = await ensureBackend(state);
-      const context = state.needsContext
-        ? await scopeContext(state.meta.scope, state.meta.agent)
-        : "";
+      const context = state.needsContext ? await scopeContext(state.meta) : "";
       state.needsContext = false;
       // "/<skill> args" expands to the skill's instructions for the agent;
       // the thread keeps the short form the user typed.
@@ -524,6 +570,40 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
     }
   })();
   return {};
+}
+
+/**
+ * Open a vibeable in the chat (or close it with null). The agent's cwd
+ * becomes the app folder, so the running subprocess is dropped and the next
+ * message spawns one there with fresh context. Refused while a turn runs:
+ * the agent would keep editing in the old folder.
+ */
+export async function setChatVibeable(
+  id: string,
+  slug: string | null
+): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found", status: 404 };
+  if (state.busy) return { error: "agent is still working — wait for the turn to finish", status: 409 };
+  if (slug) {
+    let dir: string;
+    try {
+      dir = (await resolveVibeable(slug)).dir;
+    } catch (err) {
+      const msg = (err as Error).message;
+      return { error: msg, status: /^no vibeable/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400 };
+    }
+    state.meta.vibeable = slug;
+    state.meta.cwd = dir;
+  } else {
+    delete state.meta.vibeable;
+    state.meta.cwd = defaultCwd(state.meta.scope);
+  }
+  state.meta.updatedAt = new Date().toISOString();
+  await writeMeta(state.meta);
+  dropBackend(state);
+  state.needsContext = true;
+  return { meta: state.meta };
 }
 
 export async function resolvePermission(

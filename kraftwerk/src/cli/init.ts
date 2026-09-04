@@ -27,6 +27,7 @@ agents: ${DATA_DIR}/agents         # agent definitions
 skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packages)
 # repos:                          # git repositories the agents work on (uncomment both lines to enable)
 #   root: ${DATA_DIR}/repos       # clones land here (git-ignored); a bare \`repos:\` uses repos/ instead
+# vibeables:                      # small apps built live in a chat with a preview pane (uncomment to enable; one folder per app under ${DATA_DIR}/vibeables, versioned with the workspace)
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}

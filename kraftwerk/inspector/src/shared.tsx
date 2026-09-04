@@ -125,6 +125,35 @@ export function useExpertMode(): boolean {
   );
 }
 
+/* ---------- feature flags ---------- */
+
+// Which optional features kraftwerk.yml turns on (git, repos, vibeables).
+// app.tsx sets them from /api/meta; screens read them to show or hide
+// entry points, so a chat never offers a vibeable in a workspace without them.
+export interface Features {
+  git: boolean;
+  repos: boolean;
+  vibeables: boolean;
+}
+let features: Features = { git: false, repos: false, vibeables: false };
+const featureListeners = new Set<() => void>();
+
+export function setFeatures(next: Features): void {
+  if (next.git === features.git && next.repos === features.repos && next.vibeables === features.vibeables) return;
+  features = next;
+  featureListeners.forEach((fn) => fn());
+}
+
+export function useFeatures(): Features {
+  return useSyncExternalStore(
+    (cb) => {
+      featureListeners.add(cb);
+      return () => featureListeners.delete(cb);
+    },
+    () => features
+  );
+}
+
 /* ---------- workspace identity ---------- */
 
 /** Stable 0–359 hue for a key (a root path or url): the same workspace gets the same colour everywhere. */

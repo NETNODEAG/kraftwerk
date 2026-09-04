@@ -1,13 +1,14 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry } from "../config.js";
+import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, VIBEABLES_DEFAULT_ROOT, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig } from "../config.js";
+import { ensureVibeablesRoot } from "./vibeables.js";
 import { getProjectRoot } from "./context.js";
 import { ensureReposRoot } from "./repos.js";
 
 /**
  * Workspace settings: read kraftwerk.yml for the UI and write the
- * UI-editable subset (name, icon, switcher, git, repos) back. Edits go through the
+ * UI-editable subset (name, icon, switcher, git, repos, vibeables) back. Edits go through the
  * yaml Document API so comments and every other key survive untouched;
  * a missing kraftwerk.yml is created at the project root on first save.
  */
@@ -36,6 +37,8 @@ export interface SaveSettingsInput {
   git?: GitSettingsInput;
   /** Omitted = untouched. Same rules as git: off with defaults = no block. */
   repos?: ReposSettingsInput;
+  /** Omitted = untouched. Same shape and rules as repos. */
+  vibeables?: ReposSettingsInput;
 }
 
 export interface ReposSettingsInput {
@@ -109,16 +112,17 @@ function cleanGit(value: GitSettingsInput): GitConfig | null {
   return { enabled: false, ...out };
 }
 
-/** The repos block to write; null when the feature is off and nothing else is set. */
-function cleanRepos(value: ReposSettingsInput, projectRoot: string): ReposConfig | null {
-  if (typeof value !== "object" || value === null) throw new Error("repos must be an object");
-  if (typeof value.enabled !== "boolean") throw new Error("repos.enabled must be true or false");
+/** The repos or vibeables block to write; null when the feature is off and nothing else is set. */
+function cleanRootBlock(block: "repos" | "vibeables", value: ReposSettingsInput, projectRoot: string): ReposConfig | VibeablesConfig | null {
+  if (typeof value !== "object" || value === null) throw new Error(`${block} must be an object`);
+  if (typeof value.enabled !== "boolean") throw new Error(`${block}.enabled must be true or false`);
   const out: ReposConfig = {};
   const root = typeof value.root === "string" ? value.root.trim().replace(/\/+$/, "") : "";
   if (root && !ignoreEntryFor(projectRoot, root)) {
-    throw new Error('repos.root must be a directory inside the project (not ".", ".." or an absolute path outside it)');
+    throw new Error(`${block}.root must be a directory inside the project (not ".", ".." or an absolute path outside it)`);
   }
-  if (root && root !== REPOS_DEFAULT_ROOT) out.root = root;
+  const dflt = block === "repos" ? REPOS_DEFAULT_ROOT : VIBEABLES_DEFAULT_ROOT;
+  if (root && root !== dflt) out.root = root;
   if (value.enabled) return out;
   if (Object.keys(out).length === 0) return null;
   return { enabled: false, ...out };
@@ -156,14 +160,20 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     else doc.set("git", git);
   }
   if (input.repos !== undefined) {
-    const repos = cleanRepos(input.repos, project.root);
+    const repos = cleanRootBlock("repos", input.repos, project.root);
     if (repos === null) doc.delete("repos");
     else doc.set("repos", repos);
+  }
+  if (input.vibeables !== undefined) {
+    const vibeables = cleanRootBlock("vibeables", input.vibeables, project.root);
+    if (vibeables === null) doc.delete("vibeables");
+    else doc.set("vibeables", vibeables);
   }
 
   await fs.writeFile(configPath, doc.toString());
   // Turning repositories on prepares the folder so the first clone and the
   // workspace git both find it in the right state.
   if (input.repos?.enabled) await ensureReposRoot().catch(() => {});
+  if (input.vibeables?.enabled) await ensureVibeablesRoot().catch(() => {});
   return getSettings();
 }
