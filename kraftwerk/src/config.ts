@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 
@@ -153,6 +154,18 @@ export interface Project {
 const exists = async (p: string): Promise<boolean> => !!(await stat(p).catch(() => null));
 
 /** True when the path exists and is a directory. */
+/**
+ * A user-supplied path as an absolute one: a leading `~` is the home
+ * directory (shells expand it, JSON bodies and quoted args do not), then
+ * path.resolve. Every path that gets stored or compared — registry roots,
+ * `--output`, project refs — goes through here so nothing ever persists
+ * `~/…` or `<cwd>/~/…`.
+ */
+export function absolutePath(p: string, from: string = process.cwd()): string {
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) p = path.join(os.homedir(), p.slice(1));
+  return path.resolve(from, p);
+}
+
 export const isDir = async (p: string): Promise<boolean> =>
   (await stat(p).catch(() => null))?.isDirectory() ?? false;
 

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
-import { resolveProject } from "../config.js";
+import { absolutePath, resolveProject } from "../config.js";
 import { selfCommand } from "../inspector/self-command.js";
 import { RESTART_EXIT_CODE, startInspector } from "../inspector/server.js";
 
@@ -57,7 +57,7 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
 
   const staticDir = ensureBuilt();
   const project = await resolveProject(cwd);
-  const outputDir = opts.output ? path.resolve(cwd, opts.output) : project.outputDir;
+  const outputDir = opts.output ? absolutePath(opts.output, cwd) : project.outputDir;
   // Port precedence: --port flag > kraftwerk.yml `port` > 1981.
   const port = opts.port ? Number(opts.port) : (project.config.port ?? 1981);
 

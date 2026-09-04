@@ -1,5 +1,6 @@
 import path from "node:path";
 import chalk from "chalk";
+import { absolutePath } from "../config.js";
 import Table from "cli-table3";
 import type { Command } from "commander";
 import {
@@ -49,7 +50,7 @@ const status = (e: WorkspaceEntry): string => {
 /** Match a ref against known workspaces; `needRoot` excludes rootless live instances (start/forget need a root). */
 async function resolveRef(ref: string, needRoot = true): Promise<WorkspaceEntry> {
   const all = (await discoverWorkspaces()).filter((e) => e.root || !needRoot);
-  const abs = path.resolve(ref);
+  const abs = absolutePath(ref);
   const port = /^\d+$/.test(ref) ? `http://localhost:${ref}` : `http://${ref.replace(/^https?:\/\//, "")}`;
   const hits = all.filter(
     (e) =>

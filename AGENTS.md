@@ -42,3 +42,7 @@ Git clones the agents work on are **repositories** in prose and the UI, `repos` 
 ## Learn from feedback
 
 When the user corrects how something was done, or confirms an approach worth keeping — a convention, a preference about tests or output, a workflow step that was missing — and it would apply to future work on this repo, write it into this file in the matching section (or a new one) as part of the same turn. Keep it to the rule and the reason; no session narrative. Do not record one-off instructions that only apply to the task at hand.
+
+## Paths are stored absolute
+
+Any path a user hands the tool — a project root in a request body, a `kraftwerk projects <ref>`, `--output` — goes through `absolutePath()` in `src/config.ts` before it is stored, compared or printed in an error. It expands a leading `~` and resolves the rest; the registry under `~/.kraftwerk` never holds `~/…` or `<cwd>/~/…`. Shells expand the tilde, JSON bodies and quoted arguments do not, so `path.resolve` alone is not enough. Tilde forms are display-only (`tildify`, `rootLabel`).

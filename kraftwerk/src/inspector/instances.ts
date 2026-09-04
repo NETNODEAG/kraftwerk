@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import fsSync, { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isDir, resolveProject } from "../config.js";
+import { absolutePath, isDir, resolveProject } from "../config.js";
 import { selfCommand } from "./self-command.js";
 import type { AgentSummary } from "./agents.js";
 
@@ -88,7 +88,7 @@ let selfPort: number | null = null;
 let selfRoot: string | null = null;
 
 const projectKey = (root: string): string =>
-  createHash("sha1").update(path.resolve(root)).digest("hex").slice(0, 16);
+  createHash("sha1").update(absolutePath(root)).digest("hex").slice(0, 16);
 
 const projectFile = (root: string): string => path.join(PROJECTS_DIR, `${projectKey(root)}.json`);
 
@@ -103,7 +103,7 @@ export const tildify = (p: string): string => {
 /** Write this instance's registry file (call once the server listens). */
 export async function registerInstance(port: number, root: string): Promise<void> {
   selfPort = port;
-  selfRoot = path.resolve(root);
+  selfRoot = absolutePath(root);
   try {
     await fs.mkdir(INSTANCES_DIR, { recursive: true });
     const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString(), root: selfRoot };
@@ -212,7 +212,7 @@ async function readProject(file: string): Promise<ProjectRecord | null> {
 
 /** Upsert the project record for a root (call on every inspector start). */
 export async function registerProject(root: string): Promise<void> {
-  const abs = path.resolve(root);
+  const abs = absolutePath(root);
   const now = new Date().toISOString();
   try {
     await fs.mkdir(PROJECTS_DIR, { recursive: true });
@@ -492,7 +492,7 @@ export interface StartResult {
  * straight to it.
  */
 export async function startProject(root: string): Promise<StartResult> {
-  const abs = path.resolve(root);
+  const abs = absolutePath(root);
   const { name, port, exists } = await describeRoot(abs);
   if (!exists) return { ok: false, error: `not a project directory (missing or moved): ${abs}` };
   const url = `http://localhost:${port}`;
@@ -558,12 +558,12 @@ export async function startProject(root: string): Promise<StartResult> {
  * that registered no root. Waits up to ~5s for the port to go quiet.
  */
 export async function stopProject(target: { root?: string; url?: string }): Promise<{ ok: boolean; error?: string }> {
-  if (target.root && path.resolve(target.root) === selfRoot) {
+  if (target.root && absolutePath(target.root) === selfRoot) {
     return { ok: false, error: "that is this workspace — stop it from its own terminal or pid" };
   }
   cache = wsCache = null;
   const live = await discoverInstances();
-  const inst = live.find((i) => (target.root && i.root === path.resolve(target.root)) || (target.url && i.url === target.url));
+  const inst = live.find((i) => (target.root && i.root === absolutePath(target.root)) || (target.url && i.url === target.url));
   if (!inst) return { ok: false, error: "not running" };
   try {
     process.kill(inst.pid, "SIGTERM");

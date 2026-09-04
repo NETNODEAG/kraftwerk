@@ -45,6 +45,22 @@ describe("kraftwerk projects", () => {
     assert.match(r.stdout, /project is not running/);
   });
 
+  it("a ~ ref addresses a project under HOME and the record stays absolute", async () => {
+    // Registered with a tilde (what a quoted arg or a JSON body carries): stored expanded.
+    process.env.HOME = dir.home;
+    const { registerProject } = await import("../../src/inspector/instances.js");
+    await registerProject("~/tilde-project");
+    const entries = json<Entry[]>(await run(["--json"]));
+    const rec = entries.find((e) => e.root === path.join(dir.home, "tilde-project"));
+    assert.ok(rec, `absolute root missing in ${JSON.stringify(entries.map((e) => e.root))}`);
+    assert.ok(entries.every((e) => !e.root?.includes("~")));
+
+    const r = await run(["forget", "~/tilde-project"]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.stdout, /✔ forgot tilde-project/);
+    assert.equal(json<Entry[]>(await run(["--json"])).length, 1);
+  });
+
   it("forget drops the record by name, folder name or path; unknown refs exit 2", async () => {
     const unknown = await run(["forget", "nothing-like-this"]);
     assert.equal(unknown.code, 2);
