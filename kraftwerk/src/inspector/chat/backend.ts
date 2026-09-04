@@ -21,7 +21,7 @@ export interface BackendHooks {
 }
 
 /**
- * Optional per-chat model/effort overrides (from a team member definition).
+ * Optional per-chat model/effort overrides (from an agent definition).
  * Each backend maps them onto whatever its agent actually supports.
  */
 export interface BackendTuning {

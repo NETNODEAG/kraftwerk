@@ -7,7 +7,7 @@ import { initBundle, writeConcept } from "../okf.js";
 /**
  * `kraftwerk init` — make any repository a kraftwerk consumer in one
  * command: kraftwerk.yml (root marker + config), a kraftwerk-data/ tree with
- * a runnable example workflow, a starter team agent ("max"), a demo
+ * a runnable example workflow, a starter agent ("max"), a demo
  * knowledge bundle, and an output ignore entry. Everything is idempotent:
  * existing files are left untouched and reported.
  */
@@ -23,7 +23,7 @@ port: 1981   # port \`kraftwerk ui\` listens on
 workflows: ${DATA_DIR}/workflows   # where workflows live
 output: ${DATA_DIR}/output         # where run artifacts land (git-ignored)
 knowledge: ${DATA_DIR}/knowledge   # OKF knowledge bundles
-agents: ${DATA_DIR}/agents         # team agent definitions
+agents: ${DATA_DIR}/agents         # agent definitions
 skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packages)
 `;
 
@@ -122,7 +122,7 @@ export async function runInit(cwd: string): Promise<void> {
   await put(`${DATA_DIR}/workflows/hello/prompts/assistant.md`, PERSONA_TEMPLATE);
   await put(`${DATA_DIR}/workflows/hello/prompts/answer.md`, PROMPT_TEMPLATE);
 
-  // Team agent "max".
+  // Agent "max".
   await put(`${DATA_DIR}/agents/max/agent.yml`, AGENT_YML_TEMPLATE);
   await put(`${DATA_DIR}/agents/max/system.md`, AGENT_SYSTEM_TEMPLATE);
 

@@ -8,7 +8,7 @@ import { Icon, Link, navigate, setPageTitle, useExpertMode } from "./shared";
  * Chat building blocks: the thread view (event-log replay — text chunks
  * merge into agent messages, tool calls render as activity cards,
  * permission requests as decision cards with buttons), the new-chat pane,
- * and the composer. General chats live on the team screen under the
+ * and the composer. General chats live on the agent screen under the
  * "General Chats" entry; history comes from GET /api/chats/:id, live
  * events stream over SSE.
  */
@@ -23,7 +23,7 @@ const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
 
 export async function createChatAndOpen(
   agent: ChatAgentId,
-  scope: { kind: string; runId?: string; bundle?: string; member?: string }
+  scope: { kind: string; runId?: string; bundle?: string; slug?: string }
 ): Promise<void> {
   const res = await fetch("/api/chats", {
     method: "POST",
@@ -33,8 +33,8 @@ export async function createChatAndOpen(
   const meta = await res.json();
   if (meta.id) {
     navigate(
-      meta.scope?.kind === "team"
-        ? `/agents/${encodeURIComponent(meta.scope.member)}/chat/${meta.id}`
+      meta.scope?.kind === "agent"
+        ? `/agents/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`
         : `/agents/chats/${meta.id}`
     );
   }
@@ -158,7 +158,7 @@ export function ChatThread({
   // Browser tab: "<agent> · <agent description> · <session> — <project>".
   useEffect(() => {
     if (!meta) return;
-    const who = agentName ?? (meta.scope.kind === "team" ? meta.scope.member : meta.agent);
+    const who = agentName ?? (meta.scope.kind === "agent" ? meta.scope.slug : meta.agent);
     setPageTitle([who, agentDescription, title || "new chat"].filter(Boolean).join(" · "));
     return () => setPageTitle("");
   }, [meta, title, agentName, agentDescription]);
@@ -186,9 +186,9 @@ export function ChatThread({
             knowledge{meta.scope.bundle ? `:${meta.scope.bundle}` : ""}
           </Link>
         )}
-        {meta.scope.kind === "team" && (
-          <Link href={`/agents/${encodeURIComponent(meta.scope.member)}/info`} className="chip">
-            agent:{meta.scope.member}
+        {meta.scope.kind === "agent" && (
+          <Link href={`/agents/${encodeURIComponent(meta.scope.slug)}/info`} className="chip">
+            agent:{meta.scope.slug}
           </Link>
         )}
         <span className="rid" title={meta.cwd}>
@@ -413,8 +413,8 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
 
-  // Skills the /-menu offers: all discovered ones, narrowed by the team
-  // member's allowlist when this is a team session, plus the member's own
+  // Skills the /-menu offers: all discovered ones, narrowed by the agent
+  // member's allowlist when this is a agent session, plus the member's own
   // agent skills, which always apply and shadow shared ones (mirrors the server).
   useEffect(() => {
     let alive = true;
@@ -422,12 +422,12 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
       try {
         const d = await fetch("/api/skills").then((r) => r.json());
         let list: SkillInfo[] = d.skills ?? [];
-        if (scope?.kind === "team") {
+        if (scope?.kind === "agent") {
           const [m, own] = await Promise.all([
-            fetch(`/api/team/${encodeURIComponent(scope.member)}`)
+            fetch(`/api/agents/${encodeURIComponent(scope.slug)}`)
               .then((r) => (r.ok ? r.json() : null))
               .catch(() => null),
-            fetch(`/api/team/${encodeURIComponent(scope.member)}/skills`)
+            fetch(`/api/agents/${encodeURIComponent(scope.slug)}/skills`)
               .then((r) => (r.ok ? r.json() : null))
               .catch(() => null),
           ]);

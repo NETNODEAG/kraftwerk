@@ -54,6 +54,35 @@ export function navigate(to: string, opts?: { replace?: boolean }): void {
   else window.location.hash = to;
 }
 
+/**
+ * Ask this instance to spawn `kraftwerk ui` for a stopped workspace and
+ * resolve with its URL once the new inspector answers. The target is
+ * another origin (no CORS), so our own server does the probing and reports
+ * the entry live through /api/meta.
+ */
+export async function startWorkspace(root: string): Promise<string> {
+  const r = await fetch("/api/projects/start", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ root }),
+  });
+  const d = (await r.json()) as { ok?: boolean; live?: boolean; url?: string; error?: string };
+  if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+  window.dispatchEvent(new Event("kw-meta-refresh"));
+  if (d.live && d.url) return d.url;
+  for (let i = 0; i < 12; i++) {
+    await new Promise((res) => setTimeout(res, 1_000));
+    try {
+      const m = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
+        switcher?: { root?: string; live?: boolean; url: string }[];
+      };
+      const hit = m.switcher?.find((e) => e.root === root && e.live);
+      if (hit) return hit.url;
+    } catch {}
+  }
+  throw new Error("started, but the UI did not answer yet — see ~/.kraftwerk/logs");
+}
+
 export function Link({
   href,
   ...rest

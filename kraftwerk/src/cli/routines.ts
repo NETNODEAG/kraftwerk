@@ -11,7 +11,7 @@ import {
   saveRoutine,
   type RoutineStatus,
 } from "../inspector/routines.js";
-import { getMember, listMembers } from "../inspector/team.js";
+import { getAgent, listAgents } from "../inspector/agents.js";
 
 /**
  * `kraftwerk routines` — CLI surface over per-agent scheduled prompts
@@ -20,7 +20,7 @@ import { getMember, listMembers } from "../inspector/team.js";
  * session (chat) and the scheduler live there.
  */
 
-/** Point the inspector context at this project so team/routine paths resolve. */
+/** Point the inspector context at this project so agent/routine paths resolve. */
 async function initContext(): Promise<{ port: number }> {
   const project = await resolveProject(process.cwd());
   setProjectRoot(project.root);
@@ -28,8 +28,8 @@ async function initContext(): Promise<{ port: number }> {
   return { port: project.config.port ?? 1981 };
 }
 
-async function requireMember(slug: string): Promise<void> {
-  if (!(await getMember(slug))) {
+async function requireAgent(slug: string): Promise<void> {
+  if (!(await getAgent(slug))) {
     console.error(chalk.red(`Agent "${slug}" not found (expected agents/${slug}/agent.yml).`));
     process.exit(2);
   }
@@ -71,8 +71,8 @@ export function registerRoutineCommands(program: Command): void {
     .option("--json", "Machine-readable output")
     .action(async (agent: string | undefined, opts: { json?: boolean }) => {
       await initContext();
-      const slugs = agent ? [agent] : (await listMembers()).map((m) => m.slug);
-      if (agent) await requireMember(agent);
+      const slugs = agent ? [agent] : (await listAgents()).map((m) => m.slug);
+      if (agent) await requireAgent(agent);
       const all: Record<string, RoutineStatus[]> = {};
       for (const slug of slugs) all[slug] = await routineStatuses(slug);
       if (opts.json) return void console.log(JSON.stringify(all, null, 2));
@@ -103,7 +103,7 @@ export function registerRoutineCommands(program: Command): void {
       opts: { name: string; schedule: string; prompt?: string; file?: string; id?: string; disabled?: boolean }
     ) => {
       await initContext();
-      await requireMember(agent);
+      await requireAgent(agent);
       const prompt =
         opts.prompt ??
         (opts.file ? await readFile(path.resolve(opts.file), "utf8") : process.stdin.isTTY ? "" : await readStdin());
@@ -141,7 +141,7 @@ export function registerRoutineCommands(program: Command): void {
     .argument("<id>", "Routine id (see `kraftwerk routines <agent>`)")
     .action(async (agent: string, id: string) => {
       await initContext();
-      await requireMember(agent);
+      await requireAgent(agent);
       if (!(await listRoutines(agent)).some((r) => r.id === id)) {
         console.error(chalk.red(`Routine "${agent}/${id}" not found.`));
         process.exit(2);
@@ -177,7 +177,7 @@ export function registerRoutineCommands(program: Command): void {
     .action(async (agent: string, id: string, opts: { port?: string }) => {
       const { port } = await initContext();
       const p = opts.port ? Number(opts.port) : port;
-      const url = `http://localhost:${p}/api/team/${encodeURIComponent(agent)}/routines/${encodeURIComponent(id)}/run`;
+      const url = `http://localhost:${p}/api/agents/${encodeURIComponent(agent)}/routines/${encodeURIComponent(id)}/run`;
       let body: { chatId?: string; error?: string };
       try {
         body = (await (await fetch(url, { method: "POST" })).json()) as typeof body;

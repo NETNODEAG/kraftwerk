@@ -4,7 +4,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
-import { safeMemberSlug, teamRoot } from "./team.js";
+import { safeAgentSlug, agentsRoot } from "./agents.js";
 
 /**
  * Skills: reusable instruction packages for chats, discovered from the
@@ -21,12 +21,12 @@ import { safeMemberSlug, teamRoot } from "./team.js";
  * skill. Skills are surfaced to every chat as context (and expanded on
  * /<name> invocation), so they work identically on claude, codex, and pi.
  *
- * On top of the shared roots, each team agent can carry private skills in
+ * On top of the shared roots, each agent can carry private skills in
  *
  *   agents/<slug>/skills/<name>/SKILL.md            (agent, git-tracked)
  *
  * Agent skills are visible only to that agent's sessions, always apply
- * (the member's allowlist narrows shared skills only), and shadow
+ * (the agent's allowlist narrows shared skills only), and shadow
  * same-named shared skills.
  */
 
@@ -40,7 +40,7 @@ export interface SkillInfo {
   dir: string;
   /** workspace = kraftwerk skills root; project = .claude/skills; user = ~/.claude/skills; agent = agents/<slug>/skills. */
   source: "workspace" | "project" | "user" | "agent";
-  /** For source "agent": the owning member's slug. */
+  /** For source "agent": the owning agent's slug. */
   agent?: string;
 }
 
@@ -105,9 +105,9 @@ async function scanRoot(root: string, source: SkillInfo["source"]): Promise<Skil
   return (skills.filter(Boolean) as SkillInfo[]).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The private skills root of one team agent: agents/<slug>/skills. */
+/** The private skills root of one agent: agents/<slug>/skills. */
 export async function agentSkillsRoot(slug: string): Promise<string> {
-  return path.join(await teamRoot(), safeMemberSlug(slug), "skills");
+  return path.join(await agentsRoot(), safeAgentSlug(slug), "skills");
 }
 
 /** One agent's private skills (agents/<slug>/skills/<name>/SKILL.md). */
@@ -117,17 +117,17 @@ export async function listAgentSkills(slug: string): Promise<SkillInfo[]> {
 }
 
 /**
- * All discovered skills; agent (when a member is given) shadows workspace
+ * All discovered skills; agent (when an agent slug is given) shadows workspace
  * shadows project shadows user (global).
  */
-export async function listSkills(member?: string): Promise<SkillInfo[]> {
-  const [agent, workspace, project, user] = await Promise.all([
-    member ? listAgentSkills(member).catch(() => [] as SkillInfo[]) : [],
+export async function listSkills(agent?: string): Promise<SkillInfo[]> {
+  const [own, workspace, project, user] = await Promise.all([
+    agent ? listAgentSkills(agent).catch(() => [] as SkillInfo[]) : [],
     skillsRoot().then((root) => scanRoot(root, "workspace")),
     scanRoot(path.join(getProjectRoot(), ".claude", "skills"), "project"),
     scanRoot(path.join(os.homedir(), ".claude", "skills"), "user"),
   ]);
-  const out = [...agent];
+  const out = [...own];
   const seen = new Set(out.map((s) => s.name.toLowerCase()));
   for (const s of [...workspace, ...project, ...user]) {
     if (seen.has(s.name.toLowerCase())) continue;

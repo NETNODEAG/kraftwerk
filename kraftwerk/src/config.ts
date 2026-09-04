@@ -19,7 +19,7 @@ import { parse } from "yaml";
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
  *   knowledge: knowledge       # OKF knowledge-bundle root, relative to the file
- *   agents: agents             # team agent-definition root, relative to the file
+ *   agents: agents             # agent-definition root, relative to the file
  *   skills: skills             # workspace skill root, relative to the file
  *   switcher:                  # other kraftwerk workspaces, linked from the header dropdown
  *     - name: other space
@@ -85,7 +85,7 @@ export interface ProjectConfig {
   output?: string;
   /** OKF knowledge-bundle root relative to the project root. Default: knowledge */
   knowledge?: string;
-  /** Team agent-definition root relative to the project root. Default: agents */
+  /** Agent-definition root relative to the project root. Default: agents */
   agents?: string;
   /** Workspace skill root relative to the project root. Default: skills */
   skills?: string;

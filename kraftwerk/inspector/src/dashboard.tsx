@@ -5,7 +5,7 @@ import type {
   KnowledgeIndex,
   RunListItem,
   SkillInfo,
-  TeamMember,
+  Agent,
   WorkflowSummary,
 } from "./types";
 import { createChatAndOpen } from "./chat";
@@ -13,7 +13,7 @@ import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
 
 /**
  * Dashboard (#/): the work surface, not an admin panel. Quick actions to
- * start work (run a workflow, open a chat), the agent team — each member
+ * start work (run a workflow, open a chat), the agents — each one
  * as a colleague card with a direct "chat" button and live working/idle
  * state — a failed-runs attention strip, plus one merged, filterable
  * activity feed (working items pinned first, grouped by day) across
@@ -32,12 +32,12 @@ const runStatusLabel = (s: RunListItem["status"]) =>
   s === "ok" ? "done" : s === "running" ? "working" : s === "aborted" ? "stopped" : "failed";
 
 function chatHref(c: ChatMeta): string {
-  return c.scope.kind === "team" ? `/agents/${c.scope.member}/chat/${c.id}` : `/agents/chats/${c.id}`;
+  return c.scope.kind === "agent" ? `/agents/${c.scope.slug}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
 function chatScopeLabel(c: ChatMeta): string {
   switch (c.scope.kind) {
-    case "team": return c.scope.member;
+    case "agent": return c.scope.slug;
     case "run": return c.scope.runId;
     case "knowledge": return c.scope.bundle ? `knowledge:${c.scope.bundle}` : "knowledge";
     case "kraftwerk": return "kraftwerk-aware";
@@ -54,7 +54,7 @@ export function DashboardScreen() {
   const runsData = usePoll<{ outputDir: string; runs: RunListItem[] }>("/api/runs", false);
   const chatsData = usePoll<{ chats: BusyChat[] }>("/api/chats", false);
   const knowData = usePoll<KnowledgeIndex>("/api/knowledge", false);
-  const teamData = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
+  const agentsData = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
   const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const skillsData = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
   const meta = usePoll<{ projectName?: string; projectIcon?: string }>("/api/meta", false);
@@ -95,7 +95,7 @@ export function DashboardScreen() {
         <QuickActions workflows={wfData?.workflows ?? []} />
       </div>
 
-      <TeamRow members={teamData?.members.filter((m) => !m.archived)} chats={chats} />
+      <AgentsRow agents={agentsData?.agents.filter((m) => !m.archived)} chats={chats} />
 
       {failed.length > 0 && filter !== "failed" && (
         <button className="dash-alert" onClick={() => setFilter("failed")}>
@@ -107,7 +107,7 @@ export function DashboardScreen() {
         runs={runs}
         chats={chats}
         bundles={bundles}
-        members={teamData?.members ?? []}
+        agents={agentsData?.agents ?? []}
         workflows={wfData?.workflows ?? []}
         filter={filter}
         setFilter={setFilter}
@@ -166,38 +166,38 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
   );
 }
 
-/* ---------- team ---------- */
+/* ---------- agents ---------- */
 
-/** The team, as colleague cards: presence from live sessions + a chat button. */
-function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[] }) {
+/** The agents, as colleague cards: presence from live sessions + a chat button. */
+function AgentsRow({ agents, chats }: { agents?: Agent[]; chats: BusyChat[] }) {
   const expert = useExpertMode();
-  if (members && members.length === 0) {
+  if (agents && agents.length === 0) {
     return (
-      <section className="panel dash-team-empty">
+      <section className="panel dash-agents-empty">
         <div className="viewer-note">
           {expert ? (
             <>
-              No agent teammates yet — <Link href="/agents/new">create your first agent</Link> and
+              No agents yet — <Link href="/agents/new">create your first agent</Link> and
               it will show up here, ready to chat.
             </>
           ) : (
-            <>No agent teammates yet — ask an expert-mode user to create one.</>
+            <>No agents yet — ask an expert-mode user to create one.</>
           )}
         </div>
       </section>
     );
   }
   return (
-    <div className="dash-team">
-      {(members ?? []).map((m) => {
-        const sessions = chats.filter((c) => c.scope.kind === "team" && c.scope.member === m.slug);
+    <div className="dash-agents">
+      {(agents ?? []).map((m) => {
+        const sessions = chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === m.slug);
         const working = sessions.find((c) => c.busy);
         const open = () => navigate(`/agents/${encodeURIComponent(m.slug)}`);
         return (
           // The whole card opens the agent; inner controls stop the bubble.
           <div
             key={m.slug}
-            className="dash-member"
+            className="dash-agent"
             role="link"
             tabIndex={0}
             onClick={open}
@@ -205,17 +205,17 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
               if (e.key === "Enter") open();
             }}
           >
-            <div className="dash-member-id">
+            <div className="dash-agent-id">
               {/* The face carries presence: pulsing badge while working, hollow when idle. */}
               <span className="agent-avatar lg">
                 <span aria-hidden>{m.emoji}</span>
                 <span className={`lamp ${working ? "running" : "idle"}`} />
               </span>
-              <span className="dash-member-name">{m.name}</span>
-              {m.description && <span className="dash-member-desc">{m.description}</span>}
+              <span className="dash-agent-name">{m.name}</span>
+              {m.description && <span className="dash-agent-desc">{m.description}</span>}
             </div>
-            <div className="dash-member-foot">
-              <span className="dash-member-state">
+            <div className="dash-agent-foot">
+              <span className="dash-agent-state">
                 {working && (
                   <Link
                     href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
@@ -229,7 +229,7 @@ function TeamRow({ members, chats }: { members?: TeamMember[]; chats: BusyChat[]
                 className="run-btn dash-chat-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  void createChatAndOpen("claude", { kind: "team", member: m.slug });
+                  void createChatAndOpen("claude", { kind: "agent", slug: m.slug });
                 }}
               >
                 <Icon name="chat_bubble" className="ms-sm" /> chat
@@ -249,7 +249,7 @@ type FeedFilter = "all" | "run" | "session" | "knowledge" | "failed";
 interface FeedItem {
   at: string;
   kind: "run" | "session" | "knowledge";
-  /** Avatar face: the teammate's emoji, or a kind glyph for agent-less rows. */
+  /** Avatar face: the agent's emoji, or a kind glyph for agent-less rows. */
   emoji: string;
   title: string;
   sub: string;
@@ -282,7 +282,7 @@ function ActivityFeed({
   runs,
   chats,
   bundles,
-  members,
+  agents,
   workflows,
   filter,
   setFilter,
@@ -290,7 +290,7 @@ function ActivityFeed({
   runs: RunListItem[];
   chats: BusyChat[];
   bundles: BundleInfo[];
-  members: TeamMember[];
+  agents: Agent[];
   workflows: WorkflowSummary[];
   filter: FeedFilter;
   setFilter: (f: FeedFilter) => void;
@@ -315,20 +315,20 @@ function ActivityFeed({
       });
     }
     for (const c of chats) {
-      // Team sessions show the teammate (emoji + name), others the harness + scope.
-      const member =
-        c.scope.kind === "team"
-          ? members.find((m) => c.scope.kind === "team" && m.slug === c.scope.member)
+      // Agent sessions show the agent (emoji + name), others the harness + scope.
+      const agent =
+        c.scope.kind === "agent"
+          ? agents.find((m) => c.scope.kind === "agent" && m.slug === c.scope.slug)
           : undefined;
-      // The teammate leads the row — their face as avatar, their name as the
+      // The agent leads the row — their face as avatar, their name as the
       // headline; what was discussed becomes the supporting line. Simple mode
       // drops the harness name — who worked, not what ran it.
       items.push({
         at: c.updatedAt,
         kind: "session",
-        emoji: member ? member.emoji || "🤖" : "💬",
-        title: member ? member.name : c.title || "new chat",
-        sub: member
+        emoji: agent ? agent.emoji || "🤖" : "💬",
+        title: agent ? agent.name : c.title || "new chat",
+        sub: agent
           ? `${c.title || "new chat"}${expert ? ` · ${c.agent}` : ""}`
           : expert
             ? `${c.agent} · ${chatScopeLabel(c)}`
@@ -363,7 +363,7 @@ function ActivityFeed({
         return run !== 0 ? run : b.at.localeCompare(a.at);
       })
       .slice(0, 15);
-  }, [runs, chats, bundles, members, expert, filter]);
+  }, [runs, chats, bundles, agents, expert, filter]);
 
   // Thin day separators; emitted whenever the bucket changes down the list.
   let lastBucket = "";

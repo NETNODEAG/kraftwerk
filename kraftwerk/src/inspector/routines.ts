@@ -2,20 +2,20 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import { getOutputDir } from "./context.js";
-import { getMember, listMembers, safeMemberSlug, teamRoot } from "./team.js";
+import { getAgent, listAgents, safeAgentSlug, agentsRoot } from "./agents.js";
 import { createChat, postMessage } from "./chat/sessions.js";
 
 /**
- * Routines: per-team-member scheduled prompts — "message your agent every
- * weekday at 9". Definitions live next to the member (git-tracked):
+ * Routines: per-agent scheduled prompts — "message your agent every
+ * weekday at 9". Definitions live next to the agent (git-tracked):
  *
  *   agents/<slug>/routines.yml    # list of { id, name, schedule, prompt, enabled }
  *
  * Runtime state (last run / last session / errors) is run-state, not
  * config, so it lives in <output>/routines-state.json. The scheduler is a
  * plain interval inside the inspector server: each due routine opens a new
- * session (chat) for the member and posts the prompt — the run shows up in
- * the member's sessions sidebar like any conversation. Schedules use
+ * session (chat) for the agent and posts the prompt — the run shows up in
+ * the agent's sessions sidebar like any conversation. Schedules use
  * standard 5-field cron in the server's local time.
  */
 
@@ -125,7 +125,7 @@ export function nextRun(schedule: string, from = new Date()): string | undefined
 /* ---------- definition CRUD (agents/<slug>/routines.yml) ---------- */
 
 async function routinesFile(slug: string): Promise<string> {
-  return path.join(await teamRoot(), safeMemberSlug(slug), "routines.yml");
+  return path.join(await agentsRoot(), safeAgentSlug(slug), "routines.yml");
 }
 
 function normalizeRoutine(raw: Record<string, unknown>): Routine | null {
@@ -239,13 +239,13 @@ export async function routineStatuses(slug: string): Promise<RoutineStatus[]> {
 
 /* ---------- firing ---------- */
 
-/** Open a fresh session for the member and post the routine's prompt. */
+/** Open a fresh session for the agent and post the routine's prompt. */
 async function fireRoutine(slug: string, routine: Routine): Promise<string> {
-  const member = await getMember(slug);
-  if (!member) throw new Error(`team agent "${slug}" not found`);
+  const def = await getAgent(slug);
+  if (!def) throw new Error(`agent "${slug}" not found`);
   const meta = await createChat({
-    agent: member.harness,
-    scope: { kind: "team", member: slug, routine: routine.id },
+    agent: def.harness,
+    scope: { kind: "agent", slug: slug, routine: routine.id },
     title: `⏰ ${routine.name}`,
   });
   const { error } = await postMessage(meta.id, routine.prompt);
@@ -280,16 +280,16 @@ async function tick(): Promise<void> {
   const p = (n: number) => String(n).padStart(2, "0");
   const minuteKey = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}T${p(now.getHours())}:${p(now.getMinutes())}`;
 
-  let members;
+  let agents;
   try {
-    members = await listMembers();
+    agents = await listAgents();
   } catch {
     return;
   }
   const state = await readState();
   let dirty = false;
 
-  for (const m of members) {
+  for (const m of agents) {
     for (const r of await listRoutines(m.slug).catch(() => [] as Routine[])) {
       if (!r.enabled) continue;
       let due = false;

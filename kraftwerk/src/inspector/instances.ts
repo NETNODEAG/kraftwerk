@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { isDir, resolveProject } from "../config.js";
 import { selfCommand } from "./self-command.js";
+import type { AgentSummary } from "./agents.js";
 
 /**
  * Two registries under ~/.kraftwerk, two lifecycles:
@@ -21,6 +22,9 @@ import { selfCommand } from "./self-command.js";
  * the root's kraftwerk.yml at read time, so it is always current. A
  * project that is not running can be started again from the switcher or
  * `kraftwerk projects start` — that is what makes a killed UI findable.
+ * The record also carries the project's agent roster (written whenever the
+ * instance reads it), so the ⌘K palette can list every workspace's agents
+ * from a handful of small files without probing anything.
  */
 
 const HOME = path.join(os.homedir(), ".kraftwerk");
@@ -44,6 +48,8 @@ export interface ProjectRecord {
   /** Set on clean shutdown; older than lastStarted means the last run died. */
   lastStopped?: string;
   startCount: number;
+  /** Active agents, as last seen by the instance serving this root. */
+  agents?: AgentSummary[];
 }
 
 /** A verified running instance, shaped like a switcher entry. */
@@ -104,6 +110,9 @@ export async function registerInstance(port: number, root: string): Promise<void
     await fs.writeFile(selfFile(), JSON.stringify(rec));
   } catch {} // best-effort — without it discovery just won't see us
 }
+
+/** Where this instance answers, as the switcher links it (null before listen). */
+export const currentInstanceUrl = (): string | null => (selfPort ? `http://localhost:${selfPort}` : null);
 
 /** Remove this instance's registry file. Sync so exit handlers can call it. */
 export function unregisterInstance(): void {
@@ -194,6 +203,7 @@ async function readProject(file: string): Promise<ProjectRecord | null> {
       lastStarted: rec.lastStarted ?? rec.firstSeen ?? "",
       lastStopped: rec.lastStopped,
       startCount: rec.startCount ?? 1,
+      ...(Array.isArray(rec.agents) ? { agents: rec.agents } : {}),
     };
   } catch {
     return null;
@@ -212,9 +222,30 @@ export async function registerProject(root: string): Promise<void> {
       firstSeen: prev?.firstSeen || now,
       lastStarted: now,
       startCount: (prev?.startCount ?? 0) + 1,
+      ...(prev?.agents ? { agents: prev.agents } : {}),
     };
     await fs.writeFile(projectFile(abs), JSON.stringify(rec, null, 2));
   } catch {} // best-effort, like the instance file
+}
+
+let syncedAgents = "";
+
+/**
+ * Write the roster into the project's record. Called on every roster read
+ * (the UI polls it, routines tick it), so a record only changes when the
+ * roster did. Roots with no record (a CLI run in a project that never
+ * started the inspector) are left alone.
+ */
+export async function syncProjectAgents(root: string, agents: AgentSummary[]): Promise<void> {
+  const key = `${root}\n${JSON.stringify(agents)}`;
+  if (key === syncedAgents) return;
+  try {
+    const file = projectFile(root);
+    const rec = await readProject(file);
+    if (!rec) return;
+    await fs.writeFile(file, JSON.stringify({ ...rec, agents }, null, 2));
+    syncedAgents = key;
+  } catch {}
 }
 
 /** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */

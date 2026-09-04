@@ -5,7 +5,7 @@ import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
-import { getMember, listMembers } from "../team.js";
+import { getAgent, listAgents } from "../agents.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
@@ -108,19 +108,19 @@ function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
 
 /**
  * Skills visible to a chat: every discovered skill (workspace skills root
- * + .claude/skills roots, plus the member's own agents/<slug>/skills for team
- * sessions), narrowed by the team member's allowlist when the chat is a team
+ * + .claude/skills roots, plus the agent's own agents/<slug>/skills for agent
+ * sessions), narrowed by the agent's allowlist when the chat is an agent
  * session (absent allowlist = all, empty = none). The agent's own skills
  * always apply — the allowlist narrows shared skills only.
  */
 async function availableSkills(scope: ChatScope): Promise<SkillInfo[]> {
-  const all = await listSkills(scope.kind === "team" ? scope.member : undefined).catch(
+  const all = await listSkills(scope.kind === "agent" ? scope.slug : undefined).catch(
     () => [] as SkillInfo[]
   );
-  if (scope.kind !== "team") return all;
-  const member = await getMember(scope.member).catch(() => null);
-  if (!member || member.skills === undefined) return all;
-  const allowed = new Set(member.skills.map((n) => n.toLowerCase()));
+  if (scope.kind !== "agent") return all;
+  const def = await getAgent(scope.slug).catch(() => null);
+  if (!def || def.skills === undefined) return all;
+  const allowed = new Set(def.skills.map((n) => n.toLowerCase()));
   return all.filter((s) => s.source === "agent" || allowed.has(s.name.toLowerCase()));
 }
 
@@ -160,15 +160,15 @@ async function expandSkillInvocation(scope: ChatScope, text: string): Promise<st
 
 /* ---------- scope context ---------- */
 
-/** "## Your knowledge" block for a team member's connected OKF bundles. */
-async function teamKnowledgeContext(member: {
+/** "## Your knowledge" block for a agent's connected OKF bundles. */
+async function agentKnowledgeContext(def: {
   slug: string;
   harness: ChatAgentId;
   knowledge: string[];
 }): Promise<string> {
-  if (member.knowledge.length === 0) return "";
+  if (def.knowledge.length === 0) return "";
   const { bundles } = await knowledgeIndex().catch(() => ({ bundles: [] }));
-  const lines = member.knowledge
+  const lines = def.knowledge
     .map((name) => {
       const b = bundles.find((x) => x.name === name);
       return b
@@ -181,7 +181,7 @@ async function teamKnowledgeContext(member: {
     `part of your job. Consult them before answering questions in their domain, and keep them current ` +
     `when you learn something durable:\n${lines}\n\n` +
     `Read with \`npx kraftwerk knowledge list <bundle>\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
-    `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor ${member.slug}/${member.harness}\` ` +
+    `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor ${def.slug}/${def.harness}\` ` +
     `(write the markdown to a temp file first; the CLI stamps provenance and maintains index.md/log.md). ` +
     `Never hand-edit index.md or log.md, and never add \`verified\` yourself — verification is the human's ` +
     `click in the UI.\n\n`
@@ -190,24 +190,24 @@ async function teamKnowledgeContext(member: {
 
 /** Base context per scope; scopeContext() appends the shared skills block. */
 async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
-  if (scope.kind === "team") {
-    const member = await getMember(scope.member).catch(() => null);
-    if (!member) {
-      return `You were opened as team agent "${scope.member}", but its definition under agents/ is missing. Tell the user and ask them to recreate it.`;
+  if (scope.kind === "agent") {
+    const def = await getAgent(scope.slug).catch(() => null);
+    if (!def) {
+      return `You were opened as agent "${scope.slug}", but its definition under agents/ is missing. Tell the user and ask them to recreate it.`;
     }
     const { workflows } = await listWorkflows().catch(() => ({ workflows: [] }));
-    const connected = workflows.filter((w) => member.workflows.includes(w.slug));
-    const missing = member.workflows.filter((slug) => !connected.some((w) => w.slug === slug));
+    const connected = workflows.filter((w) => def.workflows.includes(w.slug));
+    const missing = def.workflows.filter((slug) => !connected.some((w) => w.slug === slug));
     const wfLines = connected
       .map((w) => `- ${w.slug}: ${w.description ?? w.name ?? ""} (${w.steps} steps)`)
       .join("\n");
     return (
-      `You are ${member.emoji} ${member.name}, a persistent agent teammate on this project's team ` +
-      `(defined in agents/${member.slug}/). The user works with you like with a colleague: every session ` +
-      `is a conversation with the same ${member.name}, so keep this role consistently. You are an AI agent, ` +
+      `You are ${def.emoji} ${def.name}, a persistent agent of this project ` +
+      `(defined in agents/${def.slug}/). The user works with you like with a colleague: every session ` +
+      `is a conversation with the same ${def.name}, so keep this role consistently. You are an AI agent, ` +
       `not a human — never pretend otherwise, but do own your role.\n\n` +
-      `## Your role\n${member.system || "(no system prompt written yet — ask the user what your job should be)"}\n\n` +
-      (member.workflows.length > 0
+      `## Your role\n${def.system || "(no system prompt written yet — ask the user what your job should be)"}\n\n` +
+      (def.workflows.length > 0
         ? `## Your workflows\nThese kraftwerk workflows are part of your job. When the user's request matches one, ` +
           `run it yourself instead of doing the work by hand:\n${wfLines || "(none found)"}\n` +
           (missing.length > 0
@@ -219,9 +219,9 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
           `run id and summarize the result. Confirm with the user before starting a long or expensive run ` +
           `unless they clearly asked for it.\n\n`
         : "") +
-      (await teamKnowledgeContext(member)) +
+      (await agentKnowledgeContext(def)) +
       `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
-      `say so and suggest which teammate or tool fits better.` +
+      `say so and suggest which agent or tool fits better.` +
       (scope.routine
         ? `\n\nThis session was started automatically by your scheduled routine "${scope.routine}" — ` +
           `nobody may be watching live. Complete the task autonomously (tool permissions are ` +
@@ -260,11 +260,11 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
     );
   }
   if (scope.kind === "kraftwerk") {
-    const [{ workflows }, runs, knowledge, members] = await Promise.all([
+    const [{ workflows }, runs, knowledge, agents] = await Promise.all([
       listWorkflows(),
       listRuns(),
       knowledgeIndex().catch(() => ({ bundles: [] })),
-      listMembers().catch(() => []),
+      listAgents().catch(() => []),
     ]);
     const wfLines = workflows
       .map((w) => `- ${w.slug}: ${w.description ?? w.name ?? ""} (${w.steps} steps, ${w.agents} agents)`)
@@ -276,7 +276,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
     const bundleLines = knowledge.bundles
       .map((b) => `- ${b.name} (${b.concepts} concepts${b.updatedAt ? `, updated ${b.updatedAt.slice(0, 10)}` : ""})`)
       .join("\n");
-    const memberLines = members
+    const agentLines = agents
       .map((m) => `- ${m.emoji} ${m.name} (${m.slug})${m.description ? `: ${m.description}` : ""}`)
       .join("\n");
     return (
@@ -293,8 +293,8 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `Read with \`npx kraftwerk knowledge list [bundle]\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
       `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor kraftwerk-chat/${agent}\` ` +
       `(stamps provenance, maintains index.md/log.md — never hand-edit those).\n\n` +
-      `## Team agents\n${memberLines || "(none)"}\n` +
-      `These are persistent agent teammates (defined under agents/); the user talks to them on the ` +
+      `## Agents\n${agentLines || "(none)"}\n` +
+      `These are persistent agents (defined under agents/); the user talks to them on the ` +
       `Agents screen. Point the user there when a request clearly belongs to one of them.\n\n` +
       `Answer questions about workflows and runs by reading the files above. Do not modify run outputs unless asked.`
     );
@@ -341,15 +341,15 @@ async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<strin
 
 /* ---------- backend lifecycle ---------- */
 
-/** Team chats carry the member's model/effort; resolved live so edits apply to new backends. */
+/** Agent sessions carry the agent's model/effort; resolved live so edits apply to new backends. */
 async function backendTuning(scope: ChatScope, agent: ChatAgentId): Promise<BackendTuning> {
   const tuning: BackendTuning = {};
-  if (scope.kind === "team") {
-    const member = await getMember(scope.member).catch(() => null);
-    if (member?.model) tuning.model = member.model;
-    if (member?.effort) tuning.effort = member.effort;
-    // Claude discovers skills natively; a defined allowlist narrows that.
-    if (agent === "claude" && member?.skills) tuning.skills = member.skills;
+  if (scope.kind === "agent") {
+    const def = await getAgent(scope.slug).catch(() => null);
+    if (def?.model) tuning.model = def.model;
+    if (def?.effort) tuning.effort = def.effort;
+    // Claude discovers skills natively; an agentined allowlist narrows that.
+    if (agent === "claude" && def?.skills) tuning.skills = def.skills;
   }
   // Run chats live in the run folder — grant claude the project root so
   // project-level skills and files stay reachable.
@@ -373,7 +373,7 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
       // Routine-triggered sessions run unattended: auto-approve, but keep
       // the request/resolution pair in the thread as an audit trail.
       const scope = state.meta.scope;
-      if (scope.kind === "team" && scope.routine) {
+      if (scope.kind === "agent" && scope.routine) {
         const allow = options.find((o) => o.kind?.startsWith("allow")) ?? options[0];
         const requestId = randomUUID();
         emit(state, { type: "permission_request", requestId, title, options });
@@ -483,7 +483,7 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
       // Routine sessions are one-shot and unattended: release the agent
       // process as soon as the turn ends instead of waiting for the reaper.
       const scope = state.meta.scope;
-      if (scope.kind === "team" && scope.routine) dropBackend(state);
+      if (scope.kind === "agent" && scope.routine) dropBackend(state);
     } catch (err) {
       emit(state, { type: "error", message: (err as Error).message });
       // A failed turn may mean a dead subprocess; drop it so the next

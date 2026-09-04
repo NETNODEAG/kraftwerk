@@ -9,8 +9,8 @@ import type {
   KnowledgeIndex,
   RoutineStatus,
   SkillInfo,
-  TeamMember,
-  TeamMemberDetail,
+  Agent,
+  AgentDetail,
   WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
@@ -19,18 +19,18 @@ import { exportBundlePdf } from "./export";
 import { editorHref } from "./editor-link";
 
 /**
- * Team: persistent agent teammates ("employees"), each defined in
+ * Agents: persistent agents ("employees"), each defined in
  * agents/<slug>/ (agent.yml + system.md). The screen is a double sidebar:
- * members on the left, the selected member's sessions next to it, and the
- * main pane shows the member profile, a session thread, or the editor.
- * Sessions are ordinary chats with scope { kind: "team", member } — the
+ * agents on the left, the selected agent's sessions next to it, and the
+ * main pane shows the agent profile, a session thread, or the editor.
+ * Sessions are ordinary chats with scope { kind: "agent", slug } — the
  * thread view is reused from the chat screen.
  */
 
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const EMOJI_PRESETS = ["🤖", "🧑‍💻", "🎧", "🛠️", "📊", "✍️", "🔍", "🧹", "📦", "🚀"];
 
-export function TeamScreen({ seg }: { seg: string[] }) {
+export function AgentsScreen({ seg }: { seg: string[] }) {
   // seg (after /agents): [] | [new] | [chats] | [chats, chatId] | [slug] |
   // [slug, info] | [slug, edit] | [slug, chat, chatId]. A bare slug lands on
   // the agent's most recent session; the profile lives at /info.
@@ -48,11 +48,11 @@ export function TeamScreen({ seg }: { seg: string[] }) {
             : seg[1] === "chat"
               ? "chat"
               : slug
-                ? "member"
+                ? "agent"
                 : "home";
   const chatId = mode === "chat" ? seg[2] : mode === "chats" ? seg[1] : undefined;
 
-  const data = usePoll<{ root: string; members: TeamMember[] }>("/api/team", false);
+  const data = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
   const expert = useExpertMode();
 
   // Agent groups: persisted per agent (agent.yml `group:`); a freshly created,
@@ -74,14 +74,14 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   // Optimistic moves, applied over poll data until the server confirms them.
   const [moved, setMoved] = useState<Record<string, string>>({});
 
-  const members = (data?.members ?? []).map((m) =>
+  const agents = (data?.agents ?? []).map((m) =>
     moved[m.slug] !== undefined ? { ...m, group: moved[m.slug] || undefined } : m
   );
   useEffect(() => {
     setMoved((prev) => {
       const next = { ...prev };
       let changed = false;
-      for (const m of data?.members ?? []) {
+      for (const m of data?.agents ?? []) {
         if (next[m.slug] !== undefined && (m.group ?? "") === next[m.slug]) {
           delete next[m.slug];
           changed = true;
@@ -91,10 +91,10 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     });
   }, [data]);
 
-  // Archived members leave the roster (and its groups) for a collapsed
+  // Archived agents leave the roster (and its groups) for a collapsed
   // section at the bottom; unarchiving puts them right back.
-  const active = members.filter((m) => !m.archived);
-  const archivedMembers = members.filter((m) => m.archived);
+  const active = agents.filter((m) => !m.archived);
+  const archivedMembers = agents.filter((m) => m.archived);
   const [showArchived, setShowArchived] = useState(false);
 
   const groups = [
@@ -116,29 +116,29 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     if (g && !groups.includes(g)) saveExtraGroups([...extraGroups, g]);
   }
 
-  // Rename = move every member of the group; renaming onto an existing group
+  // Rename = move every agent of the group; renaming onto an existing group
   // merges into it. Empty created groups just rename in localStorage.
   function renameGroup(from: string, to: string): void {
     setRenaming(null);
     const next = to.trim();
     if (!next || next === from) return;
-    for (const m of members.filter((x) => x.group === from)) void moveToGroup(m.slug, next);
+    for (const m of agents.filter((x) => x.group === from)) void moveToGroup(m.slug, next);
     if (extraGroups.includes(from)) {
       saveExtraGroups([...new Set(extraGroups.map((g) => (g === from ? next : g)))]);
     }
   }
 
-  // saveMember rewrites agent.yml + system.md wholesale, so a group move must
-  // carry the complete member: fetch the detail first, then PUT it back.
+  // saveAgent rewrites agent.yml + system.md wholesale, so a group move must
+  // carry the complete agent: fetch the detail first, then PUT it back.
   async function moveToGroup(memberSlug: string, group: string): Promise<void> {
-    const current = members.find((m) => m.slug === memberSlug);
+    const current = agents.find((m) => m.slug === memberSlug);
     if ((current?.group ?? "") === group) return;
     setMoved((prev) => ({ ...prev, [memberSlug]: group }));
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(memberSlug)}`);
+      const r = await fetch(`/api/agents/${encodeURIComponent(memberSlug)}`);
       if (!r.ok) throw new Error();
-      const full = (await r.json()) as TeamMemberDetail;
-      const res = await fetch(`/api/team/${encodeURIComponent(memberSlug)}`, {
+      const full = (await r.json()) as AgentDetail;
+      const res = await fetch(`/api/agents/${encodeURIComponent(memberSlug)}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...full, group: group || undefined }),
@@ -173,7 +173,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
         }
       : {};
 
-  const memberRow = (m: TeamMember) => (
+  const memberRow = (m: Agent) => (
     <Link
       key={m.slug}
       href={`/agents/${encodeURIComponent(m.slug)}`}
@@ -204,7 +204,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   );
 
   // Archived rows: no dragging, land on the profile (where unarchive lives).
-  const archivedRow = (m: TeamMember) => (
+  const archivedRow = (m: Agent) => (
     <Link
       key={m.slug}
       href={`/agents/${encodeURIComponent(m.slug)}/info`}
@@ -225,16 +225,16 @@ export function TeamScreen({ seg }: { seg: string[] }) {
   );
 
   let main: React.ReactNode;
-  if (mode === "new") main = <MemberEditor key="new" />;
-  else if (mode === "edit" && slug) main = <MemberEditor key={slug} slug={slug} />;
+  if (mode === "new") main = <AgentEditor key="new" />;
+  else if (mode === "edit" && slug) main = <AgentEditor key={slug} slug={slug} />;
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
         <ChatThread
           key={chatId}
           id={chatId}
-          agentName={members.find((m) => m.slug === slug)?.name ?? slug}
-          agentDescription={members.find((m) => m.slug === slug)?.description}
+          agentName={agents.find((m) => m.slug === slug)?.name ?? slug}
+          agentDescription={agents.find((m) => m.slug === slug)?.description}
         />
       </div>
     );
@@ -246,15 +246,15 @@ export function TeamScreen({ seg }: { seg: string[] }) {
     ) : (
       <NewChat />
     );
-  else if (mode === "info" && slug) main = <MemberView key={slug} slug={slug} />;
-  else if (slug) main = <MemberLanding key={slug} slug={slug} />;
-  else main = <TeamHome hasMembers={active.length > 0} root={data?.root} />;
+  else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
+  else if (slug) main = <AgentLanding key={slug} slug={slug} />;
+  else main = <AgentsHome hasAgents={active.length > 0} root={data?.root} />;
 
   // Linked knowledge bundles of the selected agent → right sidebar on the
   // profile and chat views (not while editing). Hidden state persists.
   const kBundles =
-    (mode === "member" || mode === "info" || mode === "chat") && slug
-      ? (members.find((m) => m.slug === slug)?.knowledge ?? [])
+    (mode === "agent" || mode === "info" || mode === "chat") && slug
+      ? (agents.find((m) => m.slug === slug)?.knowledge ?? [])
       : [];
   const [kOpen, setKOpen] = useState(() => localStorage.getItem("kw-kside") !== "hidden");
   const [kWidth, setKWidth] = useState(() => Number(localStorage.getItem("kw-kside-w")) || 460);
@@ -270,7 +270,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
 
   return (
     <div
-      className={`runs-screen team-screen ${slug || mode === "chats" ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
+      className={`runs-screen agents-screen ${slug || mode === "chats" ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
       style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
     >
       <aside className="runs-side">
@@ -381,7 +381,7 @@ export function TeamScreen({ seg }: { seg: string[] }) {
               {showArchived && archivedMembers.map(archivedRow)}
             </div>
           )}
-          {data && members.length === 0 && <div className="viewer-note">no agents yet</div>}
+          {data && agents.length === 0 && <div className="viewer-note">no agents yet</div>}
           {expert &&
             (addingGroup ? (
               <div className="side-group-new">
@@ -736,7 +736,7 @@ function conceptUpdatedAt(c: ConceptInfo): string | undefined {
  * A bare #/agents/<slug> URL jumps straight into the agent's most recent
  * session; with no sessions yet it shows the profile instead.
  */
-function MemberLanding({ slug }: { slug: string }) {
+function AgentLanding({ slug }: { slug: string }) {
   const [noSessions, setNoSessions] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -746,7 +746,7 @@ function MemberLanding({ slug }: { slug: string }) {
       .then((d: { chats: ChatMeta[] }) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — first match is the latest.
-        const latest = d.chats.find((c) => c.scope.kind === "team" && c.scope.member === slug);
+        const latest = d.chats.find((c) => c.scope.kind === "agent" && c.scope.slug === slug);
         if (latest) {
           navigate(`/agents/${encodeURIComponent(slug)}/chat/${latest.id}`, { replace: true });
         } else setNoSessions(true);
@@ -757,7 +757,7 @@ function MemberLanding({ slug }: { slug: string }) {
     };
   }, [slug]);
   if (!noSessions) return <div className="empty">loading…</div>;
-  return <MemberView slug={slug} />;
+  return <AgentView slug={slug} />;
 }
 
 /* ---------- sessions sidebar ---------- */
@@ -765,7 +765,7 @@ function MemberLanding({ slug }: { slug: string }) {
 function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
   const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
   const sessions = (data?.chats ?? []).filter(
-    (c) => c.scope.kind === "team" && c.scope.member === slug
+    (c) => c.scope.kind === "agent" && c.scope.slug === slug
   );
   const [creating, setCreating] = useState(false);
 
@@ -782,7 +782,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
           disabled={creating}
           onClick={async () => {
             setCreating(true);
-            await createChatAndOpen("claude", { kind: "team", member: slug });
+            await createChatAndOpen("claude", { kind: "agent", slug: slug });
             setCreating(false);
           }}
         >
@@ -829,11 +829,11 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
 
 /* ---------- general chats sidebar ---------- */
 
-// Chats that don't belong to an agent (scope kind != team) — the former
+// Chats that don't belong to an agent (scope kind != agent) — the former
 // standalone chat screen, now living under the agents screen.
 function GeneralChatsSide({ chatId }: { chatId?: string }) {
   const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
-  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "team");
+  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent");
 
   return (
     <aside className="runs-side">
@@ -894,7 +894,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
 
 /* ---------- home ---------- */
 
-function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) {
+function AgentsHome({ hasAgents, root }: { hasAgents: boolean; root?: string }) {
   const expert = useExpertMode();
   return (
     <div className="new-chat">
@@ -906,7 +906,7 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
           <span className="microlabel">what lives here</span>
         </div>
         <div className="know-intro">
-          Your agents, set up like teammates: each one has a name, a role (system prompt), a
+          Your agents, set up like agents: each one has a name, a role (system prompt), a
           harness/model to run on, and the workflows that belong to its job. An agent lives in{" "}
           <code>{root ? `${root}/<slug>/` : "agents/<slug>/"}</code> as <code>agent.yml</code> +{" "}
           <code>system.md</code> — git-tracked, so your team travels with the repo. Every session
@@ -916,7 +916,7 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
         {expert ? (
           <div style={{ padding: "0 16px 16px" }}>
             <button className="run-btn" onClick={() => navigate("/agents/new")}>
-              <><Icon name="add" className="ms-sm" /> {hasMembers ? "new agent" : "create your first agent"}</>
+              <><Icon name="add" className="ms-sm" /> {hasAgents ? "new agent" : "create your first agent"}</>
             </button>
           </div>
         ) : (
@@ -929,15 +929,15 @@ function TeamHome({ hasMembers, root }: { hasMembers: boolean; root?: string }) 
   );
 }
 
-/* ---------- member profile ---------- */
+/* ---------- agent profile ---------- */
 
 /**
  * Agent profile with in-place editing: role, workflows, knowledge, and
  * skills save right here (full PUT with the changed section merged in).
  * Identity fields (name, emoji, harness, model, …) stay in the full editor.
  */
-function MemberView({ slug }: { slug: string }) {
-  const [member, setMember] = useState<TeamMemberDetail | null>(null);
+function AgentView({ slug }: { slug: string }) {
+  const [agent, setMember] = useState<AgentDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [creating, setCreating] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
@@ -954,7 +954,7 @@ function MemberView({ slug }: { slug: string }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/team/${encodeURIComponent(slug)}`)
+    fetch(`/api/agents/${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((m) => alive && setMember(m))
       .catch(() => alive && setGone(true));
@@ -969,26 +969,26 @@ function MemberView({ slug }: { slug: string }) {
     knowledge?: string[];
     skills?: string[];
   }): Promise<void> {
-    if (!member) return;
+    if (!agent) return;
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`/api/team/${encodeURIComponent(slug)}`, {
+      const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        // Full member + the changed section; an absent skills key = all skills.
+        // Full agent + the changed section; an absent skills key = all skills.
         body: JSON.stringify({
-          name: member.name,
-          emoji: member.emoji,
-          description: member.description,
-          harness: member.harness,
-          model: member.model,
-          effort: member.effort,
-          group: member.group,
-          system: member.system,
-          workflows: member.workflows,
-          knowledge: member.knowledge,
-          skills: member.skills,
+          name: agent.name,
+          emoji: agent.emoji,
+          description: agent.description,
+          harness: agent.harness,
+          model: agent.model,
+          effort: agent.effort,
+          group: agent.group,
+          system: agent.system,
+          workflows: agent.workflows,
+          knowledge: agent.knowledge,
+          skills: agent.skills,
           ...patch,
         }),
       });
@@ -1012,7 +1012,7 @@ function MemberView({ slug }: { slug: string }) {
     setSaving(true);
     setError("");
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(slug)}/archive`, {
+      const r = await fetch(`/api/agents/${encodeURIComponent(slug)}/archive`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ archived }),
@@ -1027,10 +1027,10 @@ function MemberView({ slug }: { slug: string }) {
   }
 
   if (gone) return <div className="empty">agent not found</div>;
-  if (!member) return <div className="empty">loading…</div>;
+  if (!agent) return <div className="empty">loading…</div>;
 
   const editActions = (patch: Parameters<typeof save>[0]) => (
-    <div className="team-form-row" style={{ marginTop: 8 }}>
+    <div className="agent-form-row" style={{ marginTop: 8 }}>
       <button className="run-btn" disabled={saving} onClick={() => void save(patch)}>
         {saving ? "saving…" : "save"}
       </button>
@@ -1041,21 +1041,21 @@ function MemberView({ slug }: { slug: string }) {
   );
 
   return (
-    <div className="member-view">
+    <div className="agent-view">
       <div className="detail-head">
         <span className="agent-avatar lg">
-          <span aria-hidden>{member.emoji}</span>
+          <span aria-hidden>{agent.emoji}</span>
         </span>
-        <h1>{member.name}</h1>
-        <span className="chip agent">{member.harness}</span>
-        {member.model && <span className="chip">{member.model}</span>}
-        {member.effort && <span className="chip">effort: {member.effort}</span>}
-        {member.archived && <span className="chip archived-chip"><Icon name="inventory_2" className="ms-sm" /> archived</span>}
+        <h1>{agent.name}</h1>
+        <span className="chip agent">{agent.harness}</span>
+        {agent.model && <span className="chip">{agent.model}</span>}
+        {agent.effort && <span className="chip">effort: {agent.effort}</span>}
+        {agent.archived && <span className="chip archived-chip"><Icon name="inventory_2" className="ms-sm" /> archived</span>}
         <span className="spacer" />
         <Link href={`/agents/${encodeURIComponent(slug)}/edit`} className="open-raw">
           edit
         </Link>
-        {member.archived ? (
+        {agent.archived ? (
           <button className="run-btn tonal" disabled={saving} onClick={() => void setArchived(false)}>
             <Icon name="unarchive" className="ms-sm" /> {saving ? "…" : "unarchive"}
           </button>
@@ -1074,7 +1074,7 @@ function MemberView({ slug }: { slug: string }) {
               disabled={creating}
               onClick={async () => {
                 setCreating(true);
-                await createChatAndOpen("claude", { kind: "team", member: slug });
+                await createChatAndOpen("claude", { kind: "agent", slug: slug });
                 setCreating(false);
               }}
             >
@@ -1091,7 +1091,7 @@ function MemberView({ slug }: { slug: string }) {
               <span className="m3-head">role</span>
               {!roleOpen && (
                 <span className="m3-sub m3-ellipsis">
-                  {(member.system || "").trim().split("\n")[0] ||
+                  {(agent.system || "").trim().split("\n")[0] ||
                     "empty — expand to give this agent a role"}
                 </span>
               )}
@@ -1100,12 +1100,12 @@ function MemberView({ slug }: { slug: string }) {
           </button>
           {roleOpen && editing !== "role" && (
             <div className="m3-expand">
-              <pre>{member.system || "(empty — click edit to give this agent a role)"}</pre>
-              <div className="team-form-row" style={{ marginTop: 10 }}>
+              <pre>{agent.system || "(empty — click edit to give this agent a role)"}</pre>
+              <div className="agent-form-row" style={{ marginTop: 10 }}>
                 <button
                   className="open-raw"
                   onClick={() => {
-                    setRoleDraft(member.system);
+                    setRoleDraft(agent.system);
                     setEditing("role");
                     setError("");
                   }}
@@ -1113,7 +1113,7 @@ function MemberView({ slug }: { slug: string }) {
                   <Icon name="edit" className="ms-sm" /> edit role
                 </button>
                 <span className="spacer" />
-                <span className="m3-sub">agents/{member.slug}/system.md</span>
+                <span className="m3-sub">agents/{agent.slug}/system.md</span>
               </div>
             </div>
           )}
@@ -1154,11 +1154,11 @@ function MemberView({ slug }: { slug: string }) {
                   </div>
                   {editActions({ workflows: listDraft })}
                 </>
-              ) : member.workflows.length === 0 ? (
+              ) : agent.workflows.length === 0 ? (
                 <span className="m3-sub">none connected — the agent can run any workflow you connect</span>
               ) : (
                 <span className="m3-chips">
-                  {member.workflows.map((w) => (
+                  {agent.workflows.map((w) => (
                     <Link key={w} href={`/workflows/${encodeURIComponent(w)}`} className="chip">
                       {w}
                     </Link>
@@ -1170,7 +1170,7 @@ function MemberView({ slug }: { slug: string }) {
               <button
                 className="open-raw"
                 onClick={() => {
-                  setListDraft(member.workflows);
+                  setListDraft(agent.workflows);
                   setEditing("workflows");
                   setError("");
                 }}
@@ -1203,11 +1203,11 @@ function MemberView({ slug }: { slug: string }) {
                   </div>
                   {editActions({ knowledge: listDraft })}
                 </>
-              ) : member.knowledge.length === 0 ? (
+              ) : agent.knowledge.length === 0 ? (
                 <span className="m3-sub">none connected — connected bundles are read and kept current by the agent</span>
               ) : (
                 <span className="m3-chips">
-                  {member.knowledge.map((b) => (
+                  {agent.knowledge.map((b) => (
                     <Link key={b} href={`/knowledge/${encodeURIComponent(b)}`} className="chip">
                       {b}
                     </Link>
@@ -1219,7 +1219,7 @@ function MemberView({ slug }: { slug: string }) {
               <button
                 className="open-raw"
                 onClick={() => {
-                  setListDraft(member.knowledge);
+                  setListDraft(agent.knowledge);
                   setEditing("knowledge");
                   setError("");
                 }}
@@ -1262,13 +1262,13 @@ function MemberView({ slug }: { slug: string }) {
                   </div>
                   {editActions({ skills: allSkillsDraft ? undefined : listDraft })}
                 </>
-              ) : member.skills === undefined ? (
+              ) : agent.skills === undefined ? (
                 <span className="m3-sub">all discovered skills (default) — invoke with /name in a session</span>
-              ) : member.skills.length === 0 ? (
+              ) : agent.skills.length === 0 ? (
                 <span className="m3-sub">none — this agent runs without skills</span>
               ) : (
                 <span className="m3-chips">
-                  {member.skills.map((s) => (
+                  {agent.skills.map((s) => (
                     <span key={s} className="chip">
                       /{s}
                     </span>
@@ -1280,8 +1280,8 @@ function MemberView({ slug }: { slug: string }) {
               <button
                 className="open-raw"
                 onClick={() => {
-                  setAllSkillsDraft(member.skills === undefined);
-                  setListDraft(member.skills ?? []);
+                  setAllSkillsDraft(agent.skills === undefined);
+                  setListDraft(agent.skills ?? []);
                   setEditing("skills");
                   setError("");
                 }}
@@ -1313,7 +1313,7 @@ Instructions this agent follows when the skill applies or is invoked with /<name
 
 function AgentSkillsPanel({ slug }: { slug: string }) {
   const data = usePoll<{ skills: SkillInfo[] }>(
-    `/api/team/${encodeURIComponent(slug)}/skills`,
+    `/api/agents/${encodeURIComponent(slug)}/skills`,
     false
   );
   const skills = data?.skills ?? [];
@@ -1324,7 +1324,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
   async function edit(name: string): Promise<void> {
     setError("");
     const r = await fetch(
-      `/api/team/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`
+      `/api/agents/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`
     );
     const body = await r.json().catch(() => null);
     if (!r.ok || !body || body.error) return void setError(body?.error ?? "could not load skill");
@@ -1335,7 +1335,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
     if (!form) return;
     setSaving(true);
     setError("");
-    const res = await fetch(`/api/team/${encodeURIComponent(slug)}/skills`, {
+    const res = await fetch(`/api/agents/${encodeURIComponent(slug)}/skills`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: form.name, content: form.content }),
@@ -1348,7 +1348,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
 
   async function remove(name: string): Promise<void> {
     if (!window.confirm(`Delete skill "/${name}" of this agent (its folder is removed)?`)) return;
-    await fetch(`/api/team/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`, {
+    await fetch(`/api/agents/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }).catch(() => {});
     if (form?.name === name) setForm(null);
@@ -1397,9 +1397,9 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
         </div>
       )}
       {form && (
-        <div className="team-form">
-          <div className="team-form-row">
-            <label className="team-field" style={{ flex: 1 }}>
+        <div className="agent-form">
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ flex: 1 }}>
               name — invoked as /&lt;name&gt;
               <input
                 value={form.name}
@@ -1409,7 +1409,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
               />
             </label>
           </div>
-          <label className="team-field">
+          <label className="agent-field">
             SKILL.md — frontmatter (description) + the instructions
             <textarea
               className="concept-edit"
@@ -1419,7 +1419,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
               onChange={(e) => setForm({ ...form, content: e.target.value })}
             />
           </label>
-          <div className="team-form-row">
+          <div className="agent-form-row">
             <button
               className="run-btn"
               disabled={saving || !form.name.trim()}
@@ -1450,7 +1450,7 @@ interface RoutineForm {
 
 function RoutinesPanel({ slug }: { slug: string }) {
   const data = usePoll<{ routines: RoutineStatus[] }>(
-    `/api/team/${encodeURIComponent(slug)}/routines`,
+    `/api/agents/${encodeURIComponent(slug)}/routines`,
     false
   );
   const routines = data?.routines ?? [];
@@ -1460,7 +1460,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
   async function post(routine: RoutineForm): Promise<boolean> {
     setError("");
-    const res = await fetch(`/api/team/${encodeURIComponent(slug)}/routines`, {
+    const res = await fetch(`/api/agents/${encodeURIComponent(slug)}/routines`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(routine),
@@ -1477,7 +1477,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
     setBusyId(id);
     setError("");
     const res = await fetch(
-      `/api/team/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}/run`,
+      `/api/agents/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}/run`,
       { method: "POST" }
     );
     const body = await res.json();
@@ -1488,7 +1488,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
   async function remove(id: string) {
     if (!window.confirm(`Delete routine "${id}"?`)) return;
-    await fetch(`/api/team/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}`, {
+    await fetch(`/api/agents/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }).catch(() => {});
   }
@@ -1588,9 +1588,9 @@ function RoutinesPanel({ slug }: { slug: string }) {
         </div>
       )}
       {form && (
-        <div className="team-form">
-          <div className="team-form-row">
-            <label className="team-field" style={{ flex: 1 }}>
+        <div className="agent-form">
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ flex: 1 }}>
               name
               <input
                 value={form.name}
@@ -1598,7 +1598,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </label>
-            <label className="team-field" style={{ width: 200 }}>
+            <label className="agent-field" style={{ width: 200 }}>
               schedule (cron)
               <input
                 value={form.schedule}
@@ -1606,7 +1606,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
                 onChange={(e) => setForm({ ...form, schedule: e.target.value })}
               />
             </label>
-            <label className="team-field wf-checks" style={{ width: 90 }}>
+            <label className="agent-field wf-checks" style={{ width: 90 }}>
               enabled
               <label>
                 <input
@@ -1618,7 +1618,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
               </label>
             </label>
           </div>
-          <label className="team-field">
+          <label className="agent-field">
             prompt — what to ask this agent on each run
             <textarea
               rows={5}
@@ -1627,7 +1627,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
               onChange={(e) => setForm({ ...form, prompt: e.target.value })}
             />
           </label>
-          <div className="team-form-row">
+          <div className="agent-form-row">
             <button
               className="run-btn"
               disabled={!form.name.trim() || !form.prompt.trim()}
@@ -1650,7 +1650,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
 /* ---------- editor ---------- */
 
-function MemberEditor({ slug }: { slug?: string }) {
+function AgentEditor({ slug }: { slug?: string }) {
   const [form, setForm] = useState<{
     name: string;
     emoji: string;
@@ -1676,9 +1676,9 @@ function MemberEditor({ slug }: { slug?: string }) {
 
   useEffect(() => {
     if (!slug) return;
-    fetch(`/api/team/${encodeURIComponent(slug)}`)
+    fetch(`/api/agents/${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((m: TeamMemberDetail) =>
+      .then((m: AgentDetail) =>
         setForm({
           name: m.name,
           emoji: m.emoji,
@@ -1718,7 +1718,7 @@ function MemberEditor({ slug }: { slug?: string }) {
     if (!form) return;
     setSaving(true);
     setError("");
-    const res = await fetch(slug ? `/api/team/${encodeURIComponent(slug)}` : "/api/team", {
+    const res = await fetch(slug ? `/api/agents/${encodeURIComponent(slug)}` : "/api/agents", {
       method: slug ? "PUT" : "POST",
       headers: { "content-type": "application/json" },
       // skillsAll = no allowlist: omit the skills key entirely.
@@ -1732,7 +1732,7 @@ function MemberEditor({ slug }: { slug?: string }) {
 
   async function remove() {
     if (!slug || !window.confirm(`Delete agent "${slug}" and its definition folder?`)) return;
-    await fetch(`/api/team/${encodeURIComponent(slug)}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`/api/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }).catch(() => {});
     navigate("/agents");
   }
 
@@ -1745,9 +1745,9 @@ function MemberEditor({ slug }: { slug?: string }) {
         <h1>{slug ? `edit ${slug}` : "new agent"}</h1>
       </div>
       <section className="panel new-chat-panel">
-        <div className="team-form">
-          <div className="team-form-row">
-            <label className="team-field" style={{ flex: 1 }}>
+        <div className="agent-form">
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ flex: 1 }}>
               name
               <input
                 value={form.name}
@@ -1755,7 +1755,7 @@ function MemberEditor({ slug }: { slug?: string }) {
                 onChange={(e) => set({ name: e.target.value })}
               />
             </label>
-            <label className="team-field" style={{ width: 90 }}>
+            <label className="agent-field" style={{ width: 90 }}>
               emoji
               <input value={form.emoji} onChange={(e) => set({ emoji: e.target.value })} />
             </label>
@@ -1772,8 +1772,8 @@ function MemberEditor({ slug }: { slug?: string }) {
               </button>
             ))}
           </div>
-          <div className="team-form-row">
-            <label className="team-field" style={{ flex: 1 }}>
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ flex: 1 }}>
               description
               <input
                 value={form.description}
@@ -1781,7 +1781,7 @@ function MemberEditor({ slug }: { slug?: string }) {
                 onChange={(e) => set({ description: e.target.value })}
               />
             </label>
-            <label className="team-field" style={{ width: 180 }}>
+            <label className="agent-field" style={{ width: 180 }}>
               group
               <input
                 value={form.group}
@@ -1790,8 +1790,8 @@ function MemberEditor({ slug }: { slug?: string }) {
               />
             </label>
           </div>
-          <div className="team-form-row">
-            <label className="team-field" style={{ width: 140 }}>
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ width: 140 }}>
               harness
               <select value={form.harness} onChange={(e) => set({ harness: e.target.value })}>
                 <option value="claude">claude</option>
@@ -1799,7 +1799,7 @@ function MemberEditor({ slug }: { slug?: string }) {
                 <option value="pi">pi</option>
               </select>
             </label>
-            <label className="team-field" style={{ flex: 1 }}>
+            <label className="agent-field" style={{ flex: 1 }}>
               model
               <input
                 value={form.model}
@@ -1807,7 +1807,7 @@ function MemberEditor({ slug }: { slug?: string }) {
                 onChange={(e) => set({ model: e.target.value })}
               />
             </label>
-            <label className="team-field" style={{ width: 140 }}>
+            <label className="agent-field" style={{ width: 140 }}>
               effort
               <select value={form.effort} onChange={(e) => set({ effort: e.target.value })}>
                 {EFFORTS.map((ef) => (
@@ -1818,7 +1818,7 @@ function MemberEditor({ slug }: { slug?: string }) {
               </select>
             </label>
           </div>
-          <label className="team-field">
+          <label className="agent-field">
             system prompt — the agent's role
             <textarea
               rows={10}
@@ -1827,8 +1827,8 @@ function MemberEditor({ slug }: { slug?: string }) {
               onChange={(e) => set({ system: e.target.value })}
             />
           </label>
-          <div className="team-field">
-            <span className="team-field-label">connected workflows — autoloaded into the agent's context; it can run them</span>
+          <div className="agent-field">
+            <span className="agent-field-label">connected workflows — autoloaded into the agent's context; it can run them</span>
             <div className="wf-checks">
               {available.map((w) => (
                 <label key={w.slug}>
@@ -1850,8 +1850,8 @@ function MemberEditor({ slug }: { slug?: string }) {
               {available.length === 0 && <div className="viewer-note">no workflows in this project</div>}
             </div>
           </div>
-          <div className="team-field">
-            <span className="team-field-label">connected knowledge — OKF bundles the agent consults and maintains</span>
+          <div className="agent-field">
+            <span className="agent-field-label">connected knowledge — OKF bundles the agent consults and maintains</span>
             <div className="wf-checks">
               {bundles.map((b) => (
                 <label key={b.name}>
@@ -1873,8 +1873,8 @@ function MemberEditor({ slug }: { slug?: string }) {
               {bundles.length === 0 && <div className="viewer-note">no knowledge bundles in this project</div>}
             </div>
           </div>
-          <div className="team-field">
-            <span className="team-field-label">connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions</span>
+          <div className="agent-field">
+            <span className="agent-field-label">connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions</span>
             <div className="wf-checks">
               <label>
                 <input
@@ -1909,7 +1909,7 @@ function MemberEditor({ slug }: { slug?: string }) {
             </div>
           </div>
           {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-          <div className="team-form-row">
+          <div className="agent-form-row">
             <button className="run-btn" disabled={!form.name.trim() || saving} onClick={save}>
               {saving ? "saving…" : slug ? "save" : "create"}
             </button>

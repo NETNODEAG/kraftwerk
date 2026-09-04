@@ -33,6 +33,10 @@ When asked to **check tests** (or "find test gaps", "what is untested"), do not 
 3. Report the gaps ranked by risk: writes before reads, security guards before formatting, code paths with error handling before happy paths.
 4. Fill the gaps, most important first, then run `npm test` and `npm run test:e2e`. A gap you decide not to fill gets named in the report with the reason.
 
+## Naming
+
+The persistent chat personas are **agents** — in code, routes, CSS, prose and prompts. Not "team", "team member" or "member": `Agent`, `listAgents`, `/api/agents`, chat scope `{ kind: "agent", slug }`, `agents/<slug>/`. "Team" is reserved for the humans using a workspace. The one persisted legacy is chat `meta.json` written before 0.36 with `{ kind: "team", member }`; `store.ts` upgrades it on read, so never write that shape again.
+
 ## Learn from feedback
 
 When the user corrects how something was done, or confirms an approach worth keeping — a convention, a preference about tests or output, a workflow step that was missing — and it would apply to future work on this repo, write it into this file in the matching section (or a new one) as part of the same turn. Keep it to the rule and the reason; no session narrative. Do not record one-off instructions that only apply to the task at hand.

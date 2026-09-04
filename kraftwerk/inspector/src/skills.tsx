@@ -136,7 +136,7 @@ function SkillView({ name }: { name: string }) {
   if (!skill) return <div className="empty">loading…</div>;
 
   return (
-    <div className="member-view">
+    <div className="agent-view">
       <div className="detail-head">
         <h1>/{skill.name}</h1>
         {sourceChip(skill.source)}

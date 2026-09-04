@@ -4,13 +4,14 @@ import { parse, stringify } from "yaml";
 import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
 import type { ChatAgentId } from "./chat/types.js";
+import { syncProjectAgents } from "./instances.js";
 
 /**
- * Team: persistent agent teammates, defined on the filesystem. Each member
+ * Agents: persistent agents, defined on the filesystem. Each one
  * is one folder under the project's agents/ root:
  *
  *   agents/<slug>/agent.yml    # name, emoji, harness, model, effort, workflows
- *   agents/<slug>/system.md    # the member's system prompt / role description
+ *   agents/<slug>/system.md    # the agent's system prompt / role description
  *
  * Definitions are git-tracked project config (like workflows/), not run
  * state — sessions with a member are ordinary chats scoped to it.
@@ -19,7 +20,7 @@ import type { ChatAgentId } from "./chat/types.js";
 export const HARNESSES: ChatAgentId[] = ["claude", "codex", "pi"];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
-export interface TeamMember {
+export interface Agent {
   slug: string;
   name: string;
   emoji: string;
@@ -42,19 +43,36 @@ export interface TeamMember {
   archived?: boolean;
 }
 
-export interface TeamMemberDetail extends TeamMember {
+/** What the ⌘K palette needs to find and show an agent — kept in the project registry. */
+export interface AgentSummary {
+  slug: string;
+  name: string;
+  emoji: string;
+  description?: string;
+  group?: string;
+}
+
+export const toSummary = (a: Agent): AgentSummary => ({
+  slug: a.slug,
+  name: a.name,
+  emoji: a.emoji,
+  ...(a.description ? { description: a.description } : {}),
+  ...(a.group ? { group: a.group } : {}),
+});
+
+export interface AgentDetail extends Agent {
   /** Contents of system.md — the member's system prompt. */
   system: string;
 }
 
-export async function teamRoot(): Promise<string> {
+export async function agentsRoot(): Promise<string> {
   const project = await resolveProject(getProjectRoot());
   return path.resolve(project.root, project.config.agents ?? "agents");
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,48}$/;
 
-export function safeMemberSlug(slug: string): string {
+export function safeAgentSlug(slug: string): string {
   if (!SLUG_RE.test(slug)) throw new Error(`invalid agent slug "${slug}"`);
   return slug;
 }
@@ -72,7 +90,7 @@ export function slugFromName(name: string): string {
   return slug;
 }
 
-interface MemberYaml {
+interface AgentYaml {
   name?: unknown;
   emoji?: unknown;
   description?: unknown;
@@ -86,7 +104,7 @@ interface MemberYaml {
   archived?: unknown;
 }
 
-function normalize(slug: string, raw: MemberYaml): TeamMember {
+function normalize(slug: string, raw: AgentYaml): Agent {
   const harness = String(raw.harness ?? "claude") as ChatAgentId;
   return {
     slug,
@@ -104,8 +122,8 @@ function normalize(slug: string, raw: MemberYaml): TeamMember {
   };
 }
 
-export async function listMembers(): Promise<TeamMember[]> {
-  const root = await teamRoot();
+export async function listAgents(): Promise<Agent[]> {
+  const root = await agentsRoot();
   let entries: string[];
   try {
     entries = (await fs.readdir(root, { withFileTypes: true }))
@@ -114,21 +132,28 @@ export async function listMembers(): Promise<TeamMember[]> {
   } catch {
     return [];
   }
-  const members = await Promise.all(
+  const agents = await Promise.all(
     entries.map(async (slug) => {
       try {
         const raw = parse(await fs.readFile(path.join(root, slug, "agent.yml"), "utf8"));
-        return normalize(slug, (raw ?? {}) as MemberYaml);
+        return normalize(slug, (raw ?? {}) as AgentYaml);
       } catch {
         return null;
       }
     })
   );
-  return (members.filter(Boolean) as TeamMember[]).sort((a, b) => a.name.localeCompare(b.name));
+  const list = (agents.filter(Boolean) as Agent[]).sort((a, b) => a.name.localeCompare(b.name));
+  // Keep the registry's copy of the roster current for the other instances'
+  // palettes. Awaited so a read that follows a save sees the record updated;
+  // it only writes when the roster changed.
+  await resolveProject(getProjectRoot())
+    .then((p) => syncProjectAgents(p.root, list.filter((a) => !a.archived).map(toSummary)))
+    .catch(() => {});
+  return list;
 }
 
-export async function getMember(slug: string): Promise<TeamMemberDetail | null> {
-  const dir = path.join(await teamRoot(), safeMemberSlug(slug));
+export async function getAgent(slug: string): Promise<AgentDetail | null> {
+  const dir = path.join(await agentsRoot(), safeAgentSlug(slug));
   let raw: unknown;
   try {
     raw = parse(await fs.readFile(path.join(dir, "agent.yml"), "utf8"));
@@ -136,10 +161,10 @@ export async function getMember(slug: string): Promise<TeamMemberDetail | null> 
     return null;
   }
   const system = await fs.readFile(path.join(dir, "system.md"), "utf8").catch(() => "");
-  return { ...normalize(slug, (raw ?? {}) as MemberYaml), system: system.trim() };
+  return { ...normalize(slug, (raw ?? {}) as AgentYaml), system: system.trim() };
 }
 
-export interface SaveMemberInput {
+export interface SaveAgentInput {
   slug?: string;
   name: string;
   emoji?: string;
@@ -156,7 +181,7 @@ export interface SaveMemberInput {
   system?: string;
 }
 
-export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDetail> {
+export async function saveAgent(input: SaveAgentInput): Promise<AgentDetail> {
   const name = input.name?.trim();
   if (!name) throw new Error("name is required");
   if (!HARNESSES.includes(input.harness as ChatAgentId)) {
@@ -165,14 +190,14 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
   if (input.effort && !EFFORTS.includes(input.effort as (typeof EFFORTS)[number])) {
     throw new Error(`effort must be one of: ${EFFORTS.join(", ")}`);
   }
-  const slug = input.slug ? safeMemberSlug(input.slug) : slugFromName(name);
-  const dir = path.join(await teamRoot(), slug);
+  const slug = input.slug ? safeAgentSlug(input.slug) : slugFromName(name);
+  const dir = path.join(await agentsRoot(), slug);
   await fs.mkdir(dir, { recursive: true });
 
   // Profile edits must not silently unarchive: carry the flag over.
   const existing = await fs
     .readFile(path.join(dir, "agent.yml"), "utf8")
-    .then((raw) => (parse(raw) ?? {}) as MemberYaml)
+    .then((raw) => (parse(raw) ?? {}) as AgentYaml)
     .catch(() => null);
 
   const yml: Record<string, unknown> = {
@@ -190,15 +215,15 @@ export async function saveMember(input: SaveMemberInput): Promise<TeamMemberDeta
   };
   await fs.writeFile(path.join(dir, "agent.yml"), stringify(yml));
   await fs.writeFile(path.join(dir, "system.md"), (input.system ?? "").trim() + "\n");
-  return (await getMember(slug))!;
+  return (await getAgent(slug))!;
 }
 
 /** Archive/unarchive a member: toggles `archived:` in agent.yml, nothing else. */
-export async function setMemberArchived(slug: string, archived: boolean): Promise<TeamMemberDetail> {
-  const dir = path.join(await teamRoot(), safeMemberSlug(slug));
-  let raw: MemberYaml;
+export async function setAgentArchived(slug: string, archived: boolean): Promise<AgentDetail> {
+  const dir = path.join(await agentsRoot(), safeAgentSlug(slug));
+  let raw: AgentYaml;
   try {
-    raw = (parse(await fs.readFile(path.join(dir, "agent.yml"), "utf8")) ?? {}) as MemberYaml;
+    raw = (parse(await fs.readFile(path.join(dir, "agent.yml"), "utf8")) ?? {}) as AgentYaml;
   } catch {
     throw new Error("agent not found");
   }
@@ -206,10 +231,10 @@ export async function setMemberArchived(slug: string, archived: boolean): Promis
   if (archived) yml.archived = true;
   else delete yml.archived;
   await fs.writeFile(path.join(dir, "agent.yml"), stringify(yml));
-  return (await getMember(slug))!;
+  return (await getAgent(slug))!;
 }
 
-export async function deleteMember(slug: string): Promise<void> {
-  const dir = path.join(await teamRoot(), safeMemberSlug(slug));
+export async function deleteAgent(slug: string): Promise<void> {
+  const dir = path.join(await agentsRoot(), safeAgentSlug(slug));
   await fs.rm(dir, { recursive: true, force: true });
 }

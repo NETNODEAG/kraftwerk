@@ -127,7 +127,7 @@ export function SettingsScreen() {
     ["workflows", data.resolved.workflowsRoot ?? "— none found", "workflow definitions"],
     ["output", data.resolved.outputDir, "run artifacts"],
     ["knowledge", data.config.knowledge ?? "knowledge", "OKF knowledge bundles"],
-    ["agents", data.config.agents ?? "agents", "team agent definitions"],
+    ["agents", data.config.agents ?? "agents", "agent definitions"],
     ["skills", data.config.skills ?? "skills", "workspace skills"],
   ];
 
@@ -147,9 +147,9 @@ export function SettingsScreen() {
         <div className="panel-head">
           <span className="microlabel">workspace</span>
         </div>
-        <div className="team-form">
-          <div className="team-form-row">
-            <label className="team-field" style={{ width: 90 }}>
+        <div className="agent-form">
+          <div className="agent-form-row">
+            <label className="agent-field" style={{ width: 90 }}>
               icon
               <input
                 value={icon}
@@ -160,7 +160,7 @@ export function SettingsScreen() {
                 }}
               />
             </label>
-            <label className="team-field" style={{ flex: 1 }}>
+            <label className="agent-field" style={{ flex: 1 }}>
               name
               <input
                 value={name}
@@ -190,19 +190,19 @@ export function SettingsScreen() {
             <Icon name="add" className="ms-sm" /> add entry
           </button>
         </div>
-        <div className="team-form">
+        <div className="agent-form">
           {switcher.length === 0 && <div className="settings-note">No manual entries.</div>}
           {switcher.map((row, i) => (
-            <div className="team-form-row" key={i}>
-              <label className="team-field" style={{ width: 70 }}>
+            <div className="agent-form-row" key={i}>
+              <label className="agent-field" style={{ width: 70 }}>
                 icon
                 <input value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
               </label>
-              <label className="team-field" style={{ flex: 1 }}>
+              <label className="agent-field" style={{ flex: 1 }}>
                 name
                 <input value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
               </label>
-              <label className="team-field" style={{ flex: 1.4 }}>
+              <label className="agent-field" style={{ flex: 1.4 }}>
                 url
                 <input value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
               </label>
@@ -233,23 +233,23 @@ export function SettingsScreen() {
             <Icon name="account_tree" className="ms-sm" /> open git
           </a>
         </div>
-        <div className="team-form">
+        <div className="agent-form">
           <label className="settings-check">
             <input type="checkbox" checked={git.enabled} onChange={(e) => setGitField({ enabled: e.target.checked })} />
             sync workflows, knowledge, agents and skills with a git remote
           </label>
           {git.enabled && (
             <>
-              <div className="team-form-row">
-                <label className="team-field" style={{ flex: 1 }}>
+              <div className="agent-form-row">
+                <label className="agent-field" style={{ flex: 1 }}>
                   remote
                   <input value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
                 </label>
-                <label className="team-field" style={{ flex: 1 }}>
+                <label className="agent-field" style={{ flex: 1 }}>
                   branch
                   <input value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
                 </label>
-                <label className="team-field" style={{ width: 120 }}>
+                <label className="agent-field" style={{ width: 120 }}>
                   interval (s)
                   <input
                     type="number"
@@ -260,7 +260,7 @@ export function SettingsScreen() {
                     onChange={(e) => setGitField({ interval: e.target.value })}
                   />
                 </label>
-                <label className="team-field" style={{ width: 150 }}>
+                <label className="agent-field" style={{ width: 150 }}>
                   autosync
                   <select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" })}>
                     <option value="pull">fetch and pull</option>

@@ -29,11 +29,13 @@ export type {
   BundleDetail,
 } from "../../src/inspector/knowledge";
 export type {
-  TeamMember,
-  TeamMemberDetail,
-} from "../../src/inspector/team";
+  Agent,
+  AgentDetail,
+  AgentSummary,
+} from "../../src/inspector/agents";
 export type { SkillDetail, SkillInfo } from "../../src/inspector/skills";
 export type { GitFile, GitStatus, GitDiff } from "../../src/inspector/git";
+export type { AgentSearch, WorkspaceAgents } from "../../src/inspector/search";
 export type {
   Routine,
   RoutineStatus,

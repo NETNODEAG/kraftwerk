@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { GitStatus, RunListItem } from "./types";
-import { Icon, navigate, setBaseTitle, setExpertMode, useExpertMode, useHashPath, usePoll } from "./shared";
+import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -9,10 +9,11 @@ import { WorkflowView } from "./workflow-view";
 import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
-import { TeamScreen } from "./team";
+import { AgentsScreen } from "./agents";
 import { SettingsScreen } from "./settings";
 import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
+import { SearchPalette } from "./search";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
@@ -21,6 +22,7 @@ import { GitScreen } from "./git";
  * #/agents[/new | /chats[/<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]].
  * A bare #/agents/<slug> opens the agent's most recent session; the profile
  * lives at /info. Legacy #/team/* and #/chats[/<id>] links still land here.
+ * ⌘K opens the agent palette (search.tsx) from anywhere.
  */
 export function App() {
   const path = useHashPath();
@@ -86,12 +88,12 @@ export function App() {
   else if (seg[0] === "runs") screen = <LatestRun />;
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "workflows") screen = <WorkflowIndex />;
-  else if (seg[0] === "chats") screen = <TeamScreen seg={seg} />;
+  else if (seg[0] === "chats") screen = <AgentsScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "settings") screen = <SettingsScreen />;
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "git") screen = <GitScreen />;
-  else if (seg[0] === "agents" || seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
+  else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
     screen = (
@@ -135,6 +137,7 @@ export function App() {
           {gitOn && <GitNavLink />}
         </nav>
         <span className="spacer" />
+        <SearchPalette />
         <RelaunchNote />
         <ExpertToggle />
         <ProjectInfo />
@@ -202,34 +205,7 @@ function StoppedWorkspace({ entry }: { entry: SwitcherEntry }) {
     setState("starting");
     setError("");
     try {
-      const r = await fetch("/api/projects/start", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ root: entry.root }),
-      });
-      const d = (await r.json()) as { ok?: boolean; live?: boolean; url?: string; error?: string };
-      if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      window.dispatchEvent(new Event("kw-meta-refresh"));
-      if (d.live && d.url) {
-        window.location.assign(d.url);
-        return;
-      }
-      // Spawned but not answering yet. The target is another origin (no
-      // CORS), so ask our own server: it probes and reports the entry live.
-      for (let i = 0; i < 12; i++) {
-        await new Promise((res) => setTimeout(res, 1_000));
-        try {
-          const m = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
-            switcher?: SwitcherEntry[];
-          };
-          const hit = m.switcher?.find((e) => e.root === entry.root && e.live);
-          if (hit) {
-            window.location.assign(hit.url);
-            return;
-          }
-        } catch {}
-      }
-      throw new Error("started, but the UI did not answer yet — see ~/.kraftwerk/logs");
+      window.location.assign(await startWorkspace(entry.root!));
     } catch (err) {
       setState("error");
       setError((err as Error).message);

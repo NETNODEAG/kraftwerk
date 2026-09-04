@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",

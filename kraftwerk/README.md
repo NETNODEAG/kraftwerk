@@ -179,7 +179,7 @@ different host.
 Optional, at the project root, and also the root marker for the walk-up. All
 fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
-(default `knowledge/`), and `agents:` the team agent-definition root (default
+(default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`).
 
 `switcher:` links other kraftwerk workspaces from the inspector header. The
@@ -191,6 +191,13 @@ switcher:
     url: https://localhost:1985
     icon: "🛰"   # optional
 ```
+
+**⌘K** (Ctrl K) anywhere in the inspector opens the agent palette: type a
+few letters of an agent's name, description or workspace and hit enter to
+jump to it. It lists the active agents of every workspace on this machine,
+running or not (a stopped one is started on the way), read from the
+project registry under `~/.kraftwerk/projects`, which every inspector keeps
+current with its roster.
 
 ### Triggering from CI, cron, or webhooks
 
@@ -249,15 +256,15 @@ repo. Agent logins made inside the container persist in the `agent-home`
 volume. This is a different image from the `kraftwerk-runner` sandbox
 (`runner/Dockerfile`) used by `run --sandbox`.
 
-## Persistent team agents
+## Persistent agents
 
-The inspector's "team" screen turns chat agents into persistent teammates. A
-team member is one folder under the project's `agents/` root:
+The inspector's "agents" screen turns chat agents into persistent teammates. An
+agent is one folder under the project's `agents/` root:
 
 ```
 agents/max/
   agent.yml     # name, emoji, description, harness, model, effort, workflows
-  system.md     # the member's system prompt (its role)
+  system.md     # the agent's system prompt (its role)
 ```
 
 ```yaml
@@ -269,43 +276,43 @@ harness: claude        # claude | codex | pi (which chat backend runs it)
 model: sonnet          # optional; harness default when omitted
 effort: medium         # optional: low | medium | high | xhigh | max
 workflows: [tagline, website-check]
-knowledge: [customer-support]   # OKF bundles the member consults & maintains
+knowledge: [customer-support]   # OKF bundles the agent consults & maintains
 skills: [report-html]           # optional allowlist; omit = all skills, [] = none
 ```
 
-Sessions with a member are ordinary chats scoped `{ kind: "team", member }`,
-listed per member in a second sidebar. On the first message the member gets
+Sessions with an agent are ordinary chats scoped `{ kind: "agent", slug }`,
+listed per agent in a second sidebar. On the first message the agent gets
 its role plus its connected workflows and knowledge bundles injected as
 context. That context includes how to run workflows
 (`KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"`) and how to read
 and write knowledge through `kraftwerk knowledge`, with writes stamped with
-the member's own actor, `<slug>/<harness>`. So the member triggers its own
+the agent's own actor, `<slug>/<harness>`. So the agent triggers its own
 workflows when a request matches, and keeps its bundles current.
 
 Model and effort ride on backend-specific channels. The claude adapter takes
 the model via ACP session options and the thinking budget via
 `MAX_THINKING_TOKENS`. Codex gets a `CODEX_CONFIG` env override (`model`,
-`model_reasoning_effort`). Pi gets `--model` and `--thinking` flags. Members
+`model_reasoning_effort`). Pi gets `--model` and `--thinking` flags. Agents
 are created and edited in the UI, or by editing the files, since the
 definition is read fresh for each new session.
 
 ### Skills in chat
 
-Chats, both general ones and team sessions, can use skills. These are
+Chats, both general ones and agent sessions, can use skills. These are
 Claude-style instruction packages, one folder per skill with a `SKILL.md`
 holding YAML frontmatter (`name`, `description`) and then the instructions.
 Four roots are discovered, each shadowing same-named skills in the roots below
 it:
 
 ```
-<project>/agents/<slug>/skills/<name>/SKILL.md   # private to that one team agent
+<project>/agents/<slug>/skills/<name>/SKILL.md   # private to that one agent
 <project>/<skills root>/<name>/SKILL.md          # workspace, git-tracked (kraftwerk.yml `skills`, default skills/)
 <project>/.claude/skills/<name>/SKILL.md         # git-tracked, per project
 ~/.claude/skills/<name>/SKILL.md                 # personal, per user
 ```
 
 Agent skills are visible only to that agent's sessions and always apply. A
-member's `skills:` allowlist narrows the shared roots only. Manage them in the
+agent's `skills:` allowlist narrows the shared roots only. Manage them in the
 agent profile under "own skills", or by editing the files.
 
 Every chat lists its visible skills as context under "## Your skills", so the
@@ -313,16 +320,16 @@ agent reaches for one when the request matches. Typing `/` in the composer
 opens an autocomplete over them. Sending `/<name> <args>` expands the skill's
 SKILL.md into the prompt, which is what makes this work identically on claude,
 codex, and pi. On top of that, claude discovers `.claude/skills` natively (a
-team member's `skills:` allowlist narrows that via ACP session options) and pi
-loads each visible skill folder via `--skill`. Team members take an optional
+agent's `skills:` allowlist narrows that via ACP session options) and pi
+loads each visible skill folder via `--skill`. Agents take an optional
 `skills:` list in `agent.yml`. Omitted means all discovered skills, an empty
 list means none, otherwise it is the allowlist. `GET /api/skills` returns
 what's discovered.
 
 ### Routines, or scheduled prompts
 
-A member can have routines, cron-scheduled prompts that work like standing
-orders for an employee. Definitions live next to the member in
+An agent can have routines, cron-scheduled prompts that work like standing
+orders for an employee. Definitions live next to the agent in
 `agents/<slug>/routines.yml` and are git-tracked. Run state (last run, last
 session, errors) lives in `<output>/routines-state.json`.
 
@@ -338,12 +345,12 @@ session, errors) lives in `<output>/routines-state.json`.
 ```
 
 The inspector server runs the scheduler in-process, so there is no external
-cron to set up. Every due routine opens a fresh session for the member, posts
+cron to set up. Every due routine opens a fresh session for the agent, posts
 the prompt, and shows up in the sessions sidebar titled "⏰ <name>". Routine
 sessions run unattended, so tool-permission requests are auto-approved, with
 the request and approval pair left in the thread as an audit trail. Give
 routine prompts the same trust you would give a `KRAFTWERK_YES=1` workflow
-run. Manage routines on the member page, where you can create, edit and
+run. Manage routines on the agent page, where you can create, edit and
 delete them, toggle enabled, hit "run now", and jump to the last run's
 session. Schedules missed while the server is down are skipped, not replayed.
 

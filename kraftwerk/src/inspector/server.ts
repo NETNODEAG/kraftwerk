@@ -27,14 +27,14 @@ import {
   verifyFromUi,
 } from "./knowledge.js";
 import {
-  deleteMember,
-  getMember,
-  listMembers,
-  saveMember,
-  setMemberArchived,
-  teamRoot,
-  type SaveMemberInput,
-} from "./team.js";
+  deleteAgent,
+  getAgent,
+  listAgents,
+  saveAgent,
+  setAgentArchived,
+  agentsRoot,
+  type SaveAgentInput,
+} from "./agents.js";
 import {
   deleteAgentSkill,
   getSkill,
@@ -66,6 +66,7 @@ import {
   startGitSync,
 } from "./git.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
+import { searchAgents } from "./search.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -317,6 +318,11 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const run = seg[2] === "fetch" ? gitFetch : seg[2] === "pull" ? gitPull : gitPush;
     const result = await run();
     return json(res, result, result.ok ? 200 : 409);
+  }
+
+  // GET /api/search/agents — active agents of every reachable workspace (the ⌘K palette)
+  if (seg.length === 3 && seg[1] === "search" && seg[2] === "agents" && method === "GET") {
+    return json(res, await searchAgents());
   }
 
   // GET /api/projects — every known workspace incl. this one, with state + counts (admin screen)
@@ -581,33 +587,33 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     return skill ? json(res, skill) : json(res, { error: "not found" }, 404);
   }
 
-  // GET/POST /api/team — member list / create a member
-  if (seg.length === 2 && seg[1] === "team") {
+  // GET/POST /api/agents — member list / create a member
+  if (seg.length === 2 && seg[1] === "agents") {
     if (method === "GET") {
-      return json(res, { root: await teamRoot(), members: await listMembers() });
+      return json(res, { root: await agentsRoot(), agents: await listAgents() });
     }
     if (method === "POST") {
       try {
-        const body = JSON.parse(await readBody(req)) as SaveMemberInput;
-        return json(res, await saveMember({ ...body, slug: undefined }));
+        const body = JSON.parse(await readBody(req)) as SaveAgentInput;
+        return json(res, await saveAgent({ ...body, slug: undefined }));
       } catch (err) {
         return json(res, { error: (err as Error).message }, 400);
       }
     }
   }
 
-  // POST /api/team/:slug/archive — archive/unarchive a member ({ archived: boolean })
-  if (seg.length === 4 && seg[1] === "team" && seg[3] === "archive" && method === "POST") {
+  // POST /api/agents/:slug/archive — archive/unarchive a member ({ archived: boolean })
+  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "archive" && method === "POST") {
     try {
       const body = JSON.parse(await readBody(req)) as { archived?: boolean };
-      return json(res, await setMemberArchived(decodeURIComponent(seg[2]), body.archived === true));
+      return json(res, await setAgentArchived(decodeURIComponent(seg[2]), body.archived === true));
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
     }
   }
 
-  // GET/POST /api/team/:slug/skills — the agent's own skills / create or update one
-  if (seg.length === 4 && seg[1] === "team" && seg[3] === "skills") {
+  // GET/POST /api/agents/:slug/skills — the agent's own skills / create or update one
+  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "skills") {
     const slug = decodeURIComponent(seg[2]);
     try {
       if (method === "GET") return json(res, { skills: await listAgentSkills(slug) });
@@ -620,8 +626,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET/DELETE /api/team/:slug/skills/:name — one agent skill with content / delete
-  if (seg.length === 5 && seg[1] === "team" && seg[3] === "skills") {
+  // GET/DELETE /api/agents/:slug/skills/:name — one agent skill with content / delete
+  if (seg.length === 5 && seg[1] === "agents" && seg[3] === "skills") {
     const slug = decodeURIComponent(seg[2]);
     const name = decodeURIComponent(seg[4]);
     try {
@@ -641,8 +647,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET/POST /api/team/:slug/routines — list (with run state) / upsert
-  if (seg.length === 4 && seg[1] === "team" && seg[3] === "routines") {
+  // GET/POST /api/agents/:slug/routines — list (with run state) / upsert
+  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "routines") {
     const slug = decodeURIComponent(seg[2]);
     try {
       if (method === "GET") return json(res, { routines: await routineStatuses(slug) });
@@ -655,8 +661,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // DELETE /api/team/:slug/routines/:id | POST /api/team/:slug/routines/:id/run
-  if (seg.length >= 5 && seg[1] === "team" && seg[3] === "routines") {
+  // DELETE /api/agents/:slug/routines/:id | POST /api/agents/:slug/routines/:id/run
+  if (seg.length >= 5 && seg[1] === "agents" && seg[3] === "routines") {
     const slug = decodeURIComponent(seg[2]);
     const id = decodeURIComponent(seg[4]);
     try {
@@ -672,20 +678,20 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET/PUT/DELETE /api/team/:slug
-  if (seg.length === 3 && seg[1] === "team") {
+  // GET/PUT/DELETE /api/agents/:slug
+  if (seg.length === 3 && seg[1] === "agents") {
     const slug = decodeURIComponent(seg[2]);
     try {
       if (method === "GET") {
-        const member = await getMember(slug);
-        return member ? json(res, member) : json(res, { error: "not found" }, 404);
+        const agent = await getAgent(slug);
+        return agent ? json(res, agent) : json(res, { error: "not found" }, 404);
       }
       if (method === "PUT") {
-        const body = JSON.parse(await readBody(req)) as SaveMemberInput;
-        return json(res, await saveMember({ ...body, slug }));
+        const body = JSON.parse(await readBody(req)) as SaveAgentInput;
+        return json(res, await saveAgent({ ...body, slug }));
       }
       if (method === "DELETE") {
-        await deleteMember(slug);
+        await deleteAgent(slug);
         return json(res, { ok: true });
       }
     } catch (err) {
@@ -699,7 +705,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     if (method === "POST") {
       let body: {
         agent?: string;
-        scope?: { kind?: string; runId?: string; bundle?: string; member?: string };
+        scope?: { kind?: string; runId?: string; bundle?: string; slug?: string };
       };
       try {
         body = JSON.parse(await readBody(req));
@@ -708,12 +714,12 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       }
       let agent = body.agent as ChatAgentId;
       let scope: ChatScope;
-      if (body.scope?.kind === "team" && body.scope.member) {
-        // Team sessions run on the member's configured harness.
-        const member = await getMember(body.scope.member).catch(() => null);
-        if (!member) return json(res, { error: "team agent not found" }, 404);
-        scope = { kind: "team", member: member.slug };
-        agent = member.harness;
+      if (body.scope?.kind === "agent" && body.scope.slug) {
+        // Agent sessions run on the agent's configured harness.
+        const def = await getAgent(body.scope.slug).catch(() => null);
+        if (!def) return json(res, { error: "agent not found" }, 404);
+        scope = { kind: "agent", slug: def.slug };
+        agent = def.harness;
       } else if (body.scope?.kind === "run" && body.scope.runId) {
         scope = { kind: "run", runId: body.scope.runId };
       } else if (body.scope?.kind === "kraftwerk") {

@@ -156,7 +156,7 @@ function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
   const base = `/knowledge/${encodeURIComponent(name)}`;
 
   return (
-    <div className="member-view">
+    <div className="agent-view">
       <div className="page-head">
         <h1>{name}</h1>
         <span className="count">{concepts.length} pages</span>
@@ -415,7 +415,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   if (!concept) return <div className="empty">loading…</div>;
 
   return (
-    <div className="member-view">
+    <div className="agent-view">
       <div className="detail-head">
         <h1>{concept.title}</h1>
         {concept.type && <span className="chip agent">{concept.type}</span>}

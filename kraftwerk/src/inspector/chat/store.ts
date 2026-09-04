@@ -33,10 +33,23 @@ export async function writeMeta(meta: ChatMeta): Promise<void> {
 
 export async function readMeta(id: string): Promise<ChatMeta | null> {
   try {
-    return JSON.parse(await fs.readFile(path.join(safeChatDir(id), "meta.json"), "utf8"));
+    return upgradeMeta(JSON.parse(await fs.readFile(path.join(safeChatDir(id), "meta.json"), "utf8")));
   } catch {
     return null;
   }
+}
+
+/**
+ * Chats written before 0.36 scoped agent sessions as
+ * { kind: "team", member } — read them as { kind: "agent", slug } so the
+ * folders on disk never need rewriting.
+ */
+function upgradeMeta(meta: ChatMeta): ChatMeta {
+  const legacy = meta.scope as unknown as { kind: string; member?: string; routine?: string };
+  if (legacy?.kind === "team" && typeof legacy.member === "string") {
+    meta.scope = { kind: "agent", slug: legacy.member, ...(legacy.routine ? { routine: legacy.routine } : {}) };
+  }
+  return meta;
 }
 
 export async function appendEvent(id: string, ev: StoredChatEvent): Promise<void> {
