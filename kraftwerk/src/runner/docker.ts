@@ -24,7 +24,7 @@ import { newRunId, runDirFor } from "../workflow.js";
  */
 
 const IMAGE = "kraftwerk-runner";
-const ENV_FILE = "runner.env";
+export const ENV_FILE = "runner.env";
 const PASSTHROUGH_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"];
 
 /** Framework package root (contains runner/Dockerfile). */

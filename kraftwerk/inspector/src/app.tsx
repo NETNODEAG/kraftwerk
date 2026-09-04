@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import type { RunListItem } from "./types";
-import { Icon, navigate, setBaseTitle, setExpertMode, useExpertMode, useHashPath } from "./shared";
+import type { GitStatus, RunListItem } from "./types";
+import { Icon, navigate, setBaseTitle, setExpertMode, useExpertMode, useHashPath, usePoll } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -12,6 +12,7 @@ import { SkillsScreen } from "./skills";
 import { TeamScreen } from "./team";
 import { SettingsScreen } from "./settings";
 import { WorkspacesScreen } from "./workspaces";
+import { GitScreen } from "./git";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
@@ -27,6 +28,7 @@ export function App() {
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
   const [projectRoot, setProjectRoot] = useState("");
+  const [gitOn, setGitOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
@@ -39,12 +41,14 @@ export function App() {
           projectName?: string;
           projectIcon?: string;
           projectRootLabel?: string;
+          git?: boolean;
           switcher?: SwitcherEntry[];
         };
         if (!alive) return;
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
         setProjectRoot(d.projectRootLabel ?? "");
+        setGitOn(!!d.git);
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -86,6 +90,7 @@ export function App() {
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "settings") screen = <SettingsScreen />;
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
+  else if (seg[0] === "git") screen = <GitScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <TeamScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -127,6 +132,7 @@ export function App() {
           <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
           <a href="#/runs"><Icon name="history" /> workflow runs</a>
           <a href="#/skills"><Icon name="extension" /> skills</a>
+          {gitOn && <GitNavLink />}
         </nav>
         <span className="spacer" />
         <RelaunchNote />
@@ -135,6 +141,24 @@ export function App() {
       </header>
       <main className="shell">{screen}</main>
     </>
+  );
+}
+
+/**
+ * Nav entry for the git screen, shown only when kraftwerk.yml turns the
+ * feature on. Carries the ahead/behind counts so the state is visible
+ * without opening the screen.
+ */
+function GitNavLink() {
+  const st = usePoll<GitStatus>("/api/git", false, 15_000);
+  const dirty = st?.files?.filter((f) => f.syncable).length ?? 0;
+  return (
+    <a href="#/git">
+      <Icon name="cloud_sync" /> git
+      {!!st?.behind && <span className="git-badge behind">{st.behind}↓</span>}
+      {!!st?.ahead && <span className="git-badge ahead">{st.ahead}↑</span>}
+      {!st?.ahead && !st?.behind && !!dirty && <span className="git-badge dirty">{dirty}</span>}
+    </a>
   );
 }
 

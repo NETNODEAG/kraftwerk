@@ -25,6 +25,10 @@ import { parse } from "yaml";
  *     - name: other space
  *       url: https://localhost:1985
  *       icon: "🛰"              # optional emoji shown next to the entry
+ *   git:                       # workspace git sync (absent = off, bare key = on with defaults)
+ *     remote: origin
+ *     interval: 300            # seconds between background fetches
+ *     autosync: pull           # off | pull
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -38,6 +42,25 @@ export const CONFIG_SCHEMA_URL =
 export const CONFIG_FILENAMES = ["kraftwerk.yml", "kraftwerk.yaml"];
 
 const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
+
+/**
+ * Git sync for the workspace. The synced paths are not configurable: they
+ * are the roots this file already declares (workflows, knowledge, agents,
+ * skills) plus kraftwerk.yml itself. Commit and push stay manual; the
+ * interval only fetches, and pulls when `autosync` allows it.
+ */
+export interface GitConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Remote to fetch, pull and push. Default: origin. */
+  remote?: string;
+  /** Branch to sync. Default: whatever is checked out. */
+  branch?: string;
+  /** Seconds between background fetches. 0 disables the timer. Default: 300. */
+  interval?: number;
+  /** off = fetch only. pull = also fast-forward when behind and clean. Default: pull. */
+  autosync?: "off" | "pull";
+}
 
 /** One entry of the workspace switcher: another kraftwerk instance to link to. */
 export interface SwitcherEntry {
@@ -68,6 +91,8 @@ export interface ProjectConfig {
   skills?: string;
   /** Other kraftwerk workspaces, shown as a switcher dropdown in the inspector header. */
   switcher?: SwitcherEntry[];
+  /** Workspace git sync. Absent = off. */
+  git?: GitConfig;
 }
 
 export interface Project {
@@ -139,6 +164,8 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
+const KNOWN_KEYS = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git"];
+
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
   try {
@@ -148,10 +175,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   }
   if (raw === null || raw === undefined) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${path.basename(configPath)}: expected a mapping (name, icon, port, workflows, output, knowledge, agents, skills, switcher)`);
+    throw new Error(`${path.basename(configPath)}: expected a mapping (${KNOWN_KEYS.join(", ")})`);
   }
   const config = raw as Record<string, unknown>;
-  const known = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher"];
+  const known = KNOWN_KEYS;
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
       throw new Error(
@@ -164,6 +191,12 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
       }
     } else if (key === "switcher") {
       validateSwitcher(configPath, config[key]);
+    } else if (key === "git") {
+      // A bare `git:` line parses as null. Every field has a default, so read
+      // it as "on, with defaults" instead of failing the whole config load
+      // and taking the rest of the inspector down with it.
+      if (config[key] === null) config[key] = {};
+      validateGit(configPath, config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
@@ -196,4 +229,32 @@ function validateSwitcher(configPath: string, value: unknown): void {
       throw new Error(`${file}: switcher[${i}]: icon must be a string`);
     }
   });
+}
+
+function validateGit(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${file}: git must be a mapping (enabled, remote, branch, interval, autosync)`);
+  }
+  const g = value as Record<string, unknown>;
+  const known = ["enabled", "remote", "branch", "interval", "autosync"];
+  for (const key of Object.keys(g)) {
+    if (!known.includes(key)) {
+      throw new Error(`${file}: git.${key} is unknown (allowed: ${known.join(", ")})`);
+    }
+  }
+  if (g.enabled !== undefined && typeof g.enabled !== "boolean") {
+    throw new Error(`${file}: git.enabled must be true or false`);
+  }
+  for (const key of ["remote", "branch"] as const) {
+    if (g[key] !== undefined && (typeof g[key] !== "string" || !(g[key] as string).trim())) {
+      throw new Error(`${file}: git.${key} must be a non-empty string`);
+    }
+  }
+  if (g.interval !== undefined && (typeof g.interval !== "number" || !Number.isInteger(g.interval) || g.interval < 0)) {
+    throw new Error(`${file}: git.interval must be a whole number of seconds (0 disables the timer)`);
+  }
+  if (g.autosync !== undefined && g.autosync !== "off" && g.autosync !== "pull") {
+    throw new Error(`${file}: git.autosync must be "off" or "pull"`);
+  }
 }

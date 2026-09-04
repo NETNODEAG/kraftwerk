@@ -118,8 +118,17 @@ export function unregisterInstance(): void {
  * each other's /api/meta must not recurse.
  */
 async function probe(port: number): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
+  // `listen(port, "localhost")` binds one address family, whichever the
+  // resolver returns first (::1 on this platform), so an instance started
+  // with KRAFTWERK_UI_HOST=localhost or ::1 is not on 127.0.0.1. A refused
+  // connection returns at once, so the second try costs nothing when the
+  // first one answers.
+  return (await probeAt("127.0.0.1", port)) ?? (await probeAt("[::1]", port));
+}
+
+async function probeAt(host: string, port: number): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/meta?probe=1`, {
+    const r = await fetch(`http://${host}:${port}/api/meta?probe=1`, {
       signal: AbortSignal.timeout(400),
     });
     if (!r.ok) return null;

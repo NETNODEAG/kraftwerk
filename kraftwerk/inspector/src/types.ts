@@ -33,6 +33,7 @@ export type {
   TeamMemberDetail,
 } from "../../src/inspector/team";
 export type { SkillDetail, SkillInfo } from "../../src/inspector/skills";
+export type { GitFile, GitStatus, GitDiff } from "../../src/inspector/git";
 export type {
   Routine,
   RoutineStatus,

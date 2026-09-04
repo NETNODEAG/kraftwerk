@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
@@ -56,6 +56,15 @@ import {
   tildify,
   unregisterInstance,
 } from "./instances.js";
+import {
+  gitCommit,
+  gitDiff,
+  gitFetch,
+  gitPull,
+  gitPush,
+  gitStatus,
+  startGitSync,
+} from "./git.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
 import {
   deleteRoutine,
@@ -115,6 +124,59 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+/**
+ * Interface to bind. Loopback by default: the UI is unauthenticated and its
+ * chat runs coding agents against the repo, so it must not appear on the LAN
+ * because someone started it on a laptop in a café. Inside a container the
+ * default flips to all interfaces — loopback there would make the published
+ * port unreachable while the in-container health check keeps passing, and
+ * the port mapping (compose publishes to 127.0.0.1) is the boundary anyway.
+ * KRAFTWERK_UI_HOST overrides either way.
+ */
+const IN_CONTAINER = existsSync("/.dockerenv") || existsSync("/run/.containerenv");
+const INSPECTOR_HOST = process.env.KRAFTWERK_UI_HOST || (IN_CONTAINER ? "0.0.0.0" : "127.0.0.1");
+const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOOPBACK_BIND = LOOPBACK_NAMES.has(INSPECTOR_HOST);
+
+/**
+ * Whether the Host header names this server. A loopback bind alone does not
+ * keep other sites out: a page on evil.example can re-point that name at
+ * 127.0.0.1 after it loaded (DNS rebinding) and then talk to us as if it
+ * were same-origin — every check that compares Origin to Host passes,
+ * because both say evil.example. So while bound to loopback, only loopback
+ * names are served. Bound elsewhere (a container behind a proxy) the name
+ * is whatever the proxy forwards, and the proxy is the boundary.
+ *
+ * A reverse proxy on the same machine talks to the loopback bind with the
+ * browser's Host, which is not a loopback name. It says so in
+ * X-Forwarded-Host, and that header cannot come from a rebinding page: a
+ * browser only sends it after a CORS preflight, which this server never
+ * answers, and a form post cannot set headers at all.
+ */
+function hostAllowed(req: http.IncomingMessage): boolean {
+  if (!LOOPBACK_BIND) return true;
+  if (forwardedHost(req)) return true;
+  const host = req.headers.host;
+  if (!host) return true;
+  const name = hostnameOf(host);
+  return LOOPBACK_NAMES.has(name) || name.endsWith(".localhost");
+}
+
+/** First X-Forwarded-Host value, or undefined when no proxy set one. */
+function forwardedHost(req: http.IncomingMessage): string | undefined {
+  const forwarded = req.headers["x-forwarded-host"];
+  return (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0].trim() || undefined;
+}
+
+/** "localhost:1981" → "localhost", "[::1]:1981" → "[::1]"; "" when unparsable. */
+function hostnameOf(host: string): string {
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return "";
+  }
+}
+
 /** Exit code the `kraftwerk ui` supervisor treats as "relaunch me". */
 export const RESTART_EXIT_CODE = 75;
 
@@ -148,9 +210,45 @@ async function getPkgName(): Promise<string> {
   }
 }
 
+/**
+ * Whether a state-changing request came from this UI rather than from some
+ * other page the user happens to have open. The inspector has no login of
+ * its own: every POST here writes files, commits, pushes, or starts a coding
+ * agent, and a cross-site form post needs no preflight to reach us. Browsers
+ * attach Origin to every POST/PUT/DELETE, form submissions included, so a
+ * mismatch is a forgery. A missing Origin is a non-browser client (curl, a
+ * script), which was never the attack this guards against.
+ */
+function sameOrigin(req: http.IncomingMessage): boolean {
+  if (req.headers["sec-fetch-site"] === "cross-site") return false;
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  // A sandboxed iframe or a redirected form sends "null", which matches no host.
+  if (origin === "null") return false;
+  // A reverse proxy that rewrites Host to the upstream (nginx by default)
+  // says who the browser addressed in X-Forwarded-Host. Trusting it is safe
+  // here: a browser cannot set that header without a CORS preflight, which
+  // this API never answers, and a form post cannot set headers at all.
+  const host = forwardedHost(req) || req.headers.host;
+  if (!host) return false;
+  try {
+    // Parse the host under the origin's scheme so a default port written
+    // out by the proxy ("kw.example.com:443") compares equal to the
+    // browser's Origin, which never carries one.
+    const o = new URL(origin);
+    return o.host === new URL(`${o.protocol}//${host}`).host;
+  } catch {
+    return false;
+  }
+}
+
 async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise<void> {
   const seg = url.pathname.split("/").filter(Boolean); // ["api", ...]
   const method = req.method ?? "GET";
+
+  if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) {
+    return json(res, { error: "cross-origin request refused" }, 403);
+  }
 
   // GET /api/meta — package version + project name ("environment") for the UI.
   // ?probe=1 marks a discovery probe from another instance: answer identity
@@ -182,8 +280,43 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       projectIcon: project?.config.icon ?? "",
       projectRoot: project?.root ?? getProjectRoot(),
       projectRootLabel: tildify(project?.root ?? getProjectRoot()),
+      git: (project?.config.git && project.config.git.enabled !== false) === true,
       switcher,
     });
+  }
+
+  // GET /api/git — branch, ahead/behind, changed files (the git screen polls
+  // this, so it is cached for a beat; ?fresh=1 bypasses the cache).
+  if (seg.length === 2 && seg[1] === "git" && method === "GET") {
+    return json(res, await gitStatus(url.searchParams.has("fresh")));
+  }
+
+  // GET /api/git/diff?path= — unified diff for one file
+  if (seg.length === 3 && seg[1] === "git" && seg[2] === "diff" && method === "GET") {
+    const file = url.searchParams.get("path");
+    if (!file) return json(res, { error: "path required" }, 400);
+    return json(res, await gitDiff(file));
+  }
+
+  // POST /api/git/commit {paths, message} — stage and commit the selection.
+  // Commit and push stay manual; the background timer never writes history.
+  if (seg.length === 3 && seg[1] === "git" && seg[2] === "commit" && method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req)) as { paths?: unknown; message?: unknown };
+      const paths = Array.isArray(body.paths) ? body.paths.filter((p): p is string => typeof p === "string") : [];
+      const message = typeof body.message === "string" ? body.message : "";
+      const result = await gitCommit(paths, message);
+      return json(res, result, result.ok ? 200 : 409);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // POST /api/git/{fetch,pull,push}
+  if (seg.length === 3 && seg[1] === "git" && method === "POST" && ["fetch", "pull", "push"].includes(seg[2])) {
+    const run = seg[2] === "fetch" ? gitFetch : seg[2] === "pull" ? gitPull : gitPush;
+    const result = await run();
+    return json(res, result, result.ok ? 200 : 409);
   }
 
   // GET /api/projects — every known workspace incl. this one, with state + counts (admin screen)
@@ -232,7 +365,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     return json(res, await getSettings());
   }
 
-  // PUT /api/settings — write the UI-editable subset (name, icon, switcher) back
+  // PUT /api/settings — write the UI-editable subset (name, icon, switcher, git) back
   if (seg.length === 2 && seg[1] === "settings" && method === "PUT") {
     try {
       const input = JSON.parse(await readBody(req)) as SaveSettingsInput;
@@ -717,6 +850,7 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   setOutputDir(opts.outputDir);
   if (opts.projectRoot) setProjectRoot(opts.projectRoot);
   startRoutineScheduler();
+  startGitSync();
   // Chat agent subprocesses must die with the server — signals bypass
   // "exit" handlers, so hook the signals themselves.
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
@@ -736,6 +870,7 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
       if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
       else await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
@@ -744,7 +879,7 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(opts.port, () => {
+    server.listen(opts.port, INSPECTOR_HOST, () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : opts.port;
       void registerInstance(port, getProjectRoot());

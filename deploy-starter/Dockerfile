@@ -25,6 +25,10 @@ RUN chmod +x /usr/local/bin/kraftwerk-entrypoint
 # Agent auth/config lives under $HOME (.claude.json, .codex, .pi) — the
 # compose file mounts a volume here so logins survive restarts.
 ENV HOME=/root
+# The inspector binds loopback by default; inside a container that would make
+# the published port unreachable. compose.yml publishes to 127.0.0.1 only, and
+# the traefik override puts basic-auth in front — that mapping is the boundary.
+ENV KRAFTWERK_UI_HOST=0.0.0.0
 WORKDIR /work
 EXPOSE 1981
 

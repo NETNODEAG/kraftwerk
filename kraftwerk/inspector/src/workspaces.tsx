@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, Icon } from "./shared";
+import { fmtAgo, Icon, post } from "./shared";
 
 /**
  * Workspaces admin (#/workspaces, expert mode): every project this machine
@@ -38,17 +38,6 @@ const STATE_LABEL: Record<State, { label: string; note?: string }> = {
   missing: { label: "missing", note: "folder is gone" },
   orphaned: { label: "orphaned", note: "no kraftwerk.yml any more" },
 };
-
-async function post(pathname: string, body: unknown): Promise<{ ok?: boolean; error?: string; url?: string; live?: boolean }> {
-  const r = await fetch(pathname, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; url?: string; live?: boolean };
-  if (!r.ok && !d.error) d.error = `HTTP ${r.status}`;
-  return d;
-}
 
 export function WorkspacesScreen() {
   const [rows, setRows] = useState<Workspace[] | null>(null);
@@ -100,7 +89,7 @@ export function WorkspacesScreen() {
     setConfirmRemove(null);
     try {
       const body = verb === "stop" ? { root: w.root, url: w.url } : { root: w.root };
-      const d = await post(`/api/projects/${verb}`, body);
+      const d = await post<{ url?: string; live?: boolean }>(`/api/projects/${verb}`, body);
       if (!d.ok) throw new Error(d.error || "failed");
       window.dispatchEvent(new Event("kw-meta-refresh"));
     } catch (err) {

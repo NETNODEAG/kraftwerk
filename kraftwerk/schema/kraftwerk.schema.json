@@ -46,7 +46,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "url"],
+        "required": [
+          "name",
+          "url"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -62,6 +65,37 @@
             "type": "string",
             "description": "Optional emoji shown next to the entry, e.g. \"🛰\""
           }
+        }
+      }
+    },
+    "git": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Git sync for the workspace: commit and push knowledge, agents, skills and workflows from the inspector. Absent = feature off, a bare `git:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "remote": {
+          "type": "string",
+          "description": "Remote to fetch, pull and push. Default: origin"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to sync. Default: the checked-out branch"
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Seconds between background fetches (and auto-pulls). 0 disables the timer. Default: 300"
+        },
+        "autosync": {
+          "enum": [
+            "off",
+            "pull"
+          ],
+          "description": "off = fetch only. pull = also fast-forward when behind and the tree is clean. Default: pull"
         }
       }
     }

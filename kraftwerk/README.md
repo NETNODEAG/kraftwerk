@@ -160,6 +160,20 @@ kraftwerk run --sandbox website-check "https://..."   # isolated container per r
 kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
 ```
 
+The inspector binds `127.0.0.1` — it has no authentication of its own and
+its chat runs coding agents against the repo, so it stays off the LAN, and
+while bound there it only answers requests whose `Host` is a loopback name
+(so a page on another site cannot reach it by re-pointing its own DNS at
+127.0.0.1). Inside a container it binds all interfaces instead, because the
+port mapping is the boundary there (`deploy-starter/` publishes to
+localhost, and its traefik override adds basic-auth). `KRAFTWERK_UI_HOST`
+overrides the default either way. A reverse proxy in front of it must set
+`X-Forwarded-Host` to the host the browser addressed (Caddy and traefik do
+by default; nginx needs `proxy_set_header X-Forwarded-Host $host;`): the
+loopback bind answers a non-loopback `Host` only when that header is
+present, and state-changing requests are refused when `Origin` names a
+different host.
+
 ### The kraftwerk.yml project config
 
 Optional, at the project root, and also the root marker for the walk-up. All

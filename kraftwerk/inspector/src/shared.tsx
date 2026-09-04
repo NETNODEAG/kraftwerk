@@ -9,7 +9,10 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
  */
 export function Icon({ name, fill, className }: { name: string; fill?: boolean; className?: string }) {
   return (
-    <span className={`ms material-symbols-rounded${fill ? " ms-fill" : ""}${className ? ` ${className}` : ""}`} aria-hidden>
+    <span
+      className={`ms material-symbols-rounded${fill ? " ms-fill" : ""}${name === "progress_activity" ? " ms-spin" : ""}${className ? ` ${className}` : ""}`}
+      aria-hidden
+    >
       {name}
     </span>
   );
@@ -95,8 +98,23 @@ export function useExpertMode(): boolean {
 
 /* ---------- polling ---------- */
 
+/** JSON POST; a non-2xx without an error body gets "HTTP <status>". */
+export async function post<T extends object = {}>(
+  url: string,
+  body?: unknown
+): Promise<T & { ok?: boolean; error?: string }> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  const d = (await r.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
+  if (!r.ok && !d.error) d.error = `HTTP ${r.status}`;
+  return d;
+}
+
 /** Poll a JSON endpoint; tightens the interval while `fast` (live run). */
-export function usePoll<T>(url: string, fast: boolean): T | null {
+export function usePoll<T>(url: string, fast: boolean, intervalMs = 6000): T | null {
   const [data, setData] = useState<T | null>(null);
   const urlRef = useRef(url);
   urlRef.current = url;
@@ -109,14 +127,14 @@ export function usePoll<T>(url: string, fast: boolean): T | null {
         const res = await fetch(urlRef.current, { cache: "no-store" });
         if (res.ok && alive) setData(await res.json());
       } catch {}
-      if (alive) timer = setTimeout(tick, fast ? 1500 : 6000);
+      if (alive) timer = setTimeout(tick, fast ? 1500 : intervalMs);
     };
     tick();
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [url, fast]);
+  }, [url, fast, intervalMs]);
 
   return data;
 }

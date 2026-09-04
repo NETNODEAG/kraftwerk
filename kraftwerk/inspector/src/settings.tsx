@@ -3,7 +3,7 @@ import { Icon } from "./shared";
 
 /**
  * Workspace settings (#/settings): edits the UI-manageable subset of
- * kraftwerk.yml (name, icon, switcher) — the server rewrites the file
+ * kraftwerk.yml (name, icon, switcher, git) — the server rewrites the file
  * comment-preservingly. Everything else (paths, port) is shown read-only
  * with a pointer to the file.
  */
@@ -13,6 +13,16 @@ interface SwitcherRow {
   url: string;
   icon?: string;
 }
+
+interface GitForm {
+  enabled: boolean;
+  remote: string;
+  branch: string;
+  interval: string;
+  autosync: "off" | "pull";
+}
+
+const GIT_OFF: GitForm = { enabled: false, remote: "origin", branch: "", interval: "300", autosync: "pull" };
 
 interface SettingsData {
   root: string;
@@ -28,8 +38,22 @@ interface SettingsData {
     agents?: string;
     skills?: string;
     switcher?: SwitcherRow[];
+    git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
+}
+
+/** The git block as form state; a missing block is "off" with defaults filled in. */
+function gitForm(d: SettingsData): GitForm {
+  const g = d.config.git;
+  if (!g) return GIT_OFF;
+  return {
+    enabled: g.enabled !== false,
+    remote: g.remote ?? GIT_OFF.remote,
+    branch: g.branch ?? "",
+    interval: String(g.interval ?? GIT_OFF.interval),
+    autosync: g.autosync ?? GIT_OFF.autosync,
+  };
 }
 
 export function SettingsScreen() {
@@ -37,6 +61,7 @@ export function SettingsScreen() {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [switcher, setSwitcher] = useState<SwitcherRow[]>([]);
+  const [git, setGit] = useState<GitForm>(GIT_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -50,6 +75,7 @@ export function SettingsScreen() {
         setName(d.config.name ?? "");
         setIcon(d.config.icon ?? "");
         setSwitcher(d.config.switcher ?? []);
+        setGit(gitForm(d));
       })
       .catch(() => setError("could not load settings"));
   }, []);
@@ -67,12 +93,13 @@ export function SettingsScreen() {
       const r = await fetch("/api/settings", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, icon, switcher }),
+        body: JSON.stringify({ name, icon, switcher, git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) } }),
       });
       const d = (await r.json()) as SettingsData & { error?: string };
       if (!r.ok) throw new Error(d.error || "save failed");
       setData(d);
       setSwitcher(d.config.switcher ?? []);
+      setGit(gitForm(d));
       setDirty(false);
       setSaved(true);
       // Nudge the app shell to refetch /api/meta so header + favicon update now.
@@ -86,6 +113,10 @@ export function SettingsScreen() {
 
   const setRow = (i: number, patch: Partial<SwitcherRow>): void => {
     setSwitcher((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    touch();
+  };
+  const setGitField = (patch: Partial<GitForm>): void => {
+    setGit((g) => ({ ...g, ...patch }));
     touch();
   };
 
@@ -191,6 +222,58 @@ export function SettingsScreen() {
             Running workspaces on this machine are discovered automatically — manual entries are for
             remote instances or extra links.
           </div>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">git sync</span>
+          <span className="spacer" />
+          <a className="run-btn tonal" href="#/git">
+            <Icon name="account_tree" className="ms-sm" /> open git
+          </a>
+        </div>
+        <div className="team-form">
+          <label className="settings-check">
+            <input type="checkbox" checked={git.enabled} onChange={(e) => setGitField({ enabled: e.target.checked })} />
+            sync workflows, knowledge, agents and skills with a git remote
+          </label>
+          {git.enabled && (
+            <>
+              <div className="team-form-row">
+                <label className="team-field" style={{ flex: 1 }}>
+                  remote
+                  <input value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
+                </label>
+                <label className="team-field" style={{ flex: 1 }}>
+                  branch
+                  <input value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
+                </label>
+                <label className="team-field" style={{ width: 120 }}>
+                  interval (s)
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={git.interval}
+                    placeholder="300"
+                    onChange={(e) => setGitField({ interval: e.target.value })}
+                  />
+                </label>
+                <label className="team-field" style={{ width: 150 }}>
+                  autosync
+                  <select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" })}>
+                    <option value="pull">fetch and pull</option>
+                    <option value="off">fetch only</option>
+                  </select>
+                </label>
+              </div>
+              <div className="settings-note">
+                The interval fetches in the background (0 turns the timer off); with autosync on it also fast-forwards
+                when behind and nothing is modified locally. Commit and push stay manual on the git screen.
+              </div>
+            </>
+          )}
         </div>
       </section>
 

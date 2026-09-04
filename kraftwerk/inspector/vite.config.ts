@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 1980,
-    proxy: { "/api": "http://localhost:1981" },
+    // Object form, so the Host header stays localhost:1980 (the string form
+    // rewrites it to the target): the API's origin check compares Origin to
+    // Host and would 403 every POST from the dev server otherwise.
+    proxy: { "/api": { target: "http://localhost:1981", changeOrigin: false } },
   },
 });

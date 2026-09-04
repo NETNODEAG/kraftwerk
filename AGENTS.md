@@ -4,11 +4,35 @@
 
 When asked to **ship** (or "ship to npm", "release"), do the full cycle without asking:
 
-1. Bump the version in `kraftwerk/package.json` (minor for features, patch for fixes).
-2. Commit as `Release X.Y.Z: <summary>` — only the files belonging to the change, leave unrelated working-tree edits (e.g. `agent-playground/`) untouched.
-3. Push to `main`.
-4. Create the GitHub release: `gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes "..."` — this triggers `.github/workflows/publish.yml`. Never `npm publish` locally.
-5. Wait for the workflow to finish: `gh run watch <id> --exit-status`.
-6. Install the published version globally: `npm i -g @netnodeag/kraftwerk@X.Y.Z`, then confirm with `kraftwerk --version`.
+1. Test first, in `kraftwerk/`: `npm run typecheck && npm test && npm run test:e2e`. All three must pass before anything is committed; a failing test stops the ship, it is never skipped or deleted to get through. If the change touches a server route, git sync, config loading, or a UI flow, add or extend a test for it (`test/api/` for server behaviour, `e2e/` for browser flows) in the same commit — see the Tests section in `CLAUDE.md` for the layout and fixtures.
+2. Bump the version in `kraftwerk/package.json` (minor for features, patch for fixes).
+3. Commit as `Release X.Y.Z: <summary>` — only the files belonging to the change, leave unrelated working-tree edits (e.g. `agent-playground/`) untouched.
+4. Push to `main`.
+5. Create the GitHub release: `gh release create vX.Y.Z --target main --title "vX.Y.Z" --notes "..."` — this triggers `.github/workflows/publish.yml` (which runs typecheck and `npm test` again). Never `npm publish` locally.
+6. Wait for the workflow to finish: `gh run watch <id> --exit-status`.
+7. Install the published version globally: `npm i -g @netnodeag/kraftwerk@X.Y.Z`, then confirm with `kraftwerk --version`.
 
-Running `kraftwerk ui` instances use the global install, so step 6 is what makes the change visible on localhost.
+Running `kraftwerk ui` instances use the global install, so step 7 is what makes the change visible on localhost.
+
+## Tests come with the feature
+
+Any new feature that exposes an API — an inspector route under `/api/`, a CLI command or flag, a `kraftwerk.yml` key — ships with a test in the same commit. No exceptions for "small" endpoints: the test is what proves the contract. Where it goes:
+
+- `kraftwerk/test/api/` — server routes, through the real server on a free port (`startServer` in `test/helpers/project.ts`).
+- `kraftwerk/test/cli/` — commands, through the real bin in a fresh process (`cli()` in `test/helpers/cli.ts`).
+- `kraftwerk/e2e/` — a browser flow, only when the feature has a screen.
+
+Assert on behaviour a user sees (exit code, JSON shape, a file on disk, a row in the UI), not on internals. Never spawn docker or a coding agent from a test.
+
+## "check tests"
+
+When asked to **check tests** (or "find test gaps", "what is untested"), do not just run the suite. Go through the code and compare it against what the tests cover:
+
+1. List every public surface: `/api/` routes in `src/inspector/server.ts`, commands in `src/cli/*.ts`, keys in `src/config.ts`, screens in `inspector/src/`.
+2. For each, find the test that exercises it. Grep `test/` and `e2e/` for the route path, command name, or config key.
+3. Report the gaps ranked by risk: writes before reads, security guards before formatting, code paths with error handling before happy paths.
+4. Fill the gaps, most important first, then run `npm test` and `npm run test:e2e`. A gap you decide not to fill gets named in the report with the reason.
+
+## Learn from feedback
+
+When the user corrects how something was done, or confirms an approach worth keeping — a convention, a preference about tests or output, a workflow step that was missing — and it would apply to future work on this repo, write it into this file in the matching section (or a new one) as part of the same turn. Keep it to the rule and the reason; no session narrative. Do not record one-off instructions that only apply to the task at hand.

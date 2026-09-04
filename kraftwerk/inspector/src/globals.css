@@ -170,6 +170,8 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   background: var(--surface-container-high);
   border-radius: 16px; box-shadow: var(--elev-3);
   padding: 8px;
+  /* Many registered projects: scroll inside the popover instead of past the viewport. */
+  max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain;
 }
 .switcher-head {
   padding: 8px 12px 6px;
@@ -229,7 +231,8 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
 .switcher-start:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 10%, transparent); }
 .switcher-start:disabled { opacity: 0.45; cursor: default; }
 .switcher-start .ms { font-size: 16px; }
-.switcher-start:disabled .ms { animation: kw-spin 1s linear infinite; }
+/* Only the progress icon spins; a disabled button (nothing to pull) must not. */
+.ms.ms-spin { animation: kw-spin 1s linear infinite; }
 @keyframes kw-spin { to { transform: rotate(360deg); } }
 /* popover footer → admin screen (expert mode) */
 .switcher-foot {
@@ -288,7 +291,6 @@ a.ws-name:hover { text-decoration: underline; }
 .ws-btn.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--primary); }
 .ws-btn.danger { color: var(--error); }
 .ws-btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--error) 10%, transparent); border-color: var(--error); }
-.ws-btn:disabled .ms { animation: kw-spin 1s linear infinite; }
 .ws-btn .ms { vertical-align: 0; }
 
 /* settings page (#/settings) */
@@ -302,6 +304,8 @@ a.ws-name:hover { text-decoration: underline; }
 .settings-saved { font-size: 12.5px; color: var(--success); display: inline-flex; align-items: center; gap: 4px; }
 .settings-saved .ms { vertical-align: 0; }
 .settings-err { font-size: 12.5px; color: var(--error); }
+.settings-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.settings-check input { accent-color: var(--primary); width: 15px; height: 15px; }
 .settings-note { font-size: 12px; color: var(--on-surface-variant); }
 .settings-note code { font-size: 11px; }
 .settings-row-x { align-self: flex-end; opacity: 1; margin-bottom: 6px; }
@@ -1549,3 +1553,76 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   border: 1px solid var(--outline-variant); border-radius: 12px; resize: vertical;
 }
 .editor-doc .viewer-note { max-width: 820px; margin: 12px auto 0; }
+
+/* ---- git sync screen (#/git) ---- */
+.git-badge {
+  margin-left: 5px; font-size: 10.5px; font-weight: 600;
+  padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--on-surface) 12%, transparent);
+}
+.git-badge.behind { color: var(--primary); }
+.git-badge.ahead { color: var(--success); }
+.git-head {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 18px;
+}
+.git-branch { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.git-branch strong { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.git-counts { display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
+.git-ahead { color: var(--success); font-weight: 600; }
+.git-behind { color: var(--primary); font-weight: 600; }
+.git-diverged { color: var(--error); font-weight: 600; }
+/* A fetch error is one line of git stderr; never let it push the head around. */
+.git-sync-err { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-head .ws-actions { margin-left: auto; }
+
+.git-row { display: flex; align-items: center; gap: 10px; padding: 8px 18px; flex-wrap: wrap; }
+.git-row + .git-row { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 45%, transparent); }
+.git-pick { display: flex; align-items: center; }
+.git-file {
+  display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+  color: var(--on-surface); font: inherit; text-align: left;
+}
+.git-file:hover .git-path { text-decoration: underline; }
+.git-status {
+  flex: none; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--outline-variant);
+  color: var(--on-surface-variant);
+}
+.git-status.s-modified { color: var(--primary); }
+.git-status.s-added, .git-status.s-untracked { color: var(--success); }
+.git-status.s-deleted, .git-status.s-conflicted { color: var(--error); }
+.git-path {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-row.blocked { opacity: 0.6; }
+
+.git-diff {
+  flex-basis: 100%; margin: 6px 0 2px; padding: 10px 12px;
+  background: var(--surface-container); border-radius: 10px;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px;
+  line-height: 1.5; overflow-x: auto; max-height: 420px; overflow-y: auto;
+  white-space: pre;
+}
+.git-diff-error { color: var(--error); }
+.git-diff .d-add { color: var(--success); }
+.git-diff .d-del { color: var(--error); }
+.git-diff .d-hunk { color: var(--primary); }
+.git-diff .d-meta { color: var(--on-surface-variant); opacity: 0.8; }
+
+.git-commit {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 12px 18px; border-top: 1px solid var(--outline-variant);
+  background: var(--surface-container);
+}
+.git-message {
+  flex: 1; min-width: 220px;
+  font: inherit; font-size: 13px; padding: 9px 12px;
+  border-radius: 10px; border: 1px solid var(--outline-variant);
+  background: var(--surface); color: var(--on-surface);
+}
+.git-blocked { padding: 10px 18px; border-top: 1px solid var(--outline-variant); }
+.git-blocked summary { font-size: 12.5px; color: var(--on-surface-variant); cursor: pointer; }
+.git-blocked .git-row { padding-left: 0; padding-right: 0; }

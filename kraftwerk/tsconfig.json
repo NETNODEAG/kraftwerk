@@ -13,6 +13,8 @@
     "noEmit": true
   },
   "include": [
-    "src"
+    "src",
+    "test",
+    "e2e"
   ]
 }
