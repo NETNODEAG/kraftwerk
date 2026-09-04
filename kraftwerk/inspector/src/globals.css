@@ -137,14 +137,24 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   border-bottom: 1px solid var(--outline-variant);
 }
 .wordmark { display: flex; align-items: center; gap: 10px; }
-/* Home is the project icon, not a brand mark — the workspace is the star. */
+/* Home is the project icon, not a brand mark — the workspace is the star.
+   The topbar carries the workspace colour (--ws-c, set inline by the app):
+   a faint tint of the bar and a hairline in the colour along its bottom
+   edge, and the home link is the same tinted avatar the switcher shows,
+   so which workspace a tab is in reads from the chrome alone. */
+.topbar {
+  background: color-mix(in srgb, var(--ws-c, transparent) 7%, color-mix(in srgb, var(--surface-container) 92%, transparent));
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ws-c, transparent) 70%, transparent);
+}
 .home-link {
-  width: 26px; height: 26px; border-radius: 9px;
+  width: 32px; height: 32px; border-radius: 50%;
   display: grid; place-items: center;
   font-size: 15px; line-height: 1;
-  transition: background 120ms ease;
+  transition: box-shadow 120ms ease;
 }
-.home-link:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.home-link:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ws-c, var(--on-surface)) 16%, transparent); }
+.home-tile.ws-tile { width: 32px; height: 32px; font-size: 18px; }
+.home-tile.ws-tile-mono { font-size: 13px; }
 .wordmark small {
   font-size: 12px; color: var(--on-surface-variant);
 }

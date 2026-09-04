@@ -34,6 +34,7 @@ export function App() {
   const [projectColor, setProjectColor] = useState("");
   const [projectNamed, setProjectNamed] = useState(true);
   const [projectRoot, setProjectRoot] = useState("");
+  const [projectRootAbs, setProjectRootAbs] = useState("");
   const [gitOn, setGitOn] = useState(false);
   const [reposOn, setReposOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
@@ -49,6 +50,7 @@ export function App() {
           projectIcon?: string;
           projectColor?: string;
           projectNamed?: boolean;
+          projectRoot?: string;
           projectRootLabel?: string;
           git?: boolean;
           repos?: boolean;
@@ -60,6 +62,7 @@ export function App() {
         setProjectColor(d.projectColor ?? "");
         setProjectNamed(d.projectNamed !== false);
         setProjectRoot(d.projectRootLabel ?? "");
+        setProjectRootAbs(d.projectRoot ?? "");
         setGitOn(!!d.git);
         setReposOn(!!d.repos);
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
@@ -131,13 +134,25 @@ export function App() {
 
   return (
     <>
-      <header className="topbar">
+      <header className="topbar" style={{ "--ws-c": workspaceColor(projectColor, projectRootAbs || projectName) } as CSSProperties}>
         <span className="wordmark">
           <a href="#/" className="home-link" title="Dashboard">
-            {projectIcon || <Icon name="home" />}
+            {projectName ? (
+              <WorkspaceTile className="home-tile" icon={projectIcon} name={projectName} color={projectColor} seed={projectRootAbs || projectName} />
+            ) : (
+              <Icon name="home" />
+            )}
           </a>
           {projectName && (
-            <WorkspaceSwitcher name={projectName} icon={projectIcon} color={projectColor} named={projectNamed} root={projectRoot} entries={switcher} />
+            <WorkspaceSwitcher
+              name={projectName}
+              icon={projectIcon}
+              color={projectColor}
+              named={projectNamed}
+              root={projectRoot}
+              seed={projectRootAbs || projectName}
+              entries={switcher}
+            />
           )}
         </span>
         <nav>
@@ -328,13 +343,17 @@ function WorkspaceSwitcher({
   color,
   named,
   root,
+  seed,
   entries,
 }: {
   name: string;
   icon: string;
   color: string;
   named: boolean;
+  /** Root with ~ for display. */
   root: string;
+  /** Absolute root: the colour seed, the same one other instances hash. */
+  seed: string;
   entries: SwitcherEntry[];
 }) {
   const [open, setOpen] = useState(false);
@@ -363,7 +382,7 @@ function WorkspaceSwitcher({
     { key: "stopped", label: "stopped", items: entries.filter((e) => e.live === false) },
     { key: "linked", label: "linked", items: entries.filter((e) => e.live === undefined) },
   ].filter((g) => g.items.length > 0);
-  const selfSeed = root || name;
+  const selfSeed = seed || name;
 
   return (
     <span className="switcher-wrap">
