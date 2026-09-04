@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, Icon, post } from "./shared";
+import { fmtAgo, Icon, post, WorkspaceTile } from "./shared";
 
 /**
  * Workspaces admin (#/workspaces, expert mode): every project this machine
@@ -14,6 +14,8 @@ type State = "running" | "stopped" | "died" | "missing" | "orphaned";
 interface Workspace {
   name: string;
   icon?: string;
+  color?: string;
+  named?: boolean;
   url: string;
   live: boolean;
   root?: string;
@@ -105,6 +107,9 @@ export function WorkspacesScreen() {
   };
 
   const running = rows?.filter((r) => r.live).length ?? 0;
+  const iconCount = new Map<string, number>();
+  for (const r of rows ?? []) if (r.icon) iconCount.set(r.icon, (iconCount.get(r.icon) ?? 0) + 1);
+  const ambiguous = (i?: string) => !!i && (iconCount.get(i) ?? 0) > 1;
 
   return (
     <div className="settings-screen ws-screen">
@@ -138,13 +143,13 @@ export function WorkspacesScreen() {
           const removable = !w.live && !!w.root && (w.exists === false || w.hasConfig === false);
           return (
             <div key={key} className={`ws-row state-${w.state} ${w.current ? "current" : ""}`}>
-              <span className="switcher-icon ws-icon">{w.icon || "•"}</span>
+              <WorkspaceTile className="ws-icon" icon={w.icon} name={w.name} color={w.color} seed={w.root ?? w.url} ambiguous={ambiguous(w.icon)} />
               <div className="ws-main">
                 <div className="ws-title">
                   {w.live && !w.current ? (
-                    <a href={w.url} className="ws-name">{w.name}</a>
+                    <a href={w.url} className={`ws-name${w.named === false ? " unnamed" : ""}`}>{w.name}</a>
                   ) : (
-                    <span className="ws-name">{w.name}</span>
+                    <span className={`ws-name${w.named === false ? " unnamed" : ""}`}>{w.name}</span>
                   )}
                   {w.current && <span className="switcher-hint">current</span>}
                   <span className={`ws-state ws-state-${w.state}`}>

@@ -70,3 +70,59 @@ describe("settings API: git sync", () => {
     }
   });
 });
+
+/**
+ * Workspace identity for the switcher: `color` is written like name/icon,
+ * validated as hex, and /api/meta reports it together with whether the
+ * name is configured (a folder-derived name is shown differently).
+ */
+describe("settings API: workspace colour + name flag", () => {
+  let fx: Fixture;
+  let srv: RunningServer;
+  before(async () => {
+    fx = await makeProject();
+    srv = await startServer(fx);
+  });
+  after(async () => {
+    await srv.close();
+    await fx.cleanup();
+  });
+
+  const put = (body: unknown) =>
+    fetch(srv.url + "/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json", origin: new URL(srv.url).origin },
+      body: JSON.stringify(body),
+    });
+  const meta = async () =>
+    (await fetch(srv.url + "/api/meta", { cache: "no-store" })).json() as Promise<{ projectColor: string; projectNamed: boolean }>;
+  const yml = () => readFile(path.join(fx.root, "kraftwerk.yml"), "utf8");
+
+  it("writes color to kraftwerk.yml and meta reports it, named because name: is set", async () => {
+    const r = await put({ color: "#c2410c" });
+    assert.equal(r.status, 200);
+    assert.equal(((await r.json()) as SettingsView).config.color, "#c2410c");
+    assert.match(await yml(), /^color: "#c2410c"$/m);
+    const m = await meta();
+    assert.equal(m.projectColor, "#c2410c");
+    assert.equal(m.projectNamed, true);
+  });
+
+  it("rejects a non-hex colour and leaves the file alone", async () => {
+    const r = await put({ color: "orange" });
+    assert.equal(r.status, 400);
+    assert.match(((await r.json()) as { error: string }).error, /hex colour/);
+    assert.match(await yml(), /^color: "#c2410c"$/m);
+  });
+
+  it("an empty colour removes the key; an empty name flips the meta flag to unnamed", async () => {
+    const r = await put({ color: "", name: "" });
+    assert.equal(r.status, 200);
+    const text = await yml();
+    assert.doesNotMatch(text, /^color:/m);
+    assert.doesNotMatch(text, /^name:/m);
+    const m = await meta();
+    assert.equal(m.projectColor, "");
+    assert.equal(m.projectNamed, false);
+  });
+});

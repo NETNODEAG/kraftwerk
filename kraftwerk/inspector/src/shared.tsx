@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 
 /* ---------- icons ---------- */
 
@@ -122,6 +122,58 @@ export function useExpertMode(): boolean {
       return () => expertListeners.delete(cb);
     },
     () => expertOn
+  );
+}
+
+/* ---------- workspace identity ---------- */
+
+/** Stable 0–359 hue for a key (a root path or url): the same workspace gets the same colour everywhere. */
+export function workspaceHue(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return (h >>> 0) % 360;
+}
+
+/** The workspace accent: kraftwerk.yml `color`, else derived from the seed. */
+export function workspaceColor(color: string | undefined, seed: string): string {
+  return color || `hsl(${workspaceHue(seed)} 58% 46%)`;
+}
+
+/** "NETNODE Base Camp" → NB, "agent-playground" → AP, "Fireplace" → FI. */
+export function monogram(name: string): string {
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0) return "?";
+  const m = words.length >= 2 ? words[0][0] + words[1][0] : words[0].slice(0, 2);
+  return m.toUpperCase();
+}
+
+/**
+ * The icon tile of a workspace: the emoji on a tinted square in the
+ * workspace colour. No emoji → the monogram fills the tile; an emoji that
+ * another listed workspace also uses gets the monogram as a corner badge
+ * (`ambiguous`), so two ⚡ projects still tell apart at a glance.
+ */
+export function WorkspaceTile({
+  icon,
+  name,
+  color,
+  seed,
+  ambiguous,
+  className,
+}: {
+  icon?: string;
+  name: string;
+  color?: string;
+  seed: string;
+  ambiguous?: boolean;
+  className?: string;
+}) {
+  const style = { "--ws-c": workspaceColor(color, seed) } as CSSProperties;
+  return (
+    <span className={`ws-tile${icon ? "" : " ws-tile-mono"}${className ? ` ${className}` : ""}`} style={style} aria-hidden>
+      {icon || monogram(name)}
+      {icon && ambiguous && <span className="ws-tile-badge">{monogram(name)}</span>}
+    </span>
   );
 }
 

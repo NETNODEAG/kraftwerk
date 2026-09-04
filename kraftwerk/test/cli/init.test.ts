@@ -87,6 +87,20 @@ describe("kraftwerk init / list / doctor", () => {
     }
   });
 
+  it("doctor rejects a color that is not a hex value", async () => {
+    const other = await makeEmptyDir();
+    try {
+      await cli(other.root, other.home, ["init"]);
+      const yml = path.join(other.root, "kraftwerk.yml");
+      await import("node:fs/promises").then((fs) => fs.appendFile(yml, "color: orange\n"));
+      const r = await cli(other.root, other.home, ["doctor"]);
+      assert.equal(r.code, 1);
+      assert.match(r.stdout, /kraftwerk\.yml: color must be a hex colour like "#c2410c"/);
+    } finally {
+      await other.cleanup();
+    }
+  });
+
   it("an unknown command exits non-zero with usage", async () => {
     const r = await cli(dir.root, dir.home, ["frobnicate"]);
     assert.notEqual(r.code, 0);

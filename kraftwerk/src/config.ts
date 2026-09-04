@@ -16,6 +16,7 @@ import { parse } from "yaml";
  *
  *   name: my-project           # display name (inspector header, "environment")
  *   icon: "⚡"                  # emoji shown as inspector favicon
+ *   color: "#c2410c"           # accent for this workspace in the switcher (default: derived from the root)
  *   port: 1981                 # port `kraftwerk ui` listens on
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
@@ -118,6 +119,8 @@ export interface ProjectConfig {
   name?: string;
   /** Emoji used as the inspector favicon (browser-tab icon). */
   icon?: string;
+  /** Accent colour (#rgb / #rrggbb) for this workspace in the switcher. Default: derived from the root path. */
+  color?: string;
   /** Port `kraftwerk ui` listens on. Default: 1981 (CLI --port wins). */
   port?: number;
   /** Workflows root relative to the project root. */
@@ -219,7 +222,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -243,6 +246,10 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
     if (key === "port") {
       if (typeof config[key] !== "number" || !Number.isInteger(config[key])) {
         throw new Error(`${path.basename(configPath)}: port must be an integer`);
+      }
+    } else if (key === "color") {
+      if (typeof config[key] !== "string" || !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(config[key] as string)) {
+        throw new Error(`${path.basename(configPath)}: color must be a hex colour like "#c2410c"`);
       }
     } else if (key === "switcher") {
       validateSwitcher(configPath, config[key]);

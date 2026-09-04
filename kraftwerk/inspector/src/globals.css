@@ -155,8 +155,13 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
   padding: 4px 8px; border-radius: 10px;
   white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
 }
-/* Workspace switcher: the title becomes a dropdown when kraftwerk.yml
-   defines switcher: entries (links to other instances). */
+/* Workspace switcher — an M3 menu of two-line list items. Container:
+   surface-container, elevation 2, extra-small corners. Items: 72dp,
+   40dp leading avatar tinted in the workspace colour (--ws-c: kraftwerk.yml
+   `color`, else derived from the root), body-large headline, body-medium
+   supporting text, label-small trailing text, on-surface 8% state layer on
+   hover, secondary-container for the selected (current) item. Groups
+   running / stopped / linked get title-small subheaders and dividers. */
 .switcher-wrap { position: relative; display: inline-flex; }
 .env-switch {
   display: inline-flex; align-items: center; gap: 5px;
@@ -165,84 +170,126 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 .env-switch:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
 .env-switch svg { flex: none; opacity: 0.55; }
 .switcher-pop {
-  position: absolute; top: calc(100% + 10px); left: 0; z-index: 20;
-  min-width: 320px; max-width: min(440px, 90vw);
-  background: var(--surface-container-high);
-  border-radius: 16px; box-shadow: var(--elev-3);
-  padding: 8px;
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
+  min-width: 360px; max-width: min(480px, 92vw);
+  background: var(--surface-container);
+  border-radius: 4px; box-shadow: var(--elev-2);
+  padding: 8px 0;
   /* Many registered projects: scroll inside the popover instead of past the viewport. */
   max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain;
 }
-.switcher-head {
-  padding: 8px 12px 6px;
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.6px; color: var(--on-surface-variant);
+/* subheaders: title-small */
+.switcher-head, .switcher-group-head {
+  padding: 8px 16px; min-height: 36px; box-sizing: border-box;
+  font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px;
+  color: var(--on-surface-variant); text-transform: none;
+  display: flex; align-items: center;
 }
+.switcher-group { border-top: 1px solid var(--outline-variant); margin-top: 8px; padding-top: 4px; }
 .switcher-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px; border-radius: 12px;
+  position: relative;
+  display: flex; align-items: center; gap: 16px;
+  min-height: 72px; box-sizing: border-box;
+  padding: 12px 16px 12px 16px;
   color: var(--on-surface);
   transition: background 120ms ease;
 }
-a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
-.switcher-item.current { cursor: default; }
+/* state layer */
+a.switcher-item::after, .switcher-item.stopped::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: var(--on-surface); opacity: 0; transition: opacity 120ms ease;
+}
+a.switcher-item:hover::after { opacity: 0.08; }
+a.switcher-item:active::after { opacity: 0.12; }
+.switcher-item.current { cursor: default; background: var(--secondary-container); color: var(--on-secondary-container); }
+.switcher-item.current .switcher-sub, .switcher-item.current .switcher-root { color: var(--on-secondary-container); opacity: 0.8; }
+/* Leading avatar: emoji (or monogram) on a circle tinted in the workspace colour. */
+.ws-tile {
+  position: relative; flex: none; width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--ws-c, var(--on-surface)) 22%, var(--surface-container-highest));
+  font-size: 22px; line-height: 1;
+}
+.ws-tile-mono {
+  font-family: var(--font-sans), sans-serif; font-size: 16px; line-height: 24px; font-weight: 500; letter-spacing: 0.15px;
+  color: var(--ws-c, var(--on-surface));
+}
+.ws-tile-badge {
+  position: absolute; right: -3px; bottom: -3px;
+  min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  display: grid; place-items: center;
+  font-family: var(--font-sans), sans-serif; font-size: 10px; line-height: 1; font-weight: 500; letter-spacing: 0.4px;
+  background: var(--ws-c, var(--on-surface)); color: #fff;
+  box-shadow: 0 0 0 2px var(--surface-container);
+}
+.switcher-item.current .ws-tile-badge { box-shadow: 0 0 0 2px var(--secondary-container); }
+.switcher-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+/* headline: body-large */
+.switcher-name {
+  font-size: 16px; line-height: 24px; font-weight: 400; letter-spacing: 0.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* A folder-derived name (no `name:` in kraftwerk.yml) — italic, so it is obviously unconfigured. */
+.switcher-name.unnamed, .ws-name.unnamed { font-style: italic; color: var(--on-surface-variant); }
+/* supporting text: body-medium */
+.switcher-sub, .switcher-root {
+  font-size: 14px; line-height: 20px; letter-spacing: 0.25px; color: var(--on-surface-variant);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Project root: truncated from the left so the distinguishing tail stays visible. */
+.switcher-root { direction: rtl; text-align: left; }
+.switcher-root > span { unicode-bidi: isolate; }
+.switcher-side { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 12px; }
+/* trailing supporting text: label-small */
+.switcher-port {
+  font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px;
+  color: var(--on-surface-variant); white-space: nowrap;
+  display: inline-flex; align-items: center;
+}
+.switcher-check { font-size: 24px; color: var(--on-secondary-container); }
+.live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); margin-right: 6px;
+}
+/* Known project that is not running: dimmed, no link, a text button to start it. */
+.switcher-item.stopped { cursor: default; }
+.switcher-item.stopped::after { display: none; }
+.switcher-item.stopped .ws-tile { opacity: 0.6; filter: grayscale(0.5); }
+.switcher-item.stopped .switcher-name { color: var(--on-surface-variant); }
+.switcher-item.missing .switcher-name { text-decoration: line-through; }
+.switcher-err { color: var(--error); }
+/* M3 text button */
+.switcher-start {
+  flex: none; position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 40px; padding: 0 16px 0 12px; border-radius: 20px;
+  font-family: var(--font-sans), sans-serif; font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px;
+  border: 0; background: transparent; color: var(--primary); cursor: pointer;
+  transition: background 120ms ease;
+}
+.switcher-start:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.switcher-start:active:not(:disabled) { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.switcher-start:disabled { opacity: 0.38; cursor: default; }
+.switcher-start .ms { font-size: 18px; }
+/* Plain icon square (repos screen and other non-workspace tiles). */
 .switcher-icon {
   flex: none; width: 36px; height: 36px; border-radius: 11px;
   display: grid; place-items: center;
   background: var(--secondary-container); font-size: 18px; line-height: 1;
 }
-.switcher-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
-.switcher-name {
-  font-size: 14px; font-weight: 600;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.switcher-sub {
-  font-size: 11.5px; color: var(--on-surface-variant);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.live-dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--success); margin-right: 5px; vertical-align: 1px;
-}
-/* Project root under the name (expert mode). Truncated from the left so
-   the distinguishing tail of the path stays visible. */
-.switcher-root {
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px; color: var(--on-surface-variant); opacity: 0.85;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  direction: rtl; text-align: left;
-}
-.switcher-root > span { unicode-bidi: isolate; }
-/* Known project that is not running: dimmed row, no link, a start button. */
-.switcher-item.stopped { cursor: default; }
-.switcher-item.stopped .switcher-icon { opacity: 0.55; filter: grayscale(0.6); }
-.switcher-item.stopped .switcher-name { color: var(--on-surface-variant); }
-.switcher-item.missing .switcher-name { text-decoration: line-through; }
-.switcher-err { color: var(--error); }
-.switcher-start {
-  margin-left: auto; flex: none;
-  display: inline-flex; align-items: center; gap: 3px;
-  font: inherit; font-size: 11.5px; font-weight: 600;
-  padding: 4px 10px 4px 6px; border-radius: 999px;
-  border: 1px solid var(--outline-variant); background: transparent;
-  color: var(--primary); cursor: pointer;
-  transition: background 120ms ease;
-}
-.switcher-start:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 10%, transparent); }
-.switcher-start:disabled { opacity: 0.45; cursor: default; }
-.switcher-start .ms { font-size: 16px; }
 /* Only the progress icon spins; a disabled button (nothing to pull) must not. */
 .ms.ms-spin { animation: kw-spin 1s linear infinite; }
 @keyframes kw-spin { to { transform: rotate(360deg); } }
-/* popover footer → admin screen (expert mode) */
+/* popover footer → admin screen (expert mode): a one-line list item after a divider */
 .switcher-foot {
-  display: flex; align-items: center; gap: 8px;
-  margin: 6px 4px 0; padding: 9px 12px; border-radius: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
-  font-size: 12.5px; font-weight: 500; color: var(--on-surface-variant);
+  display: flex; align-items: center; gap: 16px;
+  margin-top: 8px; padding: 0 16px; min-height: 56px; box-sizing: border-box;
+  border-top: 1px solid var(--outline-variant);
+  font-size: 16px; line-height: 24px; letter-spacing: 0.5px; color: var(--on-surface);
+  transition: background 120ms ease;
 }
-.switcher-foot:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
-.switcher-foot .ms { font-size: 18px; }
+.switcher-foot:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.switcher-foot .ms { font-size: 24px; color: var(--on-surface-variant); }
 
 /* workspaces admin screen (#/workspaces) */
 .ws-screen { max-width: 960px; }
@@ -255,6 +302,7 @@ a.switcher-item:hover { background: color-mix(in srgb, var(--on-surface) 8%, tra
 .ws-row.state-died { background: color-mix(in srgb, var(--warning, #c98a1b) 6%, transparent); }
 .ws-row.state-missing .ws-icon { opacity: 0.45; filter: grayscale(0.8); }
 .ws-row.state-stopped .ws-icon { opacity: 0.65; filter: grayscale(0.5); }
+.ws-row.state-died .ws-icon { opacity: 0.8; }
 .ws-icon { width: 40px; height: 40px; }
 .ws-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ws-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -1704,3 +1752,11 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .repo-row .ws-meta code { font-size: 11.5px; }
 .repos-screen .agent-form { max-width: none; }
 .repos-screen .agent-form-row .ws-btn { height: 36px; white-space: nowrap; }
+
+/* settings: workspace colour (swatch + hex) */
+.settings-color-row { display: flex; gap: 6px; align-items: center; }
+.settings-color-row input[type="color"] {
+  width: 30px; height: 30px; padding: 2px; border-radius: 8px;
+  border: 1px solid var(--outline-variant); background: transparent; cursor: pointer;
+}
+.settings-color-row input[type="text"], .settings-color-row input:not([type]) { flex: 1; min-width: 0; }

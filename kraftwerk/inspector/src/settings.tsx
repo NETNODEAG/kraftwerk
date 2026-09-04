@@ -31,6 +31,7 @@ interface SettingsData {
   config: {
     name?: string;
     icon?: string;
+    color?: string;
     port?: number;
     workflows?: string;
     output?: string;
@@ -74,6 +75,7 @@ export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
+  const [color, setColor] = useState("");
   const [switcher, setSwitcher] = useState<SwitcherRow[]>([]);
   const [git, setGit] = useState<GitForm>(GIT_OFF);
   const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
@@ -89,6 +91,7 @@ export function SettingsScreen() {
         setData(d);
         setName(d.config.name ?? "");
         setIcon(d.config.icon ?? "");
+        setColor(d.config.color ?? "");
         setSwitcher(d.config.switcher ?? []);
         setGit(gitForm(d));
         setRepos(reposForm(d));
@@ -112,6 +115,7 @@ export function SettingsScreen() {
         body: JSON.stringify({
           name,
           icon,
+          color,
           switcher,
           git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) },
           repos,
@@ -197,6 +201,27 @@ export function SettingsScreen() {
                   touch();
                 }}
               />
+            </label>
+            <label className="agent-field settings-color" style={{ width: 130 }} title="Accent in the workspace switcher; empty = derived from the folder">
+              color
+              <span className="settings-color-row">
+                <input
+                  type="color"
+                  value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"}
+                  onChange={(e) => {
+                    setColor(e.target.value);
+                    touch();
+                  }}
+                />
+                <input
+                  value={color}
+                  placeholder="auto"
+                  onChange={(e) => {
+                    setColor(e.target.value);
+                    touch();
+                  }}
+                />
+              </span>
             </label>
           </div>
           <div className="settings-note">Shown in the header, browser tab and to other workspaces discovering this one.</div>

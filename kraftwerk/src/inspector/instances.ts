@@ -57,6 +57,10 @@ export interface DiscoveredInstance {
   name: string;
   url: string;
   icon?: string;
+  /** kraftwerk.yml `color`, if set. */
+  color?: string;
+  /** True when the name comes from kraftwerk.yml (false = folder name). */
+  named?: boolean;
   live: true;
   root?: string;
   /** Server process id (what to signal to stop it). */
@@ -72,6 +76,10 @@ export interface WorkspaceEntry {
   /** Where the inspector answers (live) or would answer once started. */
   url: string;
   icon?: string;
+  /** kraftwerk.yml `color`, if set; the UI derives one from the root otherwise. */
+  color?: string;
+  /** True when the name comes from kraftwerk.yml, false when it is just the folder name. */
+  named?: boolean;
   live: boolean;
   root?: string;
   /** Root with ~ for the home dir — what the UI prints. */
@@ -141,12 +149,20 @@ async function probeAt(host: string, port: number): Promise<Omit<DiscoveredInsta
       signal: AbortSignal.timeout(400),
     });
     if (!r.ok) return null;
-    const meta = (await r.json()) as { version?: string; projectName?: string; projectIcon?: string };
+    const meta = (await r.json()) as {
+      version?: string;
+      projectName?: string;
+      projectIcon?: string;
+      projectColor?: string;
+      projectNamed?: boolean;
+    };
     if (typeof meta.version !== "string") return null; // some other app took the port
     return {
       name: meta.projectName || `localhost:${port}`,
       url: `http://localhost:${port}`,
       icon: meta.projectIcon || undefined,
+      color: meta.projectColor || undefined,
+      named: typeof meta.projectNamed === "boolean" ? meta.projectNamed : undefined,
       live: true,
     };
   } catch {
@@ -294,15 +310,17 @@ export async function forgetProject(root: string): Promise<boolean> {
  */
 async function describeRoot(
   root: string
-): Promise<{ name: string; icon?: string; port: number; exists: boolean }> {
-  const fallback = { name: path.basename(root), port: 1981, exists: false };
+): Promise<{ name: string; icon?: string; color?: string; named: boolean; port: number; exists: boolean }> {
+  const fallback = { name: path.basename(root), named: false, port: 1981, exists: false };
   if (!(await isDir(root))) return fallback;
   try {
     const project = await resolveProject(root);
     if (path.resolve(project.root) !== path.resolve(root)) return fallback;
     return {
       name: project.config.name ?? path.basename(project.root),
+      named: !!project.config.name,
       icon: project.config.icon || undefined,
+      color: project.config.color || undefined,
       port: project.config.port ?? 1981,
       exists: true,
     };
@@ -342,9 +360,20 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
           }
           if (running) {
             consumed.add(running);
-            return { ...base, name: running.name, url: running.url, icon: running.icon, live: true, exists: true };
+            // An instance from before 0.38 answers without color/named — read them from its root.
+            if (running.named === undefined) d = await describeRoot(p.root);
+            return {
+              ...base,
+              name: running.name,
+              url: running.url,
+              icon: running.icon,
+              color: running.color ?? d?.color,
+              named: running.named ?? d?.named,
+              live: true,
+              exists: true,
+            };
           }
-          return { ...base, name: d!.name, url: `http://localhost:${d!.port}`, icon: d!.icon, live: false, exists: d!.exists };
+          return { ...base, name: d!.name, url: `http://localhost:${d!.port}`, icon: d!.icon, color: d!.color, named: d!.named, live: false, exists: d!.exists };
         })
     )
   ).concat(
@@ -355,6 +384,8 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
           name: i.name,
           url: i.url,
           icon: i.icon,
+          color: i.color,
+          named: i.named,
           live: true,
           root: i.root,
           rootLabel: i.root ? tildify(i.root) : undefined,
@@ -422,6 +453,8 @@ export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
     all.unshift({
       name: d.name,
       icon: d.icon,
+      color: d.color,
+      named: d.named,
       url: `http://localhost:${selfPort}`,
       live: true,
       root: selfRoot,

@@ -28,6 +28,8 @@ export interface SaveSettingsInput {
   /** Omitted = untouched; empty string = remove the key. */
   name?: string;
   icon?: string;
+  /** Omitted = untouched; empty string = remove the key. Hex colour otherwise. */
+  color?: string;
   /** Omitted = untouched; empty list = remove the key. */
   switcher?: SwitcherEntry[];
   /** Omitted = untouched. See cleanGit for how the block is written. */
@@ -125,6 +127,12 @@ function cleanRepos(value: ReposSettingsInput, projectRoot: string): ReposConfig
 export async function saveSettings(input: SaveSettingsInput): Promise<SettingsView> {
   if (input.name !== undefined && typeof input.name !== "string") throw new Error("name must be a string");
   if (input.icon !== undefined && typeof input.icon !== "string") throw new Error("icon must be a string");
+  if (input.color !== undefined) {
+    if (typeof input.color !== "string") throw new Error("color must be a string");
+    if (input.color.trim() && !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(input.color.trim())) {
+      throw new Error('color must be a hex colour like "#c2410c"');
+    }
+  }
   const switcher = input.switcher === undefined ? undefined : cleanSwitcher(input.switcher);
 
   const project = await resolveProject(getProjectRoot());
@@ -140,6 +148,7 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
   };
   setOrDelete("name", input.name?.trim());
   setOrDelete("icon", input.icon?.trim());
+  setOrDelete("color", input.color?.trim());
   setOrDelete("switcher", switcher);
   if (input.git !== undefined) {
     const git = cleanGit(input.git);

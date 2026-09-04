@@ -280,6 +280,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       restartable: supervised(),
       projectName,
       projectIcon: project?.config.icon ?? "",
+      projectColor: project?.config.color ?? "",
+      projectNamed: !!project?.config.name,
       projectRoot: project?.root ?? getProjectRoot(),
       projectRootLabel: tildify(project?.root ?? getProjectRoot()),
       git: (project?.config.git && project.config.git.enabled !== false) === true,

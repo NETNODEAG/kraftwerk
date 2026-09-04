@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import type { GitStatus, RunListItem } from "./types";
-import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll } from "./shared";
+import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -31,6 +31,8 @@ export function App() {
   const seg = path.split("/").filter(Boolean);
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
+  const [projectColor, setProjectColor] = useState("");
+  const [projectNamed, setProjectNamed] = useState(true);
   const [projectRoot, setProjectRoot] = useState("");
   const [gitOn, setGitOn] = useState(false);
   const [reposOn, setReposOn] = useState(false);
@@ -45,6 +47,8 @@ export function App() {
         const d = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
           projectName?: string;
           projectIcon?: string;
+          projectColor?: string;
+          projectNamed?: boolean;
           projectRootLabel?: string;
           git?: boolean;
           repos?: boolean;
@@ -53,6 +57,8 @@ export function App() {
         if (!alive) return;
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
+        setProjectColor(d.projectColor ?? "");
+        setProjectNamed(d.projectNamed !== false);
         setProjectRoot(d.projectRootLabel ?? "");
         setGitOn(!!d.git);
         setReposOn(!!d.repos);
@@ -131,7 +137,7 @@ export function App() {
             {projectIcon || <Icon name="home" />}
           </a>
           {projectName && (
-            <WorkspaceSwitcher name={projectName} icon={projectIcon} root={projectRoot} entries={switcher} />
+            <WorkspaceSwitcher name={projectName} icon={projectIcon} color={projectColor} named={projectNamed} root={projectRoot} entries={switcher} />
           )}
         </span>
         <nav>
@@ -177,6 +183,10 @@ interface SwitcherEntry {
   name: string;
   url: string;
   icon?: string;
+  /** kraftwerk.yml `color`; derived from the root/url when absent. */
+  color?: string;
+  /** false = the name is just the folder name (no `name:` in kraftwerk.yml). */
+  named?: boolean;
   /** true = verified running (probe); false = known project, not running; absent = manual entry. */
   live?: boolean;
   /** Absolute project root (known projects only) — the key for start/forget. */
@@ -187,13 +197,35 @@ interface SwitcherEntry {
   exists?: boolean;
 }
 
-/** Path line under a workspace name, left-truncated so the tail stays readable. Expert mode only. */
+/** "localhost:2027" → ":2027"; anything else keeps its host. */
+function shortHost(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1" ? `:${u.port || (u.protocol === "https:" ? 443 : 80)}` : u.host;
+  } catch {
+    return url.replace(/^https?:\/\//, "");
+  }
+}
+
+/** Path line under a workspace name, left-truncated so the tail stays readable. */
 function RootLine({ label }: { label?: string }) {
-  const expert = useExpertMode();
-  if (!expert || !label) return null;
+  if (!label) return null;
   return (
     <span className="switcher-root" title={label}>
       <span dir="ltr">{label}</span>
+    </span>
+  );
+}
+
+/** Name line; a folder-derived name is set lighter so it is obvious `name:` is unset. */
+function NameLine({ name, named }: { name: string; named?: boolean }) {
+  const unnamed = named === false;
+  return (
+    <span
+      className={`switcher-name${unnamed ? " unnamed" : ""}`}
+      title={unnamed ? `${name} — folder name; set name: in kraftwerk.yml` : name}
+    >
+      {name}
     </span>
   );
 }
@@ -203,7 +235,7 @@ function RootLine({ label }: { label?: string }) {
  * Start asks this instance to spawn `kraftwerk ui` in the project's root
  * (detached) and follows the link once the new inspector answers.
  */
-function StoppedWorkspace({ entry }: { entry: SwitcherEntry }) {
+function StoppedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous: boolean }) {
   const [state, setState] = useState<"idle" | "starting" | "error">("idle");
   const [error, setError] = useState("");
   const missing = entry.exists === false;
@@ -220,32 +252,63 @@ function StoppedWorkspace({ entry }: { entry: SwitcherEntry }) {
   };
 
   return (
-    <span className={`switcher-item stopped ${missing ? "missing" : ""}`} role="menuitem">
-      <span className="switcher-icon">{entry.icon || "•"}</span>
+    <span
+      className={`switcher-item stopped ${missing ? "missing" : ""}`}
+      role="menuitem"
+      style={{ "--ws-c": workspaceColor(entry.color, entry.root ?? entry.url) } as CSSProperties}
+    >
+      <WorkspaceTile icon={entry.icon} name={entry.name} color={entry.color} seed={entry.root ?? entry.url} ambiguous={ambiguous} />
       <span className="switcher-text">
-        <span className="switcher-name">{entry.name}</span>
-        <RootLine label={entry.rootLabel} />
-        <span className="switcher-sub">
-          {state === "error"
-            ? <span className="switcher-err" title={error}>{error}</span>
-            : missing
-              ? "folder missing"
-              : `stopped · ${entry.url.replace(/^https?:\/\//, "")}`}
+        <NameLine name={entry.name} named={entry.named} />
+        {state === "error" ? (
+          <span className="switcher-sub switcher-err" title={error}>{error}</span>
+        ) : missing ? (
+          <span className="switcher-sub">folder missing</span>
+        ) : (
+          <RootLine label={entry.rootLabel} />
+        )}
+      </span>
+      <span className="switcher-side">
+        <span className="switcher-port">{shortHost(entry.url)}</span>
+        <button
+          className="switcher-start"
+          disabled={missing || state === "starting"}
+          title={missing ? "The project folder no longer exists" : "Start the UI for this project"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void start();
+          }}
+        >
+          {state === "starting" ? <Icon name="progress_activity" /> : <Icon name="play_arrow" />}
+          {state === "starting" ? "starting" : "start"}
+        </button>
+      </span>
+    </span>
+  );
+}
+
+/** A running or linked workspace: a link to its inspector. */
+function LinkedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous: boolean }) {
+  const seed = entry.root ?? entry.url;
+  return (
+    <a
+      className={`switcher-item${entry.live ? " live" : ""}`}
+      role="menuitem"
+      href={entry.url}
+      style={{ "--ws-c": workspaceColor(entry.color, seed) } as CSSProperties}
+    >
+      <WorkspaceTile icon={entry.icon} name={entry.name} color={entry.color} seed={seed} ambiguous={ambiguous} />
+      <span className="switcher-text">
+        <NameLine name={entry.name} named={entry.named} />
+        <RootLine label={entry.rootLabel ?? (entry.root ? undefined : entry.url.replace(/^https?:\/\//, ""))} />
+      </span>
+      <span className="switcher-side">
+        <span className="switcher-port">
+          {entry.live && <span className="live-dot" title="running" />}
+          {shortHost(entry.url)}
         </span>
       </span>
-      <button
-        className="switcher-start"
-        disabled={missing || state === "starting"}
-        title={missing ? "The project folder no longer exists" : "Start the UI for this project"}
-        onClick={(e) => {
-          e.stopPropagation();
-          void start();
-        }}
-      >
-        {state === "starting" ? <Icon name="progress_activity" /> : <Icon name="play_arrow" />}
-        {state === "starting" ? "starting" : "start"}
-      </button>
-    </span>
+    </a>
   );
 }
 
@@ -255,16 +318,22 @@ function StoppedWorkspace({ entry }: { entry: SwitcherEntry }) {
  * automatically (~/.kraftwerk/instances), projects that ran before are
  * remembered (~/.kraftwerk/projects) and can be started from here, and
  * `switcher:` entries in kraftwerk.yml add manual/remote ones. Plain label
- * otherwise. In expert mode every entry shows its root path.
+ * otherwise. Rows are grouped running / stopped / linked, each carries
+ * its workspace colour (rail + tile) and its root path, so which is
+ * which is readable without memorising ports.
  */
 function WorkspaceSwitcher({
   name,
   icon,
+  color,
+  named,
   root,
   entries,
 }: {
   name: string;
   icon: string;
+  color: string;
+  named: boolean;
   root: string;
   entries: SwitcherEntry[];
 }) {
@@ -282,6 +351,20 @@ function WorkspaceSwitcher({
   if (entries.length === 0) {
     return <span className="env-name" title={root || "Project (kraftwerk.yml: name)"}>{name}</span>;
   }
+
+  // An emoji shared by two listed workspaces (this one included) is no
+  // identifier — those tiles get the monogram badge.
+  const iconCount = new Map<string, number>();
+  for (const i of [icon, ...entries.map((e) => e.icon)]) if (i) iconCount.set(i, (iconCount.get(i) ?? 0) + 1);
+  const ambiguous = (i?: string) => !!i && (iconCount.get(i) ?? 0) > 1;
+
+  const groups: { key: string; label: string; items: SwitcherEntry[] }[] = [
+    { key: "running", label: "running", items: entries.filter((e) => e.live === true) },
+    { key: "stopped", label: "stopped", items: entries.filter((e) => e.live === false) },
+    { key: "linked", label: "linked", items: entries.filter((e) => e.live === undefined) },
+  ].filter((g) => g.items.length > 0);
+  const selfSeed = root || name;
+
   return (
     <span className="switcher-wrap">
       <button
@@ -297,31 +380,32 @@ function WorkspaceSwitcher({
       {open && (
         <div className="switcher-pop" role="menu">
           <div className="switcher-head">Workspaces</div>
-          <span className="switcher-item current" aria-current="true">
-            <span className="switcher-icon">{icon || "•"}</span>
+          <span
+            className="switcher-item current"
+            aria-current="true"
+            style={{ "--ws-c": workspaceColor(color, selfSeed) } as CSSProperties}
+          >
+            <WorkspaceTile icon={icon} name={name} color={color} seed={selfSeed} ambiguous={ambiguous(icon)} />
             <span className="switcher-text">
-              <span className="switcher-name">{name}</span>
-              {expert && root ? <RootLine label={root} /> : <span className="switcher-sub">this workspace</span>}
+              <NameLine name={name} named={named} />
+              {root ? <RootLine label={root} /> : <span className="switcher-sub">this workspace</span>}
             </span>
-            <span className="switcher-hint">current</span>
+            <span className="switcher-side">
+              <Icon name="check" className="switcher-check" />
+            </span>
           </span>
-          {entries.map((e) =>
-            e.live === false && e.root ? (
-              <StoppedWorkspace key={e.root} entry={e} />
-            ) : (
-              <a key={e.root ?? e.url} className="switcher-item" role="menuitem" href={e.url}>
-                <span className="switcher-icon">{e.icon || "•"}</span>
-                <span className="switcher-text">
-                  <span className="switcher-name">{e.name}</span>
-                  <RootLine label={e.rootLabel} />
-                  <span className="switcher-sub">
-                    {e.live && <span className="live-dot" title="running" />}
-                    {e.url.replace(/^https?:\/\//, "")}
-                  </span>
-                </span>
-              </a>
-            )
-          )}
+          {groups.map((g) => (
+            <div key={g.key} className={`switcher-group switcher-group-${g.key}`} role="group" aria-label={g.label}>
+              <div className="switcher-group-head">{g.label}</div>
+              {g.items.map((e) =>
+                e.live === false && e.root ? (
+                  <StoppedWorkspace key={e.root} entry={e} ambiguous={ambiguous(e.icon)} />
+                ) : (
+                  <LinkedWorkspace key={e.root ?? e.url} entry={e} ambiguous={ambiguous(e.icon)} />
+                )
+              )}
+            </div>
+          ))}
           {expert && (
             <a className="switcher-foot" href="#/workspaces" role="menuitem" onClick={() => setOpen(false)}>
               <Icon name="hub" /> manage workspaces
