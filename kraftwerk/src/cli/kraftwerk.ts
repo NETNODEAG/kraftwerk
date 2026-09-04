@@ -13,6 +13,7 @@ import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
 import { registerProjectCommands } from "./projects.js";
+import { registerRepoCommands } from "./repos.js";
 import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
@@ -28,6 +29,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run)
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk projects ...            known projects on this machine (list/start/forget)
+ *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -294,6 +296,7 @@ runs
 registerKnowledgeCommands(program);
 registerRoutineCommands(program);
 registerProjectCommands(program);
+registerRepoCommands(program);
 
 program
   .command("ui")

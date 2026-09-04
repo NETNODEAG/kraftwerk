@@ -29,6 +29,8 @@ import { parse } from "yaml";
  *     remote: origin
  *     interval: 300            # seconds between background fetches
  *     autosync: pull           # off | pull
+ *   repos:                     # git repositories the agents work on (absent = off, bare key = on)
+ *     root: kraftwerk-data/repos   # where clones land, relative to the file. Default: repos
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -62,6 +64,44 @@ export interface GitConfig {
   autosync?: "off" | "pull";
 }
 
+/**
+ * Repositories: git clones the agents work on, kept under one root inside
+ * the project so every agent finds them at a known path. The root is never
+ * synced by the workspace git and should be git-ignored.
+ */
+export interface ReposConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where clones land, relative to the project root. Default: repos */
+  root?: string;
+}
+
+/** Where clones land when `repos.root` is not set. */
+export const REPOS_DEFAULT_ROOT = "repos";
+
+/**
+ * Absolute repos root when the feature is on, undefined otherwise. The one
+ * place that reads the block, so the sync exclude, the doctor check, the
+ * settings save and the module itself cannot disagree.
+ */
+export function reposRootFor(project: Project): string | undefined {
+  const r = project.config.repos;
+  if (!r || r.enabled === false) return undefined;
+  return path.resolve(project.root, r.root ?? REPOS_DEFAULT_ROOT);
+}
+
+/** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
+export function ignoreEntryFor(projectRoot: string, dir: string): string | undefined {
+  const rel = path.relative(projectRoot, path.resolve(projectRoot, dir)).split(path.sep).join("/");
+  if (!rel || rel === "." || rel.startsWith("..")) return undefined;
+  return rel;
+}
+
+/** True when .gitignore text already covers the entry (with or without a leading or trailing slash). */
+export function gitignoreHas(text: string, entry: string): boolean {
+  return text.split("\n").some((l) => l.trim().replace(/^\//, "").replace(/\/$/, "") === entry);
+}
+
 /** One entry of the workspace switcher: another kraftwerk instance to link to. */
 export interface SwitcherEntry {
   /** Display name of the other workspace. */
@@ -93,6 +133,8 @@ export interface ProjectConfig {
   switcher?: SwitcherEntry[];
   /** Workspace git sync. Absent = off. */
   git?: GitConfig;
+  /** Repositories the agents work on. Absent = off. */
+  repos?: ReposConfig;
 }
 
 export interface Project {
@@ -164,7 +206,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git"];
+const KNOWN_KEYS = ["name", "icon", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -197,6 +239,9 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
       // and taking the rest of the inspector down with it.
       if (config[key] === null) config[key] = {};
       validateGit(configPath, config[key]);
+    } else if (key === "repos") {
+      if (config[key] === null) config[key] = {};
+      validateRepos(configPath, config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
@@ -256,5 +301,29 @@ function validateGit(configPath: string, value: unknown): void {
   }
   if (g.autosync !== undefined && g.autosync !== "off" && g.autosync !== "pull") {
     throw new Error(`${file}: git.autosync must be "off" or "pull"`);
+  }
+}
+
+function validateRepos(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${file}: repos must be a mapping (enabled, root)`);
+  }
+  const r = value as Record<string, unknown>;
+  for (const key of Object.keys(r)) {
+    if (!["enabled", "root"].includes(key)) {
+      throw new Error(`${file}: repos.${key} is unknown (allowed: enabled, root)`);
+    }
+  }
+  if (r.enabled !== undefined && typeof r.enabled !== "boolean") {
+    throw new Error(`${file}: repos.enabled must be true or false`);
+  }
+  if (r.root !== undefined && (typeof r.root !== "string" || !r.root.trim())) {
+    throw new Error(`${file}: repos.root must be a non-empty string`);
+  }
+  // The root is what `repos remove --force` deletes under, so it must never
+  // be the project itself or anything outside it.
+  if (typeof r.root === "string" && !ignoreEntryFor(path.dirname(configPath), r.root.trim())) {
+    throw new Error(`${file}: repos.root must be a directory inside the project (not ".", ".." or an absolute path outside it)`);
   }
 }

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { resolveProject, type Project } from "../config.js";
+import { reposRootFor, resolveProject, type Project } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, getProjectRoot } from "./context.js";
 
@@ -91,7 +91,7 @@ export interface GitDiff {
   truncated?: boolean;
 }
 
-interface GitResult {
+export interface GitResult {
   ok: boolean;
   /** Exit status, or null when git never ran (spawn error) or was killed. */
   code: number | null;
@@ -116,7 +116,7 @@ interface Repo {
 
 /** Local operations are quick; anything touching the network gets longer. */
 const LOCAL_TIMEOUT = 15_000;
-const NET_TIMEOUT = 60_000;
+export const NET_TIMEOUT = 60_000;
 const MAX_OUTPUT = 32 * 1024 * 1024;
 /** Longest diff the screen gets; a dumped database under knowledge/ is not something to read in a browser. */
 const MAX_DIFF = 512 * 1024;
@@ -145,7 +145,7 @@ const gitEnv = (extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
   ...extra,
 });
 
-function git(args: string[], cwd: string, timeoutMs = LOCAL_TIMEOUT, env?: NodeJS.ProcessEnv): Promise<GitResult> {
+export function git(args: string[], cwd: string, timeoutMs = LOCAL_TIMEOUT, env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
@@ -187,7 +187,7 @@ function git(args: string[], cwd: string, timeoutMs = LOCAL_TIMEOUT, env?: NodeJ
  * is left alone: whoever set it owns it.
  */
 const sshCache = new Map<string, { at: number; cmd: string }>();
-async function sshCommandFor(repoRoot: string): Promise<string> {
+export async function sshCommandFor(repoRoot: string): Promise<string> {
   if (process.env.GIT_SSH_COMMAND) return process.env.GIT_SSH_COMMAND;
   const hit = sshCache.get(repoRoot);
   if (hit && Date.now() - hit.at < 60_000) return hit.cmd;
@@ -198,7 +198,7 @@ async function sshCommandFor(repoRoot: string): Promise<string> {
 }
 
 /** A git call that may touch the network: longer timeout, non-interactive ssh. */
-async function gitNet(args: string[], repoRoot: string): Promise<GitResult> {
+export async function gitNet(args: string[], repoRoot: string): Promise<GitResult> {
   return git(args, repoRoot, NET_TIMEOUT, { GIT_SSH_COMMAND: await sshCommandFor(repoRoot) });
 }
 
@@ -209,7 +209,7 @@ async function gitNet(args: string[], repoRoot: string): Promise<GitResult> {
 const literal = (p: string): string => `:(literal)${p}`;
 
 /** Repo root for a directory, or null when it is not inside a git repo. */
-async function repoRootFor(dir: string): Promise<string | null> {
+export async function repoRootFor(dir: string): Promise<string | null> {
   const r = await git(["rev-parse", "--show-toplevel"], dir);
   return r.ok ? path.resolve(r.stdout.trim()) : null;
 }
@@ -297,10 +297,12 @@ function scopeFor({ project, repoRoot }: Repo): Scope {
     project.configPath,
   ];
   const mapped = roots.filter((r): r is string => !!r).map(rel).filter((r): r is string => !!r);
-  const outputRel = rel(getOutputDir());
+  // Clones under the repos root are other people's history, never this
+  // repo's: excluded like run artifacts, whatever the configured roots say.
+  const excluded = [getOutputDir(), reposRootFor(project)].filter((r): r is string => !!r);
   return {
     include: [...new Set(mapped.filter((r) => r !== "."))],
-    exclude: outputRel ? [outputRel] : [],
+    exclude: excluded.map(rel).filter((r): r is string => !!r && r !== "."),
     wholeRepo: mapped.includes("."),
   };
 }
@@ -319,7 +321,7 @@ function reasonFor(file: string, code: string, scope: Scope): string | undefined
   // to a commit nobody else has: a broken entry for everyone who pulls.
   if (file.endsWith("/")) return "a nested git repository, not synced";
   if (DENY.some((re) => re.test(file))) return "never synced (secret or key)";
-  if (scope.exclude.some((e) => within(file, e))) return "run artifacts, not synced";
+  if (scope.exclude.some((e) => within(file, e))) return "run artifacts or repositories, not synced";
   if (!scope.include.some((r) => within(file, r))) return "outside the workspace paths";
   if (/[RC]/.test(code)) return "renamed, commit it in a terminal";
   if (/U/.test(code) || code === "AA" || code === "DD") return "conflicted, resolve it in a terminal";

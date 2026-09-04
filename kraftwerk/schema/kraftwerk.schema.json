@@ -98,6 +98,21 @@
           "description": "off = fetch only. pull = also fast-forward when behind and the tree is clean. Default: pull"
         }
       }
+    },
+    "repos": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Repositories: git clones the agents work on, kept under one root inside the project. Absent = feature off, a bare `repos:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where clones land, relative to the project root. Should be git-ignored. Default: repos"
+        }
+      }
     }
   }
 }

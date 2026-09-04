@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { CONFIG_SCHEMA_URL, SCHEMA_URL } from "../config.js";
+import { CONFIG_SCHEMA_URL, gitignoreHas, SCHEMA_URL } from "../config.js";
 import { initBundle, writeConcept } from "../okf.js";
 
 /**
@@ -25,6 +25,8 @@ output: ${DATA_DIR}/output         # where run artifacts land (git-ignored)
 knowledge: ${DATA_DIR}/knowledge   # OKF knowledge bundles
 agents: ${DATA_DIR}/agents         # agent definitions
 skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packages)
+# repos:                          # git repositories the agents work on (uncomment both lines to enable)
+#   root: ${DATA_DIR}/repos       # clones land here (git-ignored); a bare \`repos:\` uses repos/ instead
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}
@@ -141,18 +143,23 @@ export async function runInit(cwd: string): Promise<void> {
     created.push(bundleRel);
   }
 
-  // .gitignore: append the output dir if it's not covered yet.
-  const outputEntry = `${DATA_DIR}/output`;
+  // .gitignore: the output dir and the repos root (clones must never become
+  // gitlinks of the workspace repo). A missing file gets both in one write;
+  // an existing one only the entries it lacks.
   const gitignorePath = path.join(cwd, ".gitignore");
   const gitignore = (await readFile(gitignorePath, "utf8").catch(() => null)) ?? null;
+  const entries = [`${DATA_DIR}/output`, `${DATA_DIR}/repos`];
   if (gitignore === null) {
-    await writeFile(gitignorePath, `${outputEntry}/\n`);
+    await writeFile(gitignorePath, entries.map((e) => `${e}/\n`).join(""));
     created.push(".gitignore");
-  } else if (!gitignore.split("\n").some((l) => l.trim().replace(/\/$/, "") === outputEntry)) {
-    await appendFile(gitignorePath, `${gitignore.endsWith("\n") ? "" : "\n"}${outputEntry}/\n`);
-    created.push(`.gitignore (${outputEntry}/ added)`);
   } else {
-    skipped.push(".gitignore");
+    const missing = entries.filter((e) => !gitignoreHas(gitignore, e));
+    if (missing.length === 0) {
+      skipped.push(".gitignore");
+    } else {
+      await appendFile(gitignorePath, `${gitignore.endsWith("\n") ? "" : "\n"}${missing.map((e) => `${e}/\n`).join("")}`);
+      created.push(`.gitignore (${missing.map((e) => `${e}/`).join(", ")} added)`);
+    }
   }
 
   for (const f of created) console.log(`${chalk.green("✔")} ${f}`);

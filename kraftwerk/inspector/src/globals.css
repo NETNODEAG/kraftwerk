@@ -1693,3 +1693,14 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   padding: 1px 6px; border-radius: 999px; border: 1px solid var(--outline-variant);
 }
 @media (max-width: 1100px) { .search-btn .kbd { display: none; } }
+
+/* repositories (#/repos) */
+.repos-screen .ws-icon .ms { font-size: 22px; color: var(--on-surface-variant); }
+.repo-branch {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px;
+  padding: 1px 7px; border-radius: 999px; color: var(--on-surface-variant);
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 70%, transparent);
+}
+.repo-row .ws-meta code { font-size: 11.5px; }
+.repos-screen .agent-form { max-width: none; }
+.repos-screen .agent-form-row .ws-btn { height: 36px; white-space: nowrap; }

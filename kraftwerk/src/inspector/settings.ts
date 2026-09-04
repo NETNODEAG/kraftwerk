@@ -1,12 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { resolveProject, type GitConfig, type ProjectConfig, type SwitcherEntry } from "../config.js";
+import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { ensureReposRoot } from "./repos.js";
 
 /**
  * Workspace settings: read kraftwerk.yml for the UI and write the
- * UI-editable subset (name, icon, switcher, git) back. Edits go through the
+ * UI-editable subset (name, icon, switcher, git, repos) back. Edits go through the
  * yaml Document API so comments and every other key survive untouched;
  * a missing kraftwerk.yml is created at the project root on first save.
  */
@@ -31,6 +32,13 @@ export interface SaveSettingsInput {
   switcher?: SwitcherEntry[];
   /** Omitted = untouched. See cleanGit for how the block is written. */
   git?: GitSettingsInput;
+  /** Omitted = untouched. Same rules as git: off with defaults = no block. */
+  repos?: ReposSettingsInput;
+}
+
+export interface ReposSettingsInput {
+  enabled: boolean;
+  root?: string;
 }
 
 /** The git form as the settings screen posts it. Every field but `enabled` may be blank. */
@@ -99,6 +107,21 @@ function cleanGit(value: GitSettingsInput): GitConfig | null {
   return { enabled: false, ...out };
 }
 
+/** The repos block to write; null when the feature is off and nothing else is set. */
+function cleanRepos(value: ReposSettingsInput, projectRoot: string): ReposConfig | null {
+  if (typeof value !== "object" || value === null) throw new Error("repos must be an object");
+  if (typeof value.enabled !== "boolean") throw new Error("repos.enabled must be true or false");
+  const out: ReposConfig = {};
+  const root = typeof value.root === "string" ? value.root.trim().replace(/\/+$/, "") : "";
+  if (root && !ignoreEntryFor(projectRoot, root)) {
+    throw new Error('repos.root must be a directory inside the project (not ".", ".." or an absolute path outside it)');
+  }
+  if (root && root !== REPOS_DEFAULT_ROOT) out.root = root;
+  if (value.enabled) return out;
+  if (Object.keys(out).length === 0) return null;
+  return { enabled: false, ...out };
+}
+
 export async function saveSettings(input: SaveSettingsInput): Promise<SettingsView> {
   if (input.name !== undefined && typeof input.name !== "string") throw new Error("name must be a string");
   if (input.icon !== undefined && typeof input.icon !== "string") throw new Error("icon must be a string");
@@ -123,7 +146,15 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     if (git === null) doc.delete("git");
     else doc.set("git", git);
   }
+  if (input.repos !== undefined) {
+    const repos = cleanRepos(input.repos, project.root);
+    if (repos === null) doc.delete("repos");
+    else doc.set("repos", repos);
+  }
 
   await fs.writeFile(configPath, doc.toString());
+  // Turning repositories on prepares the folder so the first clone and the
+  // workspace git both find it in the right state.
+  if (input.repos?.enabled) await ensureReposRoot().catch(() => {});
   return getSettings();
 }

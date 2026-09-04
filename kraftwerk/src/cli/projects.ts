@@ -25,7 +25,7 @@ import {
  * port / localhost:port for running instances that recorded no root.
  */
 
-const fmtAgo = (iso?: string): string => {
+export const fmtAgo = (iso?: string): string => {
   if (!iso) return "—";
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
   if (s < 90) return "just now";

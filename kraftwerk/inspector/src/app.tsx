@@ -13,13 +13,15 @@ import { AgentsScreen } from "./agents";
 import { SettingsScreen } from "./settings";
 import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
+import { ReposScreen } from "./repos";
 import { SearchPalette } from "./search";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
  * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
- * #/agents[/new | /chats[/<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]].
+ * #/agents[/new | /chats[/<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]],
+ * #/repos, #/git, #/settings, #/workspaces.
  * A bare #/agents/<slug> opens the agent's most recent session; the profile
  * lives at /info. Legacy #/team/* and #/chats[/<id>] links still land here.
  * ⌘K opens the agent palette (search.tsx) from anywhere.
@@ -31,6 +33,7 @@ export function App() {
   const [projectIcon, setProjectIcon] = useState("");
   const [projectRoot, setProjectRoot] = useState("");
   const [gitOn, setGitOn] = useState(false);
+  const [reposOn, setReposOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
@@ -44,6 +47,7 @@ export function App() {
           projectIcon?: string;
           projectRootLabel?: string;
           git?: boolean;
+          repos?: boolean;
           switcher?: SwitcherEntry[];
         };
         if (!alive) return;
@@ -51,6 +55,7 @@ export function App() {
         setProjectIcon(d.projectIcon ?? "");
         setProjectRoot(d.projectRootLabel ?? "");
         setGitOn(!!d.git);
+        setReposOn(!!d.repos);
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -93,6 +98,7 @@ export function App() {
   else if (seg[0] === "settings") screen = <SettingsScreen />;
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "git") screen = <GitScreen />;
+  else if (seg[0] === "repos") screen = <ReposScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -134,6 +140,7 @@ export function App() {
           <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
           <a href="#/runs"><Icon name="history" /> workflow runs</a>
           <a href="#/skills"><Icon name="extension" /> skills</a>
+          {reposOn && <a href="#/repos"><Icon name="source" /> repositories</a>}
           {gitOn && <GitNavLink />}
         </nav>
         <span className="spacer" />

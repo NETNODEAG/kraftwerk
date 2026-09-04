@@ -4,7 +4,7 @@
 
 When asked to **ship** (or "ship to npm", "release"), do the full cycle without asking:
 
-1. Test first, in `kraftwerk/`: `npm run typecheck && npm test && npm run test:e2e && npm run build`. All four must pass (the build is what `prepublishOnly` runs in the publish workflow, and it uses `tsconfig.build.json`, not the typecheck config — a change to either tsconfig can pass the typecheck and still break the publish) before anything is committed; a failing test stops the ship, it is never skipped or deleted to get through. If the change touches a server route, git sync, config loading, or a UI flow, add or extend a test for it (`test/api/` for server behaviour, `e2e/` for browser flows) in the same commit — see the Tests section in `CLAUDE.md` for the layout and fixtures.
+1. Test first, in `kraftwerk/`: `npm run typecheck && npm test && npm run test:e2e && npm run build`. All four must pass (the build is what `prepublishOnly` runs in the publish workflow, and it uses `tsconfig.build.json`, not the typecheck config — a change to either tsconfig can pass the typecheck and still break the publish) before anything is committed; a failing test stops the ship, it is never skipped or deleted to get through. If the change touches a server route, git sync, config loading, or a UI flow, add or extend a test for it (`test/api/` for server behaviour, `e2e/` for browser flows) in the same commit — see the Tests section in `CLAUDE.md` for the layout and fixtures. `e2e/serve.ts` only builds `inspector/dist` when it is missing, so after a UI change run `npm run build:inspector` first or the e2e suite tests the previous build.
 2. Bump the version in `kraftwerk/package.json` (minor for features, patch for fixes).
 3. Commit as `Release X.Y.Z: <summary>` — only the files belonging to the change, leave unrelated working-tree edits (e.g. `agent-playground/`) untouched.
 4. Push to `main`.
@@ -35,7 +35,9 @@ When asked to **check tests** (or "find test gaps", "what is untested"), do not 
 
 ## Naming
 
-The persistent chat personas are **agents** — in code, routes, CSS, prose and prompts. Not "team", "team member" or "member": `Agent`, `listAgents`, `/api/agents`, chat scope `{ kind: "agent", slug }`, `agents/<slug>/`. "Team" is reserved for the humans using a workspace. The one persisted legacy is chat `meta.json` written before 0.36 with `{ kind: "team", member }`; `store.ts` upgrades it on read, so never write that shape again.
+The persistent chat personas are **agents** — in code, routes, CSS, prose and prompts. Not "team", "team member" or "member": `Agent`, `listAgents`, `/api/agents`, chat scope `{ kind: "agent", slug }`, `agents/<slug>/`. "Team" is reserved for the humans using a workspace.
+
+Git clones the agents work on are **repositories** in prose and the UI, `repos` in code, config, routes and the CLI (`ReposConfig`, `listRepos`, `/api/repos`, `kraftwerk repos`, `repos.root`). Not "projects" — that word is the registry of kraftwerk workspaces (`~/.kraftwerk/projects`). The one persisted legacy is chat `meta.json` written before 0.36 with `{ kind: "team", member }`; `store.ts` upgrades it on read, so never write that shape again.
 
 ## Learn from feedback
 

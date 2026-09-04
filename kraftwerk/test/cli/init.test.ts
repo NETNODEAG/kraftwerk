@@ -37,7 +37,9 @@ describe("kraftwerk init / list / doctor", () => {
       assert.ok(existsSync(path.join(dir.root, rel)), `${rel} missing`);
       assert.match(r.stdout, new RegExp(`✔ ${rel.split("/").slice(0, 3).join("/")}`), rel);
     }
-    assert.match(await readFile(path.join(dir.root, ".gitignore"), "utf8"), /^kraftwerk-data\/output\/$/m);
+    const gitignore = await readFile(path.join(dir.root, ".gitignore"), "utf8");
+    assert.match(gitignore, /^kraftwerk-data\/output\/$/m);
+    assert.match(gitignore, /^kraftwerk-data\/repos\/$/m, "the repos root is ignored before the first clone");
     assert.match(await readFile(path.join(dir.root, "kraftwerk.yml"), "utf8"), /^name: "project"/m);
   });
 

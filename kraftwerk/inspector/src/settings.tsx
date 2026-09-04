@@ -39,6 +39,7 @@ interface SettingsData {
     skills?: string;
     switcher?: SwitcherRow[];
     git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" };
+    repos?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -56,12 +57,26 @@ function gitForm(d: SettingsData): GitForm {
   };
 }
 
+interface ReposForm {
+  enabled: boolean;
+  root: string;
+}
+const REPOS_OFF: ReposForm = { enabled: false, root: "" };
+
+/** The repos block as form state; a missing block is "off". */
+function reposForm(d: SettingsData): ReposForm {
+  const r = d.config.repos;
+  if (!r) return REPOS_OFF;
+  return { enabled: r.enabled !== false, root: r.root ?? "" };
+}
+
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [switcher, setSwitcher] = useState<SwitcherRow[]>([]);
   const [git, setGit] = useState<GitForm>(GIT_OFF);
+  const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -76,6 +91,7 @@ export function SettingsScreen() {
         setIcon(d.config.icon ?? "");
         setSwitcher(d.config.switcher ?? []);
         setGit(gitForm(d));
+        setRepos(reposForm(d));
       })
       .catch(() => setError("could not load settings"));
   }, []);
@@ -93,13 +109,20 @@ export function SettingsScreen() {
       const r = await fetch("/api/settings", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, icon, switcher, git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) } }),
+        body: JSON.stringify({
+          name,
+          icon,
+          switcher,
+          git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) },
+          repos,
+        }),
       });
       const d = (await r.json()) as SettingsData & { error?: string };
       if (!r.ok) throw new Error(d.error || "save failed");
       setData(d);
       setSwitcher(d.config.switcher ?? []);
       setGit(gitForm(d));
+      setRepos(reposForm(d));
       setDirty(false);
       setSaved(true);
       // Nudge the app shell to refetch /api/meta so header + favicon update now.
@@ -117,6 +140,10 @@ export function SettingsScreen() {
   };
   const setGitField = (patch: Partial<GitForm>): void => {
     setGit((g) => ({ ...g, ...patch }));
+    touch();
+  };
+  const setReposField = (patch: Partial<ReposForm>): void => {
+    setRepos((r) => ({ ...r, ...patch }));
     touch();
   };
 
@@ -271,6 +298,36 @@ export function SettingsScreen() {
               <div className="settings-note">
                 The interval fetches in the background (0 turns the timer off); with autosync on it also fast-forwards
                 when behind and nothing is modified locally. Commit and push stay manual on the git screen.
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">repositories</span>
+          <span className="spacer" />
+          <a className="run-btn tonal" href="#/repos">
+            <Icon name="source" className="ms-sm" /> open repositories
+          </a>
+        </div>
+        <div className="agent-form">
+          <label className="settings-check">
+            <input type="checkbox" checked={repos.enabled} onChange={(e) => setReposField({ enabled: e.target.checked })} />
+            keep git repositories the agents work on under one folder
+          </label>
+          {repos.enabled && (
+            <>
+              <div className="agent-form-row">
+                <label className="agent-field" style={{ flex: 1 }}>
+                  repos root
+                  <input value={repos.root} placeholder="repos" onChange={(e) => setReposField({ root: e.target.value })} />
+                </label>
+              </div>
+              <div className="settings-note">
+                Relative to the project root. Saving creates the folder and adds it to .gitignore; every agent gets the
+                list of clones as context and can add more with <code>kraftwerk repos add</code>.
               </div>
             </>
           )}

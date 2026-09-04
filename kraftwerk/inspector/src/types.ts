@@ -48,3 +48,4 @@ export type {
   VerifiedEntry,
   TrustTier,
 } from "../../src/okf";
+export type { RepoInfo, ReposView } from "../../src/inspector/repos";

@@ -66,6 +66,7 @@ import {
   startGitSync,
 } from "./git.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
+import { addRepo, listRepos, openRepos, removeRepo, updateRepo } from "./repos.js";
 import { searchAgents } from "./search.js";
 import {
   deleteRoutine,
@@ -282,6 +283,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       projectRoot: project?.root ?? getProjectRoot(),
       projectRootLabel: tildify(project?.root ?? getProjectRoot()),
       git: (project?.config.git && project.config.git.enabled !== false) === true,
+      repos: (project?.config.repos && project.config.repos.enabled !== false) === true,
       switcher,
     });
   }
@@ -318,6 +320,46 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const run = seg[2] === "fetch" ? gitFetch : seg[2] === "pull" ? gitPull : gitPush;
     const result = await run();
     return json(res, result, result.ok ? 200 : 409);
+  }
+
+  // GET /api/repos — every clone under the repos root, read live from git
+  if (seg.length === 2 && seg[1] === "repos" && method === "GET") {
+    return json(res, await listRepos());
+  }
+
+  // POST /api/repos {url, name?, branch?, depth?} — clone into the root
+  if (seg.length === 2 && seg[1] === "repos" && method === "POST") {
+    if ((await openRepos()).off) return json(res, { error: "repositories are off" }, 409);
+    try {
+      const body = JSON.parse(await readBody(req)) as { url?: unknown; name?: unknown; branch?: unknown; depth?: unknown };
+      const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+      const depth = body.depth === undefined ? undefined : typeof body.depth === "number" ? body.depth : Number.NaN;
+      const repo = await addRepo({ url: str(body.url) ?? "", name: str(body.name), branch: str(body.branch), depth });
+      return json(res, repo, 201);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // POST /api/repos/<slug>/update — fetch, fast-forward when clean
+  if (seg.length === 4 && seg[1] === "repos" && seg[3] === "update" && method === "POST") {
+    try {
+      const result = await updateRepo(seg[2]);
+      return json(res, result, result.ok ? 200 : result.repo || result.off ? 409 : 404);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // DELETE /api/repos/<slug>[?force=1] — remove the clone; 409 while it holds unpushed or uncommitted work
+  if (seg.length === 3 && seg[1] === "repos" && method === "DELETE") {
+    try {
+      const force = ["1", "true"].includes(url.searchParams.get("force") ?? "");
+      const result = await removeRepo(seg[2], force);
+      return json(res, result, result.ok ? 200 : result.conflict || result.off ? 409 : 404);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
   }
 
   // GET /api/search/agents — active agents of every reachable workspace (the ⌘K palette)
@@ -371,7 +413,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     return json(res, await getSettings());
   }
 
-  // PUT /api/settings — write the UI-editable subset (name, icon, switcher, git) back
+  // PUT /api/settings — write the UI-editable subset (name, icon, switcher, git, repos) back
   if (seg.length === 2 && seg[1] === "settings" && method === "PUT") {
     try {
       const input = JSON.parse(await readBody(req)) as SaveSettingsInput;

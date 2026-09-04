@@ -180,7 +180,7 @@ Optional, at the project root, and also the root marker for the walk-up. All
 fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
-`agents/`).
+`agents/`). `repos:` turns on the [repositories](#repositories) folder.
 
 `switcher:` links other kraftwerk workspaces from the inspector header. The
 workspace name becomes a dropdown listing them:
@@ -295,6 +295,44 @@ the model via ACP session options and the thinking budget via
 `model_reasoning_effort`). Pi gets `--model` and `--thinking` flags. Agents
 are created and edited in the UI, or by editing the files, since the
 definition is read fresh for each new session.
+
+### Repositories
+
+Turn on `repos:` in `kraftwerk.yml` (or the checkbox in settings) and the
+workspace gets one folder for the git repositories its agents work on:
+
+```yaml
+repos:
+  root: kraftwerk-data/repos   # default: repos/ — git-ignored, never synced
+```
+
+The folder is the registry. Whatever has a `.git` directly under the root is
+a repository, whether the "repositories" screen cloned it, `kraftwerk repos
+add <url>` did, or an agent ran `git clone` there. Every entry is read live
+from git: origin, branch, head, uncommitted changes, ahead/behind. The
+screen clones by url, fetches and fast-forwards clean clones, and removes
+them (refusing while they hold unpushed or uncommitted work). Cloning uses
+your own git credentials and never prompts, so a private remote has to work
+from a terminal first.
+
+Every agent, and the inspector assistant, gets the list as context: where
+the root is, what is cloned, and how to add more with the CLI. So "look at
+the widgets repo" works as soon as it is cloned, and "clone
+github:org/widgets and look at it" works before.
+
+```bash
+kraftwerk repos                                  # name, branch, head, state
+kraftwerk repos add github:org/widgets           # or any https / ssh url
+kraftwerk repos add <url> --name tools --branch dev
+kraftwerk repos add <url> --depth 1              # shallow clone of a large repository
+kraftwerk repos update widgets                   # fetch, fast-forward when clean
+kraftwerk repos remove widgets [--force]
+```
+
+`GET /api/repos` returns the same list for automation. The root must be a
+folder inside the project (never the project itself): it is excluded from the
+workspace git sync, the first clone adds it to `.gitignore`, and `kraftwerk
+doctor` warns when git does not ignore it.
 
 ### Skills in chat
 

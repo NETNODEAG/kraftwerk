@@ -21,7 +21,7 @@ import { getAgent, listAgents } from "../inspector/agents.js";
  */
 
 /** Point the inspector context at this project so agent/routine paths resolve. */
-async function initContext(): Promise<{ port: number }> {
+export async function initContext(): Promise<{ port: number }> {
   const project = await resolveProject(process.cwd());
   setProjectRoot(project.root);
   setOutputDir(project.outputDir);

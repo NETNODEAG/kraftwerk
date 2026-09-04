@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { isDir, resolveProject } from "../config.js";
+import { ignoreEntryFor, isDir, reposRootFor, resolveProject } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 
@@ -118,6 +118,20 @@ export async function runDoctor(cwd: string): Promise<void> {
       }
     }
   }
+  // Repositories: the clones root must stay out of the workspace git. git
+  // itself decides — that covers worktrees (.git is a file), a workspace
+  // nested in a larger repo, a .gitignore at the toplevel, global excludes.
+  const reposRoot = reposRootFor(project);
+  if (reposRoot) {
+    const entry = ignoreEntryFor(project.root, reposRoot) ?? path.relative(project.root, reposRoot);
+    const label = `repos: ${path.relative(cwd, reposRoot) || "."}`;
+    const check = spawnSync("git", ["check-ignore", "-q", "--", reposRoot], { cwd: project.root, encoding: "utf8" });
+    if (check.error) report("info", label, "git not found — cannot check .gitignore");
+    else if (check.status === 0) report("ok", label, "git-ignored");
+    else if (check.status === 1) report("warn", label, `${entry}/ is not git-ignored — clones would show up as untracked gitlinks; add it to .gitignore`);
+    else report("ok", label, "not inside a git repository");
+  }
+
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];
   if (!project.workflowsRoot) {
     report("warn", "no workflows root", "expected src/workflows/ or workflows/ — `kraftwerk init` scaffolds one");

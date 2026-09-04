@@ -6,6 +6,7 @@ import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
 import { getAgent, listAgents } from "../agents.js";
+import { listRepos } from "../repos.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
@@ -188,6 +189,31 @@ async function agentKnowledgeContext(def: {
   );
 }
 
+/**
+ * "## Repositories" block: the clones under the repos root, when the
+ * feature is on. Empty when it is off, so agents in a workspace without
+ * it never hear about it.
+ */
+async function reposContext(): Promise<string> {
+  const view = await listRepos().catch(() => null);
+  if (!view?.enabled || !view.root) return "";
+  const lines = view.repos
+    .map((r) => {
+      const state = r.error ? `unreadable: ${r.error}` : [r.dirty ? `${r.dirty} uncommitted` : "clean", r.ahead ? `${r.ahead} ahead` : "", r.behind ? `${r.behind} behind` : ""].filter(Boolean).join(", ");
+      return `- ${r.slug} — ${r.path}${r.url ? ` (${r.url})` : ""}${r.branch ? `, branch ${r.branch}` : ""}${r.head ? ` @ ${r.head}` : ""}, ${state}`;
+    })
+    .join("\n");
+  return (
+    `## Repositories\nGit repositories this workspace works on live under ${view.root} (one clone per folder). ` +
+    `When the user names one of them, work inside its folder: read its README and structure first, keep commits on a ` +
+    `branch unless told otherwise, and never push or force-push without asking.\n${lines || "(none cloned yet)"}\n\n` +
+    `Clone a new one with \`npx kraftwerk repos add <url> [--name <folder>] [--branch <b>] [--depth <n>]\` so it lands in ` +
+    `that root (\`--depth 1\` for a large repository; a plain \`git clone\` into that folder works too); ` +
+    `\`npx kraftwerk repos\` lists them, \`update <name>\` fetches and fast-forwards a clean clone, \`remove <name>\` ` +
+    `deletes one. A repository the user mentions that is not listed is not cloned yet — offer to add it.`
+  );
+}
+
 /** Base context per scope; scopeContext() appends the shared skills block. */
 async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
   if (scope.kind === "agent") {
@@ -332,11 +358,14 @@ const RENDERING_BLOCK =
   `in this chat and keep working wherever the inspector is reachable.`;
 
 async function scopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
-  const [base, skills] = await Promise.all([
+  // The repositories block reads every clone from git, so it runs alongside
+  // the rest instead of adding its spawns to the first prompt's latency.
+  const [base, repos, skills] = await Promise.all([
     baseScopeContext(scope, agent),
+    scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     availableSkills(scope),
   ]);
-  return [base, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, repos, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /* ---------- backend lifecycle ---------- */
