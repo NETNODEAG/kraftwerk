@@ -385,10 +385,35 @@ session, errors) lives in `<output>/routines-state.json`.
 The inspector server runs the scheduler in-process, so there is no external
 cron to set up. Every due routine opens a fresh session for the agent, posts
 the prompt, and shows up in the sessions sidebar titled "⏰ <name>". Routine
-sessions run unattended, so tool-permission requests are auto-approved, with
-the request and approval pair left in the thread as an audit trail. Give
-routine prompts the same trust you would give a `KRAFTWERK_YES=1` workflow
-run. Manage routines on the agent page, where you can create, edit and
+sessions run unattended in the harness's own permission mode — your
+configured claude default (`auto` or `acceptEdits`; plain `default` is lifted
+to `acceptEdits`, `bypassPermissions` is never used) or codex's sandboxed
+`agent` preset (never full access). Edits inside the project need no
+approval, and the harness keeps deciding what still needs a human — shell
+commands, network, files outside the project. Kraftwerk never answers those for you.
+The question waits in the thread, the routine row and the agent card show
+"needs approval", and you allow or deny when you look; "allow always" is
+remembered by the harness so the same routine stops asking. A request nobody
+answers within 30 minutes is declined and the routine ends with a summary of
+what it could not do.
+
+The bell in the top bar collects what happened while you were away: a
+session waiting for approval, a routine that finished (with the first lines
+of its summary) or failed, a workflow run started from the inspector that
+ended. The unread count sits on the bell and in front of the tab title, so a
+background tab reads "(2) …"; click an item to jump there. Failure items
+carry a "diagnose" button: it opens a chat where the failure is best
+understood — the run folder for a failed workflow run, a fresh session of the
+same agent for a routine that died mid-run, the kraftwerk-aware chat for a
+routine that could not start — and sends a first message that names the
+failure, points at the evidence (trace, logs, the failed session's events)
+and asks for root cause, fix and how to re-run. Allow browser
+notifications once (the bell offers it) and each new item also shows as a
+system notification while any inspector tab is open. Items live in
+`output/notifications.json`; `GET /api/notifications` lists them,
+`POST /api/notifications/read` marks them, `DELETE /api/notifications` clears.
+
+Manage routines on the agent page, where you can create, edit and
 delete them, toggle enabled, hit "run now", and jump to the last run's
 session. Schedules missed while the server is down are skipped, not replayed.
 

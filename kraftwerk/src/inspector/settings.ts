@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, VIBEABLES_DEFAULT_ROOT, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig } from "../config.js";
+import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, VIBEABLES_DEFAULT_ROOT, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
 import { disposeAllDevs, ensureVibeablesRoot } from "./vibeables.js";
 import { getProjectRoot } from "./context.js";
 import { ensureReposRoot } from "./repos.js";
@@ -95,8 +95,10 @@ function cleanGit(value: GitSettingsInput): GitConfig | null {
   if (typeof value.enabled !== "boolean") throw new Error("git.enabled must be true or false");
   const out: GitConfig = {};
   const remote = typeof value.remote === "string" ? value.remote.trim() : "";
+  if (remote && !isSafeGitName(remote)) throw new Error('git.remote must be a plain name (no leading "-", no whitespace)');
   if (remote && remote !== GIT_DEFAULTS.remote) out.remote = remote;
   const branch = typeof value.branch === "string" ? value.branch.trim() : "";
+  if (branch && !isSafeGitName(branch)) throw new Error('git.branch must be a plain name (no leading "-", no whitespace)');
   if (branch) out.branch = branch;
   if (value.interval !== undefined && value.interval !== "") {
     const n = typeof value.interval === "string" ? Number(value.interval) : value.interval;

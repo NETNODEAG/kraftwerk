@@ -37,8 +37,17 @@ export function useHashPath(): string {
  */
 let baseTitle = "kraftwerk inspector";
 let pageTitle = "";
+let attention = 0;
 function applyTitle(): void {
-  document.title = pageTitle ? `${pageTitle} — ${baseTitle}` : baseTitle;
+  const t = pageTitle ? `${pageTitle} — ${baseTitle}` : baseTitle;
+  // Unread bell items lead the title so a background tab shows "(2) …".
+  document.title = attention > 0 ? `(${attention}) ${t}` : t;
+}
+/** Unread attention items (the bell) — shown as a "(n)" prefix in the tab title. */
+export function setAttentionCount(n: number): void {
+  if (n === attention) return;
+  attention = n;
+  applyTitle();
 }
 export function setBaseTitle(t: string): void {
   baseTitle = t;

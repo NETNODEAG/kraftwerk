@@ -22,7 +22,7 @@ import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
  * endpoints, no dedicated API.
  */
 
-type BusyChat = ChatMeta & { busy: boolean };
+type BusyChat = ChatMeta & { busy: boolean; awaitingApproval?: boolean };
 
 const runLamp = (s: RunListItem["status"]) =>
   s === "ok" ? "ok" : s === "running" ? "running" : s === "aborted" ? "aborted" : "failed";
@@ -191,6 +191,7 @@ function AgentsRow({ agents, chats }: { agents?: Agent[]; chats: BusyChat[] }) {
     <div className="dash-agents">
       {(agents ?? []).map((m) => {
         const sessions = chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === m.slug);
+        const waiting = sessions.find((c) => c.awaitingApproval);
         const working = sessions.find((c) => c.busy);
         const open = () => navigate(`/agents/${encodeURIComponent(m.slug)}`);
         return (
@@ -216,13 +217,23 @@ function AgentsRow({ agents, chats }: { agents?: Agent[]; chats: BusyChat[] }) {
             </div>
             <div className="dash-agent-foot">
               <span className="dash-agent-state">
-                {working && (
+                {waiting ? (
                   <Link
-                    href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
+                    href={`/agents/${encodeURIComponent(m.slug)}/chat/${waiting.id}`}
+                    className="chip attention"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    working…
+                    needs approval
                   </Link>
+                ) : (
+                  working && (
+                    <Link
+                      href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      working…
+                    </Link>
+                  )
                 )}
               </span>
               <button
@@ -334,8 +345,8 @@ function ActivityFeed({
             ? `${c.agent} · ${chatScopeLabel(c)}`
             : chatScopeLabel(c),
         href: chatHref(c),
-        lamp: c.busy ? "running" : "ok",
-        status: c.busy ? "working" : undefined,
+        lamp: c.awaitingApproval ? "blocked" : c.busy ? "running" : "ok",
+        status: c.awaitingApproval ? "needs approval" : c.busy ? "working" : undefined,
       });
     }
     for (const b of bundles) {

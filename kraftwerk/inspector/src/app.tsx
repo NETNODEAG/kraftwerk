@@ -1,6 +1,6 @@
-import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
-import type { GitStatus, RunListItem } from "./types";
-import { Icon, navigate, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile, setFeatures } from "./shared";
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
+import type { GitStatus, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile, setFeatures } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -173,6 +173,7 @@ export function App() {
         </nav>
         <span className="spacer" />
         <SearchPalette />
+        <NotificationBell />
         <RelaunchNote />
         <ExpertToggle />
         <ProjectInfo />
@@ -551,6 +552,216 @@ function ExpertToggle() {
       </span>
       expert
     </button>
+  );
+}
+
+const NOTIF_ICON: Record<NotificationKind, string> = {
+  approval: "gavel",
+  routine_done: "schedule",
+  routine_failed: "schedule",
+  run_done: "account_tree",
+  run_failed: "account_tree",
+};
+
+const NOTIF_TOAST_DISMISSED = "kw.notif.toast.dismissed";
+
+/**
+ * The bell: attention items (a session waiting for approval, a routine or
+ * run that ended). Unread count on the badge and in the tab title; a browser
+ * notification for each new item while the tab is open but not looking at
+ * that very page. The list itself comes from /api/notifications.
+ */
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const data = usePoll<NotificationsView>("/api/notifications", false, 5000);
+  const [perm, setPerm] = useState<NotificationPermission | "unsupported">(() =>
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission
+  );
+  const [toastDismissed, setToastDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(NOTIF_TOAST_DISMISSED) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const seen = useRef<Set<string> | null>(null);
+  // Actions (read, clear) answer with the fresh view: show it at once and
+  // let the next poll take over again.
+  const [fresh, setFresh] = useState<NotificationsView | null>(null);
+  const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  useEffect(() => setFresh(null), [data]);
+  const view = fresh ?? data;
+  const items = view?.items ?? [];
+  const unread = view?.unread ?? 0;
+
+  useEffect(() => setAttentionCount(unread), [unread]);
+
+  // Browser notifications: the first poll seeds "seen" silently (no toast
+  // storm for history); afterwards every new unread item that is not the
+  // page currently on screen gets one. Clicking it opens the item.
+  useEffect(() => {
+    if (!data) return;
+    if (!seen.current) {
+      seen.current = new Set(items.map((n) => n.id));
+      return;
+    }
+    for (const n of items) {
+      if (seen.current.has(n.id)) continue;
+      seen.current.add(n.id);
+      if (n.readAt || perm !== "granted") continue;
+      if (!document.hidden && location.hash === `#${n.href}`) continue;
+      try {
+        const toast = new Notification(n.title, { body: n.body, tag: n.id });
+        toast.onclick = () => {
+          window.focus();
+          openItem(n);
+          toast.close();
+        };
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest(".notif-wrap")) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  async function post(url: string, body?: unknown): Promise<void> {
+    try {
+      const r = await fetch(url, {
+        method: url.endsWith("/notifications") ? "DELETE" : "POST",
+        headers: { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!r.ok) return;
+      const d = (await r.json()) as NotificationsView | { ok: true };
+      setFresh("items" in d ? d : { items: [], unread: 0 });
+    } catch {}
+  }
+
+  function openItem(n: Notification): void {
+    setOpen(false);
+    if (!n.readAt) void post("/api/notifications/read", { ids: [n.id] });
+    navigate(n.href);
+  }
+
+  /** Failure items: open a chat that investigates and fixes the cause. */
+  async function diagnose(n: Notification): Promise<void> {
+    setDiagnosing(n.id);
+    try {
+      const r = await fetch(`/api/notifications/${encodeURIComponent(n.id)}/diagnose`, { method: "POST" });
+      const d = (await r.json()) as { href?: string; error?: string };
+      if (d.href) {
+        setOpen(false);
+        navigate(d.href);
+      } else if (d.error) {
+        alert(d.error);
+      }
+    } catch {}
+    setDiagnosing(null);
+  }
+
+  async function enableToasts(): Promise<void> {
+    if (typeof Notification === "undefined") return;
+    setPerm(await Notification.requestPermission());
+  }
+
+  function dismissToastHint(): void {
+    setToastDismissed(true);
+    try {
+      localStorage.setItem(NOTIF_TOAST_DISMISSED, "1");
+    } catch {}
+  }
+
+  const showToastHint = perm === "default" && !toastDismissed;
+  return (
+    <span className="notif-wrap">
+      <button
+        className={`info-btn notif-btn ${unread ? "has-unread" : ""}`}
+        title={unread ? `${unread} item${unread === 1 ? "" : "s"} need your attention` : "Notifications"}
+        aria-label="Notifications"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name={unread ? "notifications_active" : "notifications"} />
+        {unread > 0 && <span className="notif-badge">{unread > 99 ? "99+" : unread}</span>}
+      </button>
+      {open && (
+        <div className="info-pop notif-pop" role="menu">
+          <div className="notif-head">
+            <span className="microlabel">notifications</span>
+            <span className="spacer" />
+            {unread > 0 && (
+              <button className="open-raw" onClick={() => void post("/api/notifications/read")}>
+                mark all read
+              </button>
+            )}
+            {items.length > 0 && (
+              <button className="open-raw" onClick={() => void post("/api/notifications")}>
+                clear
+              </button>
+            )}
+          </div>
+          {showToastHint && (
+            <div className="notif-hint">
+              <span>Get a system notification when something needs you, even with this tab in the background.</span>
+              <span className="notif-hint-actions">
+                <button className="ws-btn primary" onClick={() => void enableToasts()}>enable</button>
+                <button className="ws-btn" onClick={dismissToastHint}>not now</button>
+              </span>
+            </div>
+          )}
+          {perm === "denied" && (
+            <div className="notif-hint muted">Browser notifications are blocked for this site — allow them in the address bar to get system alerts.</div>
+          )}
+          {items.length === 0 ? (
+            <div className="notif-empty">nothing needs you right now</div>
+          ) : (
+            <div className="notif-list">
+              {items.slice(0, 50).map((n) => (
+                <div
+                  key={n.id}
+                  className={`notif-row ${n.readAt ? "" : "unread"} ${n.kind}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openItem(n)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") openItem(n);
+                  }}
+                >
+                  <span className="notif-ico"><Icon name={NOTIF_ICON[n.kind]} /></span>
+                  <span className="notif-body">
+                    <span className="notif-title">{n.title}</span>
+                    {n.body && <span className="notif-sub">{n.body}</span>}
+                    {n.diagnose && (
+                      <span className="notif-actions">
+                        <button
+                          className="ws-btn notif-diagnose"
+                          disabled={diagnosing === n.id}
+                          title="Open a chat that finds the cause and proposes the fix"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void diagnose(n);
+                          }}
+                        >
+                          <Icon name={diagnosing === n.id ? "progress_activity" : "troubleshoot"} className="ms-sm" />
+                          {diagnosing === n.id ? "starting…" : "diagnose"}
+                        </button>
+                      </span>
+                    )}
+                  </span>
+                  <span className="notif-when num">{fmtAgo(n.at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </span>
   );
 }
 

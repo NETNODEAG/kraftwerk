@@ -55,6 +55,16 @@ const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
  * skills) plus kraftwerk.yml itself. Commit and push stay manual; the
  * interval only fetches, and pulls when `autosync` allows it.
  */
+/**
+ * A remote or branch name kraftwerk will hand to git as a positional
+ * argument. Git reads a leading dash as an option ("--upload-pack=<cmd>"
+ * runs a command), so such values are refused wherever they enter — config
+ * load, settings API — and the git calls add --end-of-options as well.
+ */
+export function isSafeGitName(value: string): boolean {
+  return value.length > 0 && !value.startsWith("-") && !/[\s\x00-\x1f]/.test(value);
+}
+
 export interface GitConfig {
   /** false keeps the block but turns the feature off. Default: true. */
   enabled?: boolean;
@@ -344,6 +354,9 @@ function validateGit(configPath: string, value: unknown): void {
   for (const key of ["remote", "branch"] as const) {
     if (g[key] !== undefined && (typeof g[key] !== "string" || !(g[key] as string).trim())) {
       throw new Error(`${file}: git.${key} must be a non-empty string`);
+    }
+    if (typeof g[key] === "string" && !isSafeGitName((g[key] as string).trim())) {
+      throw new Error(`${file}: git.${key} must be a plain name (no leading "-", no whitespace)`);
     }
   }
   if (g.interval !== undefined && (typeof g.interval !== "number" || !Number.isInteger(g.interval) || g.interval < 0)) {

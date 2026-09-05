@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { reposRootFor, resolveProject, vibeablesRootFor, type Project } from "../config.js";
+import { reposRootFor, resolveProject, vibeablesRootFor, type Project, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, getProjectRoot } from "./context.js";
 
@@ -200,6 +200,19 @@ export async function sshCommandFor(repoRoot: string): Promise<string> {
 /** A git call that may touch the network: longer timeout, non-interactive ssh. */
 export async function gitNet(args: string[], repoRoot: string): Promise<GitResult> {
   return git(args, repoRoot, NET_TIMEOUT, { GIT_SSH_COMMAND: await sshCommandFor(repoRoot) });
+}
+
+/**
+ * Remote/branch names from kraftwerk.yml become git positionals. Config
+ * load and the settings API already refuse dash-led names, but the file is
+ * shared through the workspace repo itself, so the call site checks again
+ * and separates options from positionals.
+ */
+function netArgs(cmd: string[], ...names: string[]): string[] {
+  for (const n of names) {
+    if (!isSafeGitName(n)) throw new Error(`refusing git name "${n}" (looks like an option)`);
+  }
+  return [...cmd, "--end-of-options", ...names];
 }
 
 /**
@@ -592,7 +605,7 @@ export function gitFetch(): Promise<{ ok: boolean; error?: string }> {
 async function fetchNow(): Promise<{ ok: boolean; error?: string }> {
   const { repo, error } = await openRepo();
   if (!repo) return { ok: false, error };
-  const r = await gitNet(["fetch", repo.cfg.remote], repo.repoRoot);
+  const r = await gitNet(netArgs(["fetch"], repo.cfg.remote), repo.repoRoot);
   touched();
   // Only a fetch that worked counts. Stamping the time on a failure would
   // put "fetched 5s ago" next to ahead/behind counts that stopped moving
@@ -621,7 +634,7 @@ async function pullNow(): Promise<{ ok: boolean; error?: string }> {
   const upstream = (await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], repoRoot)).ok;
   const r = upstream
     ? await gitNet(["pull", "--ff-only"], repoRoot)
-    : await gitNet(["pull", "--ff-only", cfg.remote, head.branch], repoRoot);
+    : await gitNet(netArgs(["pull", "--ff-only"], cfg.remote, head.branch), repoRoot);
   touched();
   if (!r.ok) {
     // git's own non-fast-forward output is a wall of hints. Say the one
@@ -651,7 +664,7 @@ async function pushNow(): Promise<{ ok: boolean; error?: string }> {
   const upstream = (await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], repoRoot)).ok;
   const r = upstream
     ? await gitNet(["push"], repoRoot)
-    : await gitNet(["push", "--set-upstream", cfg.remote, `HEAD:${head.branch}`], repoRoot);
+    : await gitNet(netArgs(["push", "--set-upstream"], cfg.remote, `HEAD:${head.branch}`), repoRoot);
   touched();
   if (!r.ok) {
     lastError = r.stderr || "push failed";

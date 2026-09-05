@@ -6,6 +6,8 @@ import { resolveProject } from "../config.js";
 import { listRuns, getRun, readRunFile } from "./runs.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
+import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
+import { startDiagnosis } from "./diagnose.js";
 import {
   cancelChat,
   createChat,
@@ -99,6 +101,9 @@ import {
  * frontend polls. Realtime is polling — no daemon, no socket, works on a
  * plain filesystem.
  */
+
+/** CSP for raw run files: same shape as the vibeable preview — scripts allowed, origin opaque. */
+const RUN_FILE_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -266,6 +271,35 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
 
   if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) {
     return json(res, { error: "cross-origin request refused" }, 403);
+  }
+
+  // GET /api/notifications — the bell: attention items, newest first, plus unread count.
+  // POST /api/notifications/read {ids?: string[]} — mark some (or all) read.
+  // DELETE /api/notifications — clear the list.
+  if (seg.length >= 2 && seg[1] === "notifications") {
+    if (seg.length === 2 && method === "GET") return json(res, await listNotifications());
+    if (seg.length === 2 && method === "DELETE") {
+      await clearNotifications();
+      return json(res, { ok: true });
+    }
+    // POST /api/notifications/:id/diagnose — open a chat that investigates the failure behind an item.
+    if (seg.length === 4 && seg[3] === "diagnose" && method === "POST") {
+      const result = await startDiagnosis(seg[2]);
+      if ("error" in result) return json(res, result, result.status);
+      return json(res, result);
+    }
+    if (seg.length === 3 && seg[2] === "read" && method === "POST") {
+      let body: { ids?: unknown } = {};
+      try {
+        const raw = await readBody(req);
+        if (raw) body = JSON.parse(raw);
+      } catch {
+        return json(res, { error: "invalid JSON body" }, 400);
+      }
+      const ids = Array.isArray(body.ids) ? body.ids.map(String) : "all";
+      return json(res, await markNotificationsRead(ids));
+    }
+    return json(res, { error: "not found" }, 404);
   }
 
   // GET /api/meta — package version + project name ("environment") for the UI.
@@ -567,9 +601,16 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
     const buf = await fs.readFile(file.absPath);
     if (raw) {
+      // Agent-written files must not run as the inspector's origin: the
+      // sandbox keeps scripts working (interactive reports) but makes the
+      // origin opaque, so no fetch() into /api and no cookies. PDFs are
+      // exempt — Chrome's viewer refuses sandboxed documents, and PDF
+      // scripting has no DOM or origin access.
       res.writeHead(200, {
         "content-type": MIME[ext] ?? "text/plain; charset=utf-8",
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        ...(ext === ".pdf" ? {} : { "content-security-policy": RUN_FILE_CSP }),
       });
       return void res.end(buf);
     }

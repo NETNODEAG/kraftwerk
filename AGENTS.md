@@ -45,6 +45,14 @@ Small apps built live in a chat are **vibeables** — one folder each under `vib
 
 `git`, `repos` and `vibeables` are opt-in blocks: absent = off, a bare key = on with defaults, `enabled: false` keeps the block but turns it off. A new optional feature follows the same shape and plumbing — `<name>RootFor(project)` in `src/config.ts` as the one reader of the block, validation next to the other blocks, a `<name>: boolean` in `/api/meta`, a toggle on the settings screen (`settings.ts` writes the block through the yaml Document API), and the UI hides every entry point while the flag is off (`useFeatures()` in `inspector/src/shared.tsx`).
 
+## The harness is the security layer, not a kraftwerk allowlist
+
+Agents run on claude, codex or pi, and those harnesses decide which tool calls need a human. Kraftwerk never overrides that judgment in either direction: it does not auto-approve a permission request (a routine that runs unattended waits for a human and declines on timeout, `src/inspector/chat/permissions.ts`), and it does not keep its own hand-written list of tools an agent may or may not use. Capability stays with the agent; the only kraftwerk-side choice is ruling out the harness presets that never ask (`unattendedMode` in `permissions.ts`: no claude `bypassPermissions`, no codex full access for routines) — the user's configured mode otherwise stands. "Allow always" answers are stored by the harness, so the allowed set grows from the user's real decisions. A proposed fix that would strip tools from an agent or answer on the user's behalf is the wrong shape for this repo.
+
+## Things that happen while nobody watches go to the bell
+
+Anything a user should notice later — a session waiting for a permission answer, a routine that finished or failed, a workflow run that ended — is one `pushNotification()` call in `src/inspector/notifications.ts`; the UI (bell, tab-title count, browser notification) is generic and reads `/api/notifications`. A live state (a pending permission) carries a `key` and is removed again with `dismissKey()` when it resolves, so the list never shows a question that was already answered. New outbound channels (push, webhook, desktop) hook into this module, not into the event sources.
+
 ## Learn from feedback
 
 When the user corrects how something was done, or confirms an approach worth keeping — a convention, a preference about tests or output, a workflow step that was missing — and it would apply to future work on this repo, write it into this file in the matching section (or a new one) as part of the same turn. Keep it to the rule and the reason; no session narrative. Do not record one-off instructions that only apply to the task at hand.

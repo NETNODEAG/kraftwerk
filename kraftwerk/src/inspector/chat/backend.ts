@@ -33,6 +33,12 @@ export interface BackendTuning {
   skillDirs?: string[];
   /** claude: extra directories the session may work in (e.g. project root for run chats). */
   addDirs?: string[];
+  /**
+   * Nobody is watching this session live (routine runs). The backend selects
+   * the harness's own hands-off permission mode — the harness keeps deciding
+   * what still needs a human; kraftwerk never answers for one.
+   */
+  unattended?: boolean;
 }
 
 export interface ChatBackend {

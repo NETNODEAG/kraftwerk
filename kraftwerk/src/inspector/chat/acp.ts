@@ -13,6 +13,7 @@ import {
   type SessionNotification,
 } from "@agentclientprotocol/sdk";
 import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
+import { unattendedMode } from "./permissions.js";
 
 /**
  * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp) as a
@@ -175,6 +176,22 @@ export async function startAcpBackend(
       : {}),
   });
   const sessionId = session.sessionId;
+  if (tuning.unattended) {
+    // Nobody is watching: keep the harness's configured mode unless it is
+    // one that never asks (see unattendedMode). The harness keeps deciding
+    // which calls reach a human; kraftwerk only rules out "never ask".
+    const modeId = unattendedMode(agent, session.modes?.currentModeId);
+    if (modeId) {
+      // A mode the adapter does not offer must not kill the session: the
+      // harness default applies, and the thread shows why.
+      await conn.setSessionMode({ sessionId, modeId }).catch((err: Error) => {
+        hooks.emit({
+          type: "error",
+          message: `could not select the ${modeId} mode for this unattended session (${err.message}) — the ${agent} default applies`,
+        });
+      });
+    }
+  }
 
   return {
     async prompt(text: string): Promise<string> {

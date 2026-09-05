@@ -2,7 +2,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, openSync, closeSync } from "node:fs";
 import path from "node:path";
 import { getProjectRoot } from "./context.js";
-import { RUN_ID_RE, safeRunDir } from "./runs.js";
+import { RUN_ID_RE, getRun, safeRunDir } from "./runs.js";
+import { pushNotification } from "./notifications.js";
 import { newRunId } from "../workflow.js";
 
 /**
@@ -60,6 +61,24 @@ export function triggerRun(opts: {
   });
   child.unref();
   closeSync(log);
+  // Detached, but as long as the inspector lives it still hears the exit:
+  // that is when the run's outcome goes to the bell (read from the trace,
+  // the exit code alone does not say whether a gate blocked).
+  child.on("exit", () => {
+    void getRun(runId)
+      .then((run) => {
+        const ok = run?.status === "ok";
+        const lastSummary = run?.phases.filter((p) => p.summary).at(-1)?.summary;
+        return pushNotification({
+          kind: ok ? "run_done" : "run_failed",
+          title: `${opts.workflowName} run ${ok ? "finished" : (run?.status ?? "failed")}`,
+          body: lastSummary ?? opts.request,
+          href: `/runs/${runId}`,
+          ...(ok ? {} : { diagnose: { kind: "run" as const, runId } }),
+        });
+      })
+      .catch(() => {});
+  });
   return { runId };
 }
 

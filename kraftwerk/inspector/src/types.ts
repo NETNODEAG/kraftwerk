@@ -50,3 +50,4 @@ export type {
 } from "../../src/okf";
 export type { RepoInfo, ReposView } from "../../src/inspector/repos";
 export type { VibeableConfig, VibeableDev, VibeableEvent, VibeableInfo, VibeableStatus, VibeablesView } from "../../src/inspector/vibeables";
+export type { Notification, NotificationKind, NotificationsView } from "../../src/inspector/notifications";

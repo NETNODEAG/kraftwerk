@@ -3,7 +3,8 @@ import path from "node:path";
 import { parse, stringify } from "yaml";
 import { getOutputDir } from "./context.js";
 import { getAgent, listAgents, safeAgentSlug, agentsRoot } from "./agents.js";
-import { createChat, postMessage } from "./chat/sessions.js";
+import { chatAwaitingApproval, createChat, postMessage } from "./chat/sessions.js";
+import { pushNotification } from "./notifications.js";
 
 /**
  * Routines: per-agent scheduled prompts — "message your agent every
@@ -33,6 +34,8 @@ export interface RoutineStatus extends Routine {
   lastRunAt?: string;
   lastChatId?: string;
   lastError?: string;
+  /** The last run's session holds a permission request waiting for a human. */
+  awaitingApproval?: boolean;
 }
 
 /* ---------- cron ---------- */
@@ -232,6 +235,7 @@ export async function routineStatuses(slug: string): Promise<RoutineStatus[]> {
       ...(r.enabled ? { nextRunAt: nextRun(r.schedule) } : {}),
       ...(s.lastRunAt ? { lastRunAt: s.lastRunAt } : {}),
       ...(s.lastChatId ? { lastChatId: s.lastChatId } : {}),
+      ...(s.lastChatId && chatAwaitingApproval(s.lastChatId) ? { awaitingApproval: true } : {}),
       ...(s.lastError ? { lastError: s.lastError } : {}),
     };
   });
@@ -253,6 +257,17 @@ async function fireRoutine(slug: string, routine: Routine): Promise<string> {
   return meta.id;
 }
 
+/** A routine could not even start (agent gone, harness missing): the bell says so. */
+function notifyRoutineFailed(slug: string, routine: Routine, message: string): Promise<unknown> {
+  return pushNotification({
+    kind: "routine_failed",
+    title: `⏰ ${routine.name} could not start`,
+    body: message,
+    href: `/agents/${slug}`,
+    diagnose: { kind: "routine", agent: slug, routine: routine.id },
+  }).catch(() => {});
+}
+
 export async function runRoutineNow(slug: string, id: string): Promise<{ chatId: string }> {
   const routine = (await listRoutines(slug)).find((r) => r.id === id);
   if (!routine) throw new Error("routine not found");
@@ -267,6 +282,7 @@ export async function runRoutineNow(slug: string, id: string): Promise<{ chatId:
   } catch (err) {
     state[key] = { ...state[key], lastError: (err as Error).message };
     await writeState(state);
+    void notifyRoutineFailed(slug, routine, (err as Error).message);
     throw err;
   }
 }
@@ -308,6 +324,7 @@ async function tick(): Promise<void> {
         delete state[key].lastError;
       } catch (err) {
         state[key] = { ...state[key], lastError: (err as Error).message };
+        void notifyRoutineFailed(m.slug, r, (err as Error).message);
       }
     }
   }

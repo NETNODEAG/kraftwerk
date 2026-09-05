@@ -763,7 +763,7 @@ function AgentLanding({ slug }: { slug: string }) {
 /* ---------- sessions sidebar ---------- */
 
 function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
-  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
+  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
   const sessions = (data?.chats ?? []).filter(
     (c) => c.scope.kind === "agent" && c.scope.slug === slug
   );
@@ -796,7 +796,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
             href={`/agents/${encodeURIComponent(slug)}/chat/${c.id}`}
             className={`side-row ${c.id === chatId ? "active" : ""}`}
           >
-            <span className={`lamp ${c.busy ? "running" : "pending"}`} />
+            <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
             <div className="side-row-body">
               <div className="side-row-top">
                 <span className="side-wf">{c.title || "new session"}</span>
@@ -832,7 +832,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
 // Chats that don't belong to an agent (scope kind != agent) — the former
 // standalone chat screen, now living under the agents screen.
 function GeneralChatsSide({ chatId }: { chatId?: string }) {
-  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean }> }>("/api/chats", false);
+  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
   const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent");
 
   return (
@@ -851,7 +851,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
             href={`/agents/chats/${c.id}`}
             className={`side-row ${c.id === chatId ? "active" : ""}`}
           >
-            <span className={`lamp ${c.busy ? "running" : "pending"}`} />
+            <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
             <div className="side-row-body">
               <div className="side-row-top">
                 <span className="side-wf">{c.title || "new chat"}</span>
@@ -1525,6 +1525,15 @@ function RoutinesPanel({ slug }: { slug: string }) {
                     <span className="chip stale" title={r.lastError}>
                       error
                     </span>
+                  )}
+                  {r.awaitingApproval && r.lastChatId && (
+                    <Link
+                      href={`/agents/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}
+                      className="chip attention"
+                      title="the last run asked for a permission nobody has answered yet"
+                    >
+                      needs approval
+                    </Link>
                   )}
                 </span>
                 <span className="m3-sub">

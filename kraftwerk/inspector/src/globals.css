@@ -432,6 +432,51 @@ a.ws-name:hover { text-decoration: underline; }
   padding: 8px 0;
 }
 .info-row { display: flex; flex-direction: column; gap: 2px; padding: 8px 16px; }
+
+/* ---- the bell ---- */
+.notif-wrap { position: relative; display: inline-flex; }
+.notif-btn { position: relative; }
+.notif-btn.has-unread { color: var(--on-surface); }
+.notif-badge {
+  position: absolute; top: 2px; right: 0;
+  min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 8px; background: var(--error); color: var(--on-error, #fff);
+  font-family: var(--font-mono), monospace; font-size: 10px; line-height: 16px; font-weight: 600;
+  text-align: center; pointer-events: none;
+}
+.notif-pop { min-width: 380px; max-width: min(520px, 92vw); padding: 0; overflow: hidden; }
+.notif-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px 6px; }
+.notif-hint {
+  display: flex; flex-direction: column; gap: 10px; margin: 4px 12px 8px; padding: 12px 14px;
+  border-radius: 10px; background: var(--secondary-container); color: var(--on-secondary-container);
+  font-size: 13px; line-height: 18px;
+}
+.notif-hint.muted { background: transparent; color: var(--on-surface-variant); padding: 4px 16px 8px; margin: 0; }
+.notif-hint-actions { display: flex; gap: 8px; }
+.notif-empty { padding: 18px 16px 20px; color: var(--on-surface-variant); font-size: 13px; }
+.notif-list { display: flex; flex-direction: column; max-height: min(60dvh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+.notif-row {
+  display: flex; align-items: flex-start; gap: 12px; padding: 10px 16px; text-align: left;
+  color: inherit; background: none; border: 0; border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent);
+  cursor: pointer; font: inherit;
+}
+.notif-row:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.notif-row.unread { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.notif-row.unread:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.notif-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; flex: none; margin-top: 1px;
+  background: var(--surface-container-highest); color: var(--on-surface-variant); }
+.notif-ico .ms { font-size: 17px; }
+.notif-row.approval .notif-ico { background: var(--error-container); color: var(--on-error-container); }
+.notif-row.routine_failed .notif-ico, .notif-row.run_failed .notif-ico { color: var(--error); }
+.notif-row.routine_done .notif-ico, .notif-row.run_done .notif-ico { color: var(--success); }
+.notif-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.notif-title { font-size: 13.5px; line-height: 18px; font-weight: 500; }
+.notif-row.unread .notif-title { font-weight: 600; }
+.notif-sub { font-size: 12.5px; line-height: 17px; color: var(--on-surface-variant);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notif-when { flex: none; font-size: 11px; color: var(--on-surface-variant); margin-top: 2px; }
+.notif-actions { display: flex; gap: 8px; margin-top: 6px; }
+.notif-diagnose { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; }
 .info-row + .info-row { border-top: 1px solid color-mix(in srgb, var(--outline-variant) 55%, transparent); }
 .info-v { font-size: 13px; color: var(--on-surface); }
 .info-path {
@@ -1084,6 +1129,9 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .chip.trust.machine-confirmed { border-color: transparent; background: var(--secondary-container); color: var(--on-secondary-container); }
 .chip.trust.human-reviewed { border-color: transparent; color: var(--on-success-container); background: var(--success-container); }
 .chip.stale, .chip.deprecated { border-color: transparent; color: var(--on-error-container); background: var(--error-container); }
+/* A session is holding a permission question for a human. */
+.chip.attention { border-color: transparent; color: var(--on-error-container); background: var(--error-container); text-decoration: none; }
+.chip.attention:hover { filter: brightness(0.96); }
 .chip.draft { border-color: color-mix(in srgb, var(--primary) 45%, var(--outline-variant)); color: var(--primary); }
 
 /* ---------- dashboard ---------- */

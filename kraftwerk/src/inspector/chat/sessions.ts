@@ -10,6 +10,8 @@ import { listRepos } from "../repos.js";
 import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
+import { UNATTENDED_PERMISSION_TIMEOUT_MS, declineOption, unattendedTimeoutLabel } from "./permissions.js";
+import { chatHref, dismissKey, pushNotification, type DiagnoseRef } from "../notifications.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
 import type { ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
 import {
@@ -43,6 +45,38 @@ interface ChatState {
 }
 
 const states = new Map<string, ChatState>();
+
+/** Routine-fired sessions: nobody is expected to be watching live. */
+const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && !!scope.routine;
+
+/** Diagnose handle for a failed routine session (only called for unattended agent scopes). */
+function routineRef(meta: ChatMeta): DiagnoseRef | undefined {
+  const scope = meta.scope;
+  if (scope.kind !== "agent" || !scope.routine) return undefined;
+  return { kind: "routine", agent: scope.slug, routine: scope.routine, chatId: meta.id };
+}
+
+/** How the bell names a chat: its title ("⏰ Morning digest"), else the agent, else "chat". */
+function chatLabel(meta: ChatMeta): string {
+  if (meta.title) return meta.title;
+  return meta.scope.kind === "agent" ? meta.scope.slug : "chat";
+}
+
+/** Text of the agent's final message (or last error) after `afterSeq`, for a notification body. */
+function lastEventText(state: ChatState, afterSeq: number, type: "text" | "error"): string | undefined {
+  const parts: string[] = [];
+  for (const e of state.events) {
+    if (e.seq <= afterSeq) continue;
+    if (e.type === "user_message") parts.length = 0;
+    if (type === "text" && e.type === "text") parts.push(e.text);
+    if (type === "error" && e.type === "error") parts.push(e.message);
+  }
+  const text = parts.join("").trim();
+  if (!text) return undefined;
+  // Agents end with the summary: keep the last paragraph(s), the bell clips the rest.
+  const paras = text.split(/\n{2,}/).filter((p) => p.trim());
+  return paras.slice(-2).join("\n\n");
+}
 
 /** Kill a chat's agent subprocess; the next message spawns a fresh one. */
 function dropBackend(state: ChatState): void {
@@ -305,8 +339,12 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `say so and suggest which agent or tool fits better.` +
       (scope.routine
         ? `\n\nThis session was started automatically by your scheduled routine "${scope.routine}" — ` +
-          `nobody may be watching live. Complete the task autonomously (tool permissions are ` +
-          `auto-approved) and end with a clear, self-contained summary of what you did and found.`
+          `nobody may be watching live. Complete the task autonomously. Edits inside the project ` +
+          `need no approval; anything your harness asks about (shell commands, network, files ` +
+          `outside the project) is shown to a human who may look later — say in one line why you ` +
+          `need it, then continue with what you can. A request nobody answers within ` +
+          `${unattendedTimeoutLabel()} is declined: report what you could not do and why, do ` +
+          `not retry it another way. End with a clear, self-contained summary of what you did and found.`
         : "")
     );
   }
@@ -442,6 +480,8 @@ async function backendTuning(meta: ChatMeta): Promise<BackendTuning> {
   // project-level skills and files stay reachable.
   // A vibeable session works inside the app folder for the same reason.
   if ((scope.kind === "run" || meta.vibeable) && agent === "claude") tuning.addDirs = [getProjectRoot()];
+  // Routine runs: never a harness mode that skips asking (see unattendedMode in permissions.ts).
+  if (isUnattended(scope)) tuning.unattended = true;
   // pi loads skills only when told: hand it every visible skill folder.
   if (agent === "pi") {
     const skills = await availableSkills(scope);
@@ -458,24 +498,44 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
       title: string,
       options: Array<{ optionId: string; name: string; kind?: string }>
     ): Promise<string | null> => {
-      // Routine-triggered sessions run unattended: auto-approve, but keep
-      // the request/resolution pair in the thread as an audit trail.
-      const scope = state.meta.scope;
-      if (scope.kind === "agent" && scope.routine) {
-        const allow = options.find((o) => o.kind?.startsWith("allow")) ?? options[0];
-        const requestId = randomUUID();
-        emit(state, { type: "permission_request", requestId, title, options });
-        emit(state, { type: "permission_resolved", requestId, optionId: allow?.optionId ?? null });
-        return Promise.resolve(allow?.optionId ?? null);
-      }
+      // The harness already judged this call worth asking about, so the
+      // question always goes to a human — routine sessions included. The
+      // request stays pending in the thread (and the chat/routine show as
+      // waiting) until someone answers. Unattended sessions get a deadline:
+      // an unanswered request is declined, never approved, so the routine
+      // can wrap up with a summary instead of hanging.
       return new Promise((resolve) => {
         const requestId = randomUUID();
+        const notifyKey = `approval:${state.meta.id}:${requestId}`;
+        let deadline: NodeJS.Timeout | undefined;
         state.pendingPermissions.set(requestId, (optionId) => {
+          if (deadline) clearTimeout(deadline);
           state.pendingPermissions.delete(requestId);
           emit(state, { type: "permission_resolved", requestId, optionId });
+          void dismissKey(notifyKey);
           resolve(optionId);
         });
         emit(state, { type: "permission_request", requestId, title, options });
+        // The bell: a question is waiting. Answered -> the item goes away again.
+        void pushNotification({
+          kind: "approval",
+          key: notifyKey,
+          title: `${chatLabel(state.meta)} needs approval`,
+          body: title,
+          href: chatHref(state.meta),
+        });
+        if (isUnattended(state.meta.scope)) {
+          deadline = setTimeout(() => {
+            const pending = state.pendingPermissions.get(requestId);
+            if (!pending) return;
+            emit(state, {
+              type: "error",
+              message: `nobody answered this permission request within ${unattendedTimeoutLabel()} — declined (unattended routine session)`,
+            });
+            pending(declineOption(options));
+          }, UNATTENDED_PERMISSION_TIMEOUT_MS);
+          deadline.unref?.();
+        }
       });
     },
   };
@@ -540,11 +600,17 @@ export async function createChat(opts: {
   return meta;
 }
 
-export async function listChats(): Promise<Array<ChatMeta & { busy: boolean }>> {
+/** A permission request is waiting for a human in this chat (live state only — a restart drops it with the backend). */
+export function chatAwaitingApproval(id: string): boolean {
+  return (states.get(id)?.pendingPermissions.size ?? 0) > 0;
+}
+
+export async function listChats(): Promise<Array<ChatMeta & { busy: boolean; awaitingApproval: boolean }>> {
   const metas = await listChatMetas();
   return metas.map((m) => ({
     ...(states.get(m.id)?.meta ?? m),
     busy: states.get(m.id)?.busy ?? false,
+    awaitingApproval: chatAwaitingApproval(m.id),
   }));
 }
 
@@ -567,7 +633,7 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
     void writeMeta(state.meta).catch(() => {});
   }
-  emit(state, { type: "user_message", text });
+  const turnStart = emit(state, { type: "user_message", text }).seq;
 
   // The turn runs in the background; the HTTP request returns immediately
   // and the browser follows along on the SSE stream.
@@ -583,11 +649,30 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
       const stopReason = await backend.prompt(promptText);
       emit(state, { type: "turn_end", stopReason });
       // Routine sessions are one-shot and unattended: release the agent
-      // process as soon as the turn ends instead of waiting for the reaper.
-      const scope = state.meta.scope;
-      if (scope.kind === "agent" && scope.routine) dropBackend(state);
+      // process as soon as the turn ends instead of waiting for the reaper,
+      // and tell the bell how it went.
+      if (isUnattended(state.meta.scope)) {
+        dropBackend(state);
+        const failed = state.events.some((e) => e.seq > turnStart && e.type === "error");
+        void pushNotification({
+          kind: failed ? "routine_failed" : "routine_done",
+          title: `${chatLabel(state.meta)} ${failed ? "ended with an error" : "finished"}`,
+          body: failed ? lastEventText(state, turnStart, "error") : lastEventText(state, turnStart, "text"),
+          href: chatHref(state.meta),
+          ...(failed ? { diagnose: routineRef(state.meta) } : {}),
+        });
+      }
     } catch (err) {
       emit(state, { type: "error", message: (err as Error).message });
+      if (isUnattended(state.meta.scope)) {
+        void pushNotification({
+          kind: "routine_failed",
+          title: `${chatLabel(state.meta)} failed`,
+          body: (err as Error).message,
+          href: chatHref(state.meta),
+          diagnose: routineRef(state.meta),
+        });
+      }
       // A failed turn may mean a dead subprocess; drop it so the next
       // message spawns a fresh agent (thread history stays on disk).
       dropBackend(state);
