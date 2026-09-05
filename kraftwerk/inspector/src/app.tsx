@@ -10,6 +10,7 @@ import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { AgentsScreen } from "./agents";
+import { ChannelsScreen } from "./channels";
 import { SettingsScreen } from "./settings";
 import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
@@ -115,6 +116,7 @@ export function App() {
   else if (seg[0] === "repos") screen = <ReposScreen />;
   else if (seg[0] === "vibeables") screen = <VibeablesScreen />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
+  else if (seg[0] === "channels") screen = <ChannelsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
     screen = (
@@ -163,6 +165,7 @@ export function App() {
         </span>
         <nav>
           <a href="#/agents"><Icon name="groups" /> agents</a>
+          <a href="#/channels"><Icon name="forum" /> channels</a>
           <a href="#/knowledge"><Icon name="menu_book" /> context &amp; knowledge</a>
           <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
           <a href="#/runs"><Icon name="history" /> workflow runs</a>

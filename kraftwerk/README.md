@@ -417,6 +417,49 @@ Manage routines on the agent page, where you can create, edit and
 delete them, toggle enabled, hit "run now", and jump to the last run's
 session. Schedules missed while the server is down are skipped, not replayed.
 
+## Channels
+
+A channel is one conversation shared by several agents and humans — a Slack
+channel where the coworkers are agents. The definition is git-tracked with
+the workspace, the transcript is a chat like any other:
+
+```
+channels/<slug>/channel.yml     # name, purpose, members, responder, maxHops
+output/chats/<chat-id>/         # the transcript (scope { kind: channel })
+```
+
+```yaml
+name: Website relaunch
+purpose: ship the new site by March
+members: [researcher, writer, dev-ops]   # agent slugs
+responder: researcher                    # answers when nobody is @mentioned (optional)
+maxHops: 3                               # agent-to-agent handovers per human message
+```
+
+Every member agent has its own seat in the channel: its own process, its
+own persona, skills, model and permissions, exactly as in a direct session.
+What it receives is not the whole transcript each time but the messages
+since its last turn, each prefixed with the author (`[Lukas]:` a human,
+`[@writer]:` an agent). Who answers:
+
+- `@mention` an agent and it wakes; several mentions run in parallel and
+  their replies stream in as separate posts.
+- No mention: the channel's responder answers, or nobody if none is set.
+- Agents hand over by mentioning each other; `maxHops` bounds the chain
+  per human message so two agents never talk forever.
+- Humans are never blocked. An agent that is busy when mentioned again runs
+  once more when its turn ends, with everything it missed.
+- Permission questions from any agent show as cards in the channel and in
+  the bell; anyone present can answer.
+
+Create channels on the channels screen, or from an existing agent session
+with **add coworker**: the session becomes the channel's transcript, the
+agent keeps its process and memory, and the agents you pick join. Your
+messages carry the name set in the composer ("posting as"), stored per
+browser. API: `GET/POST /api/channels`, `GET/PUT/DELETE /api/channels/:slug`,
+`POST /api/channels/from-chat {chatId, name, members}`; messages go through
+the chat endpoint with `from` for the poster's name.
+
 ## Context & Knowledge
 
 Alongside runs and chats, a project can keep curated knowledge as

@@ -32,12 +32,14 @@ const runStatusLabel = (s: RunListItem["status"]) =>
   s === "ok" ? "done" : s === "running" ? "working" : s === "aborted" ? "stopped" : "failed";
 
 function chatHref(c: ChatMeta): string {
+  if (c.scope.kind === "channel") return `/channels/${c.scope.slug}`;
   return c.scope.kind === "agent" ? `/agents/${c.scope.slug}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
 function chatScopeLabel(c: ChatMeta): string {
   switch (c.scope.kind) {
     case "agent": return c.scope.slug;
+    case "channel": return `#${c.scope.slug}`;
     case "run": return c.scope.runId;
     case "knowledge": return c.scope.bundle ? `knowledge:${c.scope.bundle}` : "knowledge";
     case "kraftwerk": return "kraftwerk-aware";

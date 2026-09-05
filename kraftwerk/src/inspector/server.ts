@@ -8,6 +8,7 @@ import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
 import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
 import { startDiagnosis } from "./diagnose.js";
+import { deleteChannel, getChannel, listChannels, saveChannel, channelsRoot, type Channel, type SaveChannelInput } from "./channels.js";
 import {
   cancelChat,
   createChat,
@@ -18,8 +19,7 @@ import {
   postMessage,
   resolvePermission,
   setChatVibeable,
-  subscribeChat,
-} from "./chat/sessions.js";
+  subscribeChat, convertChatToChannel, dropChannelSeats, ensureChannelChat } from "./chat/sessions.js";
 import type { ChatAgentId, ChatScope } from "./chat/types.js";
 import {
   bundleDetail,
@@ -271,6 +271,70 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
 
   if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) {
     return json(res, { error: "cross-origin request refused" }, 403);
+  }
+
+  // Channels — shared transcripts with several agents (channels/<slug>/channel.yml + one chat).
+  // GET /api/channels | POST /api/channels {name, purpose?, members, responder?}
+  // POST /api/channels/from-chat {chatId, name, members, ...} — an agent session becomes a channel
+  // GET/PUT/DELETE /api/channels/:slug
+  if (seg.length >= 2 && seg[1] === "channels") {
+    const view = async (c: Channel) => {
+      const meta = await ensureChannelChat(c);
+      const live = (await listChats()).find((x) => x.id === meta.id);
+      return { ...c, chatId: meta.id, busy: live?.busy ?? false, awaitingApproval: live?.awaitingApproval ?? false, updatedAt: meta.updatedAt };
+    };
+    let body: SaveChannelInput & { chatId?: string } = {};
+    if (method === "POST" || method === "PUT") {
+      try {
+        const raw = await readBody(req);
+        if (raw) body = JSON.parse(raw);
+      } catch {
+        return json(res, { error: "invalid JSON body" }, 400);
+      }
+    }
+    try {
+      if (seg.length === 2 && method === "GET") {
+        const channels = await listChannels();
+        return json(res, { root: await channelsRoot(), channels: await Promise.all(channels.map(view)) });
+      }
+      if (seg.length === 2 && method === "POST") {
+        const { chatId: _c, slug: _s, ...input } = body;
+        return json(res, await view(await saveChannel(input)));
+      }
+      if (seg.length === 3 && seg[2] === "from-chat" && method === "POST") {
+        const { chatId, slug: _s, ...input } = body;
+        if (!chatId) return json(res, { error: "chatId is required" }, 400);
+        const channel = await saveChannel(input);
+        const converted = await convertChatToChannel(chatId, channel);
+        if (converted.error) {
+          await deleteChannel(channel.slug).catch(() => {});
+          return json(res, { error: converted.error }, 409);
+        }
+        return json(res, await view(channel));
+      }
+      if (seg.length === 3) {
+        const slug = decodeURIComponent(seg[2]);
+        const channel = await getChannel(slug);
+        if (!channel) return json(res, { error: "channel not found" }, 404);
+        if (method === "GET") return json(res, await view(channel));
+        if (method === "PUT") {
+          const { chatId: _c, slug: _s, ...input } = body;
+          const saved = await saveChannel({ ...input, slug });
+          const meta = await ensureChannelChat(saved);
+          await dropChannelSeats(meta.id, saved.members);
+          return json(res, await view(saved));
+        }
+        if (method === "DELETE") {
+          const meta = (await listChats()).find((c) => c.scope.kind === "channel" && c.scope.slug === slug);
+          if (meta) await deleteChat(meta.id);
+          await deleteChannel(slug);
+          return json(res, { ok: true });
+        }
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+    return json(res, { error: "not found" }, 404);
   }
 
   // GET /api/notifications — the bell: attention items, newest first, plus unread count.
@@ -980,7 +1044,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       if (seg[3] === "message") {
         const text = String(body.text ?? "").trim();
         if (!text) return json(res, { error: "text is required" }, 400);
-        result = await postMessage(seg[2], text);
+        // Channels: the poster's display name signs the message.
+        result = await postMessage(seg[2], text, { from: typeof body.from === "string" ? body.from : undefined });
       } else if (seg[3] === "permission") {
         result = await resolvePermission(
           seg[2],

@@ -39,6 +39,8 @@ The persistent chat personas are **agents** — in code, routes, CSS, prose and 
 
 Git clones the agents work on are **repositories** in prose and the UI, `repos` in code, config, routes and the CLI (`ReposConfig`, `listRepos`, `/api/repos`, `kraftwerk repos`, `repos.root`). Not "projects" — that word is the registry of kraftwerk workspaces (`~/.kraftwerk/projects`). The one persisted legacy is chat `meta.json` written before 0.36 with `{ kind: "team", member }`; `store.ts` upgrades it on read, so never write that shape again.
 
+Shared conversations of several agents are **channels** — `channels/<slug>/channel.yml`, `Channel`, `/api/channels`, chat scope `{ kind: "channel", slug }`. The agents in a channel are its **members** (agent slugs); each member holds a **seat** in the chat (`Seat` in `sessions.ts`: one process per member). The one agent of an ordinary chat is the `MAIN` seat. Events in a channel carry `from` (an `Author`: human by name, agent by slug); events in ordinary chats do not.
+
 Small apps built live in a chat are **vibeables** — one folder each under `vibeables.root`, part of the workspace (synced by the workspace git, never a repository of their own). In code, config, routes and the CLI the word is `vibeables` (`VibeablesConfig`, `listVibeables`, `/api/vibeables`, `/vibeables/<slug>/` for the served files, `kraftwerk vibeables`); the singular `vibeable` names one app (`ChatMeta.vibeable`, `/api/chats/:id/vibeable`, `vibeable.yml` inside the folder). Not "repos" — a vibeable is the workspace's own work, a repository is someone else's history.
 
 ## Optional features are flags in kraftwerk.yml

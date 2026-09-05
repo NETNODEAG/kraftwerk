@@ -833,7 +833,7 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
 // standalone chat screen, now living under the agents screen.
 function GeneralChatsSide({ chatId }: { chatId?: string }) {
   const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
-  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent");
+  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel");
 
   return (
     <aside className="runs-side">

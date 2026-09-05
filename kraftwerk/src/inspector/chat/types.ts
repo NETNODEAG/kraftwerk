@@ -13,7 +13,12 @@ export type ChatScope =
   | { kind: "kraftwerk" }
   | { kind: "run"; runId: string }
   | { kind: "knowledge"; bundle?: string }
-  | { kind: "agent"; slug: string; routine?: string };
+  | { kind: "agent"; slug: string; routine?: string }
+  /** A channel: several agents (and humans) share one transcript; see channels.ts. */
+  | { kind: "channel"; slug: string };
+
+/** Who produced an event. Absent on single-agent chats (the one human, the one agent). */
+export type Author = { kind: "human"; name: string } | { kind: "agent"; slug: string };
 
 export interface ChatMeta {
   id: string;
@@ -41,7 +46,9 @@ export type ChatEvent =
       options: Array<{ optionId: string; name: string; kind?: string }>;
     }
   | { type: "permission_resolved"; requestId: string; optionId: string | null }
+  /** Channels: an agent starts working on the messages it was shown (pairs with turn_end by the same author). */
+  | { type: "turn_start" }
   | { type: "turn_end"; stopReason: string }
   | { type: "error"; message: string };
 
-export type StoredChatEvent = ChatEvent & { seq: number; ts: string };
+export type StoredChatEvent = ChatEvent & { seq: number; ts: string; from?: Author };

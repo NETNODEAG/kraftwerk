@@ -1906,3 +1906,39 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .vibeable-row .ws-icon.vibeable-repo-icon { width: 40px; height: 40px; }
 .ws-actions a.ws-btn { text-decoration: none; }
 .vibeable-pane-off { flex: 0 0 auto; align-self: flex-start; min-width: 320px; max-width: 420px; }
+
+/* ---- channels ---- */
+.channels-screen { grid-template-columns: 280px minmax(0, 1fr); }
+.channel-head .channel-name { color: var(--on-surface-variant); font-size: 15px; }
+.channel-head .spacer { flex: 1; }
+.channel-members { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0 0 12px; flex: none; }
+.channel-purpose { width: 100%; color: var(--on-surface-variant); font-size: 13px; line-height: 18px; }
+.member-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px 3px 3px;
+  border-radius: 999px; background: var(--surface-container); color: inherit; text-decoration: none;
+  font-size: 13px; transition: background 120ms ease;
+}
+.member-chip:hover { background: var(--surface-container-high); }
+.member-chip.working { background: color-mix(in srgb, var(--primary) 12%, var(--surface-container)); }
+.member-chip .member-handle { color: var(--on-surface-variant); font-family: var(--font-mono), monospace; font-size: 11.5px; }
+.member-chip .chip { padding: 0 7px; font-size: 10px; }
+.turn { display: contents; }
+.byline { display: inline-flex; align-items: center; gap: 8px; margin: 10px 0 -2px; font-size: 12.5px; color: var(--on-surface-variant); text-decoration: none; }
+.byline.human { align-self: flex-end; }
+.byline.agent { align-self: flex-start; }
+.byline-avatar {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--secondary-container); color: var(--on-secondary-container); font-size: 12px; font-weight: 600;
+}
+.byline.human .byline-avatar { background: var(--primary-container); color: var(--on-primary-container); }
+.byline-name { font-weight: 600; color: var(--on-surface); }
+.byline-handle { font-family: var(--font-mono), monospace; font-size: 11px; }
+/* The composer is one flex row; the name line takes a full row above it. */
+.channel-thread .composer { flex-wrap: wrap; }
+.composer-me { flex: 0 0 100%; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--on-surface-variant); padding: 0 4px 2px; }
+.composer-me .me-name { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-weight: 600; color: var(--on-surface); background: none; border: 0; cursor: pointer; padding: 0; }
+.composer-me input { font: inherit; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--outline-variant); background: var(--surface-container-highest); color: inherit; }
+.coworker-btn { display: inline-flex; align-items: center; gap: 6px; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 40; background: color-mix(in srgb, var(--on-surface) 32%, transparent); display: grid; place-items: center; padding: 24px; }
+.dialog { width: min(560px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; background: var(--surface-container-high); border-radius: 16px; box-shadow: var(--elev-2); }
+.dialog .agent-form { padding-top: 4px; }

@@ -13,7 +13,8 @@ import { startPiBackend } from "./pi.js";
 import { UNATTENDED_PERMISSION_TIMEOUT_MS, declineOption, unattendedTimeoutLabel } from "./permissions.js";
 import { chatHref, dismissKey, pushNotification, type DiagnoseRef } from "../notifications.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
-import type { ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
+import type { Author, ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
+import { getChannel, mentionTargets, type Channel } from "../channels.js";
 import {
   appendEvent,
   listChatMetas,
@@ -31,20 +32,62 @@ import {
  * first prompt so the agent knows what it is looking at.
  */
 
+/**
+ * One agent process in a chat. An ordinary chat has exactly one seat
+ * (MAIN, the chat's harness); a channel has one seat per member agent,
+ * keyed by the agent slug, each with its own process, context and view of
+ * the transcript.
+ */
+interface Seat {
+  key: string;
+  harness: ChatAgentId;
+  backend: ChatBackend | null;
+  busy: boolean;
+  /** True right after a backend spawn: the next prompt must carry scope context. */
+  needsContext: boolean;
+  /** Channels: last transcript seq this agent has been shown. */
+  seenSeq: number;
+  /** Channels: woken while busy — run once more when the turn ends. */
+  wake: { hops: number } | null;
+}
+
 interface ChatState {
   meta: ChatMeta;
   events: StoredChatEvent[];
   subscribers: Set<(ev: StoredChatEvent) => void>;
-  backend: ChatBackend | null;
-  busy: boolean;
+  seats: Map<string, Seat>;
   pendingPermissions: Map<string, (optionId: string | null) => void>;
   /** Serializes appendEvent calls so events.jsonl stays ordered. */
   writeChain: Promise<void>;
-  /** True right after a backend spawn: the next prompt must carry scope context. */
-  needsContext: boolean;
 }
 
+const MAIN = "main";
 const states = new Map<string, ChatState>();
+
+const newSeat = (key: string, harness: ChatAgentId): Seat => ({
+  key,
+  harness,
+  backend: null,
+  busy: false,
+  needsContext: true,
+  seenSeq: 0,
+  wake: null,
+});
+
+/** The one seat of an ordinary (non-channel) chat. */
+function mainSeat(state: ChatState): Seat {
+  let seat = state.seats.get(MAIN);
+  if (!seat) {
+    seat = newSeat(MAIN, state.meta.agent);
+    state.seats.set(MAIN, seat);
+  }
+  return seat;
+}
+
+const isBusy = (state: ChatState): boolean => [...state.seats.values()].some((s) => s.busy);
+
+/** The event author for a seat: channel members sign their events, the lone agent of a chat does not. */
+const seatAuthor = (seat: Seat): Author | undefined => (seat.key === MAIN ? undefined : { kind: "agent", slug: seat.key });
 
 /** Routine-fired sessions: nobody is expected to be watching live. */
 const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && !!scope.routine;
@@ -58,6 +101,7 @@ function routineRef(meta: ChatMeta): DiagnoseRef | undefined {
 
 /** How the bell names a chat: its title ("⏰ Morning digest"), else the agent, else "chat". */
 function chatLabel(meta: ChatMeta): string {
+  if (meta.scope.kind === "channel") return `#${meta.scope.slug}`;
   if (meta.title) return meta.title;
   return meta.scope.kind === "agent" ? meta.scope.slug : "chat";
 }
@@ -78,10 +122,14 @@ function lastEventText(state: ChatState, afterSeq: number, type: "text" | "error
   return paras.slice(-2).join("\n\n");
 }
 
-/** Kill a chat's agent subprocess; the next message spawns a fresh one. */
+function dropSeat(seat: Seat): void {
+  seat.backend?.dispose();
+  seat.backend = null;
+}
+
+/** Kill a chat's agent subprocess(es); the next message spawns fresh ones. */
 function dropBackend(state: ChatState): void {
-  state.backend?.dispose();
-  state.backend = null;
+  for (const seat of state.seats.values()) dropSeat(seat);
 }
 
 // Idle reaper: a finished chat must not keep its agent subprocess alive
@@ -94,7 +142,8 @@ const IDLE_BACKEND_MS = 15 * 60_000;
 const reaper = setInterval(() => {
   const cutoff = Date.now() - IDLE_BACKEND_MS;
   for (const state of states.values()) {
-    if (state.backend && !state.busy && Date.parse(state.meta.updatedAt) < cutoff) {
+    const live = [...state.seats.values()].some((s) => s.backend);
+    if (live && !isBusy(state) && Date.parse(state.meta.updatedAt) < cutoff) {
       dropBackend(state);
     }
   }
@@ -115,21 +164,20 @@ async function loadState(id: string): Promise<ChatState | null> {
     meta,
     events: await readEvents(id),
     subscribers: new Set(),
-    backend: null,
-    busy: false,
+    seats: new Map(),
     pendingPermissions: new Map(),
     writeChain: Promise.resolve(),
-    needsContext: true,
   };
   // Two racing loads: keep whichever registered first.
   return states.get(id) ?? (states.set(id, state), state);
 }
 
-function emit(state: ChatState, ev: ChatEvent): StoredChatEvent {
+function emit(state: ChatState, ev: ChatEvent, from?: Author): StoredChatEvent {
   const stored: StoredChatEvent = {
     ...ev,
     seq: (state.events[state.events.length - 1]?.seq ?? 0) + 1,
     ts: new Date().toISOString(),
+    ...(from ? { from } : {}),
   };
   state.events.push(stored);
   state.meta.updatedAt = stored.ts;
@@ -450,27 +498,61 @@ const RENDERING_BLOCK =
   `Prefer these relative /api/... URLs over file paths when showing results: they render directly ` +
   `in this chat and keep working wherever the inspector is reachable.`;
 
-async function scopeContext(meta: ChatMeta): Promise<string> {
-  const { scope, agent } = meta;
+async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> {
+  // A channel seat is the member agent in its own right: persona, skills and
+  // repositories as in its direct sessions, plus the channel rules.
+  const scope: ChatScope = meta.scope.kind === "channel" ? { kind: "agent", slug: seat.key } : meta.scope;
+  const agent = seat.harness;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, vibe, skills] = await Promise.all([
+  const [base, repos, vibe, skills, channel] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
     availableSkills(scope),
+    meta.scope.kind === "channel" ? channelContext(meta.scope.slug, seat.key) : Promise.resolve(""),
   ]);
-  return [base, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, channel, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+}
+
+/** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */
+async function channelContext(slug: string, self: string): Promise<string> {
+  const channel = await getChannel(slug).catch(() => null);
+  if (!channel) return `You sit in channel #${slug}, but its definition under channels/ is missing. Tell the humans.`;
+  const agents = await listAgents().catch(() => []);
+  const others = channel.members
+    .filter((m) => m !== self)
+    .map((m) => {
+      const a = agents.find((x) => x.slug === m);
+      return `- @${m}${a ? ` — ${a.emoji} ${a.name}${a.description ? `: ${a.description}` : ""}` : ""}`;
+    })
+    .join("\n");
+  return (
+    `## Channel #${channel.slug} — ${channel.name}\n` +
+    (channel.purpose ? `Purpose: ${channel.purpose}\n` : "") +
+    `This is a group conversation, like a Slack channel: humans and several agents share one transcript. ` +
+    `You are @${self}. Other agents here:\n${others || "(none — you are the only agent)"}\n\n` +
+    `How it works: each time you are woken you receive the messages posted since your last turn, each prefixed ` +
+    `with its author ("[Lukas]:" is a human, "[@slug]:" an agent). Reply as yourself, to the channel — everyone reads it. ` +
+    `You are woken when a message @mentions you` +
+    (channel.responder === self ? `, and for every message that mentions nobody (you are the channel's responder)` : "") +
+    `. To hand a task to another agent, @mention them in your reply and say what you need; they are woken with your ` +
+    `message. Do not mention an agent just to be polite — every mention starts a turn, and handovers are limited to ` +
+    `${channel.maxHops} per human message. Do not repeat what others already said; add your part. Keep replies short ` +
+    `unless the task needs detail; a long result is better as a file in the project than as a wall of text.`
+  );
 }
 
 /* ---------- backend lifecycle ---------- */
 
 /** Agent sessions carry the agent's model/effort; resolved live so edits apply to new backends. */
-async function backendTuning(meta: ChatMeta): Promise<BackendTuning> {
-  const { scope, agent } = meta;
+async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning> {
+  const { scope } = meta;
+  const agent = seat.harness;
   const tuning: BackendTuning = {};
-  if (scope.kind === "agent") {
-    const def = await getAgent(scope.slug).catch(() => null);
+  const agentSlug = scope.kind === "agent" ? scope.slug : scope.kind === "channel" ? seat.key : undefined;
+  if (agentSlug) {
+    const def = await getAgent(agentSlug).catch(() => null);
     if (def?.model) tuning.model = def.model;
     if (def?.effort) tuning.effort = def.effort;
     // Claude discovers skills natively; an agentined allowlist narrows that.
@@ -490,10 +572,11 @@ async function backendTuning(meta: ChatMeta): Promise<BackendTuning> {
   return tuning;
 }
 
-async function ensureBackend(state: ChatState): Promise<ChatBackend> {
-  if (state.backend) return state.backend;
+async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend> {
+  if (seat.backend) return seat.backend;
+  const me = seatAuthor(seat);
   const hooks = {
-    emit: (ev: ChatEvent) => void emit(state, ev),
+    emit: (ev: ChatEvent) => void emit(state, ev, me),
     askPermission: (
       title: string,
       options: Array<{ optionId: string; name: string; kind?: string }>
@@ -511,16 +594,16 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
         state.pendingPermissions.set(requestId, (optionId) => {
           if (deadline) clearTimeout(deadline);
           state.pendingPermissions.delete(requestId);
-          emit(state, { type: "permission_resolved", requestId, optionId });
+          emit(state, { type: "permission_resolved", requestId, optionId }, me);
           void dismissKey(notifyKey);
           resolve(optionId);
         });
-        emit(state, { type: "permission_request", requestId, title, options });
+        emit(state, { type: "permission_request", requestId, title, options }, me);
         // The bell: a question is waiting. Answered -> the item goes away again.
         void pushNotification({
           kind: "approval",
           key: notifyKey,
-          title: `${chatLabel(state.meta)} needs approval`,
+          title: `${chatLabel(state.meta)}${me?.kind === "agent" ? ` · @${me.slug}` : ""} needs approval`,
           body: title,
           href: chatHref(state.meta),
         });
@@ -539,17 +622,17 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
       });
     },
   };
-  const { agent } = state.meta;
+  const agent = seat.harness;
   const cwd = await effectiveCwd(state.meta);
-  const tuning = await backendTuning(state.meta);
-  state.backend =
+  const tuning = await backendTuning(state.meta, seat);
+  seat.backend =
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
       : await startAcpBackend(agent, cwd, hooks, tuning);
   // Fresh process = fresh context window: re-send scope context with the
   // next prompt (matters for chats resumed after an inspector restart).
-  state.needsContext = true;
-  return state.backend;
+  seat.needsContext = true;
+  return seat.backend;
 }
 
 /* ---------- public API (used by server.ts) ---------- */
@@ -591,11 +674,9 @@ export async function createChat(opts: {
     meta,
     events: [],
     subscribers: new Set(),
-    backend: null,
-    busy: false,
+    seats: new Map(),
     pendingPermissions: new Map(),
     writeChain: Promise.resolve(),
-    needsContext: true,
   });
   return meta;
 }
@@ -609,7 +690,7 @@ export async function listChats(): Promise<Array<ChatMeta & { busy: boolean; awa
   const metas = await listChatMetas();
   return metas.map((m) => ({
     ...(states.get(m.id)?.meta ?? m),
-    busy: states.get(m.id)?.busy ?? false,
+    busy: states.has(m.id) ? isBusy(states.get(m.id)!) : false,
     awaitingApproval: chatAwaitingApproval(m.id),
   }));
 }
@@ -619,15 +700,17 @@ export async function getChat(
 ): Promise<{ meta: ChatMeta; events: StoredChatEvent[]; busy: boolean } | null> {
   const state = await loadState(id);
   if (!state) return null;
-  return { meta: state.meta, events: state.events, busy: state.busy };
+  return { meta: state.meta, events: state.events, busy: isBusy(state) };
 }
 
-export async function postMessage(id: string, text: string): Promise<{ error?: string }> {
+export async function postMessage(id: string, text: string, opts: { from?: string } = {}): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
-  if (state.busy) return { error: "agent is still working — wait for the turn to finish" };
+  if (state.meta.scope.kind === "channel") return postChannelMessage(state, state.meta.scope.slug, text, opts.from);
+  const seat = mainSeat(state);
+  if (seat.busy) return { error: "agent is still working — wait for the turn to finish" };
 
-  state.busy = true;
+  seat.busy = true;
   const isFirst = !state.events.some((e) => e.type === "user_message");
   if (isFirst && !state.meta.title) {
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
@@ -639,9 +722,9 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
   // and the browser follows along on the SSE stream.
   void (async () => {
     try {
-      const backend = await ensureBackend(state);
-      const context = state.needsContext ? await scopeContext(state.meta) : "";
-      state.needsContext = false;
+      const backend = await ensureBackend(state, seat);
+      const context = seat.needsContext ? await scopeContext(state.meta, seat) : "";
+      seat.needsContext = false;
       // "/<skill> args" expands to the skill's instructions for the agent;
       // the thread keeps the short form the user typed.
       const body = await expandSkillInvocation(state.meta.scope, text);
@@ -677,11 +760,175 @@ export async function postMessage(id: string, text: string): Promise<{ error?: s
       // message spawns a fresh agent (thread history stays on disk).
       dropBackend(state);
     } finally {
-      state.busy = false;
+      seat.busy = false;
       void writeMeta(state.meta).catch(() => {});
     }
   })();
   return {};
+}
+
+/* ---------- channels ---------- */
+
+/**
+ * A human posts to a channel: the message is signed with their name and the
+ * agents it wakes (mentions, else the responder) each run a turn — in
+ * parallel, never blocking the humans, who can keep posting. An agent that
+ * is still busy is woken again when its turn ends, so nothing is lost.
+ */
+async function postChannelMessage(state: ChatState, slug: string, text: string, from?: string): Promise<{ error?: string }> {
+  const channel = await getChannel(slug).catch(() => null);
+  if (!channel) return { error: `channel "${slug}" has no definition under channels/` };
+  const name = (from ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || "you";
+  emit(state, { type: "user_message", text }, { kind: "human", name });
+  void writeMeta(state.meta).catch(() => {});
+  for (const target of mentionTargets(text, channel)) void wakeSeat(state, channel, target, 0);
+  return {};
+}
+
+/** Wake a member agent: run a turn now, or mark it to run again when its current turn ends. */
+async function wakeSeat(state: ChatState, channel: Channel, slug: string, hops: number): Promise<void> {
+  const def = await getAgent(slug).catch(() => null);
+  if (!def) {
+    emit(state, { type: "error", message: `@${slug} is in the channel but has no agent definition under agents/` });
+    return;
+  }
+  let seat = state.seats.get(slug);
+  if (!seat) {
+    seat = newSeat(slug, def.harness);
+    state.seats.set(slug, seat);
+  }
+  if (seat.busy) {
+    seat.wake = { hops: Math.min(hops, seat.wake?.hops ?? hops) };
+    return;
+  }
+  await runSeatTurn(state, channel, seat, hops);
+}
+
+/**
+ * The transcript a seat has not seen yet, as the agent reads it: humans by
+ * name, other agents by @slug (their streamed text merged per turn), own
+ * messages and machinery (tools, permissions, thoughts) left out.
+ */
+function transcriptSince(state: ChatState, afterSeq: number, beforeSeq: number, self: string): string {
+  const lines: string[] = [];
+  let open: { slug: string; text: string } | null = null;
+  const flush = () => {
+    if (open && open.text.trim()) lines.push(`[@${open.slug}]: ${open.text.trim()}`);
+    open = null;
+  };
+  for (const e of state.events) {
+    if (e.seq <= afterSeq || e.seq >= beforeSeq) continue;
+    if (e.type === "user_message") {
+      flush();
+      lines.push(`[${e.from?.kind === "human" ? e.from.name : "human"}]: ${e.text}`);
+    } else if (e.type === "text" && e.from?.kind === "agent" && e.from.slug !== self) {
+      if (open && open.slug !== e.from.slug) flush();
+      open = open ?? { slug: e.from.slug, text: "" };
+      open.text += e.text;
+    } else if (e.type === "turn_end" && open && e.from?.kind === "agent" && e.from.slug === open.slug) {
+      flush();
+    }
+  }
+  flush();
+  return lines.join("\n\n");
+}
+
+/** What one agent said during a turn (its streamed text after `afterSeq`). */
+function seatTextSince(state: ChatState, afterSeq: number, slug: string): string {
+  return state.events
+    .filter((e) => e.seq > afterSeq && e.type === "text" && e.from?.kind === "agent" && e.from.slug === slug)
+    .map((e) => (e as { text: string }).text)
+    .join("");
+}
+
+async function runSeatTurn(state: ChatState, channel: Channel, seat: Seat, hops: number): Promise<void> {
+  seat.busy = true;
+  const me: Author = { kind: "agent", slug: seat.key };
+  const start = emit(state, { type: "turn_start" }, me).seq;
+  try {
+    const backend = await ensureBackend(state, seat);
+    const context = seat.needsContext ? await scopeContext(state.meta, seat) : "";
+    seat.needsContext = false;
+    const delta = transcriptSince(state, seat.seenSeq, start, seat.key);
+    seat.seenSeq = start;
+    if (!delta && !context) {
+      emit(state, { type: "turn_end", stopReason: "nothing_new" }, me);
+      return;
+    }
+    const prompt =
+      (context ? `<context>\n${context}\n</context>\n\n` : "") +
+      (delta ? `New messages in #${channel.slug}:\n\n${delta}` : `You joined #${channel.slug}. Nothing addressed to you yet — reply with one short line saying you are here.`);
+    const stopReason = await backend.prompt(prompt);
+    emit(state, { type: "turn_end", stopReason }, me);
+    // Handover: agents this one @mentioned get its message, within the hop budget.
+    const said = seatTextSince(state, start, seat.key);
+    const next = mentionTargets(said, channel, seat.key);
+    if (next.length > 0 && hops >= channel.maxHops) {
+      emit(state, {
+        type: "error",
+        message: `handover limit reached (${channel.maxHops} per human message) — @mention ${next.map((n) => `@${n}`).join(", ")} yourself to continue`,
+      });
+    } else {
+      for (const target of next) void wakeSeat(state, channel, target, hops + 1);
+    }
+  } catch (err) {
+    emit(state, { type: "error", message: (err as Error).message }, me);
+    dropSeat(seat);
+  } finally {
+    seat.busy = false;
+    void writeMeta(state.meta).catch(() => {});
+    if (seat.wake) {
+      const { hops: again } = seat.wake;
+      seat.wake = null;
+      void runSeatTurn(state, channel, seat, again);
+    }
+  }
+}
+
+/** The chat that holds a channel's transcript; created on first use. */
+export async function ensureChannelChat(channel: Channel): Promise<ChatMeta> {
+  const metas = await listChatMetas();
+  const existing = metas.find((m) => m.scope.kind === "channel" && m.scope.slug === channel.slug);
+  if (existing) return states.get(existing.id)?.meta ?? existing;
+  return createChat({ agent: "claude", scope: { kind: "channel", slug: channel.slug }, title: channel.name });
+}
+
+/**
+ * "Add a coworker" to an agent session: the chat becomes the channel's
+ * transcript. The agent keeps its process and memory — it has seen every
+ * message so far — and learns the channel rules with its next prompt.
+ */
+export async function convertChatToChannel(chatId: string, channel: Channel): Promise<{ error?: string; meta?: ChatMeta }> {
+  const state = await loadState(chatId);
+  if (!state) return { error: "chat not found" };
+  const scope = state.meta.scope;
+  if (scope.kind !== "agent") return { error: "only an agent session can become a channel" };
+  if (!channel.members.includes(scope.slug)) return { error: `the channel must include @${scope.slug}` };
+  if (isBusy(state)) return { error: "agent is still working — wait for the turn to finish" };
+  const main = state.seats.get(MAIN);
+  state.seats.delete(MAIN);
+  const seat = main ?? newSeat(scope.slug, state.meta.agent);
+  seat.key = scope.slug;
+  seat.needsContext = true;
+  seat.seenSeq = state.events[state.events.length - 1]?.seq ?? 0;
+  state.seats.set(scope.slug, seat);
+  state.meta.scope = { kind: "channel", slug: channel.slug };
+  state.meta.title = channel.name;
+  state.meta.updatedAt = new Date().toISOString();
+  await writeMeta(state.meta);
+  return { meta: state.meta };
+}
+
+/** Members left the channel: their processes go, the transcript stays. */
+export async function dropChannelSeats(chatId: string, keep: string[]): Promise<void> {
+  const state = states.get(chatId);
+  if (!state) return;
+  for (const [key, seat] of state.seats) {
+    if (!keep.includes(key)) {
+      dropSeat(seat);
+      state.seats.delete(key);
+    }
+  }
 }
 
 /**
@@ -697,7 +944,7 @@ export async function setChatVibeable(
   const state = await loadState(id);
   if (!state) return { error: "not found", status: 404 };
   const busyError = { error: "agent is still working — wait for the turn to finish", status: 409 };
-  if (state.busy) return busyError;
+  if (isBusy(state)) return busyError;
   let dir: string | null = null;
   if (slug) {
     try {
@@ -710,7 +957,7 @@ export async function setChatVibeable(
   // A message may have started a turn during the await above; its backend
   // was spawned in the old cwd, so refuse rather than relabel it. From here
   // on nothing yields until cwd, vibeable and backend agree.
-  if (state.busy) return busyError;
+  if (isBusy(state)) return busyError;
   if (slug && dir) {
     state.meta.vibeable = slug;
     state.meta.cwd = dir;
@@ -720,7 +967,7 @@ export async function setChatVibeable(
   }
   state.meta.updatedAt = new Date().toISOString();
   dropBackend(state);
-  state.needsContext = true;
+  for (const seat of state.seats.values()) seat.needsContext = true;
   await writeMeta(state.meta);
   return { meta: state.meta };
 }
@@ -753,7 +1000,7 @@ export async function cancelChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   for (const resolve of state.pendingPermissions.values()) resolve(null);
-  state.backend?.cancel();
+  for (const seat of state.seats.values()) seat.backend?.cancel();
   return {};
 }
 

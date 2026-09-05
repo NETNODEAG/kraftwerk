@@ -1,9 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
+import type { Agent, Author, Channel, ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
 import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
 import { VibeOffNote, VibePane, VibePicker } from "./vibeables";
+import { AddCoworkerDialog } from "./channels";
+
+/** The name a human posts under in channels; per browser, changeable in the composer. */
+const ME_KEY = "kw-me";
+export function myName(): string {
+  try {
+    return localStorage.getItem(ME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+function setMyName(name: string): void {
+  try {
+    localStorage.setItem(ME_KEY, name);
+  } catch {}
+}
 
 /**
  * Chat building blocks: the thread view (event-log replay — text chunks
@@ -102,15 +118,21 @@ export function ChatThread({
   id,
   agentName,
   agentDescription,
+  channel,
+  agents,
 }: {
   id: string;
   agentName?: string;
   agentDescription?: string;
+  /** Channel mode: several agents, signed messages, @mentions. */
+  channel?: Channel;
+  agents?: Agent[];
 }) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
   const [picker, setPicker] = useState(false);
+  const [coworker, setCoworker] = useState(false);
   const features = useFeatures();
 
   useEffect(() => {
@@ -138,14 +160,27 @@ export function ChatThread({
     };
   }, [id]);
 
+  // Channels: agents run in parallel, each turn_start pairs with a turn_end
+  // (or error) by the same agent. Ordinary chats: one turn at a time.
+  const working = useMemo(() => {
+    if (!channel) return [] as string[];
+    const open = new Set<string>();
+    for (const e of events) {
+      if (e.from?.kind !== "agent") continue;
+      if (e.type === "turn_start") open.add(e.from.slug);
+      if (e.type === "turn_end" || e.type === "error") open.delete(e.from.slug);
+    }
+    return [...open];
+  }, [events, channel]);
   const busy = useMemo(() => {
+    if (channel) return working.length > 0;
     for (let i = events.length - 1; i >= 0; i--) {
       const t = events[i].type;
       if (t === "user_message") return true;
       if (t === "turn_end" || t === "error") return false;
     }
     return false;
-  }, [events]);
+  }, [events, channel, working]);
 
   // Session title: server names the chat after the first message, but the
   // meta we hold was fetched before that — fall back to the first user
@@ -161,13 +196,57 @@ export function ChatThread({
   // Browser tab: "<agent> · <agent description> · <session> — <project>".
   useEffect(() => {
     if (!meta) return;
+    if (channel) {
+      setPageTitle(`#${channel.slug} · ${channel.name}`);
+      return () => setPageTitle("");
+    }
     const who = agentName ?? (meta.scope.kind === "agent" ? meta.scope.slug : meta.agent);
     setPageTitle([who, agentDescription, title || "new chat"].filter(Boolean).join(" · "));
     return () => setPageTitle("");
-  }, [meta, title, agentName, agentDescription]);
+  }, [meta, title, agentName, agentDescription, channel]);
 
   if (gone) return <div className="empty">chat not found</div>;
   if (!meta) return <div className="empty">loading…</div>;
+
+  const agentMap = new Map((agents ?? []).map((a) => [a.slug, a]));
+
+  if (channel) {
+    return (
+      <div className="chat-split">
+        <div className="chat-thread channel-thread">
+          <div className="detail-head channel-head">
+            <span className={`lamp ${busy ? "running" : "ok"}`} />
+            <h1>#{channel.slug}</h1>
+            <span className="channel-name">{channel.name}</span>
+            <span className="spacer" />
+            <Link href={`/channels/${encodeURIComponent(channel.slug)}/edit`} className="open-raw" title="members, purpose, responder">
+              <Icon name="tune" className="ms-sm" /> members
+            </Link>
+          </div>
+          <div className="channel-members">
+            {channel.purpose && <span className="channel-purpose">{channel.purpose}</span>}
+            {channel.members.map((m) => {
+              const a = agentMap.get(m);
+              const on = working.includes(m);
+              return (
+                <Link key={m} href={`/agents/${encodeURIComponent(m)}/info`} className={`member-chip ${on ? "working" : ""}`} title={a?.description}>
+                  <span className="agent-avatar sm">
+                    <span aria-hidden>{a?.emoji ?? "🤖"}</span>
+                    <span className={`lamp ${on ? "running" : "idle"}`} />
+                  </span>
+                  <span className="member-name">{a?.name ?? m}</span>
+                  <span className="member-handle">@{m}</span>
+                  {channel.responder === m && <span className="chip">responder</span>}
+                </Link>
+              );
+            })}
+          </div>
+          <Thread id={id} events={events} busy={busy} channel={channel} agentMap={agentMap} working={working} />
+          <Composer id={id} busy={busy} scope={meta.scope} channel={channel} agentMap={agentMap} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`chat-split${meta.vibeable ? " open" : ""}`}>
@@ -175,6 +254,11 @@ export function ChatThread({
       <div className="detail-head">
         <span className={`lamp ${busy ? "running" : "ok"}`} />
         <h1>{title || "new chat"}</h1>
+        {meta.scope.kind === "agent" && !meta.scope.routine && (
+          <button className="ws-btn coworker-btn" onClick={() => setCoworker(true)} title="Turn this session into a channel and invite more agents" disabled={busy}>
+            <Icon name="group_add" className="ms-sm" /> add coworker
+          </button>
+        )}
         {!meta.vibeable && features.vibeables && (
           <button className="ws-btn vibeable-open" onClick={() => setPicker(true)} title="Build a small app live: a preview pane next to this chat" disabled={busy}>
             <Icon name="web" className="ms-sm" /> vibeable
@@ -219,16 +303,19 @@ export function ChatThread({
         }}
       />
     )}
+    {coworker && meta.scope.kind === "agent" && (
+      <AddCoworkerDialog chatId={id} agentSlug={meta.scope.slug} title={title} onClose={() => setCoworker(false)} />
+    )}
     </div>
   );
 }
 
 /** Rendered thread block. */
 type Block =
-  | { kind: "user"; text: string; key: string }
-  | { kind: "agent"; text: string; key: string }
-  | { kind: "thought"; text: string; key: string }
-  | { kind: "tool"; callId: string; title: string; toolKind?: string; status?: string; key: string }
+  | { kind: "user"; text: string; key: string; from?: Author }
+  | { kind: "agent"; text: string; key: string; from?: Author }
+  | { kind: "thought"; text: string; key: string; from?: Author }
+  | { kind: "tool"; callId: string; title: string; toolKind?: string; status?: string; key: string; from?: Author }
   | {
       kind: "permission";
       requestId: string;
@@ -236,8 +323,12 @@ type Block =
       options: Array<{ optionId: string; name: string; kind?: string }>;
       resolved: string | null | undefined; // undefined = pending
       key: string;
+      from?: Author;
     }
-  | { kind: "error"; text: string; key: string };
+  | { kind: "error"; text: string; key: string; from?: Author };
+
+const sameAuthor = (a?: Author, b?: Author): boolean =>
+  (!a && !b) || (!!a && !!b && a.kind === b.kind && (a.kind === "human" ? a.name === (b as { name: string }).name : a.slug === (b as { slug: string }).slug));
 
 function toBlocks(events: StoredChatEvent[]): Block[] {
   const blocks: Block[] = [];
@@ -247,15 +338,15 @@ function toBlocks(events: StoredChatEvent[]): Block[] {
     const last = blocks[blocks.length - 1];
     switch (ev.type) {
       case "user_message":
-        blocks.push({ kind: "user", text: ev.text, key: `e${ev.seq}` });
+        blocks.push({ kind: "user", text: ev.text, key: `e${ev.seq}`, from: ev.from });
         break;
       case "text":
-        if (last?.kind === "agent") last.text += ev.text;
-        else blocks.push({ kind: "agent", text: ev.text, key: `e${ev.seq}` });
+        if (last?.kind === "agent" && sameAuthor(last.from, ev.from)) last.text += ev.text;
+        else blocks.push({ kind: "agent", text: ev.text, key: `e${ev.seq}`, from: ev.from });
         break;
       case "thought":
-        if (last?.kind === "thought") last.text += ev.text;
-        else blocks.push({ kind: "thought", text: ev.text, key: `e${ev.seq}` });
+        if (last?.kind === "thought" && sameAuthor(last.from, ev.from)) last.text += ev.text;
+        else blocks.push({ kind: "thought", text: ev.text, key: `e${ev.seq}`, from: ev.from });
         break;
       case "tool_call":
         toolIndex.set(ev.callId, blocks.length);
@@ -266,6 +357,7 @@ function toBlocks(events: StoredChatEvent[]): Block[] {
           toolKind: ev.kind,
           status: ev.status,
           key: `e${ev.seq}`,
+          from: ev.from,
         });
         break;
       case "tool_update": {
@@ -286,6 +378,7 @@ function toBlocks(events: StoredChatEvent[]): Block[] {
           options: ev.options,
           resolved: undefined,
           key: `e${ev.seq}`,
+          from: ev.from,
         });
         break;
       case "permission_resolved": {
@@ -294,15 +387,29 @@ function toBlocks(events: StoredChatEvent[]): Block[] {
         break;
       }
       case "error":
-        blocks.push({ kind: "error", text: ev.message, key: `e${ev.seq}` });
+        blocks.push({ kind: "error", text: ev.message, key: `e${ev.seq}`, from: ev.from });
         break;
-      // turn_end renders nothing.
+      // turn_start / turn_end render nothing.
     }
   }
   return blocks;
 }
 
-function Thread({ id, events, busy }: { id: string; events: StoredChatEvent[]; busy: boolean }) {
+function Thread({
+  id,
+  events,
+  busy,
+  channel,
+  agentMap,
+  working,
+}: {
+  id: string;
+  events: StoredChatEvent[];
+  busy: boolean;
+  channel?: Channel;
+  agentMap?: Map<string, Agent>;
+  working?: string[];
+}) {
   const expert = useExpertMode();
   const blocks = useMemo(() => {
     const all = toBlocks(events);
@@ -328,17 +435,52 @@ function Thread({ id, events, busy }: { id: string; events: StoredChatEvent[]; b
       }}
     >
       {blocks.length === 0 && (
-        <div className="empty">say something — the agent starts on your first message</div>
+        <div className="empty">
+          {channel
+            ? `say something — @mention an agent to wake it${channel.responder ? `, or just write: @${channel.responder} answers` : ""}`
+            : "say something — the agent starts on your first message"}
+        </div>
       )}
-      {blocks.map((b) => (
-        <BlockView key={b.key} b={b} chatId={id} />
-      ))}
+      {blocks.map((b, i) => {
+        // Channels: a byline whenever the author changes.
+        const prev = blocks[i - 1];
+        const byline = channel && b.kind !== "error" && (!prev || !sameAuthor(prev.from, b.from) || prev.kind === "error") ? b.from : undefined;
+        return (
+          <div key={b.key} className={`turn ${b.from?.kind === "human" ? "human" : b.from?.kind === "agent" ? "agent" : ""}`}>
+            {byline && <Byline from={byline} agentMap={agentMap} />}
+            <BlockView b={b} chatId={id} />
+          </div>
+        );
+      })}
       {busy && (
         <div className="chat-working">
-          <span className="lamp running" /> working…
+          <span className="lamp running" />{" "}
+          {channel && working?.length
+            ? working.map((w) => `${agentMap?.get(w)?.emoji ?? ""} @${w}`).join(", ") + (working.length === 1 ? " is working…" : " are working…")
+            : "working…"}
         </div>
       )}
     </div>
+  );
+}
+
+/** Channel byline: who says the next message(s). */
+function Byline({ from, agentMap }: { from: Author; agentMap?: Map<string, Agent> }) {
+  if (from.kind === "human") {
+    return (
+      <div className="byline human">
+        <span className="byline-avatar">{from.name.slice(0, 1).toUpperCase()}</span>
+        <span className="byline-name">{from.name}</span>
+      </div>
+    );
+  }
+  const a = agentMap?.get(from.slug);
+  return (
+    <Link href={`/agents/${encodeURIComponent(from.slug)}/info`} className="byline agent">
+      <span className="byline-avatar">{a?.emoji ?? "🤖"}</span>
+      <span className="byline-name">{a?.name ?? from.slug}</span>
+      <span className="byline-handle">@{from.slug}</span>
+    </Link>
   );
 }
 
@@ -429,11 +571,29 @@ function PermissionCard({
   );
 }
 
-function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: ChatScope }) {
+function Composer({
+  id,
+  busy,
+  scope,
+  channel,
+  agentMap,
+}: {
+  id: string;
+  busy: boolean;
+  scope?: ChatScope;
+  channel?: Channel;
+  agentMap?: Map<string, Agent>;
+}) {
   const [text, setText] = useState("");
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [me, setMe] = useState(myName);
+  const [editingMe, setEditingMe] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // Channels never block the humans: an agent that is busy is woken again
+  // when its turn ends. Ordinary chats take one message per turn.
+  const locked = busy && !channel;
 
   // Skills the /-menu offers: all discovered ones, narrowed by the agent
   // member's allowlist when this is a agent session, plus the member's own
@@ -473,55 +633,110 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
 
   // The menu is open while the draft is just "/<partial-name>".
   const slashQuery = /^\/([\w-]*)$/.exec(text)?.[1];
-  const matches =
+  const skillMatches =
     slashQuery !== undefined && !dismissed
       ? skills.filter((s) => s.name.toLowerCase().startsWith(slashQuery.toLowerCase()))
       : [];
+  // Channels: "@partial" at the caret offers the members.
+  const caret = taRef.current?.selectionStart ?? text.length;
+  const atMatch = channel && !dismissed ? /(^|\s)@([a-z0-9-]*)$/i.exec(text.slice(0, caret)) : null;
+  const mentionMatches =
+    atMatch && channel
+      ? channel.members.filter((m) => m.startsWith(atMatch[2].toLowerCase()) || (agentMap?.get(m)?.name ?? "").toLowerCase().startsWith(atMatch[2].toLowerCase()))
+      : [];
+  const matches: Array<{ id: string; label: string; hint?: string; src?: string; pick: () => void }> = [
+    ...skillMatches.map((s) => ({
+      id: `/${s.name}`,
+      label: `/${s.name}`,
+      hint: s.description,
+      src: s.source,
+      pick: () => {
+        setText(`/${s.name} `);
+        setSel(0);
+      },
+    })),
+    ...mentionMatches.map((m) => ({
+      id: `@${m}`,
+      label: `${agentMap?.get(m)?.emoji ?? "🤖"} @${m}`,
+      hint: agentMap?.get(m)?.name,
+      pick: () => {
+        const before = text.slice(0, caret).replace(/@[a-z0-9-]*$/i, `@${m} `);
+        setText(before + text.slice(caret));
+        setSel(0);
+        requestAnimationFrame(() => {
+          const el = taRef.current;
+          if (el) el.selectionStart = el.selectionEnd = before.length;
+        });
+      },
+    })),
+  ];
   const menuOpen = matches.length > 0;
   const selIdx = Math.min(sel, matches.length - 1);
 
-  function pick(skill: SkillInfo) {
-    setText(`/${skill.name} `);
-    setSel(0);
-  }
-
   async function send() {
     const t = text.trim();
-    if (!t || busy) return;
+    if (!t || locked) return;
     setText("");
     await fetch(`/api/chats/${id}/message`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: t }),
+      body: JSON.stringify({ text: t, ...(channel ? { from: me || "you" } : {}) }),
     }).catch(() => {});
   }
 
   return (
     <div className="composer">
+      {channel && (
+        <div className="composer-me">
+          posting as{" "}
+          {editingMe ? (
+            <input
+              autoFocus
+              value={me}
+              placeholder="your name"
+              onChange={(e) => setMe(e.target.value)}
+              onBlur={() => {
+                setMyName(me.trim());
+                setEditingMe(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") (e.target as HTMLInputElement).blur();
+              }}
+            />
+          ) : (
+            <button className="me-name" onClick={() => setEditingMe(true)} title="change your name">
+              {me || "you"} <Icon name="edit" className="ms-sm" />
+            </button>
+          )}
+        </div>
+      )}
       {menuOpen && (
         <div className="skill-menu">
           {matches.map((s, i) => (
             <button
-              key={s.name}
+              key={s.id}
               className={i === selIdx ? "active" : ""}
               onMouseDown={(e) => {
                 e.preventDefault();
-                pick(s);
+                s.pick();
               }}
             >
-              <b>/{s.name}</b>
-              {s.description && <span> — {s.description}</span>}
-              <span className="skill-src">{s.source}</span>
+              <b>{s.label}</b>
+              {s.hint && <span> — {s.hint}</span>}
+              {s.src && <span className="skill-src">{s.src}</span>}
             </button>
           ))}
         </div>
       )}
       <textarea
+        ref={taRef}
         value={text}
         placeholder={
-          busy
+          locked
             ? "agent is working…"
-            : "message  ·  Enter to send, Shift+Enter for newline, / for skills"
+            : channel
+              ? "message the channel  ·  @ to mention an agent, / for skills, Enter to send"
+              : "message  ·  Enter to send, Shift+Enter for newline, / for skills"
         }
         rows={Math.min(6, Math.max(1, text.split("\n").length))}
         onChange={(e) => {
@@ -541,7 +756,7 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
             }
             if (e.key === "Tab" || e.key === "Enter") {
               e.preventDefault();
-              return pick(matches[selIdx]);
+              return matches[selIdx].pick();
             }
             if (e.key === "Escape") {
               e.preventDefault();
@@ -554,14 +769,15 @@ function Composer({ id, busy, scope }: { id: string; busy: boolean; scope?: Chat
           }
         }}
       />
-      {busy ? (
+      {busy && (
         <button
           className="stop-btn"
           onClick={() => fetch(`/api/chats/${id}/cancel`, { method: "POST" }).catch(() => {})}
         >
           <Icon name="stop" className="ms-sm" /> stop
         </button>
-      ) : (
+      )}
+      {!locked && (
         <button className="run-btn" disabled={!text.trim()} onClick={send}>
           <Icon name="send" className="ms-sm" /> send
         </button>
