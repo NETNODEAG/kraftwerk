@@ -1,4 +1,4 @@
-import type { HarnessId, McpServerConfig } from "./harness.js";
+import type { AgentProtocol, HarnessId, McpServerConfig } from "./harness.js";
 
 /**
  * An agent is exactly four things:
@@ -48,6 +48,8 @@ export interface AgentDefinition {
   mcp?: Record<string, McpServerConfig>;
   /** Which runtime executes this agent. Default: "claude". */
   harness?: HarnessId;
+  /** How that runtime is driven: headless CLI (default) or the Agent Client Protocol. */
+  protocol?: AgentProtocol;
 }
 
 export function defineAgent(agent: AgentDefinition): AgentDefinition {

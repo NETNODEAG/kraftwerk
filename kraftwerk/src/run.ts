@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
 import path from "node:path";
 import type { AgentDefinition } from "./agent.js";
-import type { HarnessId } from "./harness.js";
 import { harnessFor } from "./harnesses/registry.js";
 import { correctionPrompt, parseEnvelope, type Envelope } from "./envelope.js";
 import type { Gate } from "./gates.js";
@@ -38,7 +37,8 @@ export interface RunOptions {
 }
 
 export class Run {
-  private readonly sessions = new Map<HarnessId, string>();
+  /** Session per harness AND protocol: a CLI session id means nothing to the ACP adapter and vice versa. */
+  private readonly sessions = new Map<string, string>();
   /** Per-phase stats in execution order; repeated phases appear once per execution. */
   readonly stats: PhaseStats[] = [];
   readonly runDir: string;
@@ -67,7 +67,8 @@ export class Run {
     gates: Gate[];
   }): Promise<Envelope> {
     const { agent } = params;
-    const harness = harnessFor(agent.harness);
+    const harness = harnessFor(agent.harness, agent.protocol);
+    const sessionKey = `${harness.id}/${agent.protocol ?? "cli"}`;
     const modelName = harness.id === "claude" ? agent.model : `${harness.id}:${agent.model}`;
     const modelLabel = agent.effort ? `${modelName}, effort ${agent.effort}` : modelName;
     console.log(`\n▸ Phase "${params.name}" — ${agent.name} [${agent.id}] (${modelLabel})`);
@@ -76,11 +77,12 @@ export class Run {
       kind: "agent",
       agent: agent.id,
       harness: harness.id,
+      protocol: agent.protocol ?? "cli",
       model: agent.model,
       effort: agent.effort ?? null,
       clis: agent.clis ? Object.keys(agent.clis) : [],
       mcp: agent.mcp ? Object.keys(agent.mcp) : [],
-      resume: this.sessions.get(harness.id) ?? null,
+      resume: this.sessions.get(sessionKey) ?? null,
     });
 
     const phaseStats: PhaseStats = {
@@ -88,6 +90,7 @@ export class Run {
       kind: "agent",
       agent: agent.id,
       harness: harness.id,
+      ...(agent.protocol === "acp" ? { protocol: "acp" } : {}),
       model: agent.model,
       effort: agent.effort,
       attempts: 0,
@@ -121,14 +124,14 @@ export class Run {
         tools: agent.tools,
         clis: cliEntries.map(([name]) => name),
         mcpServers: agent.mcp,
-        resume: this.sessions.get(harness.id),
+        resume: this.sessions.get(sessionKey),
         onToolUse: (tool, target) => {
           console.log(`  ⚙ ${tool} ${target}`.trimEnd());
           void this.trace("tool_use", { phase: params.name, attempt, tool, target });
         },
         onText: this.verbose ? (text) => console.log(`  💬 ${text}`) : undefined,
       });
-      if (result.sessionId) this.sessions.set(harness.id, result.sessionId);
+      if (result.sessionId) this.sessions.set(sessionKey, result.sessionId);
       phaseStats.attempts = attempt + 1;
       phaseStats.durationMs = Date.now() - started;
       phaseStats.costUsd += result.costUsd ?? 0;

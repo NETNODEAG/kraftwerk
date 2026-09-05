@@ -69,7 +69,10 @@ const program = new Command()
 const agentLabel = (workflow: LoadedWorkflow): string =>
   workflow.meta.agents
     .map((a) => {
-      const harness = a.harness && a.harness !== "claude" ? `${a.harness}:` : "";
+      const where = [a.harness && a.harness !== "claude" ? a.harness : "", a.protocol === "acp" ? "acp" : ""]
+        .filter(Boolean)
+        .join("/");
+      const harness = where ? `${where}:` : "";
       const effort = a.effort ? `, ${a.effort}` : "";
       return `${a.id} ${chalk.dim(`(${harness}${a.model}${effort})`)}`;
     })
@@ -99,6 +102,7 @@ program
               id: a.id,
               model: a.model,
               harness: a.harness ?? "claude",
+              protocol: a.protocol ?? "cli",
             })),
             error: e.error,
           })),
@@ -198,10 +202,13 @@ program
     });
     const workflow = entry.workflow!;
 
+    // A workflow whose steps never read ${{ request }} runs without one.
     let request = (requestParts ?? []).join(" ").trim();
-    if (!request && machine) fail(2, "No request given (--json is non-interactive).");
-    if (!request) request = (await input({ message: "Request (topic, URL, ...):" })).trim();
-    if (!request) fail(2, "No request given.");
+    if (!request && workflow.meta.usesRequest) {
+      if (machine) fail(2, "No request given (--json is non-interactive).");
+      request = (await input({ message: "Request (topic, URL, ...):" })).trim();
+      if (!request) fail(2, "No request given.");
+    }
 
     const missing = missingEnv(workflow.meta.requires);
     if (missing.length > 0) {

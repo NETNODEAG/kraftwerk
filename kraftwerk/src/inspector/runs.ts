@@ -25,6 +25,7 @@ export interface PhaseView {
   agent?: string;
   model?: string;
   harness?: string;
+  protocol?: string;
   status: "running" | "ok" | "failed" | "blocked" | "pending";
   attempts: number;
   startedAt?: string;
@@ -102,6 +103,7 @@ function analyse(events: TraceEvent[]) {
         agent: e.agent,
         model: e.model,
         harness: e.harness,
+        protocol: e.protocol === "acp" ? "acp" : undefined,
         status: "running",
         attempts: 0,
         startedAt: e.ts,

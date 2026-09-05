@@ -718,7 +718,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         return json(res, { error: "invalid JSON body" }, 400);
       }
       const request = (body.request ?? "").trim();
-      if (!request) return json(res, { error: "request text is required" }, 400);
+      if (!request && wf.usesRequest) return json(res, { error: "this workflow needs a request" }, 400);
       try {
         const { runId } = triggerRun({
           workflowName: wf.name,

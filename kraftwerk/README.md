@@ -583,6 +583,31 @@ Prerequisites per harness:
   models reuse the Claude subscription OAuth, other vendors need their key in
   the env (check with `pi auth check --provider deepseek`).
 
+### Agent protocol
+
+Phases can also run over the [Agent Client Protocol](https://agentclientprotocol.com)
+— the same adapters the inspector's chats use (`claude-agent-acp`,
+`codex-acp`), bundled with kraftwerk, so nothing needs to be on the PATH.
+Set `protocol: acp` at the top of a workflow (every agent) or on one agent;
+`runs-on` still picks the harness (pi has no adapter). The adapter process
+stays alive for the whole run, so phases on one harness share a session
+like `--resume` does on the CLI. Persona and workspace context travel inside
+each phase prompt. On claude the agent's `tools`, CLI grants and MCP servers
+become the session's allowlist (settings sources off) and the session is
+switched to `acceptEdits`; codex runs in its workspace-write mode. A permission request the harness
+still raises is declined — nobody watches a workflow run, and kraftwerk
+never answers for a human. A programmatic `Run` ends its adapters with
+`disposeAcpSessions(runDir)` (the YAML runner does this itself).
+
+```yaml
+name: tagline
+protocol: acp          # all agents over ACP; per agent: protocol: cli | acp
+agents:
+  writer:
+    runs-on: claude    # or codex
+    model: sonnet
+```
+
 ## YAML workflows
 
 Linear workflows can be pure config, GitHub-Actions-flavored with `steps`,

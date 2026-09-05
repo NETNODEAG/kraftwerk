@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { resolveProject } from "../config.js";
+import { referencesRequest } from "../yaml.js";
 import { getProjectRoot } from "./context.js";
 
 /**
@@ -21,6 +22,7 @@ export interface AgentInfo {
   name?: string;
   model?: string;
   harness?: string;
+  protocol?: string;
   effort?: string;
   tools: string[];
   persona?: string;
@@ -45,6 +47,8 @@ export interface WorkflowSummary {
   description?: string;
   agents: number;
   steps: number;
+  /** False when no step reads `${{ request }}` — the ▶ button runs it straight away. */
+  usesRequest: boolean;
   error?: string;
 }
 
@@ -57,6 +61,7 @@ export interface WorkflowDetail {
   agents: AgentInfo[];
   steps: StepInfo[];
   files: string[];
+  usesRequest: boolean;
   error?: string;
 }
 
@@ -129,6 +134,16 @@ async function parseRaw(l: Located): Promise<any> {
   return parseYaml(text);
 }
 
+/** Does any step read the request (prompt or script, inline or via a file in the folder)? */
+async function stepsUseRequest(raw: any, baseDir: string | null): Promise<boolean> {
+  for (const s of raw?.steps ?? []) {
+    const script = s?.run !== undefined;
+    const { text } = await resolveText(script ? s.run : s?.prompt, baseDir);
+    if (text && referencesRequest(text, script ? "script" : "agent")) return true;
+  }
+  return false;
+}
+
 export async function listWorkflows(): Promise<{ root?: string; workflows: WorkflowSummary[] }> {
   const root = await workflowsRoot();
   const located = await locate();
@@ -142,9 +157,10 @@ export async function listWorkflows(): Promise<{ root?: string; workflows: Workf
           description: raw?.description,
           agents: Object.keys(raw?.agents ?? {}).length,
           steps: (raw?.steps ?? []).length,
+          usesRequest: await stepsUseRequest(raw, l.baseDir),
         };
       } catch (err) {
-        return { slug: l.slug, agents: 0, steps: 0, error: (err as Error).message };
+        return { slug: l.slug, agents: 0, steps: 0, usesRequest: true, error: (err as Error).message };
       }
     })
   );
@@ -176,6 +192,7 @@ export async function getWorkflow(slug: string): Promise<WorkflowDetail | null> 
       agents: [],
       steps: [],
       files: [],
+      usesRequest: true,
       error: (err as Error).message,
     };
   }
@@ -188,6 +205,7 @@ export async function getWorkflow(slug: string): Promise<WorkflowDetail | null> 
       name: a?.name,
       model: a?.model,
       harness: a?.harness,
+      protocol: a?.protocol ?? raw?.protocol,
       effort: a?.effort,
       tools: a?.tools ?? [],
       persona: persona.text,
@@ -230,5 +248,6 @@ export async function getWorkflow(slug: string): Promise<WorkflowDetail | null> 
     agents,
     steps,
     files: l.baseDir ? await listDirFiles(l.baseDir) : [path.basename(l.yamlPath)],
+    usesRequest: await stepsUseRequest(raw, l.baseDir),
   };
 }

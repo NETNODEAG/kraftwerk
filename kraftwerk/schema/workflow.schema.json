@@ -32,6 +32,13 @@
       },
       "description": "Environment variables the workflow needs (API tokens etc.). Checked before the run starts; missing variables abort with a clear error instead of failing mid-run."
     },
+    "protocol": {
+      "enum": [
+        "cli",
+        "acp"
+      ],
+      "description": "How agents are driven: cli (default) spawns the harness CLI per phase; acp keeps one Agent Client Protocol adapter (bundled claude-agent-acp / codex-acp, no CLI needed) alive for the run. Per-agent `protocol` overrides. runs-on: pi has no adapter."
+    },
     "mcp": {
       "type": "object",
       "description": "MCP servers stored alongside the workflow, keyed by server name. Agents opt in via their mcp: [names] list.",
@@ -44,7 +51,7 @@
     },
     "clis": {
       "type": "object",
-      "description": "CLIs agents may call via Bash, keyed by command prefix (e.g. git, ddev, npm run) with a one-line usage hint (may be empty). Agents opt in via their clis: [names] list; the hint is injected into the agent's persona once — never repeat it in step prompts. claude scopes its Bash allowlist to Bash(<name>:*); codex runs commands in its sandbox anyway; pi gets the plain bash tool (no scoping).",
+      "description": "CLIs agents may call via Bash, keyed by command prefix (e.g. git, ddev, npm run) with a one-line usage hint (may be empty). Agents opt in via their clis: [names] list; the hint is injected into the agent's persona once \u2014 never repeat it in step prompts. claude scopes its Bash allowlist to Bash(<name>:*); codex runs commands in its sandbox anyway; pi gets the plain bash tool (no scoping).",
       "propertyNames": {
         "pattern": "^[A-Za-z0-9@_.][A-Za-z0-9@_. /-]*$"
       },
@@ -113,6 +120,13 @@
             "pi"
           ],
           "description": "Harness that executes this agent (default: claude)"
+        },
+        "protocol": {
+          "enum": [
+            "cli",
+            "acp"
+          ],
+          "description": "Overrides the workflow-level protocol for this agent (cli | acp)"
         },
         "tools": {
           "type": "array",
@@ -234,7 +248,7 @@
         "if": {
           "type": "array",
           "minItems": 1,
-          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED — not failed — and the run continues with the next step.",
+          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED \u2014 not failed \u2014 and the run continues with the next step.",
           "items": {
             "$ref": "#/definitions/gate"
           }
@@ -261,7 +275,7 @@
         },
         "gates": {
           "type": "array",
-          "description": "Post-execution file checks; script steps have no correction loop — a failing gate fails the run (fix the script)",
+          "description": "Post-execution file checks; script steps have no correction loop \u2014 a failing gate fails the run (fix the script)",
           "items": {
             "$ref": "#/definitions/gate"
           }
@@ -269,7 +283,7 @@
         "if": {
           "type": "array",
           "minItems": 1,
-          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED — not failed — and the run continues with the next step.",
+          "description": "Deterministic preconditions (same forms as gates) evaluated against the run directory just before the step. If any fails, the step is SKIPPED \u2014 not failed \u2014 and the run continues with the next step.",
           "items": {
             "$ref": "#/definitions/gate"
           }

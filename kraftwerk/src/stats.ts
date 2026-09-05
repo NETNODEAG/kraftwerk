@@ -10,6 +10,8 @@ export interface PhaseStats {
   agent?: string;
   /** Harness id, for agent phases. */
   harness?: string;
+  /** "acp" when the phase ran over the Agent Client Protocol (absent = CLI). */
+  protocol?: string;
   /** Model id, for agent phases. */
   model?: string;
   effort?: string;

@@ -146,10 +146,16 @@ export async function runDoctor(cwd: string): Promise<void> {
   }
 
   // Harnesses: hard requirement only if a discovered workflow runs on them.
+  // Over the agent protocol the bundled adapters bring their own runtime.
   const needed = new Set<string>();
+  let acp = false;
   for (const e of found) {
-    for (const a of e.workflow?.meta.agents ?? []) needed.add(a.harness ?? "claude");
+    for (const a of e.workflow?.meta.agents ?? []) {
+      if (a.protocol === "acp") acp = true;
+      else needed.add(a.harness ?? "claude");
+    }
   }
+  if (acp) report("ok", "agent protocol adapters", "claude-agent-acp + codex-acp bundled with kraftwerk");
   for (const harness of ["claude", "codex", "pi"]) {
     const version = cliVersion(harness);
     const isNeeded = needed.has(harness);

@@ -1,17 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { Readable, Writable } from "node:stream";
-import { fileURLToPath } from "node:url";
-import {
-  ClientSideConnection,
-  ndJsonStream,
-  PROTOCOL_VERSION,
-  RequestError,
-  type Client,
-  type ContentBlock,
-  type RequestPermissionRequest,
-  type RequestPermissionResponse,
-  type SessionNotification,
-} from "@agentclientprotocol/sdk";
+import { RequestError, type Client, type ContentBlock, type RequestPermissionRequest, type RequestPermissionResponse, type SessionNotification } from "@agentclientprotocol/sdk";
+import { adapterEnv, connectAcp } from "../../acp.js";
 import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
 import { unattendedMode } from "./permissions.js";
 
@@ -19,45 +7,9 @@ import { unattendedMode } from "./permissions.js";
  * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp) as a
  * subprocess, speak Agent Client Protocol over its stdio, and translate
  * session/update notifications into chat events. One subprocess lives for
- * the whole chat; the ACP session id carries the conversation.
- *
- * Auth rides on the local CLI logins (Claude Code / Codex) via the
- * inherited environment — same story as the kraftwerk harnesses.
+ * the whole chat; the ACP session id carries the conversation. The
+ * adapter plumbing is shared with the workflow ACP harness (src/acp.ts).
  */
-
-const ADAPTERS: Record<"claude" | "codex", string> = {
-  claude: "@agentclientprotocol/claude-agent-acp/dist/index.js",
-  codex: "@agentclientprotocol/codex-acp/dist/index.js",
-};
-
-/** Effort tier -> Claude thinking budget (the adapter reads MAX_THINKING_TOKENS). */
-const CLAUDE_THINKING_BUDGET: Record<string, number> = {
-  low: 2048,
-  medium: 8192,
-  high: 16384,
-  xhigh: 32000,
-  max: 63999,
-};
-
-/**
- * Model/effort overrides ride on adapter-specific channels: the claude
- * adapter takes the model via session `_meta.claudeCode.options` and the
- * thinking budget via env; codex-acp merges a CODEX_CONFIG env JSON into
- * the session config it hands to `codex app-server`.
- */
-function tuningEnv(agent: "claude" | "codex", tuning: BackendTuning): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (agent === "claude" && tuning.effort && CLAUDE_THINKING_BUDGET[tuning.effort]) {
-    env.MAX_THINKING_TOKENS = String(CLAUDE_THINKING_BUDGET[tuning.effort]);
-  }
-  if (agent === "codex" && (tuning.model || tuning.effort)) {
-    env.CODEX_CONFIG = JSON.stringify({
-      ...(tuning.model ? { model: tuning.model } : {}),
-      ...(tuning.effort ? { model_reasoning_effort: tuning.effort } : {}),
-    });
-  }
-  return env;
-}
 
 function contentText(content: ContentBlock): string {
   return content.type === "text" ? content.text : "";
@@ -69,36 +21,7 @@ export async function startAcpBackend(
   hooks: BackendHooks,
   tuning: BackendTuning = {}
 ): Promise<ChatBackend> {
-  const entry = fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
-  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [entry], {
-    cwd,
-    stdio: ["pipe", "pipe", "pipe"],
-    env: tuningEnv(agent, tuning),
-  });
-
-  let stderr = "";
-  child.stderr.on("data", (c: Buffer) => {
-    stderr += c.toString("utf8");
-    if (stderr.length > 20_000) stderr = stderr.slice(-20_000);
-  });
-
   let dead = false;
-  // Without a listener a failed spawn (cwd gone, node missing) is an
-  // unhandled 'error' event that takes the whole inspector down.
-  child.on("error", (err) => {
-    dead = true;
-    hooks.emit({ type: "error", message: `could not start the ${agent} agent: ${err.message}` });
-  });
-  child.on("close", (code) => {
-    dead = true;
-    if (code !== 0 && code !== null) {
-      hooks.emit({
-        type: "error",
-        message: `${agent} agent exited (code ${code})${stderr.trim() ? `: ${stderr.trim().slice(-500)}` : ""}`,
-      });
-    }
-  });
-
   const client: Client = {
     sessionUpdate(params: SessionNotification): void {
       const u = params.update;
@@ -146,16 +69,24 @@ export async function startAcpBackend(
     },
   };
 
-  const stream = ndJsonStream(
-    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>
-  );
-  const conn = new ClientSideConnection(() => client, stream);
-
-  await conn.initialize({
-    protocolVersion: PROTOCOL_VERSION,
-    clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
-    clientInfo: { name: "kraftwerk-inspector", version: "1.0.0" },
+  const { child, conn } = await connectAcp(agent, {
+    cwd,
+    env: adapterEnv(agent, tuning),
+    client,
+    clientName: "kraftwerk-inspector",
+    onError: (err) => {
+      dead = true;
+      hooks.emit({ type: "error", message: `could not start the ${agent} agent: ${err.message}` });
+    },
+    onClose: (code, stderr) => {
+      dead = true;
+      if (code !== 0 && code !== null) {
+        hooks.emit({
+          type: "error",
+          message: `${agent} agent exited (code ${code})${stderr ? `: ${stderr.slice(-500)}` : ""}`,
+        });
+      }
+    },
   });
   // Claude-only session options ride on _meta.claudeCode.options (the
   // adapter spreads them into the Agent SDK options): model override,

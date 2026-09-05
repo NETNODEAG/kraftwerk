@@ -1,11 +1,14 @@
-import type { Harness, HarnessId } from "../harness.js";
+import type { AgentProtocol, Harness, HarnessId } from "../harness.js";
+import { acpHarness } from "./acp.js";
 import { claudeHarness } from "./claude.js";
 import { codexHarness } from "./codex.js";
 import { piHarness } from "./pi.js";
 
 /**
- * Maps an agent's `harness` field to the adapter that runs it.
- * Default is claude — an agent without a harness runs on `claude -p`.
+ * Maps an agent's `harness` (+ `protocol`) to the adapter that runs it.
+ * Default is claude over the CLI — an agent without a harness runs on
+ * `claude -p`; `protocol: acp` drives the same harness over the Agent
+ * Client Protocol instead.
  */
 
 const HARNESSES: Partial<Record<HarnessId, Harness>> = {
@@ -14,7 +17,8 @@ const HARNESSES: Partial<Record<HarnessId, Harness>> = {
   pi: piHarness,
 };
 
-export function harnessFor(id: HarnessId = "claude"): Harness {
+export function harnessFor(id: HarnessId = "claude", protocol: AgentProtocol = "cli"): Harness {
+  if (protocol === "acp") return acpHarness(id);
   const harness = HARNESSES[id];
   if (!harness) {
     throw new Error(

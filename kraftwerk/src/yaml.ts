@@ -3,7 +3,8 @@ import path from "node:path";
 import { Ajv, type ErrorObject } from "ajv";
 import { parse } from "yaml";
 import type { AgentDefinition } from "./agent.js";
-import type { McpServerConfig } from "./harness.js";
+import type { AgentProtocol, McpServerConfig } from "./harness.js";
+import { disposeAcpSessions } from "./harnesses/acp.js";
 import { envelopeContract } from "./envelope.js";
 import { checkScript, containsText, fileNonEmpty, slotsFilled, type Gate } from "./gates.js";
 import { Run } from "./run.js";
@@ -107,9 +108,23 @@ export interface LoadedWorkflow extends WorkflowDefinition {
     steps: string[];
     /** Environment variables the workflow declares under `requires:`. */
     requires: string[];
+    /** False when no step reads `${{ request }}` — such a workflow runs without a request. */
+    usesRequest: boolean;
   };
   run(opts: Parameters<WorkflowDefinition["run"]>[0]): Promise<RunResult>;
 }
+
+/**
+ * Does a prompt or script read the request? Prompts through `${{ request }}`;
+ * scripts through that or the REQUEST env var — matched as the bare word,
+ * because a script may read it from bash (`$REQUEST`), Python
+ * (`os.environ.get("REQUEST")`) or anything else. A mention in a comment
+ * counts too: better one dialog too many than a run without its input.
+ * A workflow whose steps never read it runs without one (`kraftwerk run
+ * <name>`, the ▶ in the UI) — the request is an argument, not a ritual.
+ */
+export const referencesRequest = (text: string, kind: "agent" | "script"): boolean =>
+  /\$\{\{\s*request\s*\}\}/.test(text) || (kind === "script" && /\bREQUEST\b/.test(text));
 
 /** Names from `requires:` that are missing/empty in the current environment. */
 export const missingEnv = (requires: string[]): string[] =>
@@ -215,8 +230,15 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
     Object.entries<any>(raw.clis ?? {}).map(([name, hint]) => [name, String(hint ?? "")])
   );
 
+  // `protocol: acp` drives a harness over the Agent Client Protocol instead
+  // of its CLI — workflow-wide, or per agent. pi has no adapter.
+  const protocolDefault: AgentProtocol = raw.protocol ?? "cli";
   const agents = new Map<string, AgentDefinition>();
   for (const [id, a] of Object.entries<any>(raw.agents ?? {})) {
+    const protocol: AgentProtocol = a.protocol ?? protocolDefault;
+    if (protocol === "acp" && a["runs-on"] === "pi") {
+      fail(`agents.${id}: runs-on "pi" has no agent-protocol adapter — use claude or codex, or protocol: cli`);
+    }
     const mcp: Record<string, McpServerConfig> = {};
     for (const serverName of (a.mcp ?? []) as string[]) {
       const def = mcpDefs.get(serverName);
@@ -249,6 +271,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       tools: a.tools,
       persona: await resolveText(a.persona, `agents.${id}.persona`),
       harness: a["runs-on"],
+      ...(protocol === "acp" ? { protocol } : {}),
       ...(Object.keys(clis).length > 0 ? { clis } : {}),
       ...(Object.keys(mcp).length > 0 ? { mcp } : {}),
     });
@@ -310,6 +333,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       agents: [...agents.values()],
       steps: steps.map((s) => s.name),
       requires,
+      usesRequest: steps.some((s) => referencesRequest(s.kind === "script" ? s.script : s.prompt, s.kind)),
     },
 
     async run({ request, verbose }) {
@@ -349,6 +373,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
         ),
       });
 
+      try {
       for (const step of steps) {
         // `if:` preconditions — deterministic checks on run-dir files. Any
         // unmet precondition SKIPS the step (the run continues); this is how
@@ -390,6 +415,9 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
       }
 
       await run.printSummary();
+      } finally {
+        disposeAcpSessions(runDir);
+      }
       console.log(`\nArtifacts: ${runDir}`);
       return { runDir, phases: run.stats, total: summaryTable(run.stats).total };
     },

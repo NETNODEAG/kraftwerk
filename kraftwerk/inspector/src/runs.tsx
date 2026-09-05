@@ -24,23 +24,46 @@ import {
  * and "artifacts" (file browser with a large viewer). Finished runs open
  * on artifacts, running ones on the timeline.
  */
-export function RunsScreen({ id }: { id: string }) {
+export function RunsScreen({ id, workflow }: { id: string; workflow?: string }) {
   const data = usePoll<{ runs: RunListItem[] }>("/api/runs", true);
   const runs = data?.runs ?? [];
+  // The workflows list links here with ?workflow=<name>; the box is free text after that.
+  const [filter, setFilter] = useState(workflow ?? "");
+  const shown = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    if (!needle) return runs;
+    return runs.filter((r) =>
+      [r.workflow, r.request, r.id].some((s) => s?.toLowerCase().includes(needle))
+    );
+  }, [runs, filter]);
 
   return (
     <div className="runs-screen">
       <aside className="runs-side">
         <div className="side-head">
+          <Link href="/workflows" className="side-back" title="back to workflows">
+            <Icon name="arrow_back" className="ms-sm" />
+          </Link>
           <span className="microlabel">runs</span>
           <span className="spacer" />
-          <span className="microlabel num">{runs.length}</span>
+          <span className="microlabel num">{filter ? `${shown.length} / ${runs.length}` : runs.length}</span>
         </div>
+        <label className="side-filter">
+          <Icon name="filter_list" className="ms-sm" />
+          <input
+            type="search"
+            value={filter}
+            placeholder="filter by workflow or request"
+            aria-label="filter runs"
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </label>
         <div className="side-list">
-          {runs.map((r) => (
+          {shown.map((r) => (
             <SideRow key={r.id} r={r} active={r.id === id} />
           ))}
           {data && runs.length === 0 && <div className="viewer-note">no runs yet</div>}
+          {runs.length > 0 && shown.length === 0 && <div className="viewer-note">no run matches “{filter}”</div>}
         </div>
       </aside>
       <div className="runs-main">
@@ -210,6 +233,7 @@ function PhaseRow({ p }: { p: PhaseView }) {
           <span className="chip agent">
             {p.agent}
             {p.model ? ` · ${p.model}` : ""}
+            {p.protocol ? ` · ${p.protocol}` : ""}
           </span>
         ) : (
           <span className="chip">script</span>

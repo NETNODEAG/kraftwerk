@@ -15,6 +15,13 @@
 export type HarnessId = "claude" | "codex" | "pi";
 
 /**
+ * How the harness is driven: `cli` spawns the headless CLI per phase
+ * (claude -p, codex exec, pi); `acp` keeps one Agent Client Protocol
+ * adapter alive for the run (see harnesses/acp.ts). pi has no adapter.
+ */
+export type AgentProtocol = "cli" | "acp";
+
+/**
  * One MCP server an agent may use: either a local stdio server (spawned by
  * the harness, e.g. `node multiply-server.ts`) or a remote streamable-HTTP
  * server (`url`). Names must be [A-Za-z0-9_-]. Supported by the claude and

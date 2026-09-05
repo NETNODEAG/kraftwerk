@@ -35,7 +35,7 @@ Templates live in code, not in this skill — read them before writing anything:
 ## 3 — Scaffold
 
 **YAML workflow folder** `src/workflows/<name>/`:
-- `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`/`mcp`), `steps:` with gates
+- `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`/`mcp`/`protocol`), optional top-level `protocol: acp` (agents over the Agent Client Protocol instead of the CLI; pi has no adapter), `steps:` with gates
 - `prompts/*.md` — one file per long prompt, referenced as `prompt: prompts/<step>.md`; variables `${{ request }}`, `${{ agent }}`
 - optional `scripts/*.sh` (script steps) and `mcp/*.ts` (stdio MCP servers; SDK deps go into the consumer's package.json — see agent-playground: `@modelcontextprotocol/sdk` + `zod`)
 - NO registration needed: the kraftwerk CLI auto-discovers workflow folders under `src/workflows/`. (Programmatic alternative: `loadWorkflow(...)` + `runCli({...})`.)

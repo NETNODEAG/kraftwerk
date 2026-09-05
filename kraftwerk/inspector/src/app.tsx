@@ -4,7 +4,7 @@ import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode,
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
-import { WorkflowIndex } from "./workflows";
+import { WorkflowsScreen } from "./workflows";
 import { WorkflowView } from "./workflow-view";
 import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
@@ -29,8 +29,11 @@ import { SearchPalette } from "./search";
  * ⌘K opens the agent palette (search.tsx) from anywhere.
  */
 export function App() {
-  const path = useHashPath();
+  const hash = useHashPath();
+  // "#/runs/<id>?workflow=x": the query rides along the hash path.
+  const [path, query = ""] = hash.split("?");
   const seg = path.split("/").filter(Boolean);
+  const runsFilter = new URLSearchParams(query).get("workflow") ?? undefined;
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
   const [projectColor, setProjectColor] = useState("");
@@ -104,10 +107,10 @@ export function App() {
   }, [projectName, projectIcon]);
 
   let screen: React.ReactNode;
-  if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} />;
+  if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
   else if (seg[0] === "runs") screen = <LatestRun />;
   else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
-  else if (seg[0] === "workflows") screen = <WorkflowIndex />;
+  else if (seg[0] === "workflows") screen = <WorkflowsScreen />;
   else if (seg[0] === "chats") screen = <AgentsScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "settings") screen = <SettingsScreen />;
@@ -168,7 +171,6 @@ export function App() {
           <a href="#/channels"><Icon name="forum" /> channels</a>
           <a href="#/knowledge"><Icon name="menu_book" /> context &amp; knowledge</a>
           <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
-          <a href="#/runs"><Icon name="history" /> workflow runs</a>
           <a href="#/skills"><Icon name="extension" /> skills</a>
           {reposOn && <a href="#/repos"><Icon name="source" /> repositories</a>}
           {vibeablesOn && <a href="#/vibeables"><Icon name="web" /> vibeables</a>}
@@ -467,8 +469,8 @@ function LatestRun() {
   if (!empty) return <div className="empty">loading…</div>;
   return (
     <div className="empty">
-      No runs found in <code>{empty.outputDir}</code>. Start one with{" "}
-      <code>kraftwerk run &lt;workflow&gt; &lt;request&gt;</code> or from a workflow page.
+      No runs found in <code>{empty.outputDir}</code>. Start one from the{" "}
+      <a href="#/workflows">workflows</a> list or with <code>kraftwerk run &lt;workflow&gt; [request]</code>.
     </div>
   );
 }

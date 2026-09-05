@@ -18,6 +18,7 @@ export {
   type TokenUsage,
 } from "./harness.js";
 export { harnessFor } from "./harnesses/registry.js";
+export { disposeAcpSessions } from "./harnesses/acp.js";
 export { Run, type RunOptions } from "./run.js";
 export {
   correctionPrompt,
