@@ -217,16 +217,12 @@ export function VibePane({
     return () => clearInterval(t);
   }, [devRunning, showLog, load]);
 
-  const devLive = !!status?.dev?.running && !!status.dev.ready;
-  const devUrl = status?.dev ? `${window.location.protocol}//${window.location.hostname}:${status.dev.port}/` : "";
-  const src = devLive ? devUrl : status ? `${status.url}?v=${tick}` : "";
+  // Both modes go through the inspector's own origin: static files served
+  // directly, a running dev server proxied under the same prefix. That is
+  // what a container or reverse proxy exposes; a random host port is not.
+  const src = status ? `${status.url}?v=${tick}` : "";
 
-  const reload = () => {
-    if (devLive) {
-      const el = frame.current;
-      if (el) el.src = el.src;
-    } else setTick((t) => t + 1);
-  };
+  const reload = () => setTick((t) => t + 1);
 
   const dev = async (verb: "start" | "stop") => {
     setBusy(verb);
@@ -295,7 +291,7 @@ export function VibePane({
         </button>
         <button
           className="icon-btn"
-          onClick={() => window.open(devLive ? devUrl : status?.url ?? "", "_blank", "noopener")}
+          onClick={() => window.open(status?.url ?? "", "_blank", "noopener")}
           disabled={!status}
           title="Open in a new tab"
           aria-label="open in new tab"
@@ -333,7 +329,7 @@ export function VibePane({
           className="vibeable-frame"
           src={src}
           title={`vibeable ${slug}`}
-          sandbox={devLive ? "allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" : "allow-scripts allow-forms allow-popups allow-modals allow-downloads"}
+          sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
           allow="clipboard-write"
         />
       )}
@@ -343,6 +339,28 @@ export function VibePane({
           {d.log.length ? d.log.join("\n") : "(no output yet)"}
         </pre>
       )}
+    </aside>
+  );
+}
+
+/** Shown in place of the pane when the feature was switched off while a chat still had an app open. */
+export function VibeOffNote({ chatId, slug, onClosed }: { chatId: string; slug: string; onClosed: (meta: ChatMeta) => void }) {
+  const [error, setError] = useState("");
+  return (
+    <aside className="vibeable-pane vibeable-pane-off" data-vibe={slug}>
+      <div className="vibeable-bar">
+        <Icon name="web" className="vibeable-bar-icon" />
+        <span className="vibeable-name">{slug}</span>
+        <span className="vibeable-mode failed"><span className="lamp failed" />vibeables are off</span>
+        <span className="spacer" />
+        <button className="icon-btn" onClick={() => setVibeable(chatId, null).then(onClosed).catch((e: Error) => setError(e.message))} title="Detach the app from this chat" aria-label="close preview">
+          <Icon name="close" />
+        </button>
+      </div>
+      <div className="vibeable-note">
+        This chat has <b>{slug}</b> open, but vibeables were switched off in <a href="#/settings">settings</a>. Turn them back on to see the preview, or detach the app.
+      </div>
+      {error && <div className="vibeable-err"><span>{error}</span></div>}
     </aside>
   );
 }

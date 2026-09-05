@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
 import { ignoreEntryFor, REPOS_DEFAULT_ROOT, resolveProject, VIBEABLES_DEFAULT_ROOT, type GitConfig, type ProjectConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig } from "../config.js";
-import { ensureVibeablesRoot } from "./vibeables.js";
+import { disposeAllDevs, ensureVibeablesRoot } from "./vibeables.js";
 import { getProjectRoot } from "./context.js";
 import { ensureReposRoot } from "./repos.js";
 
@@ -168,6 +168,12 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     const vibeables = cleanRootBlock("vibeables", input.vibeables, project.root);
     if (vibeables === null) doc.delete("vibeables");
     else doc.set("vibeables", vibeables);
+    // Off, or a different root: running dev servers belong to folders the
+    // API can no longer address, so they must not outlive this save.
+    const before = project.config.vibeables;
+    const rootBefore = before && before.enabled !== false ? before.root ?? VIBEABLES_DEFAULT_ROOT : undefined;
+    const rootAfter = vibeables && vibeables.enabled !== false ? vibeables.root ?? VIBEABLES_DEFAULT_ROOT : undefined;
+    if (rootBefore !== rootAfter) disposeAllDevs();
   }
 
   await fs.writeFile(configPath, doc.toString());

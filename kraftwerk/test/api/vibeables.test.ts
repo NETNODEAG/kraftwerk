@@ -7,6 +7,7 @@ import { makeProject, startServer, type Fixture, type RunningServer } from "../h
 import type { VibeableInfo, VibeableStatus, VibeablesView } from "../../src/inspector/vibeables.js";
 import type { ChatMeta } from "../../src/inspector/chat/types.js";
 import type { GitStatus } from "../../src/inspector/git.js";
+import { effectiveCwd, vibeableContext } from "../../src/inspector/chat/sessions.js";
 
 /**
  * Vibeables over the HTTP API: the feature flag, creating an app from the
@@ -99,6 +100,7 @@ describe("vibeables API", () => {
     assert.equal(r.status, 200);
     assert.match(r.headers.get("content-type") ?? "", /text\/html/);
     assert.match(r.headers.get("content-security-policy") ?? "", /^sandbox allow-scripts/);
+    assert.equal(r.headers.get("access-control-allow-origin"), "*", "module scripts from the opaque origin need CORS");
     assert.equal(r.headers.get("cache-control"), "no-store");
     assert.match(await r.text(), /<h1>hello<\/h1>/);
 
@@ -116,6 +118,7 @@ describe("vibeables API", () => {
     const noIndex = await fetch(`${srv.url}/vibeables/hello/`);
     assert.equal(noIndex.status, 404);
     assert.match(noIndex.headers.get("content-type") ?? "", /text\/html/, "a page while the agent rewrites, not JSON");
+    assert.equal(noIndex.headers.get("access-control-allow-origin"), "*");
     assert.match(await noIndex.text(), /no index\.html yet/);
     await (await import("node:fs/promises")).rename(path.join(appDir(), "index.html.bak"), path.join(appDir(), "index.html"));
     assert.equal((await fetch(`${srv.url}/vibeables/hello/.gitignore`)).status, 404, "dot segment");
@@ -216,6 +219,15 @@ describe("vibeables API", () => {
     const again = (await (await post("/api/vibeables/hello/dev/start")).json()) as VibeableStatus;
     assert.equal(again.dev?.pid, st.dev?.pid, "start is idempotent while running");
 
+    // While it runs, the preview prefix proxies to it — same origin as the
+    // inspector, sandboxed like static files, so containers and proxies work.
+    const proxied = await fetch(`${srv.url}/vibeables/hello/`);
+    assert.equal(proxied.status, 200);
+    assert.equal(await proxied.text(), "hi from dev");
+    assert.match(proxied.headers.get("content-security-policy") ?? "", /^sandbox/);
+    assert.equal(proxied.headers.get("access-control-allow-origin"), "*");
+    assert.equal(await (await fetch(`${srv.url}/vibeables/hello/deep/path.json?x=1`)).text(), "hi from dev", "sub paths too");
+
     r = await post("/api/vibeables/hello/dev/stop");
     st = (await r.json()) as VibeableStatus;
     assert.equal(r.status, 200);
@@ -223,7 +235,43 @@ describe("vibeables API", () => {
     assert.equal(st.dev?.running, false);
     assert.notEqual(st.dev?.exitCode, undefined);
     await assert.rejects(fetch(`http://127.0.0.1:${port}/`), "the server is gone");
+    assert.match(await (await fetch(`${srv.url}/vibeables/hello/`)).text(), /<h1>changed<\/h1>/, "static again");
     assert.equal((await post("/api/vibeables/nope/dev/start")).status, 404);
+  });
+
+  it("two concurrent starts share one process", async () => {
+    const [a, b] = await Promise.all([post("/api/vibeables/hello/dev/start"), post("/api/vibeables/hello/dev/start")]);
+    const sa = (await a.json()) as VibeableStatus;
+    const sb = (await b.json()) as VibeableStatus;
+    assert.equal(a.status, 200, JSON.stringify(sa));
+    assert.equal(b.status, 200, JSON.stringify(sb));
+    assert.ok(sa.dev?.pid, "spawned");
+    assert.equal(sa.dev?.pid, sb.dev?.pid, "one child, not two");
+    await post("/api/vibeables/hello/dev/stop");
+  });
+
+  it("switching the feature off kills a running dev server and the agent context says so", async () => {
+    let st = (await (await post("/api/vibeables/hello/dev/start")).json()) as VibeableStatus;
+    const port = st.dev!.port;
+    for (let i = 0; i < 60 && !st.dev?.ready; i++) {
+      await new Promise((res) => setTimeout(res, 250));
+      st = await status("hello");
+    }
+    assert.equal(st.dev?.ready, true);
+    assert.equal((await settings({ enabled: false })).status, 200);
+    assert.equal((await fetch(`${srv.url}/api/vibeables/hello`)).status, 409, "off");
+    for (let i = 0; i < 20; i++) {
+      try {
+        await fetch(`http://127.0.0.1:${port}/`);
+        await new Promise((res) => setTimeout(res, 100));
+      } catch {
+        break;
+      }
+    }
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/`), "the dev server died with the feature");
+    assert.match(await vibeableContext("hello", appDir()), /switched off/);
+    assert.equal((await settings({ enabled: true })).status, 200);
+    assert.equal((await fetch(`${srv.url}/api/vibeables/hello`)).status, 200);
   });
 
   it("POST /api/chats/:id/vibeable moves the chat into the app folder and back", async () => {
@@ -255,10 +303,17 @@ describe("vibeables API", () => {
     assert.equal((await fetch(srv.url + `/api/chats/${chat.id}`, { method: "DELETE", headers: headers() })).status, 200);
   });
 
-  it("DELETE /api/vibeables/<slug> removes the folder", async () => {
+  it("DELETE /api/vibeables/<slug> removes the folder; a chat still pointing there falls back to the project root", async () => {
+    const chat = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
+    const meta = (await (await post(`/api/chats/${chat.id}/vibeable`, { slug: "hello" })).json()) as ChatMeta;
+    assert.equal(meta.cwd, appDir());
     const r = await fetch(`${srv.url}/api/vibeables/hello`, { method: "DELETE", headers: headers() });
     assert.equal(r.status, 200);
     assert.ok(!existsSync(appDir()));
+    // The agent would be spawned in a missing folder: the backend uses the default cwd instead, and the context tells the truth.
+    assert.equal(await effectiveCwd(meta), fx.root);
+    assert.match(await vibeableContext("hello", meta.cwd), /folder is gone/);
+    assert.equal((await fetch(srv.url + `/api/chats/${chat.id}`, { method: "DELETE", headers: headers() })).status, 200);
     assert.equal((await fetch(`${srv.url}/api/vibeables/hello`, { method: "DELETE", headers: headers() })).status, 404);
     assert.deepEqual((await list()).vibeables, []);
   });

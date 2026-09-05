@@ -3,7 +3,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { ChatAgentId, ChatMeta, ChatScope, SkillInfo, StoredChatEvent } from "./types";
 import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
-import { VibePane, VibePicker } from "./vibeables";
+import { VibeOffNote, VibePane, VibePicker } from "./vibeables";
 
 /**
  * Chat building blocks: the thread view (event-log replay — text chunks
@@ -207,7 +207,8 @@ export function ChatThread({
       <Thread id={id} events={events} busy={busy} />
       <Composer id={id} busy={busy} scope={meta.scope} />
     </div>
-    {meta.vibeable && <VibePane key={meta.vibeable} chatId={id} slug={meta.vibeable} agentBusy={busy} onClosed={setMeta} />}
+    {meta.vibeable && features.vibeables && <VibePane key={meta.vibeable} chatId={id} slug={meta.vibeable} agentBusy={busy} onClosed={setMeta} />}
+    {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
     {picker && (
       <VibePicker
         chatId={id}

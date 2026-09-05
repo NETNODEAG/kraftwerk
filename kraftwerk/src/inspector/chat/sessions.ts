@@ -221,9 +221,22 @@ async function reposContext(): Promise<string> {
  * user sees next — so the block spells out how the preview runs and what
  * the sandbox rules out.
  */
-async function vibeableContext(slug: string): Promise<string> {
-  const st = await vibeableStatus(slug).catch(() => null);
+export async function vibeableContext(slug: string, cwd: string): Promise<string> {
+  let st: Awaited<ReturnType<typeof vibeableStatus>> | null = null;
+  let failure = "";
+  try {
+    st = await vibeableStatus(slug);
+  } catch (err) {
+    failure = (err as Error).message;
+  }
   if (!st) {
+    if (/are off/.test(failure)) {
+      return (
+        `## Vibeable: ${slug}\nThis chat had the vibeable "${slug}" open, but vibeables have since been switched off in this ` +
+        `workspace's settings. Its folder still exists at ${cwd} and is your working directory; there is no preview pane any ` +
+        `more. Work in the folder if the user asks, and mention that the feature is off.`
+      );
+    }
     return `## Vibeable\nThis chat had the vibeable "${slug}" open in its preview pane, but its folder is gone. Tell the user; do not recreate it unasked.`;
   }
   const dev = st.dev;
@@ -242,11 +255,12 @@ async function vibeableContext(slug: string): Promise<string> {
     `How the preview runs:\n` +
     `- Static mode (default): the inspector serves the folder directly at /vibeables/${slug}/ — index.html is the entry; plain HTML, CSS and ` +
     `JavaScript with no build step. Use relative URLs (./app.js, not /app.js). ES modules and CDN imports (https://esm.sh/<pkg>) work. ` +
-    `The static preview is a sandboxed document: no localStorage, no cookies, no calls into the inspector's own /api. Keep state in memory, ` +
-    `or move to dev mode when it must persist.\n` +
+    `The preview is a sandboxed document in both modes: no localStorage, no cookies, no calls into the inspector's own /api. Keep state in ` +
+    `memory, or move to dev mode and persist through your own server.\n` +
     `- Dev mode: when the app needs a build tool, a backend or a database, write ${VIBEABLE_CONFIG_FILE} with \`dev: <command>\` ` +
     `(e.g. \`npm run dev\`, \`node server.js\`, \`python3 -m http.server $PORT\`). kraftwerk starts it inside the folder with PORT in the ` +
-    `environment and the pane embeds that server; the command must listen on $PORT (or declare \`port:\` when it cannot). Optional ` +
+    `environment and the pane reaches it through /vibeables/${slug}/ on the inspector (BASE_PATH holds that prefix — a dev server that ` +
+    `emits absolute URLs, like Vite, must use it as its base); the command must listen on $PORT (or declare \`port:\` when it cannot). Optional ` +
     `\`dir:\` picks the folder for static mode (e.g. dist). The app brings its own backend and storage — a small node server writing JSON ` +
     `files, SQLite, an external API — nothing of that is provided by kraftwerk.\n\n` +
     `Rules: the folder is part of this workspace and versioned with it — do not run git yourself, the user reviews and commits from the ` +
@@ -405,7 +419,7 @@ async function scopeContext(meta: ChatMeta): Promise<string> {
   const [base, repos, vibe, skills] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
-    meta.vibeable ? vibeableContext(meta.vibeable) : Promise.resolve(""),
+    meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
     availableSkills(scope),
   ]);
   return [base, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
@@ -465,7 +479,8 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
       });
     },
   };
-  const { agent, cwd } = state.meta;
+  const { agent } = state.meta;
+  const cwd = await effectiveCwd(state.meta);
   const tuning = await backendTuning(state.meta);
   state.backend =
     agent === "pi"
@@ -481,6 +496,18 @@ async function ensureBackend(state: ChatState): Promise<ChatBackend> {
 
 /** Where a chat's agent runs when no vibeable is open: the run folder for run chats, else the project root. */
 const defaultCwd = (scope: ChatScope): string => (scope.kind === "run" ? safeRunDir(scope.runId) : getProjectRoot());
+
+/**
+ * The folder the agent is actually spawned in. A vibeable that was removed
+ * leaves meta.cwd pointing nowhere; spawning there fails, so fall back to
+ * the scope's default while keeping meta.vibeable — the context then tells
+ * the agent the folder is gone instead of pretending it is there.
+ */
+export async function effectiveCwd(meta: ChatMeta): Promise<string> {
+  const st = await fs.stat(meta.cwd).catch(() => null);
+  if (st?.isDirectory()) return meta.cwd;
+  return defaultCwd(meta.scope);
+}
 
 export async function createChat(opts: {
   agent: ChatAgentId;
@@ -584,15 +611,22 @@ export async function setChatVibeable(
 ): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
   const state = await loadState(id);
   if (!state) return { error: "not found", status: 404 };
-  if (state.busy) return { error: "agent is still working — wait for the turn to finish", status: 409 };
+  const busyError = { error: "agent is still working — wait for the turn to finish", status: 409 };
+  if (state.busy) return busyError;
+  let dir: string | null = null;
   if (slug) {
-    let dir: string;
     try {
       dir = (await resolveVibeable(slug)).dir;
     } catch (err) {
       const msg = (err as Error).message;
       return { error: msg, status: /^no vibeable/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400 };
     }
+  }
+  // A message may have started a turn during the await above; its backend
+  // was spawned in the old cwd, so refuse rather than relabel it. From here
+  // on nothing yields until cwd, vibeable and backend agree.
+  if (state.busy) return busyError;
+  if (slug && dir) {
     state.meta.vibeable = slug;
     state.meta.cwd = dir;
   } else {
@@ -600,9 +634,9 @@ export async function setChatVibeable(
     state.meta.cwd = defaultCwd(state.meta.scope);
   }
   state.meta.updatedAt = new Date().toISOString();
-  await writeMeta(state.meta);
   dropBackend(state);
   state.needsContext = true;
+  await writeMeta(state.meta);
   return { meta: state.meta };
 }
 

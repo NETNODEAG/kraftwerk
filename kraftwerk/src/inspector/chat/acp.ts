@@ -82,6 +82,12 @@ export async function startAcpBackend(
   });
 
   let dead = false;
+  // Without a listener a failed spawn (cwd gone, node missing) is an
+  // unhandled 'error' event that takes the whole inspector down.
+  child.on("error", (err) => {
+    dead = true;
+    hooks.emit({ type: "error", message: `could not start the ${agent} agent: ${err.message}` });
+  });
   child.on("close", (code) => {
     dead = true;
     if (code !== 0 && code !== null) {

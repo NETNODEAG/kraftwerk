@@ -1857,3 +1857,4 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .vibeable-when { font-size: 12px; color: var(--on-surface-variant); }
 .vibeable-row .ws-icon.vibeable-repo-icon { width: 40px; height: 40px; }
 .ws-actions a.ws-btn { text-decoration: none; }
+.vibeable-pane-off { flex: 0 0 auto; align-self: flex-start; min-width: 320px; max-width: 420px; }

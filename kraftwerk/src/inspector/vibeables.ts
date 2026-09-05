@@ -273,6 +273,7 @@ export async function createVibeable(name: string): Promise<VibeableInfo> {
 export async function deleteVibeable(slug: string): Promise<void> {
   const r = await resolveVibeable(slug);
   await stopDev(slug).catch(() => {});
+  dropChannel(slug);
   await fs.rm(r.dir, { recursive: true, force: true });
 }
 
@@ -333,6 +334,20 @@ const MIME: Record<string, string> = {
 const VIBEABLE_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
 
 /**
+ * Headers every preview response carries. The sandbox makes the document's
+ * origin opaque, and an opaque origin fetches module scripts, imports and
+ * fetch() in CORS mode — without this allow header the app's own app.js
+ * never runs. Allowing any origin is safe: the files are the app's public
+ * sources, and the sandbox (not the origin) is what keeps them away from
+ * the inspector API.
+ */
+const PREVIEW_HEADERS = {
+  "cache-control": "no-store",
+  "content-security-policy": VIBEABLE_CSP,
+  "access-control-allow-origin": "*",
+};
+
+/**
  * GET /vibeables/<slug>/<file>. Dot segments (.env, .git) are never served;
  * a directory answers with its index.html, and a directory url without the
  * trailing slash redirects so the page's relative links resolve.
@@ -356,6 +371,11 @@ export async function serveVibeable(req: http.IncomingMessage, res: http.ServerR
   } catch (err) {
     return fail(404, (err as Error).message);
   }
+  // A running dev server owns the whole prefix: the pane and a new tab reach
+  // it through the inspector's origin, which is what a container or reverse
+  // proxy exposes — a random port on the host is not.
+  const dev = devs.get(slug);
+  if (dev && dev.exitCode === undefined && dev.child) return proxyToDev(req, res, url, slug, dev.port);
   const rest = seg.slice(1).map((s) => {
     try {
       return decodeURIComponent(s);
@@ -385,8 +405,7 @@ export async function serveVibeable(req: http.IncomingMessage, res: http.ServerR
   res.writeHead(200, {
     "content-type": MIME[ext] ?? "application/octet-stream",
     "content-length": st.size,
-    "cache-control": "no-store",
-    "content-security-policy": VIBEABLE_CSP,
+    ...PREVIEW_HEADERS,
   });
   if (req.method === "HEAD") return void res.end();
   const stream = createReadStream(abs);
@@ -401,12 +420,74 @@ function placeholder(res: http.ServerResponse, slug: string): void {
     `body{margin:0;min-height:100vh;display:grid;place-items:center}main{text-align:center;padding:32px}` +
     `b{display:block;color:#1b1b1f;font-size:16px;font-weight:500;margin-bottom:4px}</style></head>` +
     `<body><main><b>${escapeHtml(slug)}</b>no index.html yet — the preview appears as soon as the agent writes one.</main></body></html>`;
-  res.writeHead(404, {
-    "content-type": "text/html; charset=utf-8",
-    "cache-control": "no-store",
-    "content-security-policy": VIBEABLE_CSP,
-  });
+  res.writeHead(404, { "content-type": "text/html; charset=utf-8", ...PREVIEW_HEADERS });
   res.end(html);
+}
+
+/* ---------- dev proxy ---------- */
+
+/** "/vibeables/<slug>/x/y?q" → "/x/y?q" for the dev server. */
+function devPath(url: URL, slug: string): string {
+  const prefix = `/vibeables/${encodeURIComponent(slug)}`;
+  const rest = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : url.pathname;
+  return `${rest || "/"}${url.search}`;
+}
+
+/** Hop-by-hop headers must not be forwarded either way. */
+const HOP = new Set(["connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "proxy-connection"]);
+
+function proxyToDev(req: http.IncomingMessage, res: http.ServerResponse, url: URL, slug: string, port: number): void {
+  const headers: http.OutgoingHttpHeaders = {};
+  for (const [k, v] of Object.entries(req.headers)) if (!HOP.has(k) && v !== undefined) headers[k] = v;
+  headers.host = `127.0.0.1:${port}`;
+  const up = http.request({ host: "127.0.0.1", port, method: req.method, path: devPath(url, slug), headers }, (r) => {
+    const out: http.OutgoingHttpHeaders = {};
+    for (const [k, v] of Object.entries(r.headers)) if (!HOP.has(k) && v !== undefined) out[k] = v;
+    // The sandbox applies to the dev server's pages like to static files,
+    // and the inspector's rule wins over whatever the dev server sent.
+    Object.assign(out, PREVIEW_HEADERS);
+    if (r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && typeof out.location === "string" && out.location.startsWith("/")) {
+      out.location = `/vibeables/${encodeURIComponent(slug)}${out.location}`;
+    }
+    res.writeHead(r.statusCode ?? 502, out);
+    r.pipe(res);
+  });
+  up.on("error", (err) => {
+    if (!res.headersSent) {
+      res.writeHead(502, { "content-type": "text/html; charset=utf-8", ...PREVIEW_HEADERS });
+    }
+    res.end(`<!doctype html><meta charset="utf-8"><p style="font:14px system-ui;color:#46464f;padding:24px">dev server not answering: ${escapeHtml(err.message)}</p>`);
+  });
+  req.pipe(up);
+}
+
+/**
+ * WebSocket upgrades under /vibeables/<slug>/ go to the dev server too — that
+ * is how Vite-style HMR reaches the pane. Anything else is closed: the
+ * inspector has no sockets of its own.
+ */
+export function proxyUpgrade(req: http.IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const seg = url.pathname.split("/");
+  const slug = seg[1] === "vibeables" ? decodeURIComponent(seg[2] ?? "") : "";
+  const dev = slug ? devs.get(slug) : undefined;
+  if (!dev || dev.exitCode !== undefined || !dev.child) return void socket.destroy();
+  const upstream = net.connect(dev.port, "127.0.0.1", () => {
+    const lines = [`${req.method} ${devPath(url, slug)} HTTP/1.1`];
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (v === undefined) continue;
+      lines.push(`${k}: ${k === "host" ? `127.0.0.1:${dev.port}` : Array.isArray(v) ? v.join(", ") : v}`);
+    }
+    upstream.write(lines.join("\r\n") + "\r\n\r\n");
+    if (head.length) upstream.write(head);
+    socket.pipe(upstream).pipe(socket);
+  });
+  const drop = () => {
+    socket.destroy();
+    upstream.destroy();
+  };
+  upstream.on("error", drop);
+  socket.on("error", drop);
 }
 
 /* ---------- live events: file watcher + dev state ---------- */
@@ -449,11 +530,14 @@ export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEv
       });
       c.watcher.on("error", (err) => {
         for (const s of c.subs) s({ type: "error", message: `file watcher stopped: ${err.message}` });
-        c.watcher?.close();
-        c.watcher = null;
+        // Drop the channel: the next subscriber gets a fresh watch() attempt
+        // instead of joining a dead one that never reports anything.
+        dropChannel(slug);
       });
     } catch (err) {
+      dropChannel(slug);
       queueMicrotask(() => fn({ type: "error", message: `cannot watch ${dir}: ${(err as Error).message}` }));
+      return () => {};
     }
   }
   ch.subs.add(fn);
@@ -467,6 +551,15 @@ export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEv
       channels.delete(slug);
     }
   };
+}
+
+/** Close a channel's watcher and forget it; subscribers are left to reconnect. */
+function dropChannel(slug: string): void {
+  const c = channels.get(slug);
+  if (!c) return;
+  if (c.timer) clearTimeout(c.timer);
+  c.watcher?.close();
+  channels.delete(slug);
 }
 
 function broadcast(slug: string, ev: VibeableEvent): void {
@@ -543,19 +636,42 @@ function pushLog(d: DevState, chunk: Buffer): void {
  * leads its own process group so stopping it also stops what it spawned
  * (npm → vite → esbuild).
  */
-export async function startDev(slug: string): Promise<VibeableStatus> {
+/** Starts in flight per slug: two clicks (or two tabs) share one spawn instead of leaking a process. */
+const starting = new Map<string, Promise<VibeableStatus>>();
+
+export function startDev(slug: string): Promise<VibeableStatus> {
+  const inFlight = starting.get(slug);
+  if (inFlight) return inFlight;
+  const p = startDevNow(slug).finally(() => starting.delete(slug));
+  starting.set(slug, p);
+  return p;
+}
+
+async function startDevNow(slug: string): Promise<VibeableStatus> {
   const r = await resolveVibeable(slug);
   if (r.configError) throw new Error(r.configError);
   if (!r.config.dev) throw new Error(`no dev command — add \`dev: <command>\` to ${VIBEABLE_CONFIG_FILE}`);
   const existing = devs.get(slug);
   if (existing && existing.exitCode === undefined && existing.child) return vibeableStatus(slug);
   const port = r.config.port ?? (await freePort());
+  // The pane reaches the server through /vibeables/<slug>/ on the inspector,
+  // so a dev server that emits absolute URLs needs that as its base.
+  const basePath = `/vibeables/${encodeURIComponent(slug)}/`;
   const child = spawn(r.config.dev, [], {
     cwd: r.dir,
     shell: true,
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: String(port), BROWSER: "none", FORCE_COLOR: "0", NO_COLOR: "1", CI: process.env.CI ?? "1" },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      BASE_PATH: basePath,
+      PUBLIC_URL: basePath,
+      BROWSER: "none",
+      FORCE_COLOR: "0",
+      NO_COLOR: "1",
+      CI: process.env.CI ?? "1",
+    },
   });
   const d: DevState = { child, command: r.config.dev, port, ready: false, startedAt: new Date().toISOString(), log: [] };
   devs.set(slug, d);
@@ -604,7 +720,8 @@ function killGroup(d: DevState, signal: NodeJS.Signals): void {
 
 /** SIGTERM the dev process group, SIGKILL what is still there after 3 s. */
 export async function stopDev(slug: string): Promise<VibeableStatus> {
-  await resolveVibeable(slug);
+  // Kill before resolving: a folder that vanished or a feature switched off
+  // must not leave the process running.
   const d = devs.get(slug);
   if (d && d.exitCode === undefined && d.child) {
     const exited = new Promise<void>((resolve) => d.child!.once("exit", () => resolve()));

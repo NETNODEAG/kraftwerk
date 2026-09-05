@@ -74,6 +74,7 @@ import {
   disposeAllDevs,
   listVibeables,
   openVibeables,
+  proxyUpgrade,
   resolveVibeable,
   serveVibeable,
   startDev,
@@ -1024,6 +1025,11 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);
     }
+  });
+  // WebSocket upgrades exist for one reason: a vibeable's dev server (HMR).
+  server.on("upgrade", (req, socket, head) => {
+    if (!hostAllowed(req)) return void socket.destroy();
+    proxyUpgrade(req, socket, head);
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
