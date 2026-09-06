@@ -544,7 +544,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET /api/search/agents — active agents of every reachable workspace (the ⌘K palette)
+  // GET /api/search/agents — active agents and channels of every reachable workspace (the ⌘K palette)
   if (seg.length === 3 && seg[1] === "search" && seg[2] === "agents" && method === "GET") {
     return json(res, await searchAgents());
   }

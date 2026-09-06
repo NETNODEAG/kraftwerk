@@ -2,14 +2,15 @@ import path from "node:path";
 import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
 import { listAgents, toSummary, type AgentSummary } from "./agents.js";
+import { listChannels, toChannelSummary, type ChannelSummary } from "./channels.js";
 import { currentInstanceUrl, discoverWorkspaces, listProjects } from "./instances.js";
 
 /**
- * The ⌘K palette: every active agent in every workspace this machine
- * knows, so a user can jump to one without switching workspaces first.
- * This instance reads its own roster from disk; the others come from the
- * project registry, where each instance records its roster whenever it
- * reads it (see instances.ts). Stopped workspaces are listed too — the
+ * The ⌘K palette: every active agent and every channel in every workspace
+ * this machine knows, so a user can jump to one without switching
+ * workspaces first. This instance reads its own lists from disk; the others
+ * come from the project registry, where each instance records them
+ * whenever it reads them (see instances.ts). Stopped workspaces are listed too — the
  * palette starts them on the way to the agent.
  */
 
@@ -24,6 +25,7 @@ export interface WorkspaceAgents {
   current: boolean;
   live: boolean;
   agents: AgentSummary[];
+  channels: ChannelSummary[];
 }
 
 export interface AgentSearch {
@@ -40,9 +42,10 @@ export async function searchAgents(): Promise<AgentSearch> {
     current: true,
     live: true,
     agents: (await listAgents().catch(() => [])).filter((a) => !a.archived).map(toSummary),
+    channels: (await listChannels().catch(() => [])).map(toChannelSummary),
   };
   const [workspaces, projects] = await Promise.all([discoverWorkspaces(), listProjects()]);
-  const rosters = new Map(projects.map((p) => [p.root, p.agents ?? []]));
+  const records = new Map(projects.map((p) => [p.root, p]));
   const others = workspaces
     .filter((w) => w.root && w.exists !== false)
     .map((w): WorkspaceAgents => ({
@@ -52,7 +55,8 @@ export async function searchAgents(): Promise<AgentSearch> {
       root: w.root,
       current: false,
       live: w.live,
-      agents: rosters.get(w.root!) ?? [],
+      agents: records.get(w.root!)?.agents ?? [],
+      channels: records.get(w.root!)?.channels ?? [],
     }));
   return { workspaces: [self, ...others] };
 }

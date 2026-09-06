@@ -10,8 +10,8 @@ import type { AgentSearch } from "../../src/inspector/search.js";
 import type { ProjectRecord } from "../../src/inspector/instances.js";
 
 /**
- * The ⌘K palette's data: this workspace's roster from disk plus every other
- * registered project's roster from ~/.kraftwerk/projects. One other project
+ * The ⌘K palette's data: this workspace's roster and channels from disk
+ * plus every other registered project's from ~/.kraftwerk/projects. One other project
  * is running (a stub answering /api/meta like an inspector, registered in
  * instances/), one is stopped; both carry a roster in their record.
  */
@@ -26,6 +26,7 @@ describe("agent search API", () => {
     await fx.write("agents/writer/agent.yml", "name: Writer\nemoji: ✍️\ndescription: drafts posts\n");
     await fx.write("agents/reviewer/agent.yml", "name: Reviewer\n");
     await fx.write("agents/old/agent.yml", "name: Old\narchived: true\n");
+    await fx.write("channels/marketing-sales/channel.yml", "name: Marketing & Sales\npurpose: campaigns and leads\nmembers: [writer]\n");
 
     // Two more project roots, each a real kraftwerk project (name/icon are read from there).
     otherRoot = path.join(await mkdtemp(path.join(os.tmpdir(), "kraftwerk-other-")), "project");
@@ -50,9 +51,9 @@ describe("agent search API", () => {
     await mkdir(path.join(kw, "instances"), { recursive: true });
     await mkdir(path.join(kw, "projects"), { recursive: true });
     await writeFile(path.join(kw, "instances", "111111.json"), JSON.stringify({ pid: 111111, port: otherPort, startedAt: "2026-01-01T00:00:00Z", root: otherRoot }));
-    const record = (root: string, agents: unknown[]) =>
-      JSON.stringify({ root, firstSeen: "2026-01-01T00:00:00Z", lastStarted: "2026-01-01T00:00:00Z", lastStopped: "2026-01-02T00:00:00Z", startCount: 1, agents });
-    await writeFile(path.join(kw, "projects", "other.json"), record(otherRoot, [{ slug: "remote-bot", name: "Remote Bot", emoji: "🤖" }]));
+    const record = (root: string, agents: unknown[], channels?: unknown[]) =>
+      JSON.stringify({ root, firstSeen: "2026-01-01T00:00:00Z", lastStarted: "2026-01-01T00:00:00Z", lastStopped: "2026-01-02T00:00:00Z", startCount: 1, agents, ...(channels ? { channels } : {}) });
+    await writeFile(path.join(kw, "projects", "other.json"), record(otherRoot, [{ slug: "remote-bot", name: "Remote Bot", emoji: "🤖" }], [{ slug: "ops", name: "Ops" }]));
     await writeFile(path.join(kw, "projects", "stopped.json"), record(stoppedRoot, [{ slug: "sleeper", name: "Sleeper", emoji: "😴", group: "Ops" }]));
     srv = await startServer(fx);
   });
@@ -84,6 +85,7 @@ describe("agent search API", () => {
       ["reviewer", "writer"]
     );
     assert.deepEqual(self.agents[1], { slug: "writer", name: "Writer", emoji: "✍️", description: "drafts posts" });
+    assert.deepEqual(self.channels, [{ slug: "marketing-sales", name: "Marketing & Sales", purpose: "campaigns and leads" }], "channels ride along, without members");
   });
 
   it("lists the other projects' recorded rosters, running and stopped", async () => {
@@ -96,11 +98,13 @@ describe("agent search API", () => {
     assert.equal(running.name, "Other");
     assert.equal(running.icon, "🛰️");
     assert.deepEqual(running.agents, [{ slug: "remote-bot", name: "Remote Bot", emoji: "🤖" }]);
+    assert.deepEqual(running.channels, [{ slug: "ops", name: "Ops" }]);
     const stopped = workspaces.find((w) => w.root === stoppedRoot);
     assert.ok(stopped);
     assert.equal(stopped.live, false);
     assert.equal(stopped.name, "Dormant");
     assert.deepEqual(stopped.agents, [{ slug: "sleeper", name: "Sleeper", emoji: "😴", group: "Ops" }]);
+    assert.deepEqual(stopped.channels, [], "a record without channels lists none");
   });
 
   it("records this workspace's roster in the project registry whenever it is read", async () => {
@@ -123,5 +127,6 @@ describe("agent search API", () => {
       ["planner", "reviewer", "writer"]
     );
     assert.equal(rec?.startCount, 1, "the rest of the record is untouched");
+    assert.deepEqual(rec?.channels?.map((c) => c.slug), ["marketing-sales"], "the channel list is recorded too");
   });
 });

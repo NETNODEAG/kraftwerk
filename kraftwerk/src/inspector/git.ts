@@ -7,8 +7,8 @@ import { getOutputDir, getProjectRoot } from "./context.js";
 
 /**
  * Workspace git sync. Several people run kraftwerk against one git repo, so
- * knowledge, agents, skills and workflows travel between them like any other
- * tracked file. The inspector shows what changed, lets a human pick files and
+ * knowledge, agents, skills, channels and workflows travel between them like
+ * any other tracked file. The inspector shows what changed, lets a human pick files and
  * commit them, and pushes on request.
  *
  * Deliberate limits, because this runs git on someone's repo from a web UI
@@ -282,9 +282,9 @@ interface Scope {
 
 /**
  * The roots that may be committed, as repo-relative paths: the workflows,
- * knowledge, agents, skills and vibeables roots this project declares, plus
- * kraftwerk.yml. The output directory is excluded even when it lives inside
- * one of them.
+ * knowledge, agents, skills, channels and vibeables roots this project
+ * declares, plus kraftwerk.yml and the project README. The output directory
+ * is excluded even when it lives inside one of them.
  */
 function scopeFor({ project, repoRoot }: Repo): Scope {
   // rev-parse reports the repo root with symlinks resolved; the project root
@@ -307,9 +307,12 @@ function scopeFor({ project, repoRoot }: Repo): Scope {
     path.resolve(project.root, project.config.knowledge ?? "knowledge"),
     path.resolve(project.root, project.config.agents ?? "agents"),
     path.resolve(project.root, project.config.skills ?? "skills"),
+    // Channels have no configurable root: channels/ under the project.
+    path.resolve(project.root, "channels"),
     // Vibeables are the workspace's own apps: versioned with it, unlike clones.
     vibeablesRootFor(project),
     project.configPath,
+    path.resolve(project.root, "README.md"),
   ];
   const mapped = roots.filter((r): r is string => !!r).map(rel).filter((r): r is string => !!r);
   // Clones under the repos root are other people's history, never this

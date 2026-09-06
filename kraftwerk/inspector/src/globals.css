@@ -1845,7 +1845,7 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .git-blocked summary { font-size: 12.5px; color: var(--on-surface-variant); cursor: pointer; }
 .git-blocked .git-row { padding-left: 0; padding-right: 0; }
 
-/* ---------- ⌘K agent palette (search.tsx) ---------- */
+/* ---------- ⌘K palette (search.tsx): agents and channels by workspace ---------- */
 
 .kbd {
   font-family: var(--font-mono), monospace; font-size: 10.5px; line-height: 1;
@@ -1891,11 +1891,16 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .palette-name { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .palette-sub { font-size: 12px; color: var(--on-surface-variant); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.palette-ws {
-  flex: none; display: inline-flex; align-items: center; gap: 5px;
-  max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 11.5px; color: var(--on-surface-variant);
+.palette-emoji .ms { font-size: 18px; color: var(--on-surface-variant); }
+.palette-group {
+  display: flex; align-items: center; gap: 6px;
+  padding: 12px 10px 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--on-surface-variant);
 }
+.palette-group:first-child { padding-top: 6px; }
+.palette-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-group-note { font-weight: 400; letter-spacing: 0; text-transform: none; }
 .palette-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--on-surface-variant); }
 .palette-empty a { text-decoration: underline; }
 .palette-foot {

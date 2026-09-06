@@ -4,6 +4,7 @@ import { parse, stringify } from "yaml";
 import { getProjectRoot } from "./context.js";
 import { resolveProject } from "../config.js";
 import { listAgents, safeAgentSlug, slugFromName, type Agent } from "./agents.js";
+import { syncProjectChannels } from "./instances.js";
 
 /**
  * Channels: one transcript shared by several agents and humans — a Slack
@@ -31,6 +32,15 @@ export interface Channel {
   /** Agent-to-agent handovers allowed per human message. */
   maxHops: number;
 }
+
+/** What the ⌘K palette needs of a channel (and what the project registry records). */
+export type ChannelSummary = Pick<Channel, "slug" | "name" | "purpose">;
+
+export const toChannelSummary = (c: Channel): ChannelSummary => ({
+  slug: c.slug,
+  name: c.name,
+  ...(c.purpose ? { purpose: c.purpose } : {}),
+});
 
 export const DEFAULT_MAX_HOPS = 3;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,48}$/;
@@ -78,7 +88,12 @@ export async function listChannels(): Promise<Channel[]> {
     return [];
   }
   const channels = await Promise.all(entries.map((slug) => getChannel(slug)));
-  return (channels.filter(Boolean) as Channel[]).sort((a, b) => a.name.localeCompare(b.name));
+  const list = (channels.filter(Boolean) as Channel[]).sort((a, b) => a.name.localeCompare(b.name));
+  // Like the agent roster: the registry copy feeds other instances' palettes.
+  await resolveProject(getProjectRoot())
+    .then((p) => syncProjectChannels(p.root, list.map(toChannelSummary)))
+    .catch(() => {});
+  return list;
 }
 
 export async function getChannel(slug: string): Promise<Channel | null> {

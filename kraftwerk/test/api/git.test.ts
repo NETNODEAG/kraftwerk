@@ -11,7 +11,9 @@ describe("git sync API", () => {
     fx = await makeProject();
     await fx.write("knowledge/.env", "SECRET=1\n");
     await fx.write("output/runs/1.json", "{}\n");
-    await fx.write("README.md", "outside the scope\n");
+    await fx.write("README.md", "# fixture\n");
+    await fx.write("channels/marketing-sales/channel.yml", "name: Marketing & Sales\nmembers: []\n");
+    await fx.write("notes.txt", "outside the scope\n");
     fx.git("init", "-q", "knowledge/vendor");
     srv = await startServer(fx);
   });
@@ -38,9 +40,11 @@ describe("git sync API", () => {
     const files = byPath(st);
     assert.equal(files.get("knowledge/notes.md")?.syncable, true);
     assert.equal(files.get("kraftwerk.yml")?.syncable, true);
+    assert.equal(files.get("README.md")?.syncable, true, "the project README travels with the workspace");
+    assert.equal(files.get("channels/marketing-sales/channel.yml")?.syncable, true, "channel definitions travel with the workspace");
     assert.match(files.get("knowledge/.env")?.reason ?? "", /secret/);
     assert.match(files.get("knowledge/vendor/")?.reason ?? "", /nested git repository/);
-    assert.match(files.get("README.md")?.reason ?? "", /outside the workspace/);
+    assert.match(files.get("notes.txt")?.reason ?? "", /outside the workspace/);
     assert.match(files.get("output/runs/1.json")?.reason ?? "", /run artifacts/);
   });
 
@@ -48,7 +52,7 @@ describe("git sync API", () => {
     const shown = await diff("knowledge/notes.md");
     assert.equal(shown.error, undefined);
     assert.match(shown.diff, /^\+# notes$/m);
-    for (const denied of ["knowledge/.env", "README.md", "knowledge/vendor/", "../etc/passwd", "kraftwerk.yaml"]) {
+    for (const denied of ["knowledge/.env", "notes.txt", "knowledge/vendor/", "../etc/passwd", "kraftwerk.yaml"]) {
       const r = await diff(denied);
       assert.equal(r.diff, "", denied);
       assert.ok(r.error, denied);
@@ -56,7 +60,7 @@ describe("git sync API", () => {
   });
 
   it("refuses to commit anything the status did not mark syncable", async () => {
-    for (const paths of [["knowledge"], ["knowledge/.env"], ["knowledge/vendor/"], ["README.md"]]) {
+    for (const paths of [["knowledge"], ["knowledge/.env"], ["knowledge/vendor/"], ["notes.txt"]]) {
       const r = await commit(paths, "nope");
       assert.equal(r.status, 409, paths.join());
     }

@@ -169,7 +169,57 @@ async function loadState(id: string): Promise<ChatState | null> {
     writeChain: Promise.resolve(),
   };
   // Two racing loads: keep whichever registered first.
-  return states.get(id) ?? (states.set(id, state), state);
+  const registered = states.get(id) ?? (states.set(id, state), state);
+  if (registered === state) closeInterruptedWork(state);
+  return registered;
+}
+
+/**
+ * A chat loaded from disk has no live process: whatever the transcript
+ * still shows as in flight died with the previous inspector (restart,
+ * relaunch after an update, crash). Left alone, the UI keeps rendering a
+ * permission card nobody can answer any more and a "working" lamp that
+ * never goes out. Close those out once, in the transcript itself, so
+ * every reader sees the same settled thread: dropped permission requests
+ * resolve to "dismissed", open turns end with an error that says why.
+ */
+function closeInterruptedWork(state: ChatState): void {
+  const pending = new Map<string, Author | undefined>();
+  const open = new Map<string, Author | undefined>();
+  const key = (a?: Author) => (a?.kind === "agent" ? `agent:${a.slug}` : "main");
+  for (const e of state.events) {
+    switch (e.type) {
+      case "permission_request":
+        pending.set(e.requestId, e.from);
+        break;
+      case "permission_resolved":
+        pending.delete(e.requestId);
+        break;
+      // Channels: a turn is bracketed by turn_start/turn_end per agent.
+      // Ordinary chats never emit turn_start: the user's message opens the
+      // turn, turn_end/error closes it.
+      case "user_message":
+        if (state.meta.scope.kind !== "channel") open.set("main", undefined);
+        break;
+      case "turn_start":
+        open.set(key(e.from), e.from);
+        break;
+      case "turn_end":
+      case "error":
+        open.delete(key(e.from));
+        break;
+    }
+  }
+  for (const [requestId, from] of pending) {
+    emit(state, { type: "permission_resolved", requestId, optionId: null }, from);
+    void dismissKey(`approval:${state.meta.id}:${requestId}`);
+  }
+  for (const from of open.values()) {
+    const who = from?.kind === "agent" ? `@${from.slug}` : "the agent";
+    const how = state.meta.scope.kind === "channel" ? `mention ${who} again` : "send another message";
+    emit(state, { type: "error", message: `${who} was interrupted by an inspector restart — ${how} to continue` }, from);
+  }
+  if (pending.size || open.size) void writeMeta(state.meta).catch(() => {});
 }
 
 function emit(state: ChatState, ev: ChatEvent, from?: Author): StoredChatEvent {

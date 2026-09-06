@@ -6,6 +6,7 @@ import path from "node:path";
 import { absolutePath, isDir, resolveProject } from "../config.js";
 import { selfCommand } from "./self-command.js";
 import type { AgentSummary } from "./agents.js";
+import type { ChannelSummary } from "./channels.js";
 
 /**
  * Two registries under ~/.kraftwerk, two lifecycles:
@@ -50,6 +51,8 @@ export interface ProjectRecord {
   startCount: number;
   /** Active agents, as last seen by the instance serving this root. */
   agents?: AgentSummary[];
+  /** Channels, as last seen by the instance serving this root. */
+  channels?: ChannelSummary[];
 }
 
 /** A verified running instance, shaped like a switcher entry. */
@@ -220,6 +223,7 @@ async function readProject(file: string): Promise<ProjectRecord | null> {
       lastStopped: rec.lastStopped,
       startCount: rec.startCount ?? 1,
       ...(Array.isArray(rec.agents) ? { agents: rec.agents } : {}),
+      ...(Array.isArray(rec.channels) ? { channels: rec.channels } : {}),
     };
   } catch {
     return null;
@@ -239,30 +243,34 @@ export async function registerProject(root: string): Promise<void> {
       lastStarted: now,
       startCount: (prev?.startCount ?? 0) + 1,
       ...(prev?.agents ? { agents: prev.agents } : {}),
+      ...(prev?.channels ? { channels: prev.channels } : {}),
     };
     await fs.writeFile(projectFile(abs), JSON.stringify(rec, null, 2));
   } catch {} // best-effort, like the instance file
 }
 
-let syncedAgents = "";
+const synced = new Map<string, string>();
 
 /**
- * Write the roster into the project's record. Called on every roster read
- * (the UI polls it, routines tick it), so a record only changes when the
- * roster did. Roots with no record (a CLI run in a project that never
- * started the inspector) are left alone.
+ * Write the roster (or the channel list) into the project's record. Called
+ * on every read (the UI polls it, routines tick it), so a record only
+ * changes when the list did. Roots with no record (a CLI run in a project
+ * that never started the inspector) are left alone.
  */
-export async function syncProjectAgents(root: string, agents: AgentSummary[]): Promise<void> {
-  const key = `${root}\n${JSON.stringify(agents)}`;
-  if (key === syncedAgents) return;
+async function syncProjectList<K extends "agents" | "channels">(root: string, key: K, list: NonNullable<ProjectRecord[K]>): Promise<void> {
+  const stamp = `${root}\n${JSON.stringify(list)}`;
+  if (synced.get(key) === stamp) return;
   try {
     const file = projectFile(root);
     const rec = await readProject(file);
     if (!rec) return;
-    await fs.writeFile(file, JSON.stringify({ ...rec, agents }, null, 2));
-    syncedAgents = key;
+    await fs.writeFile(file, JSON.stringify({ ...rec, [key]: list }, null, 2));
+    synced.set(key, stamp);
   } catch {}
 }
+
+export const syncProjectAgents = (root: string, agents: AgentSummary[]): Promise<void> => syncProjectList(root, "agents", agents);
+export const syncProjectChannels = (root: string, channels: ChannelSummary[]): Promise<void> => syncProjectList(root, "channels", channels);
 
 /** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */
 export function markProjectStopped(): void {

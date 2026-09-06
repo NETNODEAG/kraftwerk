@@ -192,12 +192,13 @@ switcher:
     icon: "🛰"   # optional
 ```
 
-**⌘K** (Ctrl K) anywhere in the inspector opens the agent palette: type a
-few letters of an agent's name, description or workspace and hit enter to
-jump to it. It lists the active agents of every workspace on this machine,
-running or not (a stopped one is started on the way), read from the
-project registry under `~/.kraftwerk/projects`, which every inspector keeps
-current with its roster.
+**⌘K** (Ctrl K) anywhere in the inspector opens the palette: type a few
+letters of an agent's or channel's name, description or workspace and hit
+enter to jump to it. It lists the active agents and the channels of every
+workspace on this machine, grouped by workspace and running or not (a
+stopped one is started on the way), read from the project registry under
+`~/.kraftwerk/projects`, which every inspector keeps current with its
+roster and channel list.
 
 ### Triggering from CI, cron, or webhooks
 

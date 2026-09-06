@@ -530,15 +530,26 @@ function PermissionCard({
   chatId: string;
 }) {
   const [sending, setSending] = useState(false);
-  const pending = b.resolved === undefined;
+  // The server no longer holds this request (answered elsewhere, or the
+  // agent is gone): say so instead of leaving buttons that do nothing.
+  const [gone, setGone] = useState<string | null>(null);
+  const pending = b.resolved === undefined && !gone;
 
   async function answer(optionId: string | null) {
     setSending(true);
-    await fetch(`/api/chats/${chatId}/permission`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ requestId: b.requestId, optionId }),
-    }).catch(() => {});
+    try {
+      const r = await fetch(`/api/chats/${chatId}/permission`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: b.requestId, optionId }),
+      });
+      if (!r.ok) {
+        const body = (await r.json().catch(() => ({}))) as { error?: string };
+        setGone(body.error ?? `request failed (${r.status})`);
+      }
+    } catch {
+      /* offline: the buttons stay, the next click retries */
+    }
     setSending(false);
   }
 
@@ -564,7 +575,9 @@ function PermissionCard({
         <div className="perm-resolved">
           {b.resolved
             ? `→ ${b.options.find((o) => o.optionId === b.resolved)?.name ?? b.resolved}`
-            : "→ dismissed"}
+            : gone
+              ? `→ ${gone}`
+              : "→ dismissed"}
         </div>
       )}
     </div>

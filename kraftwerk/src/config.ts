@@ -52,7 +52,7 @@ const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
 /**
  * Git sync for the workspace. The synced paths are not configurable: they
  * are the roots this file already declares (workflows, knowledge, agents,
- * skills) plus kraftwerk.yml itself. Commit and push stay manual; the
+ * skills), channels/, README.md and kraftwerk.yml itself. Commit and push stay manual; the
  * interval only fetches, and pulls when `autosync` allows it.
  */
 /**

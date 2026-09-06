@@ -48,6 +48,74 @@ describe("chats API: approval state", () => {
     assert.equal(r.status, 409);
   });
 
+  /**
+   * An inspector restart kills every agent process. What the transcript
+   * still shows as in flight (a permission request nobody answered, an
+   * agent mid-turn) can never finish, so the first load from disk closes
+   * it out in the transcript: the request resolves to dismissed, the open
+   * turn ends with an error naming the restart. Reading again adds nothing.
+   */
+  it("closes permission requests and turns a restart left open", async () => {
+    const id = "chat-2026-01-01-0000-00-stale";
+    const ev = (o: Record<string, unknown>) => JSON.stringify(o) + "\n";
+    const dhh = { kind: "agent", slug: "dhh" };
+    await fx.write(
+      `output/chats/${id}/meta.json`,
+      JSON.stringify({
+        id,
+        agent: "claude",
+        title: "Marketing",
+        cwd: fx.root,
+        scope: { kind: "channel", slug: "marketing" },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      })
+    );
+    await fx.write(
+      `output/chats/${id}/events.jsonl`,
+      ev({ type: "user_message", text: "@dhh push it", seq: 1, ts: "2026-01-01T00:00:00.000Z", from: { kind: "human", name: "you" } }) +
+        ev({ type: "turn_start", seq: 2, ts: "2026-01-01T00:00:01.000Z", from: dhh }) +
+        ev({ type: "permission_request", requestId: "done", title: "lint", options: [{ optionId: "allow", name: "Yes" }], seq: 3, ts: "2026-01-01T00:00:02.000Z", from: dhh }) +
+        ev({ type: "permission_resolved", requestId: "done", optionId: "allow", seq: 4, ts: "2026-01-01T00:00:03.000Z", from: dhh }) +
+        ev({ type: "permission_request", requestId: "orphan", title: "push", options: [{ optionId: "allow", name: "Yes" }], seq: 5, ts: "2026-01-01T00:00:04.000Z", from: dhh })
+    );
+    type Ev = { type: string; seq: number; requestId?: string; optionId?: string | null; message?: string; from?: { slug?: string } };
+    const load = async () => ((await (await fetch(`${srv.url}/api/chats/${id}`)).json()) as { events: Ev[]; busy: boolean }).events;
+    const events = await load();
+    const added = events.filter((e) => e.seq > 5);
+    assert.deepEqual(
+      added.map((e) => [e.type, e.from?.slug]),
+      [
+        ["permission_resolved", "dhh"],
+        ["error", "dhh"],
+      ]
+    );
+    assert.equal(added[0].requestId, "orphan");
+    assert.equal(added[0].optionId, null);
+    assert.match(added[1].message ?? "", /@dhh was interrupted by an inspector restart — mention @dhh again/);
+    assert.equal((await load()).length, events.length, "a second read settles nothing new");
+    const again = await post(`/api/chats/${id}/permission`, { requestId: "orphan", optionId: "allow" });
+    assert.equal(again.status, 409);
+  });
+
+  it("closes the open turn of an ordinary chat a restart interrupted", async () => {
+    const id = "chat-2026-01-01-0000-00-plain";
+    const ev = (o: Record<string, unknown>) => JSON.stringify(o) + "\n";
+    await fx.write(
+      `output/chats/${id}/meta.json`,
+      JSON.stringify({ id, agent: "claude", title: "t", cwd: fx.root, scope: { kind: "general" }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" })
+    );
+    await fx.write(
+      `output/chats/${id}/events.jsonl`,
+      ev({ type: "user_message", text: "hi", seq: 1, ts: "2026-01-01T00:00:00.000Z" }) +
+        ev({ type: "turn_end", stopReason: "end_turn", seq: 2, ts: "2026-01-01T00:00:01.000Z" }) +
+        ev({ type: "user_message", text: "and now?", seq: 3, ts: "2026-01-01T00:00:02.000Z" })
+    );
+    const { events } = (await (await fetch(`${srv.url}/api/chats/${id}`)).json()) as { events: Array<{ type: string; seq: number; message?: string }> };
+    assert.deepEqual(events.filter((e) => e.seq > 3).map((e) => e.type), ["error"]);
+    assert.match(events[events.length - 1].message ?? "", /the agent was interrupted by an inspector restart — send another message/);
+  });
+
   it("routine status omits awaitingApproval while no run is waiting", async () => {
     await fx.write("agents/watcher/agent.yml", "name: Watcher\nharness: claude\n");
     const up = await post("/api/agents/watcher/routines", {
