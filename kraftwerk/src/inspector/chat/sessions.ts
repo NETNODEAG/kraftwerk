@@ -402,7 +402,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       .map((b) => `- ${b.name} (${b.concepts} concepts${b.updatedAt ? `, updated ${b.updatedAt.slice(0, 10)}` : ""})`)
       .join("\n");
     return (
-      `You are the knowledge curator inside the kraftwerk inspector ("Context & Knowledge"). ` +
+      `You are the knowledge curator inside the kraftwerk inspector ("Knowledge"). ` +
       `This project keeps knowledge as OKF v0.2 bundles (Open Knowledge Format): directories of markdown ` +
       `files with YAML frontmatter under ${root || "knowledge/"}. Each direct subdirectory is one bundle; each .md file ` +
       `(except the reserved index.md and log.md) is one concept.\n\n` +

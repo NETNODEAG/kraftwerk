@@ -26,7 +26,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk list                    discover + list workflows (--json, --from)
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
- *   kraftwerk knowledge ...           Context & Knowledge: OKF bundles (list/get/put/verify/...)
+ *   kraftwerk knowledge ...           Knowledge: OKF bundles (list/get/put/verify/...)
  *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run)
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk projects ...            known projects on this machine (list/start/forget)

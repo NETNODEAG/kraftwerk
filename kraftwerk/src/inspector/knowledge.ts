@@ -17,7 +17,7 @@ import {
 import { getProjectRoot } from "./context.js";
 
 /**
- * Context & Knowledge for the inspector: a thin API layer over the OKF
+ * Knowledge for the inspector: a thin API layer over the OKF
  * core (src/okf.ts). Writes from the UI are stamped as `human:user` — the
  * browser user is the human in the loop; agents write through the CLI (or
  * chat) with their own actor.

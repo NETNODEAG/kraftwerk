@@ -3,7 +3,7 @@ import path from "node:path";
 import { parse as parseYaml, parseDocument } from "yaml";
 
 /**
- * OKF (Open Knowledge Format) core — kraftwerk's "Context & Knowledge"
+ * OKF (Open Knowledge Format) core — kraftwerk's "Knowledge"
  * feature. Implements OKF v0.2 (github.com/GoogleCloudPlatform/knowledge-catalog):
  * a knowledge bundle is a directory of markdown files with YAML frontmatter,
  * one concept per file, plus the reserved index.md / log.md.

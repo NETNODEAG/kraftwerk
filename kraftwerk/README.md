@@ -148,7 +148,7 @@ kraftwerk list                          # table: workflows, steps, agents (with 
 kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
-kraftwerk knowledge                     # Context & Knowledge: OKF bundles (list/get/put/verify/search/...)
+kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
 kraftwerk projects                      # every workspace on this machine; projects start|stop|forget <ref>
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
@@ -460,7 +460,7 @@ browser. API: `GET/POST /api/channels`, `GET/PUT/DELETE /api/channels/:slug`,
 `POST /api/channels/from-chat {chatId, name, members}`; messages go through
 the chat endpoint with `from` for the poster's name.
 
-## Context & Knowledge
+## Knowledge
 
 Alongside runs and chats, a project can keep curated knowledge as
 [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
@@ -503,7 +503,7 @@ trust tier per concept from that:
 - Verified by a non-human actor means machine-confirmed.
 - Verified by a `human:` actor means human-reviewed.
 
-The inspector's Context & Knowledge screen shows bundles, concepts with
+The inspector's Knowledge screen shows bundles, concepts with
 trust, status and staleness badges, sources, and the bundle log. The verify
 button records a `human:user` verification. "Curate in chat" opens a
 knowledge-scoped chat whose agent knows the OKF essentials and writes through

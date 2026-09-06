@@ -167,12 +167,13 @@ export function App() {
           )}
         </span>
         <nav>
-          <a href="#/agents"><Icon name="groups" /> agents</a>
+          {/* Simple mode keeps channels, agents, workflows, knowledge and vibeables; .nav-expert entries are expert-only. */}
           <a href="#/channels"><Icon name="forum" /> channels</a>
-          <a href="#/knowledge"><Icon name="menu_book" /> context &amp; knowledge</a>
+          <a href="#/agents"><Icon name="groups" /> agents</a>
           <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
-          <a href="#/skills"><Icon name="extension" /> skills</a>
-          {reposOn && <a href="#/repos"><Icon name="source" /> repositories</a>}
+          <a href="#/knowledge"><Icon name="menu_book" /> knowledge</a>
+          <a href="#/skills" className="nav-expert"><Icon name="extension" /> skills</a>
+          {reposOn && <a href="#/repos" className="nav-expert"><Icon name="source" /> repositories</a>}
           {vibeablesOn && <a href="#/vibeables"><Icon name="web" /> vibeables</a>}
           {gitOn && <GitNavLink />}
         </nav>
@@ -197,7 +198,7 @@ function GitNavLink() {
   const st = usePoll<GitStatus>("/api/git", false, 15_000);
   const dirty = st?.files?.filter((f) => f.syncable).length ?? 0;
   return (
-    <a href="#/git">
+    <a href="#/git" className="nav-expert">
       <Icon name="cloud_sync" /> git
       {!!st?.behind && <span className="git-badge behind">{st.behind}↓</span>}
       {!!st?.ahead && <span className="git-badge ahead">{st.ahead}↑</span>}

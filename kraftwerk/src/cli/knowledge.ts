@@ -19,8 +19,8 @@ import {
 } from "../okf.js";
 
 /**
- * `kraftwerk knowledge` — the CLI surface over OKF bundles (Context &
- * Knowledge). This is the enforced write path: `put` stamps provenance
+ * `kraftwerk knowledge` — the CLI surface over OKF bundles (the
+ * inspector's Knowledge screen). This is the enforced write path: `put` stamps provenance
  * (`generated: { by, at }`), appends the bundle log, and regenerates
  * index.md; direct file edits are healed by `fsck --fix`.
  *
@@ -86,7 +86,7 @@ async function readStdin(): Promise<string> {
 export function registerKnowledgeCommands(program: Command): void {
   const knowledge = program
     .command("knowledge")
-    .description("Context & Knowledge: OKF bundles under knowledge/ (read, write, verify)");
+    .description("Knowledge: OKF bundles under knowledge/ (read, write, verify)");
 
   knowledge
     .command("list", { isDefault: true })

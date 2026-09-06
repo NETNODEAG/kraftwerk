@@ -33,6 +33,21 @@ test.describe("workflows screen", () => {
     );
   });
 
+  test("simple mode keeps channels, agents, workflows, knowledge and vibeables in the top nav", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("kw-expert", "off"));
+    await page.goto("/#/workflows");
+    const nav = page.locator(".topbar nav");
+    await expect(nav.locator("a", { hasText: "channels" })).toBeVisible();
+    await expect(nav.locator("a", { hasText: "agents" })).toBeVisible();
+    await expect(nav.locator("a", { hasText: "workflows" })).toBeVisible();
+    await expect(nav.locator("a", { hasText: "knowledge" })).toBeVisible();
+    await expect(nav.locator("a", { hasText: "knowledge" })).not.toContainText("context");
+    await expect(nav.locator("a", { hasText: "skills" })).toBeHidden();
+
+    await page.locator(".expert-toggle").click();
+    await expect(nav.locator("a", { hasText: "skills" })).toBeVisible();
+  });
+
   test("lists workflows with run counts, searches, and keeps runs under workflows", async ({ page }) => {
     await page.goto("/#/workflows");
     await expect(page.locator(".topbar nav")).not.toContainText("workflow runs");

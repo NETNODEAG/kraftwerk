@@ -8,7 +8,7 @@ import { exportBundlePdf, wikilinks } from "./export";
 import { editorHref } from "./editor-link";
 
 /**
- * Context & Knowledge: OKF bundles under the project's knowledge/ root.
+ * Knowledge: OKF bundles under the project's knowledge/ root.
  * Sidebar lists bundles; a bundle page lists its concepts with trust
  * tier / status / staleness; a concept page shows frontmatter (provenance,
  * sources, verification) plus the markdown body, with a human-verify
@@ -91,7 +91,7 @@ function KnowledgeHome({ root }: { root?: string }) {
   return (
     <div className="new-chat">
       <div className="page-head">
-        <h1>context &amp; knowledge</h1>
+        <h1>knowledge</h1>
       </div>
       <section className="panel new-chat-panel">
         <div className="panel-head">

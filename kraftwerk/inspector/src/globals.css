@@ -541,8 +541,9 @@ a.ws-name:hover { text-decoration: underline; }
 .expert-toggle.on .expert-track { background: var(--primary); }
 .expert-toggle.on .expert-knob { left: 13px; background: var(--on-primary, var(--surface)); }
 
-/* Simple mode hides the machinery: top navigation, harness chips, working dirs. */
-html[data-expert="off"] .topbar nav,
+/* Simple mode hides the machinery: expert-only nav entries (channels, agents,
+   workflows, knowledge and vibeables stay), harness chips, working dirs. */
+html[data-expert="off"] .topbar nav .nav-expert,
 html[data-expert="off"] .chat-thread .detail-head .chip.agent,
 html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 
@@ -1214,7 +1215,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
   .agent-pick { grid-template-columns: 1fr; }
 }
 
-/* ---------- context & knowledge ---------- */
+/* ---------- knowledge ---------- */
 
 .know-intro { padding: 12px 18px; font-size: 13px; line-height: 1.6; color: var(--on-surface-variant); }
 .know-intro code { font-size: 11.5px; }
