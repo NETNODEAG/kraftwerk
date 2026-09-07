@@ -559,8 +559,12 @@ a.ws-name:hover { text-decoration: underline; }
   font-size: 12px; color: var(--on-surface-variant);
 }
 .update-result .ms { vertical-align: 0; color: var(--success); }
-.update-result.newer { color: var(--primary); font-weight: 500; flex-basis: 100%; }
+.update-result.newer { color: var(--primary); font-weight: 500; flex-basis: 100%; flex-wrap: wrap; }
 .update-result.newer code { font-size: 11px; }
+.update-result.update-progress, .update-result.update-failed { flex-basis: 100%; flex-wrap: wrap; }
+.update-result.update-failed { color: var(--error); }
+.update-log { font-size: 11px; color: var(--on-surface-variant); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-refused { color: var(--on-surface-variant); font-weight: 400; }
 
 /* "vX ready — relaunch" pill: a newer install is on disk; click restarts the server. */
 .relaunch-note {

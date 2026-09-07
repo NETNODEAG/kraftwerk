@@ -501,6 +501,23 @@ function LatestRun() {
  * restarts the supervised server (POST /api/restart), waits for the new
  * version to answer, then reloads the page.
  */
+/** Restart the supervised server and reload once it answers with `target`. */
+async function relaunchTo(target: string): Promise<void> {
+  await fetch("/api/restart", { method: "POST" }).catch(() => {});
+  // Wait until the respawned server answers with the on-disk version.
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
+      if (d.version === target) break;
+    } catch {}
+  }
+  location.reload();
+}
+
+/** Fired by the self-update when a new version landed on disk, so the pill shows at once. */
+const VERSION_EVENT = "kw-version-changed";
+
 function RelaunchNote() {
   const [meta, setMeta] = useState<{
     version: string;
@@ -513,6 +530,7 @@ function RelaunchNote() {
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      clearTimeout(timer);
       try {
         const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
         if (alive) setMeta(d);
@@ -520,9 +538,12 @@ function RelaunchNote() {
       if (alive) timer = setTimeout(tick, 30_000);
     };
     void tick();
+    const onChange = () => void tick();
+    window.addEventListener(VERSION_EVENT, onChange);
     return () => {
       alive = false;
       clearTimeout(timer);
+      window.removeEventListener(VERSION_EVENT, onChange);
     };
   }, []);
 
@@ -534,16 +555,7 @@ function RelaunchNote() {
   async function relaunch(): Promise<void> {
     if (!target) return;
     setRestarting(true);
-    await fetch("/api/restart", { method: "POST" }).catch(() => {});
-    // Wait until the respawned server answers with the on-disk version.
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
-        if (d.version === target) break;
-      } catch {}
-    }
-    location.reload();
+    await relaunchTo(target);
   }
 
   if (!target && !restarting) return null;
@@ -868,10 +880,19 @@ function semverLt(a: string, b: string): boolean {
   return false;
 }
 
-/** Manual "check for updates": asks the server to query the npm registry. */
+/**
+ * "check for updates" asks the server to query the npm registry; a newer
+ * version gets an "update now" that runs `npm i -g` through the server
+ * (POST /api/update) with its output shown here, then hands over to the
+ * relaunch. Where the server refuses (container, global folder not
+ * writable) the command is shown to run by hand, as before.
+ */
 function UpdateCheck() {
   const [state, setState] = useState<"idle" | "busy" | "done" | "err">("idle");
   const [info, setInfo] = useState<{ name: string; current: string; latest: string } | null>(null);
+  const [job, setJob] = useState<UpdateJob | null>(null);
+  const [refused, setRefused] = useState("");
+  const [relaunching, setRelaunching] = useState(false);
 
   async function check(): Promise<void> {
     setState("busy");
@@ -886,11 +907,81 @@ function UpdateCheck() {
     }
   }
 
+  // Follow a running install until it ends; then tell the relaunch pill.
+  const running = job?.state === "running";
+  useEffect(() => {
+    if (!running) return;
+    let alive = true;
+    const timer = setInterval(async () => {
+      try {
+        const d = (await fetch("/api/update", { cache: "no-store" }).then((r) => r.json())) as UpdateJob;
+        if (!alive) return;
+        setJob(d);
+        if (d.state !== "running") window.dispatchEvent(new Event(VERSION_EVENT));
+      } catch {}
+    }, 1000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [running]);
+
+  async function install(): Promise<void> {
+    if (!info) return;
+    setRefused("");
+    const r = await fetch("/api/update", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version: info.latest }),
+    });
+    const d = (await r.json()) as UpdateJob & { error?: string };
+    if (!r.ok) setRefused(d.error ?? "update refused");
+    else setJob(d);
+  }
+
+  if (job && job.state !== "idle" && info) {
+    const last = job.log[job.log.length - 1] ?? "";
+    if (job.state === "running")
+      return (
+        <span className="update-result update-progress">
+          <Icon name="progress_activity" className="ms-sm ms-spin" /> installing v{info.latest}…
+          {last && <code className="update-log" title={job.log.join("\n")}>{last}</code>}
+        </span>
+      );
+    if (job.state === "done")
+      return (
+        <span className="update-result newer">
+          v{info.latest} installed —{" "}
+          {job.restartable ? (
+            <button className="update-btn" disabled={relaunching} onClick={() => { setRelaunching(true); void relaunchTo(info.latest); }}>
+              <Icon name="restart_alt" className="ms-sm" /> {relaunching ? "relaunching…" : "relaunch"}
+            </button>
+          ) : (
+            <>restart <code>kraftwerk ui</code> to use it</>
+          )}
+        </span>
+      );
+    return (
+      <span className="update-result update-failed" title={job.log.join("\n")}>
+        <Icon name="error" className="ms-sm" /> install failed{last ? ` — ${last}` : ""} · <code>npm i -g {info.name}@latest</code>
+      </span>
+    );
+  }
+
   if (state === "done" && info) {
     const newer = semverLt(info.current, info.latest);
     return newer ? (
       <span className="update-result newer">
-        v{info.latest} available — <code>npm i -g {info.name}@latest</code>
+        v{info.latest} available —{" "}
+        {refused ? (
+          <>
+            <span className="update-refused" title={refused}>{refused}</span> · <code>npm i -g {info.name}@latest</code>
+          </>
+        ) : (
+          <button className="update-btn" onClick={() => void install()}>
+            <Icon name="download" className="ms-sm" /> update now
+          </button>
+        )}
       </span>
     ) : (
       <span className="update-result">
@@ -909,6 +1000,14 @@ function UpdateCheck() {
       )}
     </button>
   );
+}
+
+interface UpdateJob {
+  state: "idle" | "running" | "done" | "failed";
+  version?: string;
+  log: string[];
+  exitCode?: number | null;
+  restartable?: boolean;
 }
 
 function ThemeToggle() {

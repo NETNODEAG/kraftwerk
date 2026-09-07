@@ -82,9 +82,15 @@ download per call:
 npx @netnodeag/kraftwerk --version
 ```
 
-Upgrading is the same command with `@latest`. A running inspector serves the
-version it started with, so restart each UI afterwards. It offers a relaunch
-by itself once a newer version is on disk.
+Upgrading is the same command with `@latest`, or "check for updates" in the
+inspector's info popover: a newer version gets an "update now" that runs the
+install through the server (`POST /api/update`, output in the popover,
+`GET /api/update` for its state) with the npm that belongs to the Node the
+inspector runs on. It is refused inside a container (rebuild the image) and
+when the global folder is not writable by the inspector's user (a system
+Node that needs sudo) — then the command is shown to run by hand. A running
+inspector serves the version it started with and offers a relaunch once a
+newer version is on disk, right after "update now" or after a manual install.
 
 ```bash
 npm install -g @netnodeag/kraftwerk@latest

@@ -155,9 +155,10 @@ npx @netnodeag/kraftwerk run hello "What is kraftwerk?"
 npx @netnodeag/kraftwerk ui
 ```
 
-To upgrade later, install again and restart any running UI. An inspector
-serves the version it started with, and offers a relaunch once a newer one is
-on disk:
+To upgrade later, use "check for updates" in the inspector's info popover
+(it installs and relaunches by itself where it may), or install again and
+restart any running UI. An inspector serves the version it started with, and
+offers a relaunch once a newer one is on disk:
 
 ```bash
 npm install -g @netnodeag/kraftwerk@latest

@@ -5,6 +5,7 @@ import { attachmentPath, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { resolveProject } from "../config.js";
 import { listRuns, getRun, readRunFile, deleteRun } from "./runs.js";
+import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
 import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
@@ -645,6 +646,30 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       return json(res, { name, current, latest });
     } catch {
       return json(res, { name, current, latest: "", error: "npm registry unreachable" }, 502);
+    }
+  }
+
+  // GET /api/update — state and log of the self-update, plus whether one can run here.
+  // POST /api/update {version?} — run `npm i -g <name>@<version>`; 409 when refused or already running.
+  if (seg.length === 2 && seg[1] === "update") {
+    const name = await getPkgName();
+    if (method === "GET") {
+      const can = canSelfUpdate(name);
+      return json(res, { ...updateStatus(), name, available: can.ok, reason: can.ok ? undefined : can.reason, restartable: supervised() });
+    }
+    if (method === "POST") {
+      let version = "latest";
+      try {
+        const body = JSON.parse((await readBody(req)) || "{}") as { version?: unknown };
+        if (typeof body.version === "string" && body.version) version = body.version;
+      } catch {
+        return json(res, { error: "invalid body" }, 400);
+      }
+      try {
+        return json(res, { ...startUpdate(name, version), name }, 202);
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 409);
+      }
     }
   }
 
