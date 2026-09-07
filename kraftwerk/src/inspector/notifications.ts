@@ -74,7 +74,10 @@ function persist(items: Notification[]): void {
   writeChain = writeChain
     .then(async () => {
       await fs.mkdir(getOutputDir(), { recursive: true });
-      await fs.writeFile(file(), JSON.stringify(items, null, 2));
+      // Write-then-rename: a reader (the UI, a test) never sees a half-written file.
+      const tmp = `${file()}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(items, null, 2));
+      await fs.rename(tmp, file());
     })
     .catch(() => {});
 }

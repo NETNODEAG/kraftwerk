@@ -92,10 +92,13 @@ describe("notifications API", () => {
     });
     const evening = (await saved.json()) as { id: string };
     await send(`/api/agents/watcher/routines/${evening.id}/run`, "POST");
-    // Give the async write chain a tick.
-    await new Promise((r) => setTimeout(r, 50));
+    // The write chain is async: wait for the file to hold the item.
     const { readFile } = await import("node:fs/promises");
-    const raw = JSON.parse(await readFile(path.join(fx.root, "output", "notifications.json"), "utf8")) as unknown[];
+    let raw: unknown[] = [];
+    for (let i = 0; i < 100 && raw.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      raw = JSON.parse(await readFile(path.join(fx.root, "output", "notifications.json"), "utf8").catch(() => "[]")) as unknown[];
+    }
     assert.equal(raw.length, 1);
   });
 });

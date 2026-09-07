@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: dns-check
+description: "DNS propagation check: A, AAAA, NS and MX of a domain asked from 10 public resolvers around the world with dig — fully deterministic, consensus report"
+
+workspace: |
+  Files: answers.json (every answer per resolver and record type, with
+  latency and status), report.md (per-resolver table and the consensus per
+  record type, with the resolvers that disagree), summary.txt (one line).
+  Raw dig output stays in dig/<resolver>-<type>.txt.
+
+steps:
+  - name: query resolvers
+    run: scripts/query.sh
+    gates:
+      - file_non_empty: answers.json
+      - contains: { file: answers.json, text: '"resolver"', label: answers recorded per resolver }
+      - contains: { file: answers.json, text: '"A"', label: A records asked }
+      - contains: { file: answers.json, text: '"NS"', label: NS records asked }
+
+  - name: compare answers
+    run: scripts/compare.sh
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "## Resolvers", label: per-resolver table }
+      - contains: { file: report.md, text: "## Consensus", label: consensus section }
+      - file_non_empty: summary.txt
+
+  - name: output results
+    run: scripts/output.sh

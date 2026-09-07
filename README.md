@@ -224,6 +224,8 @@ workflows. `tagline` is a single agent writing one line. `showdown` puts
 Claude and Codex on the same brief, has them score each other, and computes
 the verdict in a script. `repo-audit` clones a repo, runs security scanners,
 makes an agent verify every finding, and renders a report with fix prompts.
+`dns-check` has no agent at all: three scripts ask ten public resolvers on
+four continents for a domain's records with `dig` and report the consensus.
 
 ```bash
 cd agent-playground
