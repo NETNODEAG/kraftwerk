@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -31,6 +31,28 @@ test.describe("workflows screen", () => {
         { event: "run_summary", ts: "2026-01-01T10:00:05Z", total: { durationMs: 5000, costUsd: 0.01 } },
       ].map((e) => JSON.stringify(e)).join("\n") + "\n"
     );
+    // A launch that died before the framework wrote a trace, 20 minutes ago.
+    const dead = path.join(root, "output", "runs", "2026-01-01-0900-00-boom");
+    mkdirSync(dead, { recursive: true });
+    const log = path.join(dead, "trigger.log");
+    writeFileSync(log, 'Workflow "boom" needs environment variables that are missing: TOKEN\n');
+    const old = new Date(Date.now() - 20 * 60_000);
+    utimesSync(log, old, old);
+    utimesSync(dead, old, old);
+  });
+
+  test("a launch that never wrote a trace shows as failed and can be removed", async ({ page }) => {
+    await page.goto("/#/runs/2026-01-01-0900-00-boom");
+    const head = page.locator(".detail-head");
+    await expect(head.locator(".status-word")).toHaveText("failed");
+    await expect(head.getByRole("button", { name: /stop/ })).toBeHidden();
+    page.once("dialog", (d) => void d.accept());
+    await head.getByRole("button", { name: /remove/ }).click();
+    await expect(page).toHaveURL(/#\/workflows\/boom/);
+    await expect.poll(() => existsSync(path.join(fixture(), "output", "runs", "2026-01-01-0900-00-boom"))).toBe(false);
+    await page.goto("/#/runs");
+    await expect(page.locator(".runs-side")).toContainText("why is the sky blue");
+    await expect(page.locator(".runs-side")).not.toContainText("boom");
   });
 
   test("simple mode keeps channels, agents, workflows, knowledge and vibeables in the top nav", async ({ page }) => {

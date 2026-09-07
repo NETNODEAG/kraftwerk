@@ -45,35 +45,56 @@ test.describe("vibeables", () => {
     await expect(page.locator("nav a[href='#/vibeables']")).toBeVisible();
   });
 
-  test("the vibeables screen lists apps newest first and opens one in a fresh chat", async ({ page, request }) => {
+  test("the vibeables screen lists apps newest first in a sidebar, previews the selected one, opens it in a chat", async ({ page, request }) => {
     expect((await request.post("/api/vibeables", { data: { name: "older" } })).status()).toBe(201);
     await new Promise((r) => setTimeout(r, 1_100));
     expect((await request.post("/api/vibeables", { data: { name: "newer" } })).status()).toBe(201);
+
+    // #/vibeables lands on the app changed last; the sidebar lists newest first.
     await page.goto("/#/vibeables");
-    await expect(page.getByRole("heading", { name: "Vibeables" })).toBeVisible();
+    await expect(page).toHaveURL(/#\/vibeables\/newer$/);
     const rows = page.locator(".vibeable-row");
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toHaveAttribute("data-vibeable", "newer");
     await expect(rows.nth(1)).toHaveAttribute("data-vibeable", "older");
+    await expect(page.locator(".vibeable-pane[data-vibe=newer]")).toBeVisible();
+    await expect(page.frameLocator(".vibeable-frame").getByRole("heading", { name: "newer" })).toBeVisible();
+
+    // The search box narrows the sidebar.
+    await page.getByLabel("search vibeables").fill("old");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute("data-vibeable", "older");
+    await page.getByLabel("search vibeables").fill("");
 
     // Editing the older one moves it to the top.
     writeFileSync(path.join(fixture(), "kraftwerk-data/vibeables/older/index.html"), "<!doctype html><h1>older, edited</h1>\n");
     await page.reload();
     await expect(page.locator(".vibeable-row").nth(0)).toHaveAttribute("data-vibeable", "older");
 
-    await page.locator(".vibeable-row[data-vibeable=older]").getByRole("button", { name: "open in chat" }).click();
-    await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
+    // Clicking a row previews it on the right.
+    await page.locator(".vibeable-row[data-vibeable=older]").click();
+    await expect(page).toHaveURL(/#\/vibeables\/older$/);
     await expect(page.locator(".vibeable-pane[data-vibe=older]")).toBeVisible();
     await expect(page.frameLocator(".vibeable-frame").getByRole("heading", { name: "older, edited" })).toBeVisible();
+
+    await page.getByRole("button", { name: "open in chat" }).click();
+    await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
+    await expect(page.locator(".vibeable-pane[data-vibe=older]")).toBeVisible();
     const openedChat = /chats\/(chat-[^/]+)/.exec(page.url())?.[1];
     if (openedChat) await request.delete(`/api/chats/${openedChat}`);
 
-    await page.goto("/#/vibeables");
-    const row = page.locator(".vibeable-row[data-vibeable=newer]");
-    await row.getByRole("button", { name: "remove" }).click();
-    await row.getByRole("button", { name: "confirm remove" }).click();
-    await expect(row).toHaveCount(0);
+    // Removing the selected app lands on the next one.
+    await page.goto("/#/vibeables/newer");
+    await page.getByRole("button", { name: "remove" }).click();
+    await page.getByRole("button", { name: "confirm remove" }).click();
+    await expect(page).toHaveURL(/#\/vibeables\/older$/);
+    await expect(page.locator(".vibeable-row")).toHaveCount(1);
     await request.delete("/api/vibeables/older");
+
+    // Nothing left: the screen is the create form.
+    await page.goto("/#/vibeables");
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "new vibeable name" })).toBeVisible();
   });
 
   test("opens an app next to the chat and reloads the preview on a file change", async ({ page, request }) => {

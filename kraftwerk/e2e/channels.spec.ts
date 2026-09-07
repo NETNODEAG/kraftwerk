@@ -27,6 +27,11 @@ test.describe("channels", () => {
       writeFileSync(path.join(root, "agents", slug, "agent.yml"), `name: ${name}\nemoji: ${emoji}\nharness: claude\n`);
     }
 
+    // No channels yet: the home is nothing but the one action.
+    await page.goto("/#/channels");
+    await expect(page.locator(".empty-action .run-btn")).toHaveText(/new channel/);
+    await expect(page.locator(".channel-head")).toHaveCount(0);
+
     await page.goto("/#/channels/new");
     await page.getByPlaceholder("e.g. Website relaunch").fill("Launch week");
     await page.getByPlaceholder("what this channel is for").fill("coordinate the launch");
@@ -59,5 +64,10 @@ test.describe("channels", () => {
     await box.press("Tab");
     await expect(box).toHaveValue("@scribe ");
     await page.screenshot({ path: "test-results/channel.png" });
+
+    // With a channel in the workspace, #/channels lands on the latest one.
+    await page.goto("/#/channels");
+    await expect(page).toHaveURL(/#\/channels\/launch-week$/);
+    await expect(page.locator(".channel-head h1")).toHaveText("#launch-week");
   });
 });

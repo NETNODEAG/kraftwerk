@@ -177,6 +177,79 @@ export function workspaceColor(color: string | undefined, seed: string): string 
   return color || `hsl(${workspaceHue(seed)} 58% 46%)`;
 }
 
+type Rgb = [number, number, number];
+
+/** "#rgb", "#rrggbb" or "hsl(h s% l%)" (what workspaceColor returns) → sRGB 0–255; null for anything else. */
+function parseColor(c: string): Rgb | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (hex) {
+    const h = hex[1].length === 3 ? hex[1].split("").map((x) => x + x).join("") : hex[1];
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as Rgb;
+  }
+  const hsl = /^hsl\(\s*([\d.]+)[ ,]+([\d.]+)%[ ,]+([\d.]+)%/i.exec(c.trim());
+  if (!hsl) return null;
+  const h = +hsl[1] / 360, sat = +hsl[2] / 100, l = +hsl[3] / 100;
+  const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat, pp = 2 * l - q;
+  const f = (t: number) => {
+    t = (t + 1) % 1;
+    if (t < 1 / 6) return pp + (q - pp) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return pp + (q - pp) * (2 / 3 - t) * 6;
+    return pp;
+  };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)].map((v) => Math.round(v * 255)) as Rgb;
+}
+const mix = (a: Rgb, b: Rgb, t: number): Rgb => a.map((v, i) => Math.round(v + (b[i] - v) * t)) as Rgb;
+const hex = (c: Rgb) => "#" + c.map((v) => v.toString(16).padStart(2, "0")).join("");
+function luminance([r, g, b]: Rgb): number {
+  const f = (v: number) => (v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+function contrast(a: Rgb, b: Rgb): number {
+  const la = luminance(a), lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+/** Mix `c` toward `to` in small steps until it reads at `min` contrast against `on`. */
+function settle(c: Rgb, on: Rgb, min: number, to: Rgb): Rgb {
+  let out = c;
+  for (let t = 0; t <= 1 && contrast(out, on) < min; t += 0.04) out = mix(c, to, t);
+  return out;
+}
+const WHITE: Rgb = [255, 255, 255], BLACK: Rgb = [0, 0, 0];
+const DARK_CARD: Rgb = [0x26, 0x25, 0x23];
+
+/**
+ * M3 primary and secondary-container roles for both schemes, derived from the
+ * workspace colour so every button, toggle, selected state and focus ring
+ * carries it. Each text/ground pair is pushed until it reads at 4.5:1, so a
+ * pastel or a near-black workspace colour still produces usable buttons.
+ * Keys are the CSS custom properties globals.css reads under [data-ws-accent].
+ */
+export function wsPalette(color: string): Record<string, string> | null {
+  const ws = parseColor(color);
+  if (!ws) return null;
+  const lp = settle(ws, WHITE, 4.5, BLACK);
+  const lpc = mix(ws, WHITE, 0.84);
+  const lsc = mix(ws, WHITE, 0.88);
+  const dp = settle(mix(ws, WHITE, 0.4), DARK_CARD, 4.5, WHITE);
+  const dpc = mix(ws, BLACK, 0.42);
+  const dsc = mix(ws, BLACK, 0.6);
+  return {
+    "--wsp-l-primary": hex(lp),
+    "--wsp-l-on-primary": hex(WHITE),
+    "--wsp-l-primary-container": hex(lpc),
+    "--wsp-l-on-primary-container": hex(settle(mix(ws, BLACK, 0.6), lpc, 4.5, BLACK)),
+    "--wsp-l-secondary-container": hex(lsc),
+    "--wsp-l-on-secondary-container": hex(settle(mix(ws, BLACK, 0.65), lsc, 4.5, BLACK)),
+    "--wsp-d-primary": hex(dp),
+    "--wsp-d-on-primary": hex(settle(mix(ws, BLACK, 0.7), dp, 4.5, BLACK)),
+    "--wsp-d-primary-container": hex(dpc),
+    "--wsp-d-on-primary-container": hex(settle(mix(ws, WHITE, 0.8), dpc, 4.5, WHITE)),
+    "--wsp-d-secondary-container": hex(dsc),
+    "--wsp-d-on-secondary-container": hex(settle(mix(ws, WHITE, 0.85), dsc, 4.5, WHITE)),
+  };
+}
+
 /** "NETNODE Base Camp" → NB, "agent-playground" → AP, "Fireplace" → FI. */
 export function monogram(name: string): string {
   const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);

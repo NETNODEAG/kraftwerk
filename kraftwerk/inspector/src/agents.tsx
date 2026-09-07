@@ -248,7 +248,9 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
     );
   else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
   else if (slug) main = <AgentLanding key={slug} slug={slug} />;
-  else main = <AgentsHome hasAgents={active.length > 0} root={data?.root} />;
+  else if (!data) main = <div className="empty">loading…</div>;
+  else if (active.length) main = <AgentsLanding agents={active} />;
+  else main = <AgentsHome />;
 
   // Linked knowledge bundles of the selected agent → right sidebar on the
   // profile and chat views (not while editing). Hidden state persists.
@@ -894,37 +896,46 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
 
 /* ---------- home ---------- */
 
-function AgentsHome({ hasAgents, root }: { hasAgents: boolean; root?: string }) {
+/**
+ * #/agents with agents in the workspace: land on the most recent agent
+ * session (like #/channels lands on the latest channel); an agent that has
+ * never been talked to lands on its profile.
+ */
+function AgentsLanding({ agents }: { agents: Agent[] }) {
+  useEffect(() => {
+    let alive = true;
+    const fallback = () => navigate(`/agents/${encodeURIComponent(agents[0].slug)}`, { replace: true });
+    fetch("/api/chats")
+      .then((r) => r.json())
+      .then((d: { chats: ChatMeta[] }) => {
+        if (!alive) return;
+        // /api/chats is sorted by updatedAt desc — the first agent session wins.
+        const slugs = new Set(agents.map((a) => a.slug));
+        const latest = d.chats.find((c) => c.scope.kind === "agent" && slugs.has(c.scope.slug));
+        if (latest && latest.scope.kind === "agent") {
+          navigate(`/agents/${encodeURIComponent(latest.scope.slug)}/chat/${latest.id}`, { replace: true });
+        } else fallback();
+      })
+      .catch(() => alive && fallback());
+    return () => {
+      alive = false;
+    };
+  }, [agents.map((a) => a.slug).join(",")]);
+  return <div className="empty">loading…</div>;
+}
+
+/** No agents yet: nothing to explain, one thing to do (which needs expert mode). */
+function AgentsHome() {
   const expert = useExpertMode();
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>agents</h1>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">what lives here</span>
-        </div>
-        <div className="know-intro">
-          Your agents, set up like agents: each one has a name, a role (system prompt), a
-          harness/model to run on, and the workflows that belong to its job. An agent lives in{" "}
-          <code>{root ? `${root}/<slug>/` : "agents/<slug>/"}</code> as <code>agent.yml</code> +{" "}
-          <code>system.md</code> — git-tracked, so your team travels with the repo. Every session
-          is a persistent conversation with that agent; it knows its connected workflows and
-          knowledge bundles, runs the workflows for you, and keeps the knowledge current.
-        </div>
-        {expert ? (
-          <div style={{ padding: "0 16px 16px" }}>
-            <button className="run-btn" onClick={() => navigate("/agents/new")}>
-              <><Icon name="add" className="ms-sm" /> {hasAgents ? "new agent" : "create your first agent"}</>
-            </button>
-          </div>
-        ) : (
-          <div className="settings-note" style={{ padding: "0 16px 16px" }}>
-            Creating agents needs expert mode — flip the switch in the top bar.
-          </div>
-        )}
-      </section>
+    <div className="empty empty-action">
+      {expert ? (
+        <button className="run-btn" onClick={() => navigate("/agents/new")}>
+          <Icon name="add" className="ms-sm" /> create your first agent
+        </button>
+      ) : (
+        <span>Creating agents needs expert mode — flip the switch in the top bar.</span>
+      )}
     </div>
   );
 }

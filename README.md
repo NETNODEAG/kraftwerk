@@ -83,7 +83,9 @@ fixes it in the same conversation.
 
 **Inspector.** The web UI for all of the above: agents and their sessions,
 knowledge, skills, workflows, and live runs with phase timeline, trace and
-artifacts. The frontend ships prebuilt and the server uses only Node's
+artifacts. A live run can be stopped from its page, a finished one removed,
+and a launch that died before writing a trace shows as failed rather than
+running forever. The frontend ships prebuilt and the server uses only Node's
 standard library, so there is nothing to install at startup.
 
 ```bash

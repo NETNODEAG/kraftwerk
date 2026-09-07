@@ -89,7 +89,7 @@ async function readTrace(runDir: string): Promise<TraceEvent[]> {
   return events;
 }
 
-function analyse(events: TraceEvent[]) {
+function analyse(events: TraceEvent[], fallbackTs?: string) {
   const runStart = events.find((e) => e.event === "run_start");
   const summary = events.find((e) => e.event === "run_summary");
 
@@ -180,10 +180,15 @@ function analyse(events: TraceEvent[]) {
 
   const failed = phases.some((p) => p.status === "failed" || p.status === "blocked");
   const lastTs = events.length ? events[events.length - 1].ts : undefined;
+  // A run folder without a trace (the launcher died before the framework
+  // wrote anything — missing env var, npx failure) has no event to age; the
+  // newest file in the folder stands in, so it cannot stay "running" forever.
+  const activityTs = lastTs ?? fallbackTs;
   let status: RunStatus;
   if (summary) status = failed ? "failed" : "ok";
   else if (failed) status = "failed";
-  else if (lastTs && Date.now() - Date.parse(lastTs) > STALE_MS) status = "aborted";
+  else if (activityTs && Date.now() - Date.parse(activityTs) > STALE_MS)
+    status = events.length ? "aborted" : "failed";
   else status = "running";
 
   return { runStart, summary, phases, steps, status, lastTs };
@@ -191,27 +196,50 @@ function analyse(events: TraceEvent[]) {
 
 /**
  * Sandboxed runs write runner.json (exit code recorded when the container
- * ends). If the trace looks "running" but the container already exited —
- * e.g. it crashed before any phase_end — trust the exit code instead of
- * waiting for the 15-minute stale timeout.
+ * ends) and UI-triggered runs write trigger.json (exit code of the launcher,
+ * see runner.ts). If the trace looks "running" but the process already
+ * exited — e.g. it crashed before any phase_end, or never wrote a trace —
+ * trust the exit code instead of waiting for the 15-minute stale timeout.
  */
 async function applyRunnerVerdict(
   runDir: string,
   a: ReturnType<typeof analyse>
 ): Promise<ReturnType<typeof analyse>> {
   if (a.status !== "running") return a;
-  try {
-    const meta = JSON.parse(await fs.readFile(path.join(runDir, "runner.json"), "utf8"));
-    if (meta.exitCode != null) {
+  for (const name of ["runner.json", "trigger.json"]) {
+    try {
+      const meta = JSON.parse(await fs.readFile(path.join(runDir, name), "utf8"));
+      if (meta.exitCode == null) continue;
       a.status = meta.exitCode === 0 ? "ok" : "failed";
       if (meta.exitCode !== 0) {
         for (const p of a.phases) if (p.status === "running") p.status = "failed";
       }
+      return a;
+    } catch {
+      /* file absent (local CLI run) or unreadable — try the next one */
     }
-  } catch {
-    /* no runner.json (local run) or unreadable — keep trace-based status */
   }
   return a;
+}
+
+/** Newest mtime among the run folder's files — the age of a run that never wrote a trace. */
+async function newestFileTs(runDir: string): Promise<string | undefined> {
+  const names = await fs.readdir(runDir).catch(() => []);
+  let newest = 0;
+  for (const name of names) {
+    const st = await fs.stat(path.join(runDir, name)).catch(() => null);
+    if (st && st.mtimeMs > newest) newest = st.mtimeMs;
+  }
+  return newest ? new Date(newest).toISOString() : undefined;
+}
+
+/**
+ * The workflow slug baked into the run id ("2026-08-25-1432-07-<slug>", see
+ * newRunId) — the only name a run has when the trace was never written.
+ */
+function workflowFromId(id: string): string | undefined {
+  const m = /^\d{4}-\d{2}-\d{2}-\d{4}-\d{2}-(.+)$/.exec(id);
+  return m?.[1];
 }
 
 function shortenPath(p: string): string {
@@ -234,13 +262,13 @@ export async function listRuns(): Promise<RunListItem[]> {
       const events = await readTrace(runDir);
       const { runStart, summary, phases, steps, status, lastTs } = await applyRunnerVerdict(
         runDir,
-        analyse(events)
+        analyse(events, events.length ? undefined : await newestFileTs(runDir))
       );
       const done = phases.filter((p) => p.status === "ok").length;
       const current = phases.find((p) => p.status === "running")?.phase;
       return {
         id,
-        workflow: runStart?.workflow,
+        workflow: runStart?.workflow ?? workflowFromId(id),
         request: runStart?.request,
         status,
         startedAt: events[0]?.ts,
@@ -278,7 +306,7 @@ export async function getRun(id: string): Promise<RunDetail | null> {
   const events = await readTrace(runDir);
   const { runStart, summary, phases, steps, status, lastTs } = await applyRunnerVerdict(
     runDir,
-    analyse(events)
+    analyse(events, events.length ? undefined : await newestFileTs(runDir))
   );
 
   const names = await fs.readdir(runDir);
@@ -291,7 +319,7 @@ export async function getRun(id: string): Promise<RunDetail | null> {
 
   return {
     id,
-    workflow: runStart?.workflow,
+    workflow: runStart?.workflow ?? workflowFromId(id),
     description: runStart?.description,
     request: runStart?.request,
     status,
@@ -318,4 +346,16 @@ export async function readRunFile(
   const st = await fs.stat(absPath).catch(() => null);
   if (!st?.isFile()) return null;
   return { absPath, size: st.size };
+}
+
+/**
+ * Remove a run folder. A run that still looks live is refused: its process
+ * would keep writing into a folder that no longer exists — stop it first.
+ */
+export async function deleteRun(id: string): Promise<"deleted" | "running" | "missing"> {
+  const run = await getRun(id);
+  if (!run) return "missing";
+  if (run.status === "running") return "running";
+  await fs.rm(safeRunDir(id), { recursive: true, force: true });
+  return "deleted";
 }

@@ -3,7 +3,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
-import { Icon, Link, usePoll } from "./shared";
+import { navigate, Icon, Link, usePoll } from "./shared";
 import { exportBundlePdf, wikilinks } from "./export";
 import { editorHref } from "./editor-link";
 
@@ -18,6 +18,16 @@ import { editorHref } from "./editor-link";
 export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; conceptId?: string }) {
   const data = usePoll<KnowledgeIndex>("/api/knowledge", false);
   const bundles = data?.bundles ?? [];
+  // #/knowledge/new is the create form; a bare #/knowledge lands on the bundle
+  // touched last (like #/channels lands on the latest channel).
+  const creating = bundle === "new";
+  const latest = bundles.reduce<KnowledgeIndex["bundles"][number] | undefined>(
+    (a, b) => (!a || (b.updatedAt ?? "") > (a.updatedAt ?? "") ? b : a),
+    undefined
+  );
+  useEffect(() => {
+    if (!bundle && latest) navigate(`/knowledge/${encodeURIComponent(latest.name)}`, { replace: true });
+  }, [bundle, latest?.name]);
 
   return (
     <div className="runs-screen">
@@ -25,7 +35,7 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
         <div className="side-head">
           <span className="microlabel">bundles</span>
           <span className="spacer" />
-          <Link href="/knowledge" className="open-raw">
+          <Link href="/knowledge/new" className="open-raw">
             <Icon name="add" className="ms-sm" /> new
           </Link>
         </div>
@@ -55,10 +65,12 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
         </div>
       </aside>
       <div className="runs-main">
-        {bundle ? (
+        {bundle && !creating ? (
           <BundleView key={bundle} name={bundle} conceptId={conceptId} />
+        ) : creating || (data && !latest) ? (
+          <KnowledgeHome />
         ) : (
-          <KnowledgeHome root={data?.root} />
+          <div className="empty">loading…</div>
         )}
       </div>
     </div>
@@ -67,7 +79,8 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
 
 /* ---------- home / new bundle ---------- */
 
-function KnowledgeHome({ root }: { root?: string }) {
+/** Create a bundle: one field, one button. Also the whole screen while there are no bundles. */
+function KnowledgeHome() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -85,41 +98,24 @@ function KnowledgeHome({ root }: { root?: string }) {
     const body = await res.json();
     setCreating(false);
     if (body.error) setError(body.error);
-    else window.location.hash = `/knowledge/${encodeURIComponent(n)}`;
+    else navigate(`/knowledge/${encodeURIComponent(n)}`);
   }
 
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>knowledge</h1>
+    <div className="empty empty-action">
+      <div className="know-newbundle">
+        <input
+          value={name}
+          placeholder="bundle name, e.g. customer-support"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void create()}
+          autoFocus
+        />
+        <button className="run-btn" disabled={!name.trim() || creating} onClick={create}>
+          {creating ? "creating…" : <><Icon name="add" className="ms-sm" /> new bundle</>}
+        </button>
       </div>
-      <section className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">what lives here</span>
-        </div>
-        <div className="know-intro">
-          Curated knowledge as <b>OKF bundles</b> (Open Knowledge Format v0.2): plain markdown
-          files with YAML frontmatter{root ? <> under <code>{root}</code></> : null}, readable by
-          humans and agents, diffable in git. Agents write through{" "}
-          <code>kraftwerk knowledge put</code> (provenance is stamped automatically); you raise a
-          concept's trust tier by verifying it here.
-        </div>
-        <div className="panel-head">
-          <span className="microlabel">new bundle</span>
-        </div>
-        <div className="know-newbundle">
-          <input
-            value={name}
-            placeholder="bundle name, e.g. customer-support"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void create()}
-          />
-          <button className="run-btn" disabled={!name.trim() || creating} onClick={create}>
-            {creating ? "creating…" : "create"}
-          </button>
-        </div>
-        {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-      </section>
+      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
     </div>
   );
 }

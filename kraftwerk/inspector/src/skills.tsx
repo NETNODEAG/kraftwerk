@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { SkillDetail, SkillInfo } from "./types";
-import { Link, usePoll } from "./shared";
+import { navigate, Link, usePoll } from "./shared";
 
 /**
  * Skills: browsable instruction packages. Workspace skills (the kraftwerk
@@ -27,6 +27,11 @@ export function SkillsScreen({ name }: { name?: string }) {
   const skills = data?.skills ?? [];
   const workspace = skills.filter((s) => s.source === "workspace");
   const local = skills.filter((s) => s.source !== "workspace");
+  // A bare #/skills lands on the first workspace skill (else the first local one).
+  const first = workspace[0] ?? local[0];
+  useEffect(() => {
+    if (!name && first) navigate(`/skills/${encodeURIComponent(first.name)}`, { replace: true });
+  }, [name, first?.name]);
 
   const row = (s: SkillInfo) => (
     <Link
@@ -69,7 +74,13 @@ export function SkillsScreen({ name }: { name?: string }) {
         </div>
       </aside>
       <div className="runs-main">
-        {name ? <SkillView key={name} name={name} /> : <SkillsHome root={data?.root} workspace={workspace} />}
+        {name ? (
+          <SkillView key={name} name={name} />
+        ) : data && !first ? (
+          <SkillsHome root={data.root} />
+        ) : (
+          <div className="empty">loading…</div>
+        )}
       </div>
     </div>
   );
@@ -77,34 +88,13 @@ export function SkillsScreen({ name }: { name?: string }) {
 
 /* ---------- home ---------- */
 
-function SkillsHome({ root, workspace }: { root?: string; workspace: SkillInfo[] }) {
+/** No skills anywhere yet: the one thing to do, and where. */
+function SkillsHome({ root }: { root: string }) {
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>skills</h1>
-        <span className="count">{workspace.length} in workspace</span>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">what lives here</span>
-        </div>
-        <div className="know-intro">
-          Skills are reusable <b>instruction packages</b>: one folder per skill with a{" "}
-          <code>SKILL.md</code> (YAML frontmatter: name, description). <b>Workspace skills</b>
-          {root ? <> live under <code>{root}</code></> : null}, are tracked in git and shared with
-          everyone in this workspace — they are the ones to build on. Skills from{" "}
-          <code>.claude/skills</code> and your personal <code>~/.claude/skills</code> also work
-          here, but stay repo-/machine-local. Invoke any skill in a session with{" "}
-          <code>/&lt;name&gt;</code>.
-        </div>
-        <div className="panel-head">
-          <span className="microlabel">add a workspace skill</span>
-        </div>
-        <div className="know-intro">
-          Create <code>{root ? `${root}/` : "skills/"}&lt;name&gt;/SKILL.md</code>, commit it, done —
-          it appears here and in every session's <code>/</code> menu.
-        </div>
-      </section>
+    <div className="empty empty-action">
+      <span>
+        Create <code>{root}/&lt;name&gt;/SKILL.md</code> and it appears here and in every session's <code>/</code> menu.
+      </span>
     </div>
   );
 }

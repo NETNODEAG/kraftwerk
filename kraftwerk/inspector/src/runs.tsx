@@ -5,6 +5,7 @@ import type { RunDetail, RunListItem, PhaseView, FileView } from "./types";
 import { createChatAndOpen } from "./chat";
 import {
   Link,
+  navigate,
   usePoll,
   fmtDuration,
   fmtCost,
@@ -102,6 +103,7 @@ function RunDetailView({ id }: { id: string }) {
   const live = run?.status === "running";
   const [tab, setTab] = useState<"run" | "artifacts" | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const expert = useExpertMode();
 
   if (!run) return <div className="empty">loading…</div>;
@@ -111,7 +113,23 @@ function RunDetailView({ id }: { id: string }) {
 
   async function stop() {
     setStopping(true);
-    await fetch(`/api/runs/${id}/stop`, { method: "POST" }).catch(() => {});
+    setBusy(null);
+    const r = await fetch(`/api/runs/${id}/stop`, { method: "POST" }).catch(() => null);
+    if (!r?.ok) {
+      setStopping(false);
+      setBusy(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "stop failed");
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Remove run ${id} and all its files?`)) return;
+    setBusy(null);
+    const r = await fetch(`/api/runs/${id}`, { method: "DELETE" }).catch(() => null);
+    if (r?.ok) {
+      navigate(run?.workflow ? `/workflows/${encodeURIComponent(run.workflow)}` : "/workflows");
+      return;
+    }
+    setBusy(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "remove failed");
   }
 
   return (
@@ -130,11 +148,16 @@ function RunDetailView({ id }: { id: string }) {
         <StatusWord status={run.status} />
         {sandboxed && <span className="chip sandbox-chip"><Icon name="science" className="ms-sm" /> sandbox</span>}
         <span className="rid">{id.replace(/^run-/, "")}</span>
-        {live && sandboxed && (
+        {live ? (
           <button className="stop-btn" onClick={stop} disabled={stopping}>
             {stopping ? "stopping…" : <><Icon name="stop" className="ms-sm" /> stop</>}
           </button>
+        ) : (
+          <button className="stop-btn" onClick={remove} title="delete this run's folder">
+            <Icon name="delete" className="ms-sm" /> remove
+          </button>
         )}
+        {busy && <span className="run-action-error">{busy}</span>}
         <span className="spacer" />
         <button
           className="open-raw"

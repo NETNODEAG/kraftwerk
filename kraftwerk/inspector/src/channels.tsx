@@ -20,6 +20,13 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
   const channels = data?.channels ?? [];
   const current = slug ? channels.find((c) => c.slug === slug) : undefined;
 
+  // #/channels lands on the channel with the latest activity, like #/runs
+  // lands on the latest run; only an empty workspace stays on the home.
+  const latest = channels.reduce<ChannelView | undefined>((a, c) => (!a || c.updatedAt > a.updatedAt ? c : a), undefined);
+  useEffect(() => {
+    if (mode === "home" && latest) navigate(`/channels/${encodeURIComponent(latest.slug)}`, { replace: true });
+  }, [mode, latest?.slug]);
+
   let main: React.ReactNode;
   if (mode === "new") main = <ChannelEditor agents={agents?.agents ?? []} />;
   else if (mode === "edit" && current) main = <ChannelEditor key={current.slug} channel={current} agents={agents?.agents ?? []} />;
@@ -31,7 +38,8 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
     );
   else if (mode === "channel" && data) main = <div className="empty">channel not found</div>;
   else if (mode === "channel") main = <div className="empty">loading…</div>;
-  else main = <ChannelsHome count={channels.length} root={data?.root} />;
+  else if (!data || latest) main = <div className="empty">loading…</div>;
+  else main = <ChannelsHome />;
 
   return (
     <div className="runs-screen channels-screen">
@@ -66,30 +74,13 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
   );
 }
 
-function ChannelsHome({ count, root }: { count: number; root?: string }) {
+/** No channels yet: nothing to explain, one thing to do. */
+function ChannelsHome() {
   return (
-    <div className="new-chat">
-      <div className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">channels</span>
-        </div>
-        <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-          <p>
-            A channel is a shared conversation with several agents at once — a Slack channel where the coworkers are
-            agents. @mention an agent to wake it; agents hand work to each other by mentioning; a channel can name one
-            responder that answers when nobody is mentioned.
-          </p>
-          <p>
-            {count === 0 ? "No channels yet. " : `${count} channel${count === 1 ? "" : "s"}. `}
-            Definitions live in <code>{root ?? "channels/"}</code> and travel with the workspace.
-          </p>
-          <div>
-            <Link href="/channels/new" className="run-btn">
-              <Icon name="add" className="ms-sm" /> new channel
-            </Link>
-          </div>
-        </div>
-      </div>
+    <div className="empty empty-action">
+      <Link href="/channels/new" className="run-btn">
+        <Icon name="add" className="ms-sm" /> new channel
+      </Link>
     </div>
   );
 }

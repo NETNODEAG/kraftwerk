@@ -4,7 +4,7 @@ import path from "node:path";
 import { attachmentPath, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { resolveProject } from "../config.js";
-import { listRuns, getRun, readRunFile } from "./runs.js";
+import { listRuns, getRun, readRunFile, deleteRun } from "./runs.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
 import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
@@ -718,7 +718,20 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
   if (seg.length === 4 && seg[1] === "runs" && seg[3] === "stop" && method === "POST") {
     return stopRun(seg[2])
       ? json(res, { stopped: true })
-      : json(res, { error: "no running sandbox container for this run (local runs cannot be stopped here)" }, 404);
+      : json(res, { error: "nothing to stop: no launcher of this inspector and no sandbox container for this run" }, 404);
+  }
+
+  // DELETE /api/runs/:id — refused while the run is live (stop it first)
+  if (seg.length === 3 && seg[1] === "runs" && method === "DELETE") {
+    let outcome;
+    try {
+      outcome = await deleteRun(seg[2]);
+    } catch {
+      return json(res, { error: "invalid run id" }, 400);
+    }
+    if (outcome === "missing") return json(res, { error: "not found" }, 404);
+    if (outcome === "running") return json(res, { error: "run is still running — stop it first" }, 409);
+    return json(res, { deleted: true });
   }
 
   // GET /api/workflows

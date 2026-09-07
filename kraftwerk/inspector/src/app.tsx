@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { GitStatus, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
-import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, WorkspaceTile, setFeatures } from "./shared";
+import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
 const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
 import { RunsScreen } from "./runs";
@@ -117,7 +117,7 @@ export function App() {
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "git") screen = <GitScreen />;
   else if (seg[0] === "repos") screen = <ReposScreen />;
-  else if (seg[0] === "vibeables") screen = <VibeablesScreen />;
+  else if (seg[0] === "vibeables") screen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "channels") screen = <ChannelsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
@@ -142,6 +142,25 @@ export function App() {
       </Suspense>
     );
   }
+
+  // M3 selected destination: the nav entry whose screens include the current route.
+  const navCls = (...routes: string[]) => (routes.includes(seg[0] ?? "") ? "active" : "");
+
+  // The workspace colour is the accent: derive the primary roles from it and
+  // hand them to the stylesheet ([data-ws-accent] in globals.css). Set only
+  // once the project is known, so the default accent shows until then instead
+  // of a colour derived from an empty seed.
+  useEffect(() => {
+    const el = document.documentElement;
+    const seed = projectRootAbs || projectName;
+    const pal = seed ? wsPalette(workspaceColor(projectColor, seed)) : null;
+    if (!pal) {
+      delete el.dataset.wsAccent;
+      return;
+    }
+    for (const [k, v] of Object.entries(pal)) el.style.setProperty(k, v);
+    el.dataset.wsAccent = "";
+  }, [projectColor, projectRootAbs, projectName]);
 
   return (
     <>
@@ -168,14 +187,14 @@ export function App() {
         </span>
         <nav>
           {/* Simple mode keeps channels, agents, workflows, knowledge and vibeables; .nav-expert entries are expert-only. */}
-          <a href="#/channels"><Icon name="forum" /> channels</a>
-          <a href="#/agents"><Icon name="groups" /> agents</a>
-          <a href="#/workflows"><Icon name="account_tree" /> workflows</a>
-          <a href="#/knowledge"><Icon name="menu_book" /> knowledge</a>
-          <a href="#/skills" className="nav-expert"><Icon name="extension" /> skills</a>
-          {reposOn && <a href="#/repos" className="nav-expert"><Icon name="source" /> repositories</a>}
-          {vibeablesOn && <a href="#/vibeables"><Icon name="web" /> vibeables</a>}
-          {gitOn && <GitNavLink />}
+          <a href="#/channels" className={navCls("channels")}><Icon name="forum" /> channels</a>
+          <a href="#/agents" className={navCls("agents", "team", "chats")}><Icon name="groups" /> agents</a>
+          <a href="#/workflows" className={navCls("workflows", "runs")}><Icon name="account_tree" /> workflows</a>
+          <a href="#/knowledge" className={navCls("knowledge")}><Icon name="menu_book" /> knowledge</a>
+          <a href="#/skills" className={navCls("skills") + " nav-expert"}><Icon name="extension" /> skills</a>
+          {reposOn && <a href="#/repos" className={navCls("repos") + " nav-expert"}><Icon name="source" /> repositories</a>}
+          {vibeablesOn && <a href="#/vibeables" className={navCls("vibeables")}><Icon name="web" /> vibeables</a>}
+          {gitOn && <GitNavLink active={seg[0] === "git"} />}
         </nav>
         <span className="spacer" />
         <SearchPalette />
@@ -194,11 +213,11 @@ export function App() {
  * feature on. Carries the ahead/behind counts so the state is visible
  * without opening the screen.
  */
-function GitNavLink() {
+function GitNavLink({ active }: { active: boolean }) {
   const st = usePoll<GitStatus>("/api/git", false, 15_000);
   const dirty = st?.files?.filter((f) => f.syncable).length ?? 0;
   return (
-    <a href="#/git" className="nav-expert">
+    <a href="#/git" className={active ? "nav-expert active" : "nav-expert"}>
       <Icon name="cloud_sync" /> git
       {!!st?.behind && <span className="git-badge behind">{st.behind}↓</span>}
       {!!st?.ahead && <span className="git-badge ahead">{st.ahead}↑</span>}

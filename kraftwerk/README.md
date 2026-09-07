@@ -237,6 +237,26 @@ pass-through. `--run-id` pins the run folder name for external triggers, which
 is what the inspector uses. `runner.json` in the run dir records container,
 exit code, and timing.
 
+### Runs in the inspector
+
+The runs screen shows every folder under `output/runs/`, live ones with
+their phase timeline, finished ones opening on their artifacts. A run's
+status comes from `trace.jsonl` first: a `run_summary` settles it, a failed
+or blocked phase fails it, and a trace nobody has written to for fifteen
+minutes counts as aborted. Two markers settle it earlier: `runner.json`
+(sandbox container exit code) and `trigger.json`, which the inspector
+writes when a launcher it started exits. A folder that never got a trace at
+all — the launcher died first, typically over a missing env var, and only
+`trigger.log` tells why — ages by its newest file and shows as failed
+instead of running forever; its workflow name is read from the run id.
+
+Every live run has a stop button (`POST /api/runs/:id/stop`): it ends the
+detached launcher process group for a local run this inspector started, or
+`docker stop`s the `kw-<run-id>` container for a sandboxed one, and answers
+404 when neither exists (a run started from the CLI in another terminal).
+Every finished run has a remove button (`DELETE /api/runs/:id`) that deletes
+the folder; a run that still looks live is refused with 409 — stop it first.
+
 `run` prompts for whatever is missing, both the workflow picker and the
 request input. Invalid workflows show up red in `list` with their validation
 error instead of breaking the listing. `create` is meant to be run BY an LLM
