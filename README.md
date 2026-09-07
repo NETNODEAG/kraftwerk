@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="assets/logo.svg" alt="kraftwerk" width="640"/>
-</p>
-
 # Kraftwerk
+
+<img src="assets/dashboard-light.png" alt="The kraftwerk inspector: a workspace dashboard with its agents, quick actions and the activity feed" width="100%"/>
 
 **Agentic workspace.** Kraftwerk is an open-source agentic workspace where
 humans and persistent AI coworkers work on real tasks together. Agents,
@@ -91,6 +89,8 @@ standard library, so there is nothing to install at startup.
 ```bash
 npx @netnodeag/kraftwerk ui        # http://localhost:1981
 ```
+
+<img src="assets/run-light.png" alt="A finished run: the runs sidebar, the run's files, and the PDF it produced open in the viewer" width="100%"/>
 
 ## How it works under the hood
 
@@ -213,6 +213,8 @@ validates, and smoke-tests the workflow folder for you. Triggering from CI is
 one line (`KRAFTWERK_YES=1 npx @netnodeag/kraftwerk run <name> "..." --json`),
 and a shared workflow library in its own repo runs anywhere via
 `--from github:org/repo`.
+
+<img src="assets/workflows-dark.png" alt="The workflows screen in the dark theme: every workflow with its run count, last outcome and a run button" width="100%"/>
 
 ### Explore the playground
 

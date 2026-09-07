@@ -196,10 +196,11 @@ code, pre, .mono { font-family: var(--font-mono), monospace; }
 }
 /* The workspace name IS the title of the topbar — no pill, real type. */
 .wordmark .env-name {
+  display: inline-block; vertical-align: middle;
   font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
   color: var(--on-surface);
   padding: 4px 8px; border-radius: 12px;
-  white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
 }
 /* Workspace switcher — an M3 menu of two-line list items. Container:
    surface-container, elevation 2, extra-small corners. Items: 72dp,
@@ -430,7 +431,9 @@ a.ws-name:hover { text-decoration: underline; }
    and centres inside it — never absolutely positioned over the wordmark. */
 .topbar nav {
   display: flex; gap: 2px; flex: 1 1 auto; min-width: 0;
-  justify-content: center; overflow-x: auto; scrollbar-width: none;
+  /* "safe": when the entries outgrow the room, align to the start instead of
+     clipping the first one on the left (plain center does that in flexbox). */
+  justify-content: safe center; overflow-x: auto; scrollbar-width: none;
 }
 .topbar nav::-webkit-scrollbar { display: none; }
 .topbar nav a {
@@ -443,6 +446,14 @@ a.ws-name:hover { text-decoration: underline; }
 .topbar nav a:hover {
   color: var(--on-surface);
   background: color-mix(in srgb, var(--on-surface) 8%, transparent);
+}
+/* Laptop widths: eight destinations plus the workspace name and the tools
+   need tighter pills, or the row overflows and scrolls. */
+@media (max-width: 1520px) {
+  .topbar { gap: 10px; padding: 0 14px; }
+  .topbar nav a { padding: 7px 9px; gap: 5px; font-size: 13px; }
+  .topbar nav a .ms { font-size: 17px; }
+  .wordmark .env-name { max-width: 250px; font-size: 15px; }
 }
 /* M3 selected destination: secondary-container pill, filled icon. */
 .topbar nav a.active {
