@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: mail-posture-check
+description: "Mail posture per domain with dig: MX, SPF, DMARC policy and reporting, DKIM selectors found — deterministic, verdict per domain"
+
+workspace: |
+  Files: results.json (per domain: mx, spf, dmarc, dkim selectors, findings),
+  report.md (table plus findings), summary.txt. Raw dig output in probes/.
+
+steps:
+  - name: query records
+    run: scripts/query.sh
+    gates:
+      - file_non_empty: results.json
+      - contains: { file: results.json, text: '"spf"', label: SPF recorded }
+      - contains: { file: results.json, text: '"dmarc"', label: DMARC recorded }
+      - contains: { file: results.json, text: '"dkim"', label: DKIM recorded }
+
+  - name: write report
+    run: scripts/report.sh
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "## Domains", label: domain table }
+      - contains: { file: report.md, text: "## Findings", label: findings section }
+      - file_non_empty: summary.txt
+
+  - name: output results
+    run: scripts/output.sh

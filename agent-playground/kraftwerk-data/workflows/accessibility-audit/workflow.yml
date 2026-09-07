@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: accessibility-audit
+description: "Accessibility audit of a site: pages from the sitemap, axe-core via Lighthouse per page, violations grouped by rule, then an agent writes the prioritised fix list in the site's language"
+
+workspace: |
+  Files: pages.txt (audited URLs), lang.txt (site language), violations.json
+  and findings.md (violations grouped by rule with pages and counts),
+  fixlist.md (the agent's prioritised list), summary.txt. Raw Lighthouse
+  JSON in lighthouse/.
+
+agents:
+  a11y:
+    name: Accessibility consultant
+    model: sonnet
+    tools: [Read, Write]
+    persona: |
+      You turn automated accessibility findings into a fix list a web team
+      can work through: prioritised by user impact and how many pages are
+      affected, each item naming the rule, where it occurs, and how to fix
+      it in one to three concrete sentences. You never invent findings that
+      are not in findings.md. You write in the language named in lang.txt
+      (German for de, French for fr, Italian for it, English otherwise).
+
+steps:
+  - name: collect pages
+    run: scripts/pages.sh
+    gates:
+      - file_non_empty: pages.txt
+      - file_non_empty: lang.txt
+
+  - name: audit pages
+    run: scripts/audit.sh
+    gates:
+      - file_non_empty: violations.json
+      - file_non_empty: findings.md
+      - contains: { file: findings.md, text: "## Violations by rule", label: grouped findings }
+
+  - name: fixlist
+    agent: a11y
+    prompt: prompts/fixlist.md
+    gates:
+      - file_non_empty: fixlist.md
+      - contains: { file: fixlist.md, text: "1.", label: numbered list }
+
+  - name: output results
+    run: scripts/output.sh

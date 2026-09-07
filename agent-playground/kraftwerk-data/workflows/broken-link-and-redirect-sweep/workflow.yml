@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: broken-link-and-redirect-sweep
+description: "Every URL in a site's sitemap fetched with curl: broken pages, redirect chains, and what is new or fixed since the last run — deterministic"
+
+workspace: |
+  Files: urls.txt (from the sitemap), links.json (status, hops, final URL per
+  URL), report.md (broken, chains, new since last run, fixed since last run),
+  summary.txt. The previous run's results live outside the run in
+  output/link-history/<host>.json.
+
+steps:
+  - name: crawl sitemap
+    run: scripts/crawl.sh
+    gates:
+      - file_non_empty: urls.txt
+      - file_non_empty: links.json
+      - contains: { file: links.json, text: '"status"', label: status recorded }
+
+  - name: compare with last run
+    run: scripts/compare.sh
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "## Broken", label: broken section }
+      - contains: { file: report.md, text: "## Since the last run", label: diff section }
+      - file_non_empty: summary.txt
+
+  - name: output results
+    run: scripts/output.sh

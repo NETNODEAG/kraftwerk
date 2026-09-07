@@ -5,9 +5,9 @@ dist/
 *.log
 .env
 .env.*
-agent-playground/src/workflows/helpdesk-check/
-agent-playground/src/workflows/nn-article-to-pdf/
-agent-playground/knowledge/*
-!agent-playground/knowledge/demo-customer-support/
-agent-playground/agents/*
-!agent-playground/agents/max/
+agent-playground/kraftwerk-data/workflows/helpdesk-check/
+agent-playground/kraftwerk-data/workflows/nn-article-to-pdf/
+agent-playground/kraftwerk-data/knowledge/*
+!agent-playground/kraftwerk-data/knowledge/demo-customer-support/
+agent-playground/kraftwerk-data/agents/*
+!agent-playground/kraftwerk-data/agents/max/

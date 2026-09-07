@@ -14,10 +14,10 @@ Shortcut for YAML workflows: `kraftwerk create "<was der Workflow tun soll>"` pr
 Templates live in code, not in this skill — read them before writing anything:
 
 - `kraftwerk/README.md` — primitives, harness table, YAML folder schema, prerequisites
-- `agent-playground/src/workflows/tagline/` — the YAML workflow-folder reference (workflow.yml + prompts/, GHA-flavored: steps, runs-on, ${{ request }})
-- `agent-playground/src/workflows/pitch/` — YAML folder with one prompt file shared by three jury steps via ${{ agent }}
-- `agent-playground/src/workflows/rechner/` — MCP reference: `mcp/multiply-server.ts` next to the workflow, top-level `mcp:` map, agent grant `mcp: [calculator]`
-- `agent-playground/src/workflows/website-check/` — script steps (`run: scripts/*.sh`) mixed with agent steps
+- `agent-playground/kraftwerk-data/workflows/tagline/` — the YAML workflow-folder reference (workflow.yml + prompts/, GHA-flavored: steps, runs-on, ${{ request }})
+- `agent-playground/kraftwerk-data/workflows/pitch/` — YAML folder with one prompt file shared by three jury steps via ${{ agent }}
+- `agent-playground/kraftwerk-data/workflows/rechner/` — MCP reference: `mcp/multiply-server.ts` next to the workflow, top-level `mcp:` map, agent grant `mcp: [calculator]`
+- `agent-playground/kraftwerk-data/workflows/website-check/` — script steps (`run: scripts/*.sh`) mixed with agent steps
 - CLI grants (no in-repo example): top-level `clis:` map (command prefix → usage hint), agent grant `clis: [name]` — see the `clis:` section in kraftwerk/README.md
 - `kraftwerk/src/index.ts` — the exact public API; `schema/workflow.schema.json` — the YAML contract
 
@@ -34,13 +34,13 @@ Templates live in code, not in this skill — read them before writing anything:
 
 ## 3 — Scaffold
 
-**YAML workflow folder** `src/workflows/<name>/`:
+**YAML workflow folder** `kraftwerk-data/workflows/<name>/` (the `workflows:` root in kraftwerk.yml; `src/workflows/` and `workflows/` are the fallbacks):
 - `workflow.yml` — `# yaml-language-server: $schema=…` header, `agents:` inline (model, tools, persona, optional `runs-on`/`effort`/`mcp`/`protocol`), optional top-level `protocol: acp` (agents over the Agent Client Protocol instead of the CLI; pi has no adapter), `steps:` with gates
 - `prompts/*.md` — one file per long prompt, referenced as `prompt: prompts/<step>.md`; variables `${{ request }}`, `${{ agent }}`
 - optional `scripts/*.sh` (script steps) and `mcp/*.ts` (stdio MCP servers; SDK deps go into the consumer's package.json — see agent-playground: `@modelcontextprotocol/sdk` + `zod`)
-- NO registration needed: the kraftwerk CLI auto-discovers workflow folders under `src/workflows/`. (Programmatic alternative: `loadWorkflow(...)` + `runCli({...})`.)
+- NO registration needed: the kraftwerk CLI auto-discovers workflow folders under the `workflows:` root (kraftwerk-data/workflows, else src/workflows/ or workflows/). (Programmatic alternative: `loadWorkflow(...)` + `runCli({...})`.)
 
-**TS workflow folder** `src/workflows/<name>/`:
+**TS workflow folder** `kraftwerk-data/workflows/<name>/`:
 - `agents.ts` (`defineAgent`), `stages.ts` (workspaceContext + prompts, each ending with `envelopeContract(phase)`), optional `gates.ts` (custom `Gate`s), `workflow.ts` (`WorkflowDefinition`; mkdir the runDir BEFORE the first phase; end with `run.printSummary()`)
 
 **Fresh consumer project**: YAML-only consumers need just `package.json` with `"type": "module"`, `"start": "kraftwerk"`, and `"dependencies": { "kraftwerk": "file:../kraftwerk" }` (see agent-playground) — no tsconfig, no devDeps, no entry file. TS consumers additionally: `"start": "tsx src/index.ts"`, devDeps typescript/tsx/@types/node, tsconfig with NodeNext + `"types": ["node"]`.
@@ -59,7 +59,7 @@ Templates live in code, not in this skill — read them before writing anything:
 ## 5 — Verify (in this order)
 
 1. `npm run typecheck` where TypeScript exists (framework, TS consumers) — YAML-only consumers have nothing to typecheck.
-2. YAML workflows: `kraftwerk validate` (all discovered) or `kraftwerk validate src/workflows/<name>` — schema + semantic checks without running anything.
+2. YAML workflows: `kraftwerk validate` (all discovered) or `kraftwerk validate kraftwerk-data/workflows/<name>` — schema + semantic checks without running anything.
 3. `kraftwerk list` — free; proves discovery and shows the roster with harness/model per agent.
 4. Cheap smoke: `kraftwerk run <name> "..."` with all agents on `model: "haiku"` (or codex, $0 on subscription) before switching to expensive models — check gates pass, the summary table renders, and `output/run-*/trace.jsonl` records the steps.
 5. Only then a real run with the production roster.

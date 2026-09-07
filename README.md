@@ -226,6 +226,11 @@ the verdict in a script. `repo-audit` clones a repo, runs security scanners,
 makes an agent verify every finding, and renders a report with fix prompts.
 `dns-check` has no agent at all: three scripts ask ten public resolvers on
 four continents for a domain's records with `dig` and report the consensus.
+The same shape, scripts first and an agent only where judgment is needed:
+`cert-and-headers-check`, `mail-posture-check`, `lighthouse-trend` and
+`broken-link-and-redirect-sweep` are pure scripts with a report and a verdict;
+`accessibility-audit` lets an agent turn axe-core findings into a fix list, and
+`competitor-watch` lets one explain a diff, but only when a page changed.
 
 ```bash
 cd agent-playground

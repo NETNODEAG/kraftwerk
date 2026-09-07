@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: lighthouse-trend
+description: "Lighthouse scores and Core Web Vitals for one or more URLs, appended to a per-URL history so the report shows the trend, not a number — deterministic"
+
+workspace: |
+  Files: scores.json (this run), report.md (scores with the change since the
+  previous run and the last runs per URL), summary.txt. Raw Lighthouse JSON
+  in lighthouse/. History lives outside the run in output/lighthouse-history/.
+
+steps:
+  - name: run lighthouse
+    run: scripts/lighthouse.sh
+    gates:
+      - file_non_empty: scores.json
+      - contains: { file: scores.json, text: '"performance"', label: performance score }
+      - contains: { file: scores.json, text: '"lcp_ms"', label: LCP recorded }
+
+  - name: write report
+    run: scripts/report.sh
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "## Scores", label: scores table }
+      - contains: { file: report.md, text: "## History", label: history section }
+      - file_non_empty: summary.txt
+
+  - name: output results
+    run: scripts/output.sh

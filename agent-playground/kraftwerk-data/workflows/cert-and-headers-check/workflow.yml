@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: cert-and-headers-check
+description: "TLS and security headers for one or more domains: certificate expiry, issuer and chain, HTTPS redirect, HSTS, CSP, X-Frame-Options and friends — deterministic, one table"
+
+workspace: |
+  Files: results.json (per domain: certificate, redirect, headers, findings),
+  report.md (table per domain plus findings), summary.txt (one line). Raw
+  probes stay in probes/<domain>-*.txt.
+
+steps:
+  - name: inspect domains
+    run: scripts/inspect.sh
+    gates:
+      - file_non_empty: results.json
+      - contains: { file: results.json, text: '"days_left"', label: certificate expiry recorded }
+      - contains: { file: results.json, text: '"hsts"', label: headers recorded }
+
+  - name: write report
+    run: scripts/report.sh
+    gates:
+      - file_non_empty: report.md
+      - contains: { file: report.md, text: "## Domains", label: domain table }
+      - contains: { file: report.md, text: "## Findings", label: findings section }
+      - file_non_empty: summary.txt
+
+  - name: output results
+    run: scripts/output.sh

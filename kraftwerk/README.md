@@ -772,9 +772,9 @@ found nothing to do:
 ```
 
 Living examples:
-[`../agent-playground/src/workflows/tagline/`](../agent-playground/src/workflows/tagline/)
-and [`../agent-playground/src/workflows/pitch/`](../agent-playground/src/workflows/pitch/);
-`check` and `if` in [`../agent-playground/src/workflows/helpdesk-check/`](../agent-playground/src/workflows/helpdesk-check/).
+[`../agent-playground/kraftwerk-data/workflows/tagline/`](../agent-playground/kraftwerk-data/workflows/tagline/)
+and [`../agent-playground/kraftwerk-data/workflows/pitch/`](../agent-playground/kraftwerk-data/workflows/pitch/);
+`check` and `if` in [`../agent-playground/kraftwerk-data/workflows/helpdesk-check/`](../agent-playground/kraftwerk-data/workflows/helpdesk-check/).
 v1 is deliberately linear. Approval loops and AGENTS.md-style context files
 stay on the roadmap, and skills exist in chat rather than in workflow runs.
 Anything non-linear is a TS workflow.
@@ -806,7 +806,7 @@ consumer's `package.json`. On claude the servers are passed hermetically with
 become `-c mcp_servers.*` overrides and the phase runs with `--approve-for-me`
 so headless MCP calls get approved. Combining `runs-on: pi` with `mcp` is
 rejected at validation time. Living example:
-[`../agent-playground/src/workflows/rechner/`](../agent-playground/src/workflows/rechner/).
+[`../agent-playground/kraftwerk-data/workflows/rechner/`](../agent-playground/kraftwerk-data/workflows/rechner/).
 
 ### CLI grants
 

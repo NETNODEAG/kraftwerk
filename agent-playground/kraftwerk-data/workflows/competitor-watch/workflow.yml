@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: competitor-watch
+description: "Watch competitor pages: fetch, extract the text, diff against the copy in the competitor-watch knowledge bundle, and only for what changed let an agent say what it means — deterministic fetch and diff, agent summary"
+
+workspace: |
+  Files: pages/<n>.txt (text of each page as fetched now), changes.md and
+  changes.json (per page: first seen / unchanged / changed with the diff),
+  watch.md (the agent's summary), summary.txt. The baseline copies are
+  concepts in the competitor-watch knowledge bundle (pages/<slug>), one per
+  URL, rewritten on every run and readable by every agent of the workspace.
+
+agents:
+  analyst:
+    name: Market watcher
+    model: sonnet
+    tools: [Read, Write]
+    persona: |
+      You read diffs of competitor web pages and say what changed in plain
+      words and why it might matter for a Swiss web agency: new offers,
+      prices, positioning, team, clients, technology claims. Two to four
+      bullets per changed page, no speculation beyond the diff, and a plain
+      "nothing changed" when the diff is empty. German.
+
+steps:
+  - name: fetch and diff
+    run: scripts/fetch.sh
+    gates:
+      - file_non_empty: changes.json
+      - file_non_empty: changes.md
+      - contains: { file: changes.md, text: "# Competitor watch", label: changes header }
+
+  - name: summarise changes
+    agent: analyst
+    prompt: prompts/summarise.md
+    gates:
+      - file_non_empty: watch.md
+      - contains: { file: watch.md, text: "# ", label: title }
+
+  - name: output results
+    run: scripts/output.sh
