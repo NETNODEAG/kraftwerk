@@ -79,6 +79,9 @@ describe("channels API", () => {
     assert.deepEqual(msg.from, { kind: "human", name: "Lukas" });
     assert.equal(chat.events.some((e) => e.type === "turn_start"), false, "no agent was woken");
     assert.equal(chat.busy, false);
+    // Stopping: every agent is a no-op when none runs; one agent must be in the channel's seats.
+    assert.equal((await send(`/api/chats/${c.chatId}/cancel`, "POST", {})).status, 200);
+    assert.equal((await send(`/api/chats/${c.chatId}/cancel`, "POST", { agent: "nobody" })).status, 409);
   });
 
   it("updates members and drops a responder that left", async () => {

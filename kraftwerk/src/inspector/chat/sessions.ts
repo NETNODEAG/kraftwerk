@@ -8,15 +8,18 @@ import { listWorkflows } from "../workflows.js";
 import { getAgent, listAgents } from "../agents.js";
 import { listRepos } from "../repos.js";
 import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
-import { startAcpBackend } from "./acp.js";
+import { deleteAgentSession, listAgentSessions, startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import { UNATTENDED_PERMISSION_TIMEOUT_MS, declineOption, unattendedTimeoutLabel } from "./permissions.js";
 import { chatHref, dismissKey, pushNotification, type DiagnoseRef } from "../notifications.js";
 import type { BackendTuning, ChatBackend } from "./backend.js";
-import type { Author, ChatAgentId, ChatEvent, ChatMeta, ChatScope, StoredChatEvent } from "./types.js";
+import type { Attachment, Author, ChatAgentId, ChatEvent, ChatMeta, ChatScope, ElicitationAnswer, ElicitationField, StoredChatEvent } from "./types.js";
+import type { PromptFile } from "./backend.js";
 import { getChannel, mentionTargets, type Channel } from "../channels.js";
 import {
   appendEvent,
+  attachmentPath,
+  copyChatFiles,
   listChatMetas,
   newChatId,
   readEvents,
@@ -57,6 +60,10 @@ interface ChatState {
   subscribers: Set<(ev: StoredChatEvent) => void>;
   seats: Map<string, Seat>;
   pendingPermissions: Map<string, (optionId: string | null) => void>;
+  /** Questions the agent asked (form elicitations) waiting for a human, by request id. */
+  pendingElicitations: Map<string, (answer: ElicitationAnswer) => void>;
+  /** Which seat raised a pending permission/question, by request id (channels: to cancel one agent). */
+  pendingSeat: Map<string, string>;
   /** Serializes appendEvent calls so events.jsonl stays ordered. */
   writeChain: Promise<void>;
 }
@@ -127,6 +134,14 @@ function dropSeat(seat: Seat): void {
   seat.backend = null;
 }
 
+/** A turn failed: a resumed session that never took a prompt is gone for good — stop resuming it. */
+function forgetFailedResume(state: ChatState, seat: Seat): void {
+  if (!seat.backend?.resumeFailed || !state.meta.sessions?.[seat.key]) return;
+  const { [seat.key]: _gone, ...rest } = state.meta.sessions;
+  state.meta.sessions = rest;
+  emit(state, { type: "error", message: "the previous session could not be continued — the next message starts a fresh one" }, seatAuthor(seat));
+}
+
 /** Kill a chat's agent subprocess(es); the next message spawns fresh ones. */
 function dropBackend(state: ChatState): void {
   for (const seat of state.seats.values()) dropSeat(seat);
@@ -166,6 +181,8 @@ async function loadState(id: string): Promise<ChatState | null> {
     subscribers: new Set(),
     seats: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
+    pendingSeat: new Map(),
     writeChain: Promise.resolve(),
   };
   // Two racing loads: keep whichever registered first.
@@ -185,6 +202,7 @@ async function loadState(id: string): Promise<ChatState | null> {
  */
 function closeInterruptedWork(state: ChatState): void {
   const pending = new Map<string, Author | undefined>();
+  const asked = new Map<string, Author | undefined>();
   const open = new Map<string, Author | undefined>();
   const key = (a?: Author) => (a?.kind === "agent" ? `agent:${a.slug}` : "main");
   for (const e of state.events) {
@@ -194,6 +212,12 @@ function closeInterruptedWork(state: ChatState): void {
         break;
       case "permission_resolved":
         pending.delete(e.requestId);
+        break;
+      case "elicitation_request":
+        asked.set(e.requestId, e.from);
+        break;
+      case "elicitation_resolved":
+        asked.delete(e.requestId);
         break;
       // Channels: a turn is bracketed by turn_start/turn_end per agent.
       // Ordinary chats never emit turn_start: the user's message opens the
@@ -214,12 +238,16 @@ function closeInterruptedWork(state: ChatState): void {
     emit(state, { type: "permission_resolved", requestId, optionId: null }, from);
     void dismissKey(`approval:${state.meta.id}:${requestId}`);
   }
+  for (const [requestId, from] of asked) {
+    emit(state, { type: "elicitation_resolved", requestId, action: "cancel" }, from);
+    void dismissKey(`question:${state.meta.id}:${requestId}`);
+  }
   for (const from of open.values()) {
     const who = from?.kind === "agent" ? `@${from.slug}` : "the agent";
     const how = state.meta.scope.kind === "channel" ? `mention ${who} again` : "send another message";
     emit(state, { type: "error", message: `${who} was interrupted by an inspector restart — ${how} to continue` }, from);
   }
-  if (pending.size || open.size) void writeMeta(state.meta).catch(() => {});
+  if (pending.size || asked.size || open.size) void writeMeta(state.meta).catch(() => {});
 }
 
 function emit(state: ChatState, ev: ChatEvent, from?: Author): StoredChatEvent {
@@ -614,6 +642,9 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
   if ((scope.kind === "run" || meta.vibeable) && agent === "claude") tuning.addDirs = [getProjectRoot()];
   // Routine runs: never a harness mode that skips asking (see unattendedMode in permissions.ts).
   if (isUnattended(scope)) tuning.unattended = true;
+  // A seat that had a session before (restart, idle reaper) continues it.
+  const previous = meta.sessions?.[seat.key];
+  if (previous && agent !== "pi") tuning.resume = previous;
   // pi loads skills only when told: hand it every visible skill folder.
   if (agent === "pi") {
     const skills = await availableSkills(scope);
@@ -641,9 +672,11 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
         const requestId = randomUUID();
         const notifyKey = `approval:${state.meta.id}:${requestId}`;
         let deadline: NodeJS.Timeout | undefined;
+        state.pendingSeat.set(requestId, seat.key);
         state.pendingPermissions.set(requestId, (optionId) => {
           if (deadline) clearTimeout(deadline);
           state.pendingPermissions.delete(requestId);
+          state.pendingSeat.delete(requestId);
           emit(state, { type: "permission_resolved", requestId, optionId }, me);
           void dismissKey(notifyKey);
           resolve(optionId);
@@ -671,6 +704,46 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
         }
       });
     },
+    askElicitation: (message: string, fields: ElicitationField[]): Promise<ElicitationAnswer> => {
+      // The agent wants to know something before it goes on. Same contract
+      // as permissions: the question waits in the thread for a human; an
+      // unattended session gets a deadline after which the question is
+      // declined (the agent is told the user skipped it), never answered.
+      return new Promise((resolve) => {
+        const requestId = randomUUID();
+        const notifyKey = `question:${state.meta.id}:${requestId}`;
+        let deadline: NodeJS.Timeout | undefined;
+        state.pendingSeat.set(requestId, seat.key);
+        state.pendingElicitations.set(requestId, (answer) => {
+          if (deadline) clearTimeout(deadline);
+          state.pendingElicitations.delete(requestId);
+          state.pendingSeat.delete(requestId);
+          emit(state, { type: "elicitation_resolved", requestId, ...answer }, me);
+          void dismissKey(notifyKey);
+          resolve(answer);
+        });
+        emit(state, { type: "elicitation_request", requestId, message, fields }, me);
+        void pushNotification({
+          kind: "approval",
+          key: notifyKey,
+          title: `${chatLabel(state.meta)}${me?.kind === "agent" ? ` · @${me.slug}` : ""} has a question`,
+          body: message,
+          href: chatHref(state.meta),
+        });
+        if (isUnattended(state.meta.scope)) {
+          deadline = setTimeout(() => {
+            const pending = state.pendingElicitations.get(requestId);
+            if (!pending) return;
+            emit(state, {
+              type: "error",
+              message: `nobody answered the agent's question within ${unattendedTimeoutLabel()} — skipped (unattended routine session)`,
+            });
+            pending({ action: "decline" });
+          }, UNATTENDED_PERMISSION_TIMEOUT_MS);
+          deadline.unref?.();
+        }
+      });
+    },
   };
   const agent = seat.harness;
   const cwd = await effectiveCwd(state.meta);
@@ -679,9 +752,14 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
       : await startAcpBackend(agent, cwd, hooks, tuning);
-  // Fresh process = fresh context window: re-send scope context with the
-  // next prompt (matters for chats resumed after an inspector restart).
-  seat.needsContext = true;
+  if (seat.backend.sessionId) {
+    state.meta.sessions = { ...state.meta.sessions, [seat.key]: seat.backend.sessionId };
+    void writeMeta(state.meta).catch(() => {});
+  }
+  // A resumed session still has the conversation (and the scope context)
+  // in its window. A fresh process is a fresh context window: re-send the
+  // scope context with the next prompt.
+  seat.needsContext = !seat.backend.resumed;
   return seat.backend;
 }
 
@@ -707,6 +785,8 @@ export async function createChat(opts: {
   scope: ChatScope;
   /** Preset title (e.g. routine runs); otherwise the first message names the chat. */
   title?: string;
+  /** Continue one of the agent's own sessions (from listAgentSessionsFor) instead of starting fresh. */
+  resume?: string;
 }): Promise<ChatMeta> {
   const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
@@ -716,6 +796,7 @@ export async function createChat(opts: {
     title: opts.title ?? "",
     cwd,
     scope: opts.scope,
+    ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -726,6 +807,8 @@ export async function createChat(opts: {
     subscribers: new Set(),
     seats: new Map(),
     pendingPermissions: new Map(),
+    pendingElicitations: new Map(),
+    pendingSeat: new Map(),
     writeChain: Promise.resolve(),
   });
   return meta;
@@ -753,10 +836,19 @@ export async function getChat(
   return { meta: state.meta, events: state.events, busy: isBusy(state) };
 }
 
-export async function postMessage(id: string, text: string, opts: { from?: string } = {}): Promise<{ error?: string }> {
+/** Attachments as the backend gets them: with their path on disk. */
+const promptFiles = (id: string, attachments: Attachment[] = []): PromptFile[] =>
+  attachments.map((a) => ({ ...a, path: attachmentPath(id, a.name) }));
+
+export async function postMessage(
+  id: string,
+  text: string,
+  opts: { from?: string; attachments?: Attachment[] } = {}
+): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
-  if (state.meta.scope.kind === "channel") return postChannelMessage(state, state.meta.scope.slug, text, opts.from);
+  const attachments = opts.attachments?.length ? opts.attachments : undefined;
+  if (state.meta.scope.kind === "channel") return postChannelMessage(state, state.meta.scope.slug, text, opts.from, attachments);
   const seat = mainSeat(state);
   if (seat.busy) return { error: "agent is still working — wait for the turn to finish" };
 
@@ -766,7 +858,7 @@ export async function postMessage(id: string, text: string, opts: { from?: strin
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
     void writeMeta(state.meta).catch(() => {});
   }
-  const turnStart = emit(state, { type: "user_message", text }).seq;
+  const turnStart = emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}) }).seq;
 
   // The turn runs in the background; the HTTP request returns immediately
   // and the browser follows along on the SSE stream.
@@ -779,7 +871,7 @@ export async function postMessage(id: string, text: string, opts: { from?: strin
       // the thread keeps the short form the user typed.
       const body = await expandSkillInvocation(state.meta.scope, text);
       const promptText = context ? `<context>\n${context}\n</context>\n\n${body}` : body;
-      const stopReason = await backend.prompt(promptText);
+      const stopReason = await backend.prompt(promptText, promptFiles(id, attachments));
       emit(state, { type: "turn_end", stopReason });
       // Routine sessions are one-shot and unattended: release the agent
       // process as soon as the turn ends instead of waiting for the reaper,
@@ -808,6 +900,7 @@ export async function postMessage(id: string, text: string, opts: { from?: strin
       }
       // A failed turn may mean a dead subprocess; drop it so the next
       // message spawns a fresh agent (thread history stays on disk).
+      forgetFailedResume(state, seat);
       dropBackend(state);
     } finally {
       seat.busy = false;
@@ -825,11 +918,11 @@ export async function postMessage(id: string, text: string, opts: { from?: strin
  * parallel, never blocking the humans, who can keep posting. An agent that
  * is still busy is woken again when its turn ends, so nothing is lost.
  */
-async function postChannelMessage(state: ChatState, slug: string, text: string, from?: string): Promise<{ error?: string }> {
+async function postChannelMessage(state: ChatState, slug: string, text: string, from?: string, attachments?: Attachment[]): Promise<{ error?: string }> {
   const channel = await getChannel(slug).catch(() => null);
   if (!channel) return { error: `channel "${slug}" has no definition under channels/` };
   const name = (from ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || "you";
-  emit(state, { type: "user_message", text }, { kind: "human", name });
+  emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}) }, { kind: "human", name });
   void writeMeta(state.meta).catch(() => {});
   for (const target of mentionTargets(text, channel)) void wakeSeat(state, channel, target, 0);
   return {};
@@ -870,7 +963,8 @@ function transcriptSince(state: ChatState, afterSeq: number, beforeSeq: number, 
     if (e.seq <= afterSeq || e.seq >= beforeSeq) continue;
     if (e.type === "user_message") {
       flush();
-      lines.push(`[${e.from?.kind === "human" ? e.from.name : "human"}]: ${e.text}`);
+      const files = e.attachments?.length ? `\n(attached: ${e.attachments.map((a) => attachmentPath(state.meta.id, a.name)).join(", ")})` : "";
+      lines.push(`[${e.from?.kind === "human" ? e.from.name : "human"}]: ${e.text}${files}`);
     } else if (e.type === "text" && e.from?.kind === "agent" && e.from.slug !== self) {
       if (open && open.slug !== e.from.slug) flush();
       open = open ?? { slug: e.from.slug, text: "" };
@@ -923,6 +1017,7 @@ async function runSeatTurn(state: ChatState, channel: Channel, seat: Seat, hops:
     }
   } catch (err) {
     emit(state, { type: "error", message: (err as Error).message }, me);
+    forgetFailedResume(state, seat);
     dropSeat(seat);
   } finally {
     seat.busy = false;
@@ -962,6 +1057,10 @@ export async function convertChatToChannel(chatId: string, channel: Channel): Pr
   seat.needsContext = true;
   seat.seenSeq = state.events[state.events.length - 1]?.seq ?? 0;
   state.seats.set(scope.slug, seat);
+  if (state.meta.sessions?.[MAIN]) {
+    const { [MAIN]: session, ...rest } = state.meta.sessions;
+    state.meta.sessions = { ...rest, [scope.slug]: session };
+  }
   state.meta.scope = { kind: "channel", slug: channel.slug };
   state.meta.title = channel.name;
   state.meta.updatedAt = new Date().toISOString();
@@ -1017,9 +1116,135 @@ export async function setChatVibeable(
   }
   state.meta.updatedAt = new Date().toISOString();
   dropBackend(state);
+  // The agent's session belongs to the old folder: start over there.
+  delete state.meta.sessions;
   for (const seat of state.seats.values()) seat.needsContext = true;
   await writeMeta(state.meta);
   return { meta: state.meta };
+}
+
+/**
+ * Fork a chat: a new chat with the same transcript whose agent continues
+ * from a copy of this session (session/fork) — try something without
+ * losing the original thread. Needs a session to fork: an agent that keeps
+ * one (claude, codex — pi has no ACP session) that has answered at least
+ * once. The source's process is (re)spawned if needed; the fork's own
+ * process starts with its first message and resumes the forked id.
+ */
+export async function forkChat(id: string): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found", status: 404 };
+  const { meta } = state;
+  if (meta.scope.kind === "channel") return { error: "a channel cannot be forked", status: 409 };
+  if (meta.agent === "pi") return { error: "pi chats have no session to fork", status: 409 };
+  if (meta.agent === "codex") return { error: "fork is not supported by codex", status: 409 };
+  if (!meta.sessions?.[MAIN]) return { error: "nothing to fork yet — the agent has not answered in this chat", status: 409 };
+  if (isBusy(state)) return { error: "agent is still working — wait for the turn to finish", status: 409 };
+  const seat = mainSeat(state);
+  let forked: string;
+  try {
+    const backend = await ensureBackend(state, seat);
+    if (!backend.fork) return { error: `${meta.agent} cannot fork sessions`, status: 409 };
+    forked = await backend.fork();
+  } catch (err) {
+    return { error: (err as Error).message, status: 409 };
+  }
+  const now = new Date().toISOString();
+  const copy: ChatMeta = {
+    ...meta,
+    id: newChatId(),
+    title: meta.title ? `${meta.title} (fork)` : "",
+    sessions: { [MAIN]: forked },
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeMeta(copy);
+  await copyChatFiles(meta.id, copy.id);
+  return { meta: copy };
+}
+
+/**
+ * Start over with the agent: drop the process and the stored session id so
+ * the next message opens a fresh session (the transcript stays, and goes
+ * back in as context). The way out of a session the harness reports as
+ * unusable — a "new_session" failure action.
+ */
+export async function resetSession(id: string): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found", status: 404 };
+  if (isBusy(state)) return { error: "agent is still working — wait for the turn to finish", status: 409 };
+  dropBackend(state);
+  delete state.meta.sessions;
+  for (const seat of state.seats.values()) seat.needsContext = true;
+  state.meta.updatedAt = new Date().toISOString();
+  await writeMeta(state.meta);
+  emit(state, { type: "error", message: "session reset — the next message starts a fresh one, with the conversation so far as context" });
+  return { meta: state.meta };
+}
+
+export async function answerElicitation(id: string, requestId: string, answer: ElicitationAnswer): Promise<{ error?: string }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  const resolve = state.pendingElicitations.get(requestId);
+  if (!resolve) return { error: "no such pending question" };
+  resolve(answer);
+  return {};
+}
+
+/**
+ * Steer: hand a message into the agent's running turn instead of waiting
+ * for it to end. Shown in the thread like any message. When no turn is
+ * running (or the agent cannot take steering) it goes the ordinary way.
+ */
+export async function steerChat(id: string, text: string, attachments?: Attachment[]): Promise<{ error?: string }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  if (state.meta.scope.kind === "channel") return { error: "channels take messages, not steering — @mention the agent" };
+  const seat = mainSeat(state);
+  const files = attachments?.length ? attachments : undefined;
+  if (!seat.busy || !seat.backend?.steer) return postMessage(id, text, { attachments: files });
+  try {
+    const outcome = await seat.backend.steer(text, promptFiles(id, files));
+    if (outcome === "promptRequired") return postMessage(id, text, { attachments: files });
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  emit(state, { type: "user_message", text, steered: true, ...(files ? { attachments: files } : {}) });
+  void writeMeta(state.meta).catch(() => {});
+  return {};
+}
+
+export async function stopChatTask(id: string, taskId: string): Promise<{ error?: string }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  const backend = [...state.seats.values()].find((s) => s.backend?.stopTask)?.backend;
+  if (!backend?.stopTask) return { error: "no running agent to stop the task on" };
+  try {
+    await backend.stopTask(taskId);
+    return {};
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+/** Change a session setting (model, thinking depth, ...) on the chat's live agent. */
+export async function setChatConfig(id: string, configId: string, value: string | boolean): Promise<{ error?: string }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  const backend = mainSeat(state).backend;
+  if (!backend?.setConfig) return { error: "the agent is not running — send a message first, the settings appear once it is up" };
+  try {
+    await backend.setConfig(configId, value);
+    return {};
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
+/** The agent's own sessions in the project root (Claude Code / Codex transcripts), to continue one as a chat. */
+export async function listAgentSessionsFor(agent: ChatAgentId): Promise<Array<{ sessionId: string; title?: string; updatedAt?: string; cwd: string }>> {
+  if (agent === "pi") return [];
+  return listAgentSessions(agent, getProjectRoot());
 }
 
 export async function resolvePermission(
@@ -1040,17 +1265,39 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   for (const resolve of state.pendingPermissions.values()) resolve(null);
+  for (const resolve of state.pendingElicitations.values()) resolve({ action: "cancel" });
   dropBackend(state);
   states.delete(id);
   await fs.rm(safeChatDir(id), { recursive: true, force: true });
+  // The agent's own transcripts go with the chat (best effort, in the background).
+  const cwd = await effectiveCwd(state.meta);
+  for (const [seatKey, sessionId] of Object.entries(state.meta.sessions ?? {})) {
+    void (async () => {
+      const harness = seatKey === MAIN ? state.meta.agent : (await getAgent(seatKey).catch(() => null))?.harness;
+      if (harness && harness !== "pi") await deleteAgentSession(harness, cwd, sessionId);
+    })().catch(() => {});
+  }
   return {};
 }
 
-export async function cancelChat(id: string): Promise<{ error?: string }> {
+/**
+ * Interrupt the agent's turn — in a channel, one agent's (`agent` = its
+ * slug) or every agent's. Whatever the agent was waiting on from a human
+ * is dismissed, and an agent queued to run again when its turn ends is
+ * not woken after all.
+ */
+export async function cancelChat(id: string, agent?: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
-  for (const resolve of state.pendingPermissions.values()) resolve(null);
-  for (const seat of state.seats.values()) seat.backend?.cancel();
+  const seats = agent ? [state.seats.get(agent)].filter((s): s is Seat => !!s) : [...state.seats.values()];
+  if (agent && seats.length === 0) return { error: `@${agent} is not running in this chat` };
+  const mine = (requestId: string) => !agent || state.pendingSeat.get(requestId) === agent;
+  for (const [requestId, resolve] of state.pendingPermissions) if (mine(requestId)) resolve(null);
+  for (const [requestId, resolve] of state.pendingElicitations) if (mine(requestId)) resolve({ action: "cancel" });
+  for (const seat of seats) {
+    seat.wake = null;
+    seat.backend?.cancel();
+  }
   return {};
 }
 

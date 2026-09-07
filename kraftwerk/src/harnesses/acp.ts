@@ -8,7 +8,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { AgentInvocation, AgentResult, Harness, HarnessId } from "../harness.js";
-import { acpMcpServers, adapterEnv, connectAcp, type AcpAgent } from "../acp.js";
+import { acpMcpServers, adapterEnv, connectAcp, openSession, type AcpAgent } from "../acp.js";
 import { declineOption, unattendedMode } from "../inspector/chat/permissions.js";
 
 /**
@@ -17,7 +17,9 @@ import { declineOption, unattendedMode } from "../inspector/chat/permissions.js"
  * codex-acp — bundled, no CLI on the PATH needed). The adapter process
  * stays alive for the whole run: the session id the engine passes back as
  * `resume` finds the live session, so phases on one harness share context
- * exactly like `--resume` does for the CLI harnesses.
+ * exactly like `--resume` does for the CLI harnesses. A session id without
+ * a live adapter (the run continues in a new process) is resumed over
+ * session/resume — the agent's own transcript carries the context.
  *
  * Normalization versus the CLI harnesses:
  *  - ACP has no per-prompt system prompt, so persona + workspace context
@@ -92,7 +94,7 @@ export function toolTarget(u: { rawInput?: Record<string, unknown>; locations?: 
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function open(agent: AcpAgent, inv: AgentInvocation): Promise<Live> {
+async function open(agent: AcpAgent, inv: AgentInvocation, resume?: string): Promise<Live> {
   let ended!: (why: string) => void;
   const closed = new Promise<string>((r) => (ended = r));
   const state = {
@@ -159,11 +161,18 @@ async function open(agent: AcpAgent, inv: AgentInvocation): Promise<Live> {
   state.conn = conn;
 
   try {
-    const session = await conn.newSession({
-      cwd: inv.cwd,
-      mcpServers: acpMcpServers(inv.mcpServers),
-      ...(agent === "claude" ? { _meta: { claudeCode: { options: claudeSessionOptions(inv) } } } : {}),
-    });
+    const session = await openSession(
+      conn,
+      {
+        cwd: inv.cwd,
+        mcpServers: acpMcpServers(inv.mcpServers),
+        ...(agent === "claude" ? { _meta: { claudeCode: { options: claudeSessionOptions(inv) } } } : {}),
+      },
+      resume
+    );
+    if (session.resumeError) {
+      console.log(`  ⚠ could not resume session ${resume} (${session.resumeError}) — a new ${agent} session starts without the earlier phases in context`);
+    }
     state.sessionId = session.sessionId;
     const modeId = unattendedMode(agent, session.modes?.currentModeId);
     if (modeId) {
@@ -199,7 +208,8 @@ async function invoke(agent: AcpAgent, inv: AgentInvocation): Promise<AgentResul
     live.delete(s.sessionId);
     s = undefined;
   }
-  s ??= await open(agent, inv);
+  // No live adapter for the id (a new process, or the adapter died): resume it in a fresh one.
+  s ??= await open(agent, inv, inv.resume);
 
   const turn: Turn = { text: "", onToolUse: inv.onToolUse, pending: new Map() };
   s.turn = turn;

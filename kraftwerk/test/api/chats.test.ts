@@ -41,6 +41,94 @@ describe("chats API: approval state", () => {
     assert.equal(row.awaitingApproval, false);
   });
 
+  /**
+   * Forking needs a session the agent already holds; refusing early keeps
+   * these cases from spawning an agent. A chat the agent never answered
+   * in has nothing to fork, and pi has no session to fork at all.
+   */
+  it("refuses to fork a chat without a session, a pi chat, and an unknown chat", async () => {
+    const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
+    const meta = (await created.json()) as ChatMeta;
+    const fresh = await post(`/api/chats/${meta.id}/fork`, {});
+    assert.equal(fresh.status, 409);
+    assert.match(((await fresh.json()) as { error: string }).error, /nothing to fork yet/);
+
+    const pi = (await (await post("/api/chats", { agent: "pi", scope: { kind: "general" } })).json()) as ChatMeta;
+    const piFork = await post(`/api/chats/${pi.id}/fork`, {});
+    assert.equal(piFork.status, 409);
+    assert.match(((await piFork.json()) as { error: string }).error, /pi chats/);
+
+    const missing = await post("/api/chats/chat-2026-01-01-0000-00-none/fork", {});
+    assert.equal(missing.status, 404);
+  });
+
+  /** Resetting forgets the stored session and tells the thread; no agent is spawned for it. */
+  it("resets a chat's session and refuses an unknown chat", async () => {
+    const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
+    const meta = (await created.json()) as ChatMeta;
+    const r = await post(`/api/chats/${meta.id}/reset-session`, {});
+    assert.equal(r.status, 200);
+    assert.equal(((await r.json()) as ChatMeta).sessions, undefined);
+    const chat = (await (await fetch(`${srv.url}/api/chats/${meta.id}`)).json()) as { events: Array<{ type: string; message?: string }> };
+    assert.ok(chat.events.some((e) => e.type === "error" && /session reset/.test(e.message ?? "")));
+    assert.equal((await post("/api/chats/chat-2026-01-01-0000-00-none/reset-session", {})).status, 404);
+  });
+
+  /** The agent-facing controls refuse cleanly when no agent is up (nothing is spawned for them). */
+  it("steering, settings, task stop and questions refuse without an agent or a pending request", async () => {
+    const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
+    const meta = (await created.json()) as ChatMeta;
+    assert.equal((await post(`/api/chats/${meta.id}/config`, { configId: "model", value: "x" })).status, 409);
+    assert.equal((await post(`/api/chats/${meta.id}/task-stop`, { taskId: "t" })).status, 409);
+    assert.equal((await post(`/api/chats/${meta.id}/elicitation`, { requestId: "nope", action: "accept", content: {} })).status, 409);
+    assert.equal((await post(`/api/chats/${meta.id}/elicitation`, { requestId: "nope", action: "maybe" })).status, 400);
+    assert.equal((await post("/api/chats/chat-2026-01-01-0000-00-none/steer", { text: "hi" })).status, 409);
+  });
+
+  /** Files dropped into a chat are stored under it and served back; names are sanitized. */
+  it("stores and serves attachments", async () => {
+    const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
+    const meta = (await created.json()) as ChatMeta;
+    const up = await fetch(`${srv.url}/api/chats/${meta.id}/attachments`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-file-name": encodeURIComponent("my shot (1).png"), origin: new URL(srv.url).origin },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    });
+    assert.equal(up.status, 200);
+    const a = (await up.json()) as { name: string; mimeType: string; size: number };
+    assert.match(a.name, /^\d{8}-\d{6}-my-shot-1-\.png$|^\d{8}-\d{6}-my-shot-1\.png$/);
+    assert.equal(a.mimeType, "image/png");
+    assert.equal(a.size, 4);
+    const got = await fetch(`${srv.url}/api/chats/${meta.id}/attachments/${a.name}`);
+    assert.equal(got.status, 200);
+    assert.equal(got.headers.get("content-type"), "image/png");
+    assert.equal(Buffer.from(await got.arrayBuffer()).length, 4);
+    assert.equal((await fetch(`${srv.url}/api/chats/${meta.id}/attachments/..%2Fmeta.json`)).status, 404);
+    assert.equal((await fetch(`${srv.url}/api/chats/${meta.id}/attachments/nope.png`)).status, 404);
+  });
+
+  /** A fork carries the attachments along, so the copy survives the original's deletion. */
+  it("copies attachments into a forked chat", async () => {
+    const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
+    const meta = (await created.json()) as ChatMeta;
+    const up = await fetch(`${srv.url}/api/chats/${meta.id}/attachments`, {
+      method: "POST",
+      headers: { "content-type": "text/plain", "x-file-name": "note.txt", origin: new URL(srv.url).origin },
+      body: "hello",
+    });
+    const a = (await up.json()) as { name: string };
+    // The fork itself needs a live agent (never from a test); the copy step is what carries the files.
+    const copy = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
+    const { copyChatFiles } = await import("../../src/inspector/chat/store.js");
+    await copyChatFiles(meta.id, copy.id);
+    const got = await fetch(`${srv.url}/api/chats/${copy.id}/attachments/${a.name}`);
+    assert.equal(got.status, 200);
+    assert.equal(await got.text(), "hello");
+    // And a chat without attachments copies cleanly too.
+    const bare = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
+    await copyChatFiles(bare.id, copy.id);
+  });
+
   it("answering a permission nobody asked for is a 409, not a crash", async () => {
     const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
     const meta = (await created.json()) as ChatMeta;

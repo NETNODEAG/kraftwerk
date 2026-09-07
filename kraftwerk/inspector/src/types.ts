@@ -22,7 +22,15 @@ export type {
   ChatScope,
   ChatMeta,
   ChatEvent,
+  Compaction,
+  SessionFailure,
   StoredChatEvent,
+  AgentCommand,
+  Attachment,
+  AuthStatus,
+  ConfigOption,
+  ElicitationField,
+  PlanEntry,
 } from "../../src/inspector/chat/types";
 export type {
   KnowledgeIndex,

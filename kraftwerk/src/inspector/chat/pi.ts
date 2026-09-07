@@ -46,7 +46,9 @@ export function startPiBackend(
   ];
 
   return {
-    prompt(text: string): Promise<string> {
+    prompt(text: string, files?: import("./backend.js").PromptFile[]): Promise<string> {
+      // pi takes text only: name the files, they are on disk for it to open.
+      if (files?.length) text += `\n\nAttached files:\n${files.map((f) => `- ${f.name} (${f.mimeType}, ${f.path})`).join("\n")}`;
       cancelled = false;
       return new Promise((resolve, reject) => {
         const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...tuningArgs], {

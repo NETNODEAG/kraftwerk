@@ -1,6 +1,7 @@
 import { existsSync, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { attachmentPath, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { resolveProject } from "../config.js";
 import { listRuns, getRun, readRunFile } from "./runs.js";
@@ -12,6 +13,13 @@ import { deleteChannel, getChannel, listChannels, saveChannel, channelsRoot, typ
 import {
   cancelChat,
   createChat,
+  forkChat,
+  resetSession,
+  answerElicitation,
+  steerChat,
+  stopChatTask,
+  setChatConfig,
+  listAgentSessionsFor,
   deleteChat,
   disposeAllBackends,
   getChat,
@@ -133,6 +141,25 @@ function json(res: Res, body: unknown, status = 200): void {
   if (res.headersSent) return void res.end();
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
+}
+
+/** A raw upload body (attachments), capped at `max` bytes. */
+function readRawBody(req: http.IncomingMessage, max: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > max) {
+        reject(new Error(`file too large (max ${Math.round(max / 1_000_000)} MB)`));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
@@ -938,6 +965,8 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       let body: {
         agent?: string;
         scope?: { kind?: string; runId?: string; bundle?: string; slug?: string };
+        /** Continue one of the agent's own sessions (see GET /api/agent-sessions). */
+        resume?: string;
       };
       try {
         body = JSON.parse(await readBody(req));
@@ -965,10 +994,21 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         return json(res, { error: "agent must be claude, codex, or pi" }, 400);
       }
       try {
-        return json(res, await createChat({ agent, scope }));
+        return json(res, await createChat({ agent, scope, ...(typeof body.resume === "string" && body.resume ? { resume: body.resume } : {}) }));
       } catch (err) {
         return json(res, { error: (err as Error).message }, 400);
       }
+    }
+  }
+
+  // GET /api/agent-sessions?agent=claude|codex — the agent's own sessions in the project root
+  if (seg.length === 2 && seg[1] === "agent-sessions" && method === "GET") {
+    const agent = url.searchParams.get("agent") ?? "claude";
+    if (!["claude", "codex", "pi"].includes(agent)) return json(res, { error: "agent must be claude, codex, or pi" }, 400);
+    try {
+      return json(res, { sessions: await listAgentSessionsFor(agent as ChatAgentId) });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 502);
     }
   }
 
@@ -1030,6 +1070,58 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // POST /api/chats/:id/fork — a new chat continuing a copy of this one's session
+  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "fork" && method === "POST") {
+    try {
+      const result = await forkChat(seg[2]);
+      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // POST /api/chats/:id/attachments — raw file body; x-file-name names it. Returns the stored attachment.
+  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "attachments" && method === "POST") {
+    try {
+      if (!(await getChat(seg[2]))) return json(res, { error: "not found" }, 404);
+      const data = await readRawBody(req, 25_000_000);
+      if (data.length === 0) return json(res, { error: "empty file" }, 400);
+      const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
+      const name = await saveAttachment(seg[2], decodeURIComponent(String(req.headers["x-file-name"] ?? "file")), data);
+      return json(res, { name, mimeType, size: data.length });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET /api/chats/:id/attachments/:name — the stored file
+  if (seg.length === 5 && seg[1] === "chats" && seg[3] === "attachments" && method === "GET") {
+    try {
+      const file = attachmentPath(seg[2], seg[4]);
+      const ext = path.extname(file).toLowerCase();
+      const data = await fs.readFile(file);
+      res.writeHead(200, {
+        "content-type": MIME[ext] ?? "application/octet-stream",
+        "content-length": data.length,
+        "cache-control": "private, max-age=86400",
+        "x-content-type-options": "nosniff",
+      });
+      return void res.end(data);
+    } catch {
+      return json(res, { error: "not found" }, 404);
+    }
+  }
+
+  // POST /api/chats/:id/reset-session — forget the agent's session; the next message starts fresh
+  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "reset-session" && method === "POST") {
+    try {
+      const result = await resetSession(seg[2]);
+      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
   // POST /api/chats/:id/{message,permission,cancel}
   if (seg.length === 4 && seg[1] === "chats" && method === "POST") {
     let body: Record<string, unknown> = {};
@@ -1041,11 +1133,16 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
     try {
       let result: { error?: string };
+      const attachments = Array.isArray(body.attachments)
+        ? (body.attachments as Array<Record<string, unknown>>)
+            .filter((a) => a && typeof a.name === "string" && typeof a.mimeType === "string")
+            .map((a) => ({ name: String(a.name), mimeType: String(a.mimeType), size: Number(a.size) || 0 }))
+        : [];
       if (seg[3] === "message") {
         const text = String(body.text ?? "").trim();
-        if (!text) return json(res, { error: "text is required" }, 400);
+        if (!text && attachments.length === 0) return json(res, { error: "text is required" }, 400);
         // Channels: the poster's display name signs the message.
-        result = await postMessage(seg[2], text, { from: typeof body.from === "string" ? body.from : undefined });
+        result = await postMessage(seg[2], text || "(see attached)", { from: typeof body.from === "string" ? body.from : undefined, attachments });
       } else if (seg[3] === "permission") {
         result = await resolvePermission(
           seg[2],
@@ -1053,7 +1150,22 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
           body.optionId == null ? null : String(body.optionId)
         );
       } else if (seg[3] === "cancel") {
-        result = await cancelChat(seg[2]);
+        // Channels: `agent` stops one member; without it every agent in the chat.
+        result = await cancelChat(seg[2], typeof body.agent === "string" && body.agent ? body.agent : undefined);
+      } else if (seg[3] === "steer") {
+        const text = String(body.text ?? "").trim();
+        if (!text && attachments.length === 0) return json(res, { error: "text is required" }, 400);
+        result = await steerChat(seg[2], text || "(see attached)", attachments);
+      } else if (seg[3] === "elicitation") {
+        const action = body.action === "accept" || body.action === "decline" || body.action === "cancel" ? body.action : null;
+        if (!action) return json(res, { error: "action must be accept, decline, or cancel" }, 400);
+        const content = body.content && typeof body.content === "object" ? (body.content as Record<string, string | number | boolean | string[]>) : {};
+        result = await answerElicitation(seg[2], String(body.requestId ?? ""), action === "accept" ? { action, content } : { action });
+      } else if (seg[3] === "task-stop") {
+        result = await stopChatTask(seg[2], String(body.taskId ?? ""));
+      } else if (seg[3] === "config") {
+        const value = typeof body.value === "boolean" ? body.value : String(body.value ?? "");
+        result = await setChatConfig(seg[2], String(body.configId ?? ""), value);
       } else {
         return json(res, { error: "not found" }, 404);
       }

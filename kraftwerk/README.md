@@ -290,6 +290,46 @@ and write knowledge through `kraftwerk knowledge`, with writes stamped with
 the agent's own actor, `<slug>/<harness>`. So the agent triggers its own
 workflows when a request matches, and keeps its bundles current.
 
+A chat keeps the agent's own session. The ACP session id is stored with the
+chat (`sessions` in `meta.json`), and the next process — after an inspector
+restart, or once the idle reaper released the agent — resumes it over
+`session/resume`, so the agent continues with its memory rather than with
+the transcript as a summary. A session that cannot be resumed (its
+transcript is gone) falls back to a fresh one and says so in the thread.
+"Fork" branches a chat: a new chat with the same transcript whose agent
+continues from a copy of the session (`session/fork`, claude), leaving the
+original as it is. Chats over ACP negotiate claude's native subagent and
+async task streams: a delegated subagent shows as its own card with its
+stream folded underneath, background work (backgrounded shells, monitors)
+as task cards that outlive the tool call, and a context compaction as a
+"compact" card with the token counts. Session failures the harness reports
+(a rate limit, an expired login, a provider outage) arrive structured, not
+as prose: a card names the category and the action the harness recommends,
+retry, sign in again, or start a fresh session
+(`POST /api/chats/:id/reset-session` forgets the stored session id).
+
+The rest of what the adapters announce is in the chat too. The agent's
+plan is a checklist card that updates in place. Its questions (Claude's
+AskUserQuestion, MCP elicitations) are form cards answered in the thread —
+unattended sessions skip an unanswered question after the same deadline as
+permissions. A message sent while the agent works is steered into the
+running turn instead of waiting (`POST /api/chats/:id/steer`). The header
+shows who the agent is signed in as, and in expert mode its context use
+and cost plus the model and thinking settings it lets you change live
+(`POST /api/chats/:id/config`). The agent's slash commands join the
+skills in the `/` menu. Each turn ends with the files the agent says it
+changed. Background tasks that can be stopped have a stop button
+(`POST /api/chats/:id/task-stop`). Deleting a chat deletes the agent's own
+sessions with it, and "continue a session" on the new-chat screen lists
+the agent's sessions in the project (`GET /api/agent-sessions`) to pick
+one up as a chat.
+
+Files dropped, pasted or attached in the composer go with the message
+(`POST /api/chats/:id/attachments`, then `attachments` on the message):
+they are stored under the chat's folder, images reach the agent as image
+blocks (a screenshot is seen, not described), text files as embedded
+resources, everything else by path.
+
 Model and effort ride on backend-specific channels. The claude adapter takes
 the model via ACP session options and the thinking budget via
 `MAX_THINKING_TOKENS`. Codex gets a `CODEX_CONFIG` env override (`model`,
@@ -460,6 +500,14 @@ messages carry the name set in the composer ("posting as"), stored per
 browser. API: `GET/POST /api/channels`, `GET/PUT/DELETE /api/channels/:slug`,
 `POST /api/channels/from-chat {chatId, name, members}`; messages go through
 the chat endpoint with `from` for the poster's name.
+
+Each member chip in a channel shows what that agent is on: the message
+that last addressed it, and while it works, its current step (the tool it
+is using, else the start of its reply). Clicking a chip opens the agent's
+own session — its stream alone, humans' messages for context, tool
+activity always visible — and a stop button interrupts just that agent
+(`POST /api/chats/:id/cancel {agent}`); "stop all" in the header
+interrupts every agent working in the channel.
 
 ## Knowledge
 

@@ -345,6 +345,9 @@ a.ws-name:hover { text-decoration: underline; }
 }
 .ws-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
 .ws-btn:disabled { opacity: 0.45; cursor: default; }
+.ws-btn.muted { opacity: 0.45; cursor: not-allowed; }
+.ws-btn.muted:hover { background: transparent; }
+.fork-note { font-size: 11px; color: var(--on-surface-variant); }
 .ws-btn.primary { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
 .ws-btn.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--primary); }
 .ws-btn.danger { color: var(--error); }
@@ -1146,6 +1149,115 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
   white-space: pre-wrap; word-break: break-word; overflow: visible;
   line-height: 1.5; min-width: 0;
 }
+
+/* A subagent: its announcement is the summary, its own stream folds underneath. */
+.subagent-card {
+  align-self: stretch; max-width: 90ch;
+  font-family: var(--font-mono), monospace; font-size: 11px; color: var(--on-surface-variant);
+}
+.subagent-card summary {
+  display: inline-flex; align-items: flex-start; gap: 8px; padding: 0 2px; cursor: pointer;
+  list-style: none; user-select: none;
+}
+.subagent-card summary::-webkit-details-marker { display: none; }
+.subagent-card summary .lamp { margin-top: 4px; width: 7px; height: 7px; }
+.subagent-card summary .chip.tool-kind {
+  flex-shrink: 0; border: 0; background: transparent; padding: 0;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; min-width: 64px;
+}
+.subagent-card summary .tool-title { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.subagent-card .subagent-state { opacity: 0.7; }
+.subagent-body {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 6px 0 4px 3px; padding: 6px 0 6px 14px; border-left: 2px solid var(--outline-variant);
+}
+.subagent-body .msg.agent { font-size: 12.5px; }
+.subagent-empty { color: var(--on-surface-variant); opacity: 0.7; }
+.tool-card.compaction .chip.tool-kind, .task-card .chip.tool-kind { color: var(--tertiary); }
+:root[data-theme="light"] .tool-card.compaction .chip.tool-kind, :root[data-theme="light"] .task-card .chip.tool-kind { color: var(--on-tertiary-container); }
+
+/* A session failure: the harness's report plus its recommended actions. */
+.failure-card {
+  align-self: flex-start; max-width: 76ch;
+  border-radius: 16px; padding: 12px 16px; box-shadow: var(--elev-1);
+  background: var(--error-container); color: var(--on-error-container);
+}
+.failure-card.warning { background: var(--tertiary-container); color: var(--on-tertiary-container); }
+.failure-card.settled { opacity: 0.7; box-shadow: none; }
+.failure-card .failure-title { font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.failure-card .failure-title .microlabel { font-weight: 700; margin-right: 4px; }
+.failure-card .failure-details { margin-top: 6px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.failure-card .failure-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* The agent's plan: a checklist that updates in place. */
+.plan-card {
+  align-self: flex-start; max-width: 76ch; border-radius: 12px; padding: 10px 14px;
+  background: var(--surface-container); color: var(--on-surface-variant); font-size: 12.5px;
+}
+.plan-card.removed { opacity: 0.55; }
+.plan-card .plan-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+.plan-card .plan-count { font-family: var(--font-mono), monospace; font-size: 11px; }
+.plan-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.plan-card li { display: flex; gap: 6px; align-items: flex-start; line-height: 1.45; }
+.plan-card li .ms-sm { margin-top: 2px; flex-shrink: 0; }
+.plan-card li.plan-completed { opacity: 0.6; text-decoration: line-through; }
+.plan-card li.plan-in_progress { color: var(--on-surface); font-weight: 600; }
+.plan-card li.plan-in_progress .ms-sm { color: var(--primary); }
+
+.files-card .tool-title { white-space: pre-wrap; }
+.task-card .task-stop {
+  margin-left: 8px; font: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  background: none; border: 1px solid var(--outline-variant); border-radius: 6px; color: inherit; cursor: pointer; padding: 1px 6px;
+}
+.task-card .task-stop:hover { border-color: var(--error); color: var(--error); }
+
+/* The agent's question: a small form. */
+.question-card .question-fields { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.question-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.question-field.custom { margin-top: -4px; }
+.question-field .question-label span { opacity: 0.85; }
+.question-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.question-field input[type="text"], .question-field input[type="number"] {
+  font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--outline-variant);
+  background: var(--surface-container-highest); color: var(--on-surface); max-width: 60ch;
+}
+
+/* Header chips: identity, context use, settings. */
+.chip.auth.none { color: var(--error); }
+.chip.usage { font-family: var(--font-mono), monospace; }
+.config-select {
+  font: inherit; font-size: 11px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--outline-variant);
+  background: var(--surface-container-highest); color: var(--on-surface-variant); max-width: 22ch;
+}
+.chip.config-bool { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+
+.msg.user.steered { border-left: 3px solid var(--tertiary); }
+.msg.user .steer-label { display: block; font-size: 10px; opacity: 0.7; margin-bottom: 2px; }
+.composer-problem { flex: 0 0 100%; color: var(--error); font-size: 12px; padding: 0 4px 4px; }
+.composer { flex-wrap: wrap; }
+
+/* New chat: the agent's own sessions to continue. */
+.session-list { display: flex; flex-direction: column; padding: 0 8px 12px; }
+.session-row {
+  display: flex; gap: 12px; align-items: baseline; text-align: left; font: inherit; font-size: 13px;
+  background: none; border: 0; border-top: 1px solid var(--outline-variant); padding: 8px; color: var(--on-surface); cursor: pointer;
+}
+.session-row:hover { background: var(--surface-container-high); }
+.session-row .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row .session-when { font-size: 11px; color: var(--on-surface-variant); flex-shrink: 0; }
+
+/* Attachments: dropped or pasted files travel with a message. */
+.composer-files { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 6px; }
+.composer-files .file-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: var(--surface-container-highest); color: var(--on-surface-variant); border: 1px solid var(--outline-variant);
+}
+.composer-files .file-chip img { height: 28px; border-radius: 4px; }
+.composer-files .file-chip button { background: none; border: 0; color: inherit; cursor: pointer; padding: 0; display: inline-flex; }
+.composer.dragging textarea { border-color: var(--primary); border-style: dashed; }
+.msg.user .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.msg.user .attachments img { max-height: 240px; max-width: 100%; border-radius: 8px; display: block; }
+.msg.user .attachments a.file-link { font-size: 12px; text-decoration: underline; color: inherit; }
 
 .perm-card {
   align-self: flex-start;
@@ -2036,6 +2148,20 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   font-size: 13px; transition: background 120ms ease;
 }
 .member-chip:hover { background: var(--surface-container-high); }
+.member-chip { align-items: center; gap: 4px; padding-right: 6px; }
+.member-chip.focused { outline: 2px solid var(--primary); }
+.member-chip .member-open { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; min-width: 0; }
+.member-chip .member-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.member-chip .member-line { display: inline-flex; align-items: center; gap: 6px; }
+.member-chip .member-activity { font-size: 11px; color: var(--on-surface-variant); max-width: 44ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-chip .member-activity .microlabel { margin-right: 4px; }
+.member-chip .member-stop, .member-chip .member-info {
+  display: inline-flex; align-items: center; background: none; border: 0; padding: 2px; border-radius: 6px; color: var(--on-surface-variant); cursor: pointer;
+}
+.member-chip .member-stop:hover { color: var(--error); }
+.member-chip .member-info:hover { color: var(--on-surface); }
+.focus-bar { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--outline-variant); font-size: 12.5px; }
+.focus-bar .focus-title { color: var(--on-surface-variant); }
 .member-chip.working { background: color-mix(in srgb, var(--primary) 12%, var(--surface-container)); }
 .member-chip .member-handle { color: var(--on-surface-variant); font-family: var(--font-mono), monospace; font-size: 11.5px; }
 .member-chip .chip { padding: 0 7px; font-size: 10px; }

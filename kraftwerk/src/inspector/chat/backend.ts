@@ -1,4 +1,9 @@
-import type { ChatEvent } from "./types.js";
+import type { AgentCommand, Attachment, ChatEvent, ConfigOption, ElicitationAnswer, ElicitationField } from "./types.js";
+
+/** An attachment as the backend gets it: where the file is, and what it is. */
+export interface PromptFile extends Attachment {
+  path: string;
+}
 
 /**
  * A chat backend is one live agent conversation: prompt() runs a full turn
@@ -18,6 +23,8 @@ export interface BackendHooks {
     title: string,
     options: Array<{ optionId: string; name: string; kind?: string }>
   ): Promise<string | null>;
+  /** The agent asks the user a question (form); resolves with the answer, or a decline/cancel. */
+  askElicitation(message: string, fields: ElicitationField[]): Promise<ElicitationAnswer>;
 }
 
 /**
@@ -39,11 +46,32 @@ export interface BackendTuning {
    * what still needs a human; kraftwerk never answers for one.
    */
   unattended?: boolean;
+  /** ACP agents: the session id to continue (from ChatMeta.sessions) instead of opening a new one. */
+  resume?: string;
 }
 
 export interface ChatBackend {
-  /** Send one user message; resolves with the stop reason at turn end. */
-  prompt(text: string): Promise<string>;
+  /** The agent's own session id, when it has one to resume later (ACP agents). */
+  sessionId?: string;
+  /** This backend continues an earlier session: the agent still has the conversation in context. */
+  resumed?: boolean;
+  /** The resumed session turned out unusable at its first prompt — its id must not be resumed again. */
+  resumeFailed?: boolean;
+  /** Send one user message (plus files dropped into it); resolves with the stop reason at turn end. */
+  prompt(text: string, files?: PromptFile[]): Promise<string>;
+  /** Branch the conversation: a new session id with this session's history (ACP agents that offer session/fork). */
+  fork?(): Promise<string>;
+  /**
+   * Hand a message into the running turn instead of queueing it as the
+   * next prompt. "promptRequired": no turn is running — send it as a prompt.
+   */
+  steer?(text: string, files?: PromptFile[]): Promise<"injected" | "promptRequired">;
+  /** Stop one background task without cancelling the turn. */
+  stopTask?(taskId: string): Promise<void>;
+  /** Change a session setting; resolves with the options as they now stand. */
+  setConfig?(configId: string, value: string | boolean): Promise<ConfigOption[]>;
+  /** Slash commands the agent offers, as last announced. */
+  commands?: AgentCommand[];
   /** Interrupt the current turn (the running prompt() still resolves). */
   cancel(): void;
   /** Kill the agent subprocess, if any. */
