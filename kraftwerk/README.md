@@ -164,6 +164,8 @@ kraftwerk create "was der Workflow tun soll"   # for LLM agents: prints a build 
 kraftwerk runner build                  # build the Docker sandbox image (once)
 kraftwerk run --sandbox website-check "https://..."   # isolated container per run; --ssh forwards the agent
 kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
+kraftwerk tunnel setup kw.example.com   # Cloudflare Tunnel to the inspector: login, create, route dns, kraftwerk.yml
+kraftwerk tunnel                        # run that tunnel alone (the UI runs elsewhere)
 ```
 
 The inspector binds `127.0.0.1` — it has no authentication of its own and
@@ -177,8 +179,9 @@ overrides the default either way. A reverse proxy in front of it must set
 `X-Forwarded-Host` to the host the browser addressed (Caddy and traefik do
 by default; nginx needs `proxy_set_header X-Forwarded-Host $host;`): the
 loopback bind answers a non-loopback `Host` only when that header is
-present, and state-changing requests are refused when `Origin` names a
-different host.
+present or the name is the project's `public:` hostname, and state-changing
+requests are refused when `Origin` names a different host. See
+[Inspector through a Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel).
 
 ### The kraftwerk.yml project config
 
@@ -187,6 +190,8 @@ fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
+`public:` and `tunnel:` expose the inspector through a
+[Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel).
 
 `switcher:` links other kraftwerk workspaces from the inspector header. The
 workspace name becomes a dropdown listing them:
@@ -282,6 +287,111 @@ authentication of its own and its chat runs coding agents against the mounted
 repo. Agent logins made inside the container persist in the `agent-home`
 volume. This is a different image from the `kraftwerk-runner` sandbox
 (`runner/Dockerfile`) used by `run --sandbox`.
+
+### Inspector through a Cloudflare Tunnel
+
+The other way to reach a laptop's or server's inspector from elsewhere: no
+open port, no reverse proxy, no certificate. `kraftwerk ui` runs
+[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+next to the inspector and the loopback bind becomes reachable at a hostname
+on a domain you have on Cloudflare.
+
+You need a Cloudflare account with a domain added to it (the free plan is
+enough), and cloudflared on the machine:
+
+```bash
+brew install cloudflared          # macOS; Linux packages: developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
+
+**1. Create the tunnel and route a hostname to it.** From the project root:
+
+```bash
+kraftwerk tunnel setup kw.example.com
+```
+
+This opens the browser for `cloudflared tunnel login` when there is no
+certificate yet (pick the zone `kw.example.com` belongs to), creates a
+tunnel named `kraftwerk-<project name>` (or `--name`), adds the CNAME from
+the hostname to it, and writes the result into kraftwerk.yml:
+
+```yaml
+public: https://kw.example.com   # the hostname the tunnel routes to
+tunnel:
+  name: kraftwerk-agent-playground
+```
+
+A second run reuses the login and the tunnel. If the hostname already has a
+DNS record, setup says so and `--overwrite-dns` replaces it. If cloudflared
+quietly routed `kw.example.com.other-zone.com` instead, because the hostname
+is outside the zone you logged in to, setup refuses and names the stray
+record to delete before you log in to the right zone and run it again.
+
+**2. Put a Cloudflare Access policy on the hostname.** The UI has no login
+of its own and its chat runs coding agents against the workspace, so the
+tunnel must never be the only thing between the internet and it. In the
+[Zero Trust dashboard](https://one.dash.cloudflare.com/) go to Access →
+Applications → Add an application → Self-hosted, enter `kw.example.com` as
+the domain, and add a policy: emails ending in your domain with a one-time
+PIN, a Google or GitHub login, whatever fits. Access is free for up to 50
+users. From then on Cloudflare shows a login page before anything reaches
+the tunnel.
+
+**3. Let the inspector verify that login.** On the application's overview
+page copy the Application Audience (AUD) tag, and take your team name from
+the team domain `https://<team>.cloudflareaccess.com`:
+
+```yaml
+tunnel:
+  name: kraftwerk-agent-playground
+  access:
+    team: my-team
+    aud: 4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2
+```
+
+With this block the inspector checks the `Cf-Access-Jwt-Assertion` token
+Access adds to every request, against the team's public keys, the audience
+tag and the clock. A removed or misconfigured policy then fails closed with
+a 401 instead of exposing the UI. Skipping the block works, and
+`kraftwerk doctor` warns about it every time.
+
+**4. Start.** `kraftwerk ui` now starts cloudflared with the inspector,
+keeps it across UI restarts and stops it with the UI:
+
+```
+✔ Kraftwerk UI: http://localhost:1981
+✔ Public URL: https://kw.example.com
+↗ tunnel: running kraftwerk-agent-playground → https://kw.example.com → http://127.0.0.1:1981
+  cloudflared │ ... Registered tunnel connection ...
+```
+
+Open `https://kw.example.com` from anywhere, log in through Access, and you
+are in the same inspector. `localhost:1981` on the machine itself keeps
+working without a login. `kraftwerk doctor` reports the tunnel, the Access
+block and whether cloudflared is installed.
+
+**Variants.** `kraftwerk tunnel` runs the configured tunnel alone, for an
+inspector that already runs elsewhere (started by `kraftwerk projects
+start`, or in a container). For a tunnel created in the Zero Trust
+dashboard instead (Networks → Tunnels), leave `name` out, route the
+hostname to `http://localhost:<port>` there and export its token as
+`TUNNEL_TOKEN` before `kraftwerk ui`. `public:` on its own, without
+`tunnel:`, is for any other proxy that forwards the browser's `Host`
+without setting `X-Forwarded-Host`.
+
+**Troubleshooting.** cloudflared's lines appear prefixed with
+`cloudflared │`. "Cannot determine default origin certificate path" means no
+login on this machine: run `cloudflared tunnel login` or setup again. "tunnel
+not found" means the name in kraftwerk.yml does not exist in the account
+that logged in; `cloudflared tunnel list` shows what does. A tunnel that
+dies three times right after launch is given up and the UI stays local
+until the next start. A 421 "unexpected Host header" in the browser means
+`public:` does not match the hostname you opened. A 401 means Access is
+configured in kraftwerk.yml but the token is missing or wrong: the
+hostname has no Access application, or `team`/`aud` do not match it.
+
+Quick tunnels (`trycloudflare.com`) are deliberately not supported: Access
+cannot be attached to them, which would leave the UI open to anyone with
+the URL.
 
 ## Persistent agents
 

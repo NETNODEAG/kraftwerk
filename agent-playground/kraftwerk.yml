@@ -9,4 +9,16 @@ knowledge: kraftwerk-data/knowledge # OKF knowledge bundles
 agents: kraftwerk-data/agents # agent definitions
 skills: kraftwerk-data/skills # workspace skills (shared instruction packages)
 port: 1981
-vibeables: {}
+vibeables:
+  root: kraftwerk-data/vibeables # small apps built live in a chat with a preview pane (one folder per app, versioned with the workspace)
+
+# Reach this inspector from elsewhere through a Cloudflare Tunnel (uncomment to enable).
+# One-time setup: cloudflared tunnel login && cloudflared tunnel create playground && cloudflared tunnel route dns playground kw.example.com
+# Then put a Cloudflare Access policy on the hostname (Zero Trust → Access → Applications):
+# the UI has no login of its own and its chat runs coding agents against this workspace.
+# public: https://kw.example.com  # hostname the tunnel routes to; also answers any proxy that forwards that Host
+# tunnel:                         # `kraftwerk ui` runs cloudflared next to the inspector and stops it with the UI
+#   name: playground              # locally-managed tunnel; omit and export TUNNEL_TOKEN for a dashboard-managed one
+#   access:                       # verify the Access login on every request via public: (a removed policy fails closed)
+#     team: my-team               # Zero Trust team name: https://my-team.cloudflareaccess.com
+#     aud: 4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2   # the Access application's audience tag

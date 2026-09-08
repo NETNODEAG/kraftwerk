@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { ignoreEntryFor, isDir, reposRootFor, resolveProject } from "../config.js";
+import { ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveProject, tunnelFor } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 
@@ -130,6 +130,28 @@ export async function runDoctor(cwd: string): Promise<void> {
     else if (check.status === 0) report("ok", label, "git-ignored");
     else if (check.status === 1) report("warn", label, `${entry}/ is not git-ignored — clones would show up as untracked gitlinks; add it to .gitignore`);
     else report("ok", label, "not inside a git repository");
+  }
+
+  // Public hostname + Cloudflare Tunnel. The UI has no login of its own, so
+  // a tunnel without Access verification is worth a warning every time.
+  const publicHost = publicHostFor(project);
+  const tunnel = tunnelFor(project);
+  if (publicHost && !tunnel) report("info", `public: ${publicHost}`, "served when a tunnel or reverse proxy delivers that Host");
+  if (tunnel) {
+    const cloudflared = cliVersion("cloudflared");
+    if (cloudflared) report("ok", `cloudflared`, cloudflared);
+    else {
+      report("fail", "cloudflared missing", "needed by tunnel: — brew install cloudflared (or see developers.cloudflare.com)");
+      failures++;
+    }
+    if (tunnel.name) report("ok", `tunnel: ${tunnel.name} → ${publicHost}`, `cloudflared tunnel run --url http://127.0.0.1:${project.config.port ?? 1981} ${tunnel.name}`);
+    else if (process.env.TUNNEL_TOKEN) report("ok", `tunnel: dashboard-managed → ${publicHost}`, "TUNNEL_TOKEN is set");
+    else {
+      report("fail", "tunnel: nothing to run", "set tunnel.name (locally-managed) or the TUNNEL_TOKEN env var (dashboard-managed)");
+      failures++;
+    }
+    if (tunnel.access) report("ok", "tunnel.access", `tokens verified against ${tunnel.access.team}.cloudflareaccess.com`);
+    else report("warn", "tunnel without access", "the UI has no login of its own — put a Cloudflare Access policy on the hostname and set tunnel.access so a removed policy fails closed");
   }
 
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];

@@ -35,6 +35,12 @@ import { parse } from "yaml";
  *     root: kraftwerk-data/repos   # where clones land, relative to the file. Default: repos
  *   vibeables:                 # small apps built live in a chat, rendered in the inspector (absent = off, bare key = on)
  *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
+ *   public: https://kw.example.com   # hostname the inspector is reached at through a tunnel or reverse proxy
+ *   tunnel:                    # Cloudflare Tunnel run by `kraftwerk ui` (absent = off, bare key = on)
+ *     name: kraftwerk          # locally-managed tunnel (cloudflared tunnel create); absent: TUNNEL_TOKEN env, dashboard-managed
+ *     access:                  # verify the Cloudflare Access login on every request that arrives via `public`
+ *       team: acme             # Zero Trust team name (https://<team>.cloudflareaccess.com)
+ *       aud: 4714c135…         # Application Audience tag of the Access application
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -127,6 +133,70 @@ export function vibeablesRootFor(project: Project): string | undefined {
   return path.resolve(project.root, v.root ?? VIBEABLES_DEFAULT_ROOT);
 }
 
+/**
+ * Cloudflare Access in front of the public hostname. Access puts a login
+ * page on the hostname at Cloudflare's edge and hands the origin a signed
+ * JWT per request (Cf-Access-Jwt-Assertion). With this block the inspector
+ * verifies that token itself, so a removed or misconfigured Access policy
+ * fails closed instead of exposing the UI, which has no login of its own.
+ */
+export interface AccessConfig {
+  /** Zero Trust team name: the subdomain of https://<team>.cloudflareaccess.com */
+  team: string;
+  /** Application Audience (AUD) tag of the Access application, from its overview page. */
+  aud: string;
+}
+
+/**
+ * Cloudflare Tunnel: `kraftwerk ui` runs cloudflared next to the inspector
+ * so the loopback bind is reachable at `public` without an open port. The
+ * tunnel itself is created once with cloudflared (or in the Zero Trust
+ * dashboard); this block only says which one to run.
+ */
+export interface TunnelConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /**
+   * Name of a locally-managed tunnel (`cloudflared tunnel create <name>`,
+   * `cloudflared tunnel route dns <name> <public host>`); cloudflared routes
+   * everything to the inspector port. Absent: a dashboard-managed tunnel,
+   * whose token comes from the TUNNEL_TOKEN environment variable and whose
+   * route to http://localhost:<port> is configured in the dashboard.
+   */
+  name?: string;
+  /** Verify the Cloudflare Access token on every request that arrives via `public`. */
+  access?: AccessConfig;
+}
+
+/** The public hostname (lowercase, no port) when `public` is set, undefined otherwise. */
+export function publicHostFor(project: Project): string | undefined {
+  return project.config.public ? parsePublic(project.config.public)?.hostname : undefined;
+}
+
+/** The public origin ("https://kw.example.com") when `public` is set, undefined otherwise. */
+export function publicUrlFor(project: Project): string | undefined {
+  return project.config.public ? parsePublic(project.config.public)?.origin : undefined;
+}
+
+/** The tunnel block when the feature is on, undefined otherwise. */
+export function tunnelFor(project: Project): TunnelConfig | undefined {
+  const t = project.config.tunnel;
+  if (!t || t.enabled === false) return undefined;
+  return t;
+}
+
+/** "kw.example.com" or "https://kw.example.com[:port]" → its URL; undefined when it is neither. */
+export function parsePublic(value: string): URL | undefined {
+  const text = value.trim();
+  try {
+    const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+    if (!url.hostname || url.pathname !== "/" || url.search || url.hash || url.username) return undefined;
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
 export function ignoreEntryFor(projectRoot: string, dir: string): string | undefined {
   const rel = path.relative(projectRoot, path.resolve(projectRoot, dir)).split(path.sep).join("/");
@@ -176,6 +246,14 @@ export interface ProjectConfig {
   repos?: ReposConfig;
   /** Vibeables: apps built live in a chat. Absent = off. */
   vibeables?: VibeablesConfig;
+  /**
+   * Hostname the inspector is reached at through a tunnel or reverse proxy,
+   * e.g. "https://kw.example.com". The loopback bind then answers requests
+   * carrying that Host even without X-Forwarded-Host (cloudflared sends none).
+   */
+  public?: string;
+  /** Cloudflare Tunnel run alongside the inspector. Absent = off. */
+  tunnel?: TunnelConfig;
 }
 
 export interface Project {
@@ -259,7 +337,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "public", "tunnel"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -302,11 +380,61 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
     } else if (key === "vibeables") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, "vibeables", config[key]);
+    } else if (key === "public") {
+      if (typeof config[key] !== "string" || !parsePublic(config[key] as string)) {
+        throw new Error(`${path.basename(configPath)}: public must be a hostname or https URL like "https://kw.example.com"`);
+      }
+    } else if (key === "tunnel") {
+      if (config[key] === null) config[key] = {};
+      validateTunnel(configPath, config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
   }
+  const tunnel = config.tunnel as TunnelConfig | undefined;
+  if (tunnel && tunnel.enabled !== false && !config.public) {
+    throw new Error(`${path.basename(configPath)}: tunnel needs public: the hostname the tunnel routes to`);
+  }
   return config as ProjectConfig;
+}
+
+/** tunnel: { enabled?, name?, access?: { team, aud } } */
+function validateTunnel(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${file}: tunnel must be a mapping (enabled, name, access)`);
+  }
+  const t = value as Record<string, unknown>;
+  for (const key of Object.keys(t)) {
+    if (!["enabled", "name", "access"].includes(key)) {
+      throw new Error(`${file}: tunnel.${key} is unknown (allowed: enabled, name, access)`);
+    }
+  }
+  if (t.enabled !== undefined && typeof t.enabled !== "boolean") {
+    throw new Error(`${file}: tunnel.enabled must be true or false`);
+  }
+  // The name is handed to cloudflared as a positional argument.
+  if (t.name !== undefined && (typeof t.name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(t.name))) {
+    throw new Error(`${file}: tunnel.name must be a plain tunnel name (letters, digits, ".", "_", "-")`);
+  }
+  if (t.access !== undefined) {
+    if (typeof t.access !== "object" || t.access === null || Array.isArray(t.access)) {
+      throw new Error(`${file}: tunnel.access must be a mapping (team, aud)`);
+    }
+    const a = t.access as Record<string, unknown>;
+    for (const key of Object.keys(a)) {
+      if (!["team", "aud"].includes(key)) {
+        throw new Error(`${file}: tunnel.access.${key} is unknown (allowed: team, aud)`);
+      }
+    }
+    // The team becomes a hostname (<team>.cloudflareaccess.com).
+    if (typeof a.team !== "string" || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(a.team)) {
+      throw new Error(`${file}: tunnel.access.team must be the Zero Trust team name (the subdomain of cloudflareaccess.com)`);
+    }
+    if (typeof a.aud !== "string" || !/^[a-f0-9]{64}$/i.test(a.aud)) {
+      throw new Error(`${file}: tunnel.access.aud must be the 64-character Application Audience tag`);
+    }
+  }
 }
 
 function validateSwitcher(configPath: string, value: unknown): void {

@@ -28,6 +28,12 @@ skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packag
 # repos:                          # git repositories the agents work on (uncomment both lines to enable)
 #   root: ${DATA_DIR}/repos       # clones land here (git-ignored); a bare \`repos:\` uses repos/ instead
 # vibeables:                      # small apps built live in a chat with a preview pane (uncomment to enable; one folder per app under ${DATA_DIR}/vibeables, versioned with the workspace)
+# public: https://kw.example.com  # hostname the inspector is reached at through a tunnel or reverse proxy
+# tunnel:                         # Cloudflare Tunnel run by \`kraftwerk ui\` (needs public:; put a Cloudflare Access policy on the hostname — the UI has no login of its own)
+#   name: kraftwerk               # locally-managed tunnel (cloudflared tunnel create/route dns); omit and export TUNNEL_TOKEN for a dashboard-managed one
+#   access:                       # verify the Access login on every request via public: (team = Zero Trust team name, aud = the application's audience tag)
+#     team: my-team
+#     aud: 4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}

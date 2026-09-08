@@ -14,6 +14,11 @@
       "type": "string",
       "description": "Emoji used as the inspector favicon (browser-tab icon), e.g. \"⚡\""
     },
+    "color": {
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
+      "description": "Accent colour for this workspace in the switcher and the inspector, e.g. \"#c2410c\". Default: derived from the project root"
+    },
     "port": {
       "type": "integer",
       "minimum": 1,
@@ -69,7 +74,10 @@
       }
     },
     "git": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
       "description": "Git sync for the workspace: commit and push knowledge, agents, skills and workflows from the inspector. Absent = feature off, a bare `git:` = on with defaults.",
       "properties": {
@@ -100,7 +108,10 @@
       }
     },
     "repos": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
       "description": "Repositories: git clones the agents work on, kept under one root inside the project. Absent = feature off, a bare `repos:` = on with defaults.",
       "properties": {
@@ -111,6 +122,68 @@
         "root": {
           "type": "string",
           "description": "Where clones land, relative to the project root. Should be git-ignored. Default: repos"
+        }
+      }
+    },
+    "vibeables": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Vibeables: small apps built live in a chat with a preview pane, one folder each under the root, part of the workspace. Absent = feature off, a bare `vibeables:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the apps live, relative to the project root. Default: kraftwerk-data/vibeables"
+        }
+      }
+    },
+    "public": {
+      "type": "string",
+      "description": "Hostname the inspector is reached at through a tunnel or reverse proxy, e.g. \"https://kw.example.com\". The loopback bind then answers requests carrying that Host even without X-Forwarded-Host (cloudflared sends none)."
+    },
+    "tunnel": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Cloudflare Tunnel run by `kraftwerk ui` next to the inspector, so the loopback bind is reachable at `public` without an open port. Needs `public`. Absent = feature off, a bare `tunnel:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Name of a locally-managed tunnel (`cloudflared tunnel create <name>` + `cloudflared tunnel route dns <name> <public host>`); cloudflared routes everything to the inspector port. Absent: a dashboard-managed tunnel whose token is read from the TUNNEL_TOKEN environment variable"
+        },
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "team",
+            "aud"
+          ],
+          "description": "Verify the Cloudflare Access token (Cf-Access-Jwt-Assertion) on every request that arrives via `public`. Recommended: the UI has no login of its own, and with this a removed Access policy fails closed",
+          "properties": {
+            "team": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$",
+              "description": "Zero Trust team name: the subdomain of https://<team>.cloudflareaccess.com"
+            },
+            "aud": {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{64}$",
+              "description": "Application Audience (AUD) tag of the Access application, shown on its overview page in the Zero Trust dashboard"
+            }
+          }
         }
       }
     }

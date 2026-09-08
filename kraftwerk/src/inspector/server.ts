@@ -3,7 +3,8 @@ import http from "node:http";
 import path from "node:path";
 import { attachmentPath, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
-import { resolveProject } from "../config.js";
+import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
+import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
 import { listRuns, getRun, readRunFile, deleteRun } from "./runs.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
@@ -190,6 +191,17 @@ const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const LOOPBACK_BIND = LOOPBACK_NAMES.has(INSPECTOR_HOST);
 
 /**
+ * The hostname from kraftwerk.yml `public`, when set: the name a tunnel or
+ * reverse proxy delivers as Host. A Cloudflare Tunnel forwards the
+ * browser's Host untouched and sets no X-Forwarded-Host, so without this
+ * the loopback bind would refuse every request that came through it. A
+ * rebinding page cannot exploit it: the name is one the operator owns.
+ */
+let publicHost = "";
+/** Access verification for requests arriving via the public hostname (kraftwerk.yml `tunnel.access`). */
+let access: AccessConfig | undefined;
+
+/**
  * Whether the Host header names this server. A loopback bind alone does not
  * keep other sites out: a page on evil.example can re-point that name at
  * 127.0.0.1 after it loaded (DNS rebinding) and then talk to us as if it
@@ -210,7 +222,31 @@ function hostAllowed(req: http.IncomingMessage): boolean {
   const host = req.headers.host;
   if (!host) return true;
   const name = hostnameOf(host);
-  return LOOPBACK_NAMES.has(name) || name.endsWith(".localhost");
+  return LOOPBACK_NAMES.has(name) || name.endsWith(".localhost") || (!!publicHost && name === publicHost);
+}
+
+/** Whether the browser addressed the public hostname (directly or, via a proxy, in X-Forwarded-Host). */
+function viaPublicHost(req: http.IncomingMessage): boolean {
+  if (!publicHost) return false;
+  const host = forwardedHost(req) || req.headers.host;
+  return !!host && hostnameOf(host) === publicHost;
+}
+
+/**
+ * The Access gate: a request that arrived via the public hostname must
+ * carry a valid Cloudflare Access token when `tunnel.access` is configured.
+ * Requests addressed to a loopback name are the operator's own browser on
+ * this machine and pass; bound to loopback, only the tunnel (or a local
+ * proxy) can deliver the public name in the first place. Returns the reason
+ * to refuse, or undefined to proceed.
+ */
+async function accessRefusal(req: http.IncomingMessage): Promise<string | undefined> {
+  if (!access || !viaPublicHost(req)) return undefined;
+  const raw = req.headers[ACCESS_HEADER];
+  const token = Array.isArray(raw) ? raw[0] : raw;
+  if (!token) return "Cloudflare Access token missing";
+  const result = await verifyAccessToken(token, access);
+  return result.ok ? undefined : `Cloudflare Access token refused: ${result.reason}`;
 }
 
 /** First X-Forwarded-Host value, or undefined when no proxy set one. */
@@ -429,6 +465,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       git: (project?.config.git && project.config.git.enabled !== false) === true,
       repos: (project?.config.repos && project.config.repos.enabled !== false) === true,
       vibeables: (project?.config.vibeables && project.config.vibeables.enabled !== false) === true,
+      publicUrl: (project && publicUrlFor(project)) ?? "",
       switcher,
     });
   }
@@ -1247,9 +1284,13 @@ export interface InspectorOptions {
 }
 
 /** Start the server; resolves once it listens. Runs until the process ends. */
-export function startInspector(opts: InspectorOptions): Promise<http.Server> {
+export async function startInspector(opts: InspectorOptions): Promise<http.Server> {
   setOutputDir(opts.outputDir);
   if (opts.projectRoot) setProjectRoot(opts.projectRoot);
+  // Read once: like the port, the public hostname takes effect on restart.
+  const project = await resolveProject(getProjectRoot()).catch(() => null);
+  publicHost = (project && publicHostFor(project)) ?? "";
+  access = project ? tunnelFor(project)?.access : undefined;
   startRoutineScheduler();
   startGitSync();
   // Chat agent subprocesses must die with the server — signals bypass
@@ -1274,6 +1315,8 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
+      const refusal = await accessRefusal(req);
+      if (refusal) return json(res, { error: refusal }, 401);
       if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
       // /vibeables/<slug>/… is an app's own files, served for the preview pane.
       else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) await serveVibeable(req, res, url);
@@ -1285,7 +1328,10 @@ export function startInspector(opts: InspectorOptions): Promise<http.Server> {
   // WebSocket upgrades exist for one reason: a vibeable's dev server (HMR).
   server.on("upgrade", (req, socket, head) => {
     if (!hostAllowed(req)) return void socket.destroy();
-    proxyUpgrade(req, socket, head);
+    accessRefusal(req).then(
+      (refusal) => (refusal ? socket.destroy() : proxyUpgrade(req, socket, head)),
+      () => socket.destroy()
+    );
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);

@@ -267,6 +267,13 @@ coding agents with full access to the mounted project.
 cd deploy && cp .env.example .env && docker compose up -d --build
 ```
 
+Without a server, a Cloudflare Tunnel makes the inspector on your own
+machine reachable from anywhere: no open port, no certificate, the login
+handled by Cloudflare Access in front of the hostname. `kraftwerk tunnel
+setup kw.example.com` creates the tunnel and writes the config, `kraftwerk
+ui` then runs it alongside the inspector. The steps are in
+[Inspector through a Cloudflare Tunnel](kraftwerk/README.md#inspector-through-a-cloudflare-tunnel).
+
 ## Go deeper
 
 The full YAML reference, gates, MCP servers, CLI grants, knowledge CLI and

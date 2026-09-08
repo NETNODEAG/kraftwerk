@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
-import { absolutePath, resolveProject } from "../config.js";
+import { absolutePath, publicUrlFor, resolveProject } from "../config.js";
+import { startTunnel } from "./tunnel.js";
 import { selfCommand } from "../inspector/self-command.js";
 import { RESTART_EXIT_CODE, startInspector } from "../inspector/server.js";
 
@@ -53,7 +54,7 @@ function ensureBuilt(): string {
 }
 
 export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
-  if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(opts);
+  if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(cwd, opts);
 
   const staticDir = ensureBuilt();
   const project = await resolveProject(cwd);
@@ -66,6 +67,8 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
     `${chalk.green("✔")} Kraftwerk UI: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
   );
+  const publicUrl = publicUrlFor(project);
+  if (publicUrl) console.log(`${chalk.green("✔")} Public URL: ${chalk.cyan(publicUrl)}`);
 }
 
 /**
@@ -77,18 +80,23 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
  * projects start` reports) takes the whole UI down; Ctrl-C signals the
  * foreground group and reaches both anyway.
  */
-async function superviseUi(opts: { port?: string; output?: string }): Promise<void> {
+async function superviseUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
   const { cmd, args } = selfCommand([
     "ui",
     ...(opts.port ? ["--port", opts.port] : []),
     ...(opts.output ? ["--output", opts.output] : []),
   ]);
+  // The tunnel lives with the supervisor, not the server: a self-restart
+  // (new version) swaps the server process and the tunnel stays up.
+  const project = await resolveProject(cwd).catch(() => null);
+  const tunnel = project ? startTunnel(project, opts.port ? Number(opts.port) : (project.config.port ?? 1981)) : undefined;
   for (;;) {
     const child = spawn(cmd, args, {
       stdio: "inherit",
       env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1" },
     });
     const forward = (sig: NodeJS.Signals) => () => {
+      tunnel?.stop();
       child.kill(sig);
     };
     const handlers = { SIGTERM: forward("SIGTERM"), SIGINT: forward("SIGINT") };
@@ -100,6 +108,7 @@ async function superviseUi(opts: { port?: string; output?: string }): Promise<vo
     process.off("SIGTERM", handlers.SIGTERM);
     process.off("SIGINT", handlers.SIGINT);
     if (result.code !== RESTART_EXIT_CODE) {
+      tunnel?.stop();
       // A signal-killed server is not a clean exit — say so in the exit code
       // (128 + signal, the shell convention) so callers can tell.
       if (result.signal) process.exit(128 + (os.constants.signals[result.signal] ?? 1));
