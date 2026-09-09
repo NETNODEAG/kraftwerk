@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { reposRootFor, resolveProject, vibeablesRootFor, type Project, isSafeGitName } from "../config.js";
+import { projectsRootFor, reposRootFor, resolveProject, vibeablesRootFor, type Project, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, getProjectRoot } from "./context.js";
 
@@ -282,7 +282,7 @@ interface Scope {
 
 /**
  * The roots that may be committed, as repo-relative paths: the workflows,
- * knowledge, agents, skills, channels and vibeables roots this project
+ * knowledge, agents, skills, channels, vibeables and projects roots this project
  * declares, plus kraftwerk.yml and the project README. The output directory
  * is excluded even when it lives inside one of them.
  */
@@ -311,6 +311,8 @@ function scopeFor({ project, repoRoot }: Repo): Scope {
     path.resolve(project.root, "channels"),
     // Vibeables are the workspace's own apps: versioned with it, unlike clones.
     vibeablesRootFor(project),
+    // Projects too: briefs, state and logs are the workspace's own record.
+    projectsRootFor(project),
     project.configPath,
     path.resolve(project.root, "README.md"),
   ];
@@ -484,7 +486,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
   const blockedHidden = Math.max(0, blocked.length - MAX_BLOCKED);
 
   const scopeError = scope.wholeRepo
-    ? "A configured root points at the repository root, which would put the whole repo in scope. Narrow workflows/knowledge/agents/skills/vibeables in kraftwerk.yml."
+    ? "A configured root points at the repository root, which would put the whole repo in scope. Narrow workflows/knowledge/agents/skills/vibeables/projects in kraftwerk.yml."
     : undefined;
 
   const value: GitStatus = {

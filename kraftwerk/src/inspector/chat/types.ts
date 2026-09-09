@@ -14,6 +14,8 @@ export type ChatScope =
   | { kind: "run"; runId: string }
   | { kind: "knowledge"; bundle?: string }
   | { kind: "agent"; slug: string; routine?: string }
+  /** A project: the chat carries its brief, state, systems of record and links; see projects.ts. */
+  | { kind: "project"; slug: string }
   /** A channel: several agents (and humans) share one transcript; see channels.ts. */
   | { kind: "channel"; slug: string };
 
@@ -28,6 +30,12 @@ export interface ChatMeta {
   scope: ChatScope;
   /** Slug of the vibeable open in this chat's preview pane (cwd is its folder while set). */
   vibeable?: string;
+  /**
+   * The project this chat belongs to when its scope is not the project
+   * itself: a channel that started as a project chat. Lists the chat under
+   * the project and hands every seat the project's context.
+   */
+  project?: string;
   /**
    * The agent's own session id per seat ("main", or the agent slug in a
    * channel): after a restart or the idle reaper, the next backend resumes

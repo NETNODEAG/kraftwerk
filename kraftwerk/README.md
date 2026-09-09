@@ -94,7 +94,7 @@ newer version is on disk, right after "update now" or after a manual install.
 
 ```bash
 npm install -g @netnodeag/kraftwerk@latest
-kraftwerk projects                 # every workspace on this machine, running or not
+kraftwerk workspaces               # every workspace on this machine, running or not
 ```
 
 ## Consume
@@ -156,7 +156,8 @@ kraftwerk run                           # interactive: pick workflow, type the r
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
 kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
-kraftwerk projects                      # every workspace on this machine; projects start|stop|forget <ref>
+kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
+kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered: schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
@@ -217,8 +218,8 @@ switcher:
 letters of an agent's or channel's name, description or workspace and hit
 enter to jump to it. It lists the active agents and the channels of every
 workspace on this machine, grouped by workspace and running or not (a
-stopped one is started on the way), read from the project registry under
-`~/.kraftwerk/projects`, which every inspector keeps current with its
+stopped one is started on the way), read from the workspace registry under
+`~/.kraftwerk/workspaces`, which every inspector keeps current with its
 roster and channel list.
 
 ### Triggering from CI, cron, or webhooks
@@ -380,7 +381,7 @@ working without a login. `kraftwerk doctor` reports the tunnel, the Access
 block and whether cloudflared is installed.
 
 **Variants.** `kraftwerk tunnel` runs the configured tunnel alone, for an
-inspector that already runs elsewhere (started by `kraftwerk projects
+inspector that already runs elsewhere (started by `kraftwerk workspaces
 start`, or in a container). For a tunnel created in the Zero Trust
 dashboard instead (Networks → Tunnels), leave `name` out, route the
 hostname to `http://localhost:<port>` there and export its token as
@@ -402,6 +403,96 @@ hostname has no Access application, or `team`/`aud` do not match it.
 Quick tunnels (`trycloudflare.com`) are deliberately not supported: Access
 cannot be attached to them, which would leave the UI open to anyone with
 the URL.
+
+## Projects
+
+Turn on `projects:` in `kraftwerk.yml` (or the checkbox in settings) and
+the workspace gets one folder per project — a goal with everything the
+agents need to reach it:
+
+```yaml
+projects:
+  root: kraftwerk-data/projects   # default; part of the workspace, synced like agents and knowledge
+```
+
+```
+kraftwerk-data/projects/<slug>/
+  project.yml   # title, status, goal, records, links
+  brief.md      # the goal in full: what done looks like, constraints, stakeholders
+  state.md      # current state, rewritten at the end of a session
+  log.md        # append-only, newest first: decisions and milestones, dated and attributed
+```
+
+`project.yml` holds the one-line goal, a status (`active`, `paused`, `done`,
+`archived`), the harness, model and effort its chats run on (the same three
+fields an agent has; the harness decides, not the caller), the **systems of
+record** and the **links**:
+
+```yaml
+title: Relaunch netnode.ch
+status: active
+goal: Ship the new site on NodeHive by 2026-11-30
+harness: claude                 # claude | codex | pi — every chat in the project runs on it
+model: sonnet                   # optional, like an agent's
+effort: high                    # optional: low | medium | high | xhigh | max
+records:
+  - kind: my-netnode            # my-netnode | google-drive | github | bitbucket | notion | slack | url | anything
+    workspace: 22
+    url: https://my.netnode.ch/workspace/22
+    note: tickets, roadmap and meetings
+  - kind: google-drive
+    title: Contracts and briefs
+    url: https://drive.google.com/drive/folders/…
+knowledge: [netnode-helpdesk]          # OKF bundle names
+vibeables: [launch-tracker]            # folders under the vibeables root
+repos: [netnode-frontend]              # folders under the repos root
+workflows: [website-check]             # workflow slugs
+agents: [max]                          # agent slugs
+```
+
+A system of record says where the truth of the project is managed outside
+kraftwerk and what usually lives there. It is context, not a credential and
+not a grant: the agent reaches it through the tools its harness already has
+(a CLI, an MCP server, the browser), and the harness decides what it may
+call. Kraftwerk knows a few kinds only to label them and phrase the context
+better; any other kind passes through as a link with a note.
+
+Links are one-directional lists of slugs. A target that does not exist is
+shown as "not found" on the project page and told to the agent, never an
+error — the same rule an agent's knowledge list follows.
+
+**Working in a project is chat.** The Projects screen lists the projects,
+the chats of the selected one, and the thread; opening a project opens its
+latest chat. A session scoped to a project starts with the brief, the
+current state, the records, every link with how to reach it, and the rule
+for keeping the project current: `state.md` is rewritten at the end of a
+session that changed something, so the next session (by anyone) continues
+without the transcript; `log.md` is appended through
+`kraftwerk projects log <slug> "<line>" --actor <who>` so every line is
+dated and attributed; `brief.md` belongs to the user. The working
+directory stays the workspace root, so linked repositories and knowledge
+are reachable by path; opening a vibeable moves it into the app folder as
+in any chat.
+
+**Coworkers.** "Add coworker" on a project chat works as on an agent
+session: the chat becomes a channel whose members are the agents you pick,
+with everything said so far and the project's brief, state, records and
+links as context for every member (`project:` in `channel.yml`). The
+channel lives on the channels screen and stays listed under the project.
+The first agent picked answers messages that mention nobody.
+
+```bash
+kraftwerk projects                                   # list: title, status, goal, links
+kraftwerk projects create "Relaunch netnode.ch" --goal "Ship by November"
+kraftwerk projects show relaunch-netnode-ch          # definition, records, link states, state, log
+kraftwerk projects set relaunch-netnode-ch --harness codex --model gpt-5.6-sol --effort high
+kraftwerk projects link relaunch-netnode-ch workflows website-check
+kraftwerk projects log relaunch-netnode-ch "Decided on NodeHive." --actor human:lukas
+kraftwerk projects remove relaunch-netnode-ch
+```
+
+The registry of workspaces on this machine, which answered to
+`kraftwerk projects` until 0.48, is `kraftwerk workspaces` now.
 
 ## Persistent agents
 

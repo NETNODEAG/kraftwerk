@@ -2,7 +2,7 @@ import chalk from "chalk";
 import Table from "cli-table3";
 import type { Command } from "commander";
 import { addRepo, listRepos, removeRepo, updateRepo } from "../inspector/repos.js";
-import { fmtAgo } from "./projects.js";
+import { fmtAgo } from "./workspaces.js";
 import { initContext as prepare } from "./routines.js";
 
 /**

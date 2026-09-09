@@ -16,6 +16,7 @@ import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
 import { ReposScreen } from "./repos";
 import { VibeablesScreen } from "./vibeables";
+import { ProjectsScreen } from "./projects";
 import { SearchPalette } from "./search";
 
 /**
@@ -43,6 +44,7 @@ export function App() {
   const [gitOn, setGitOn] = useState(false);
   const [reposOn, setReposOn] = useState(false);
   const [vibeablesOn, setVibeablesOn] = useState(false);
+  const [projectsOn, setProjectsOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
@@ -61,6 +63,7 @@ export function App() {
           git?: boolean;
           repos?: boolean;
           vibeables?: boolean;
+          projects?: boolean;
           switcher?: SwitcherEntry[];
         };
         if (!alive) return;
@@ -73,7 +76,8 @@ export function App() {
         setGitOn(!!d.git);
         setReposOn(!!d.repos);
         setVibeablesOn(!!d.vibeables);
-        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables });
+        setProjectsOn(!!d.projects);
+        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects });
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -118,6 +122,7 @@ export function App() {
   else if (seg[0] === "git") screen = <GitScreen />;
   else if (seg[0] === "repos") screen = <ReposScreen />;
   else if (seg[0] === "vibeables") screen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
+  else if (seg[0] === "projects") screen = <ProjectsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "channels") screen = <ChannelsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "knowledge") {
@@ -186,8 +191,9 @@ export function App() {
           )}
         </span>
         <nav>
-          {/* Simple mode keeps channels, agents, workflows, knowledge and vibeables; .nav-expert entries are expert-only. */}
+          {/* Simple mode keeps channels, projects, agents, workflows, knowledge and vibeables; .nav-expert entries are expert-only. */}
           <a href="#/channels" className={navCls("channels")}><Icon name="forum" /> channels</a>
+          {projectsOn && <a href="#/projects" className={navCls("projects")}><Icon name="folder_special" /> projects</a>}
           <a href="#/agents" className={navCls("agents", "team", "chats")}><Icon name="groups" /> agents</a>
           <a href="#/workflows" className={navCls("workflows", "runs")}><Icon name="account_tree" /> workflows</a>
           <a href="#/knowledge" className={navCls("knowledge")}><Icon name="menu_book" /> knowledge</a>
@@ -237,7 +243,7 @@ interface SwitcherEntry {
   named?: boolean;
   /** true = verified running (probe); false = known project, not running; absent = manual entry. */
   live?: boolean;
-  /** Absolute project root (known projects only) — the key for start/forget. */
+  /** Absolute project root (known workspaces only) — the key for start/forget. */
   root?: string;
   /** Root with ~ for home, for display. */
   rootLabel?: string;
@@ -363,8 +369,8 @@ function LinkedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous
 /**
  * The workspace name in the header. Becomes a dropdown when other
  * workspaces are known — running local instances are discovered
- * automatically (~/.kraftwerk/instances), projects that ran before are
- * remembered (~/.kraftwerk/projects) and can be started from here, and
+ * automatically (~/.kraftwerk/instances), workspaces that ran before are
+ * remembered (~/.kraftwerk/workspaces) and can be started from here, and
  * `switcher:` entries in kraftwerk.yml add manual/remote ones. Plain label
  * otherwise. Rows are grouped running / stopped / linked, each carries
  * its workspace colour (rail + tile) and its root path, so which is

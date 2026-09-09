@@ -70,7 +70,9 @@ export async function createChatAndOpen(
     navigate(
       meta.scope?.kind === "agent"
         ? `/agents/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`
-        : `/agents/chats/${meta.id}`
+        : meta.scope?.kind === "project"
+          ? `/projects/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`
+          : `/agents/chats/${meta.id}`
     );
   }
 }
@@ -267,6 +269,7 @@ export function ChatThread({
   agentDescription,
   channel,
   agents,
+  onConverted,
 }: {
   id: string;
   agentName?: string;
@@ -274,6 +277,8 @@ export function ChatThread({
   /** Channel mode: several agents, signed messages, @mentions. */
   channel?: Channel;
   agents?: Agent[];
+  /** A project chat took coworkers: the host re-renders it as a channel session in place. */
+  onConverted?: (channelSlug: string) => void;
 }) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
@@ -447,8 +452,13 @@ export function ChatThread({
       <div className="detail-head">
         <span className={`lamp ${busy ? "running" : "ok"}`} />
         <h1>{title || "new chat"}</h1>
-        {meta.scope.kind === "agent" && !meta.scope.routine && (
-          <button className="ws-btn coworker-btn" onClick={() => setCoworker(true)} title="Turn this session into a channel and invite more agents" disabled={busy}>
+        {((meta.scope.kind === "agent" && !meta.scope.routine) || meta.scope.kind === "project") && (
+          <button
+            className="ws-btn coworker-btn"
+            onClick={() => setCoworker(true)}
+            title={meta.scope.kind === "project" ? "Turn this chat into a channel of the project and invite agents" : "Turn this session into a channel and invite more agents"}
+            disabled={busy}
+          >
             <Icon name="group_add" className="ms-sm" /> add coworker
           </button>
         )}
@@ -519,6 +529,9 @@ export function ChatThread({
     )}
     {coworker && meta.scope.kind === "agent" && (
       <AddCoworkerDialog chatId={id} agentSlug={meta.scope.slug} title={title} onClose={() => setCoworker(false)} />
+    )}
+    {coworker && meta.scope.kind === "project" && (
+      <AddCoworkerDialog chatId={id} project={meta.scope.slug} title={title || agentName || ""} onClose={() => setCoworker(false)} onCreated={onConverted} />
     )}
     </div>
   );

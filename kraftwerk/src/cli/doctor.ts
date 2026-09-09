@@ -98,16 +98,23 @@ export async function runDoctor(cwd: string): Promise<void> {
   if (!project.configPath) {
     report("warn", "no kraftwerk.yml", "recommended as project root marker — `kraftwerk init` scaffolds one");
   } else {
-    const cfg = project.config as Record<string, string | undefined>;
+    const cfg = project.config as Record<string, unknown>;
     const keys = Object.keys(cfg);
+    // Blocks (git, repos, vibeables, projects, tunnel) print as their keys, not [object Object].
+    const show = (v: unknown): string =>
+      typeof v === "object" && v !== null
+        ? Array.isArray(v)
+          ? `[${v.length}]`
+          : `{${Object.entries(v).map(([k, x]) => `${k}: ${show(x)}`).join(", ") || " "}}`
+        : String(v);
     report(
       "ok",
       `${path.basename(project.configPath)} well-formed`,
-      keys.length ? keys.map((k) => `${k}: ${cfg[k]}`).join(", ") : "empty — defaults apply"
+      keys.length ? keys.map((k) => `${k}: ${show(cfg[k])}`).join(", ") : "empty — defaults apply"
     );
     if (!cfg.name) report("info", "name not set in kraftwerk.yml", "inspector header falls back to the folder name");
     for (const key of ["workflows", "knowledge", "agents", "output"] as const) {
-      const value = cfg[key];
+      const value = cfg[key] as string | undefined;
       if (!value) continue;
       const abs = path.resolve(project.root, value);
       if (await isDir(abs)) continue;

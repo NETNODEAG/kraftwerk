@@ -93,6 +93,7 @@ export function clipBody(text: string | undefined): string | undefined {
 /** Inspector route for a chat — mirrors chatHref in the UI. */
 export function chatHref(meta: ChatMeta): string {
   if (meta.scope.kind === "channel") return `/channels/${meta.scope.slug}`;
+  if (meta.scope.kind === "project") return `/projects/${meta.scope.slug}/chat/${meta.id}`;
   return meta.scope.kind === "agent" ? `/agents/${meta.scope.slug}/chat/${meta.id}` : `/agents/chats/${meta.id}`;
 }
 

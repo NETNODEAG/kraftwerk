@@ -8,6 +8,7 @@ import { listWorkflows } from "../workflows.js";
 import { getAgent, listAgents } from "../agents.js";
 import { listRepos } from "../repos.js";
 import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
+import { getProject, projectContext } from "../projects.js";
 import { deleteAgentSession, listAgentSessions, startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
 import { UNATTENDED_PERMISSION_TIMEOUT_MS, declineOption, unattendedTimeoutLabel } from "./permissions.js";
@@ -474,6 +475,11 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
         : "")
     );
   }
+  if (scope.kind === "project") {
+    // Everything the project gathered — brief, state, records, links — plus
+    // how to keep it current; see projects.ts for the block.
+    return projectContext(scope.slug, `kraftwerk-chat/${agent}`);
+  }
   if (scope.kind === "knowledge") {
     const { root, bundles } = await knowledgeIndex().catch(() => ({ root: "", bundles: [] }));
     const bundleLines = bundles
@@ -583,14 +589,16 @@ async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> {
   const agent = seat.harness;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, vibe, skills, channel] = await Promise.all([
+  const [base, repos, vibe, skills, channel, project] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
     availableSkills(scope),
     meta.scope.kind === "channel" ? channelContext(meta.scope.slug, seat.key) : Promise.resolve(""),
+    // A channel that works in a project: every member reads the project too, as a member, not as its assistant.
+    meta.scope.kind === "channel" && meta.project ? projectContext(meta.project, `${seat.key}/${agent}`, { member: true }) : Promise.resolve(""),
   ]);
-  return [base, channel, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, channel, project, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */
@@ -635,6 +643,12 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
     if (def?.effort) tuning.effort = def.effort;
     // Claude discovers skills natively; an agentined allowlist narrows that.
     if (agent === "claude" && def?.skills) tuning.skills = def.skills;
+  }
+  // Project chats carry the project's model/effort the same way.
+  if (scope.kind === "project") {
+    const def = await getProject(scope.slug).catch(() => null);
+    if (def?.model) tuning.model = def.model;
+    if (def?.effort) tuning.effort = def.effort;
   }
   // Run chats live in the run folder — grant claude the project root so
   // project-level skills and files stay reachable.
@@ -1035,31 +1049,52 @@ export async function ensureChannelChat(channel: Channel): Promise<ChatMeta> {
   const metas = await listChatMetas();
   const existing = metas.find((m) => m.scope.kind === "channel" && m.scope.slug === channel.slug);
   if (existing) return states.get(existing.id)?.meta ?? existing;
-  return createChat({ agent: "claude", scope: { kind: "channel", slug: channel.slug }, title: channel.name });
+  const meta = await createChat({ agent: "claude", scope: { kind: "channel", slug: channel.slug }, title: channel.name });
+  if (channel.project) {
+    meta.project = channel.project;
+    await writeMeta(meta);
+  }
+  return meta;
 }
 
 /**
- * "Add a coworker" to an agent session: the chat becomes the channel's
- * transcript. The agent keeps its process and memory — it has seen every
- * message so far — and learns the channel rules with its next prompt.
+ * "Add a coworker": the chat becomes the channel's transcript.
+ *
+ * From an agent session, the agent keeps its process and memory — it has
+ * seen every message so far — and learns the channel rules with its next
+ * prompt. From a project chat, the project assistant has no agent identity
+ * to keep, so its process goes; the members join with the whole transcript
+ * (a fresh seat starts at seq 0) and the project's context, and the chat
+ * stays listed under the project through meta.project.
  */
 export async function convertChatToChannel(chatId: string, channel: Channel): Promise<{ error?: string; meta?: ChatMeta }> {
   const state = await loadState(chatId);
   if (!state) return { error: "chat not found" };
   const scope = state.meta.scope;
-  if (scope.kind !== "agent") return { error: "only an agent session can become a channel" };
-  if (!channel.members.includes(scope.slug)) return { error: `the channel must include @${scope.slug}` };
+  if (scope.kind !== "agent" && scope.kind !== "project") return { error: "only an agent session or a project chat can become a channel" };
+  if (scope.kind === "agent" && !channel.members.includes(scope.slug)) return { error: `the channel must include @${scope.slug}` };
   if (isBusy(state)) return { error: "agent is still working — wait for the turn to finish" };
-  const main = state.seats.get(MAIN);
-  state.seats.delete(MAIN);
-  const seat = main ?? newSeat(scope.slug, state.meta.agent);
-  seat.key = scope.slug;
-  seat.needsContext = true;
-  seat.seenSeq = state.events[state.events.length - 1]?.seq ?? 0;
-  state.seats.set(scope.slug, seat);
-  if (state.meta.sessions?.[MAIN]) {
-    const { [MAIN]: session, ...rest } = state.meta.sessions;
-    state.meta.sessions = { ...rest, [scope.slug]: session };
+  if (scope.kind === "project") {
+    if (channel.project !== scope.slug) return { error: `the channel must belong to project "${scope.slug}"` };
+    dropBackend(state);
+    state.seats.delete(MAIN);
+    if (state.meta.sessions?.[MAIN]) {
+      const { [MAIN]: _gone, ...rest } = state.meta.sessions;
+      state.meta.sessions = rest;
+    }
+    state.meta.project = scope.slug;
+  } else {
+    const main = state.seats.get(MAIN);
+    state.seats.delete(MAIN);
+    const seat = main ?? newSeat(scope.slug, state.meta.agent);
+    seat.key = scope.slug;
+    seat.needsContext = true;
+    seat.seenSeq = state.events[state.events.length - 1]?.seq ?? 0;
+    state.seats.set(scope.slug, seat);
+    if (state.meta.sessions?.[MAIN]) {
+      const { [MAIN]: session, ...rest } = state.meta.sessions;
+      state.meta.sessions = { ...rest, [scope.slug]: session };
+    }
   }
   state.meta.scope = { kind: "channel", slug: channel.slug };
   state.meta.title = channel.name;

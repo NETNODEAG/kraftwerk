@@ -34,7 +34,9 @@ import { parse } from "yaml";
  *   repos:                     # git repositories the agents work on (absent = off, bare key = on)
  *     root: kraftwerk-data/repos   # where clones land, relative to the file. Default: repos
  *   vibeables:                 # small apps built live in a chat, rendered in the inspector (absent = off, bare key = on)
- *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
+  *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
+ *   projects:                  # goal-scoped folders (brief, systems of record, links) that chats work in (absent = off, bare key = on)
+ *     root: kraftwerk-data/projects   # one folder per project, part of the workspace. Default: kraftwerk-data/projects
  *   public: https://kw.example.com   # hostname the inspector is reached at through a tunnel or reverse proxy
  *   tunnel:                    # Cloudflare Tunnel run by `kraftwerk ui` (absent = off, bare key = on)
  *     name: kraftwerk          # locally-managed tunnel (cloudflared tunnel create); absent: TUNNEL_TOKEN env, dashboard-managed
@@ -131,6 +133,30 @@ export function vibeablesRootFor(project: Project): string | undefined {
   const v = project.config.vibeables;
   if (!v || v.enabled === false) return undefined;
   return path.resolve(project.root, v.root ?? VIBEABLES_DEFAULT_ROOT);
+}
+
+/**
+ * Projects: a goal with everything the agents need to reach it in one
+ * folder — a brief, the systems of record where the truth lives, and links
+ * to the workspace's knowledge, vibeables, repositories, workflows and
+ * agents. Each is one folder under the root; part of the workspace and
+ * synced by the workspace git like agents and knowledge.
+ */
+export interface ProjectsConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where the projects live, relative to the project root. Default: kraftwerk-data/projects */
+  root?: string;
+}
+
+/** Where projects live when `projects.root` is not set. */
+export const PROJECTS_DEFAULT_ROOT = "kraftwerk-data/projects";
+
+/** Absolute projects root when the feature is on, undefined otherwise. */
+export function projectsRootFor(project: Project): string | undefined {
+  const p = project.config.projects;
+  if (!p || p.enabled === false) return undefined;
+  return path.resolve(project.root, p.root ?? PROJECTS_DEFAULT_ROOT);
 }
 
 /**
@@ -246,6 +272,8 @@ export interface ProjectConfig {
   repos?: ReposConfig;
   /** Vibeables: apps built live in a chat. Absent = off. */
   vibeables?: VibeablesConfig;
+  /** Projects: goal-scoped folders the chats work in. Absent = off. */
+  projects?: ProjectsConfig;
   /**
    * Hostname the inspector is reached at through a tunnel or reverse proxy,
    * e.g. "https://kw.example.com". The loopback bind then answers requests
@@ -337,7 +365,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "public", "tunnel"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "public", "tunnel"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -380,6 +408,9 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
     } else if (key === "vibeables") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, "vibeables", config[key]);
+    } else if (key === "projects") {
+      if (config[key] === null) config[key] = {};
+      validateRootBlock(configPath, "projects", config[key]);
     } else if (key === "public") {
       if (typeof config[key] !== "string" || !parsePublic(config[key] as string)) {
         throw new Error(`${path.basename(configPath)}: public must be a hostname or https URL like "https://kw.example.com"`);
@@ -496,11 +527,11 @@ function validateGit(configPath: string, value: unknown): void {
 }
 
 /**
- * `repos` and `vibeables` share one shape: { enabled?, root? }. The root
+ * `repos`, `vibeables` and `projects` share one shape: { enabled?, root? }. The root
  * must never be the project itself or anything outside it — it is what
  * remove/delete operate under, and what the workspace git may stage.
  */
-function validateRootBlock(configPath: string, block: "repos" | "vibeables", value: unknown): void {
+function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects", value: unknown): void {
   const file = path.basename(configPath);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${file}: ${block} must be a mapping (enabled, root)`);

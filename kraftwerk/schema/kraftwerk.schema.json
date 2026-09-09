@@ -143,6 +143,24 @@
         }
       }
     },
+    "projects": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Projects: a goal with its brief, systems of record and links to knowledge, vibeables, repositories, workflows and agents, one folder each under the root, part of the workspace. Chats scoped to a project carry all of it as context. Absent = feature off, a bare `projects:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the projects live, relative to the project root. Default: kraftwerk-data/projects"
+        }
+      }
+    },
     "public": {
       "type": "string",
       "description": "Hostname the inspector is reached at through a tunnel or reverse proxy, e.g. \"https://kw.example.com\". The loopback bind then answers requests carrying that Host even without X-Forwarded-Host (cloudflared sends none)."

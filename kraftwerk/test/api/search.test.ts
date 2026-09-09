@@ -7,11 +7,11 @@ import os from "node:os";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
 import type { AgentSearch } from "../../src/inspector/search.js";
-import type { ProjectRecord } from "../../src/inspector/instances.js";
+import type { WorkspaceRecord } from "../../src/inspector/instances.js";
 
 /**
  * The ⌘K palette's data: this workspace's roster and channels from disk
- * plus every other registered project's from ~/.kraftwerk/projects. One other project
+ * plus every other registered project's from ~/.kraftwerk/workspaces. One other project
  * is running (a stub answering /api/meta like an inspector, registered in
  * instances/), one is stopped; both carry a roster in their record.
  */
@@ -49,12 +49,12 @@ describe("agent search API", () => {
 
     const kw = path.join(fx.home, ".kraftwerk");
     await mkdir(path.join(kw, "instances"), { recursive: true });
-    await mkdir(path.join(kw, "projects"), { recursive: true });
+    await mkdir(path.join(kw, "workspaces"), { recursive: true });
     await writeFile(path.join(kw, "instances", "111111.json"), JSON.stringify({ pid: 111111, port: otherPort, startedAt: "2026-01-01T00:00:00Z", root: otherRoot }));
     const record = (root: string, agents: unknown[], channels?: unknown[]) =>
       JSON.stringify({ root, firstSeen: "2026-01-01T00:00:00Z", lastStarted: "2026-01-01T00:00:00Z", lastStopped: "2026-01-02T00:00:00Z", startCount: 1, agents, ...(channels ? { channels } : {}) });
-    await writeFile(path.join(kw, "projects", "other.json"), record(otherRoot, [{ slug: "remote-bot", name: "Remote Bot", emoji: "🤖" }], [{ slug: "ops", name: "Ops" }]));
-    await writeFile(path.join(kw, "projects", "stopped.json"), record(stoppedRoot, [{ slug: "sleeper", name: "Sleeper", emoji: "😴", group: "Ops" }]));
+    await writeFile(path.join(kw, "workspaces", "other.json"), record(otherRoot, [{ slug: "remote-bot", name: "Remote Bot", emoji: "🤖" }], [{ slug: "ops", name: "Ops" }]));
+    await writeFile(path.join(kw, "workspaces", "stopped.json"), record(stoppedRoot, [{ slug: "sleeper", name: "Sleeper", emoji: "😴", group: "Ops" }]));
     srv = await startServer(fx);
   });
   after(async () => {
@@ -66,9 +66,9 @@ describe("agent search API", () => {
   });
 
   const search = async (): Promise<AgentSearch> => (await fetch(srv.url + "/api/search/agents")).json();
-  const ownRecord = async (): Promise<ProjectRecord | undefined> => {
-    const dir = path.join(fx.home, ".kraftwerk", "projects");
-    const recs = await Promise.all((await readdir(dir)).map(async (f) => JSON.parse(await readFile(path.join(dir, f), "utf8")) as ProjectRecord));
+  const ownRecord = async (): Promise<WorkspaceRecord | undefined> => {
+    const dir = path.join(fx.home, ".kraftwerk", "workspaces");
+    const recs = await Promise.all((await readdir(dir)).map(async (f) => JSON.parse(await readFile(path.join(dir, f), "utf8")) as WorkspaceRecord));
     return recs.find((r) => r.root === fx.root);
   };
 
@@ -88,7 +88,7 @@ describe("agent search API", () => {
     assert.deepEqual(self.channels, [{ slug: "marketing-sales", name: "Marketing & Sales", purpose: "campaigns and leads" }], "channels ride along, without members");
   });
 
-  it("lists the other projects' recorded rosters, running and stopped", async () => {
+  it("lists the other workspaces' recorded rosters, running and stopped", async () => {
     const { workspaces } = await search();
     assert.equal(workspaces.length, 3, JSON.stringify(workspaces));
     const running = workspaces.find((w) => w.root === otherRoot);

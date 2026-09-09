@@ -1,7 +1,7 @@
 import { existsSync, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { attachmentPath, saveAttachment } from "./chat/store.js";
+import { attachmentPath, readMeta, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
@@ -30,7 +30,7 @@ import {
   resolvePermission,
   setChatVibeable,
   subscribeChat, convertChatToChannel, dropChannelSeats, ensureChannelChat } from "./chat/sessions.js";
-import type { ChatAgentId, ChatScope } from "./chat/types.js";
+import type { ChatAgentId, ChatMeta, ChatScope } from "./chat/types.js";
 import {
   bundleDetail,
   conceptDetail,
@@ -59,13 +59,13 @@ import {
 } from "./skills.js";
 import {
   discoverWorkspaces,
-  forgetProject,
+  forgetWorkspace,
   listWorkspacesDetailed,
-  markProjectStopped,
+  markWorkspaceStopped,
   registerInstance,
-  registerProject,
-  startProject,
-  stopProject,
+  registerWorkspace,
+  startWorkspace,
+  stopWorkspace,
   tildify,
   unregisterInstance,
 } from "./instances.js";
@@ -96,6 +96,17 @@ import {
   type VibeableEvent,
 } from "./vibeables.js";
 import { searchAgents } from "./search.js";
+import {
+  appendProjectLog,
+  createProject,
+  deleteProject,
+  getProject,
+  linkProject,
+  listProjects,
+  openProjects,
+  saveProject,
+  type SaveProjectInput,
+} from "./projects.js";
 import {
   deleteRoutine,
   routineStatuses,
@@ -366,9 +377,15 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         return json(res, await view(await saveChannel(input)));
       }
       if (seg.length === 3 && seg[2] === "from-chat" && method === "POST") {
-        const { chatId, slug: _s, ...input } = body;
+        const { chatId, slug: _s, project: _p, ...input } = body;
         if (!chatId) return json(res, { error: "chatId is required" }, 400);
-        const channel = await saveChannel(input);
+        // A project chat's coworkers work in that project: the chat decides, not the body.
+        let source: ChatMeta | null = null;
+        try {
+          source = await readMeta(chatId);
+        } catch {}
+        if (!source) return json(res, { error: "chat not found" }, 404);
+        const channel = await saveChannel({ ...input, ...(source.scope.kind === "project" ? { project: source.scope.slug } : {}) });
         const converted = await convertChatToChannel(chatId, channel);
         if (converted.error) {
           await deleteChannel(channel.slug).catch(() => {});
@@ -441,7 +458,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     const discovered = url.searchParams.get("probe") === "1" ? [] : await discoverWorkspaces();
     // Manual switcher entries keep their configured name/icon; discovered
     // workspaces that duplicate one (same url, running) only contribute
-    // the live flag. Stopped projects never collide — they carry a root,
+    // the live flag. Stopped workspaces never collide — they carry a root,
     // and a manual entry pointing at the same port is just a link.
     const norm = (u: string) => u.replace(/\/+$/, "").replace("127.0.0.1", "localhost").toLowerCase();
     const manualUrls = new Set(manual.map((e) => norm(e.url)));
@@ -465,6 +482,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       git: (project?.config.git && project.config.git.enabled !== false) === true,
       repos: (project?.config.repos && project.config.repos.enabled !== false) === true,
       vibeables: (project?.config.vibeables && project.config.vibeables.enabled !== false) === true,
+      projects: (project?.config.projects && project.config.projects.enabled !== false) === true,
       publicUrl: (project && publicUrlFor(project)) ?? "",
       switcher,
     });
@@ -556,6 +574,70 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // GET /api/projects — every project folder under the projects root | POST {title, goal?, slug?} — create one from the starter
+  if (seg.length === 2 && seg[1] === "projects") {
+    if (method === "GET") return json(res, await listProjects());
+    if (method === "POST") {
+      if ((await openProjects()).off) return json(res, { error: "projects are off" }, 409);
+      try {
+        const body = JSON.parse(await readBody(req)) as { title?: unknown; goal?: unknown; slug?: unknown };
+        const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+        return json(res, await createProject({ title: str(body.title) ?? "", goal: str(body.goal), slug: str(body.slug) }), 201);
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, 400);
+      }
+    }
+  }
+
+  const projectError = (err: unknown): [number, { error: string }] => {
+    const msg = (err as Error).message;
+    return [/^no project/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
+  };
+
+  // GET /api/projects/<slug> — definition, brief, state, log and link states | PUT — save fields | DELETE — remove the folder
+  if (seg.length === 3 && seg[1] === "projects") {
+    try {
+      if (method === "GET") {
+        const p = await getProject(seg[2]);
+        return p ? json(res, p) : json(res, { error: `no project "${seg[2]}"` }, 404);
+      }
+      if (method === "PUT") {
+        const body = JSON.parse(await readBody(req)) as SaveProjectInput;
+        return json(res, await saveProject(seg[2], body));
+      }
+      if (method === "DELETE") {
+        await deleteProject(seg[2]);
+        return json(res, { ok: true });
+      }
+    } catch (err) {
+      const [status, body] = projectError(err);
+      return json(res, body, status);
+    }
+  }
+
+  // POST /api/projects/<slug>/log {entry, actor?} — append a stamped line to log.md
+  if (seg.length === 4 && seg[1] === "projects" && seg[3] === "log" && method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req)) as { entry?: unknown; actor?: unknown };
+      const log = await appendProjectLog(seg[2], typeof body.entry === "string" ? body.entry : "", typeof body.actor === "string" ? body.actor : "human:user");
+      return json(res, { ok: true, log });
+    } catch (err) {
+      const [status, body] = projectError(err);
+      return json(res, body, status);
+    }
+  }
+
+  // POST /api/projects/<slug>/links {kind, target, remove?} — add or drop one linked slug
+  if (seg.length === 4 && seg[1] === "projects" && seg[3] === "links" && method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req)) as { kind?: unknown; target?: unknown; remove?: unknown };
+      return json(res, await linkProject(seg[2], typeof body.kind === "string" ? body.kind : "", typeof body.target === "string" ? body.target : "", body.remove === true));
+    } catch (err) {
+      const [status, body] = projectError(err);
+      return json(res, body, status);
+    }
+  }
+
   // GET /api/vibeables/<slug>/events — SSE: file changes (debounced) and dev-server state
   if (seg.length === 4 && seg[1] === "vibeables" && seg[3] === "events" && method === "GET") {
     let dir: string;
@@ -614,42 +696,42 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     return json(res, await searchAgents());
   }
 
-  // GET /api/projects — every known workspace incl. this one, with state + counts (admin screen)
-  if (seg.length === 2 && seg[1] === "projects" && method === "GET") {
+  // GET /api/workspaces — every known workspace incl. this one, with state + counts (admin screen)
+  if (seg.length === 2 && seg[1] === "workspaces" && method === "GET") {
     return json(res, await listWorkspacesDetailed());
   }
 
-  // POST /api/projects/start {root} — launch `kraftwerk ui` for a known
-  // project as a detached process (the switcher's Start button).
-  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "start" && method === "POST") {
+  // POST /api/workspaces/start {root} — launch `kraftwerk ui` for a known
+  // workspace as a detached process (the switcher's Start button).
+  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "start" && method === "POST") {
     try {
       const { root } = JSON.parse(await readBody(req)) as { root?: string };
       if (!root) return json(res, { error: "root required" }, 400);
-      const result = await startProject(root);
+      const result = await startWorkspace(root);
       return json(res, result, result.ok ? 200 : 409);
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
     }
   }
 
-  // POST /api/projects/stop {root | url} — SIGTERM a running workspace's server
-  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "stop" && method === "POST") {
+  // POST /api/workspaces/stop {root | url} — SIGTERM a running workspace's server
+  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "stop" && method === "POST") {
     try {
       const target = JSON.parse(await readBody(req)) as { root?: string; url?: string };
       if (!target.root && !target.url) return json(res, { error: "root or url required" }, 400);
-      const result = await stopProject(target);
+      const result = await stopWorkspace(target);
       return json(res, result, result.ok ? 200 : 409);
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
     }
   }
 
-  // POST /api/projects/forget {root} — drop a project from the registry
-  if (seg.length === 3 && seg[1] === "projects" && seg[2] === "forget" && method === "POST") {
+  // POST /api/workspaces/forget {root} — drop a workspace from the registry
+  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "forget" && method === "POST") {
     try {
       const { root } = JSON.parse(await readBody(req)) as { root?: string };
       if (!root) return json(res, { error: "root required" }, 400);
-      return json(res, { ok: await forgetProject(root) });
+      return json(res, { ok: await forgetWorkspace(root) });
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
     }
@@ -1062,6 +1144,19 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
         scope = { kind: "kraftwerk" };
       } else if (body.scope?.kind === "knowledge") {
         scope = { kind: "knowledge", ...(body.scope.bundle ? { bundle: body.scope.bundle } : {}) };
+      } else if (body.scope?.kind === "project" && body.scope.slug) {
+        // A project chat needs its folder; a missing one is a 404 here, not a chat that apologizes.
+        let found: Awaited<ReturnType<typeof getProject>>;
+        try {
+          found = await getProject(body.scope.slug);
+        } catch (err) {
+          const [status, e] = projectError(err);
+          return json(res, e, status);
+        }
+        if (!found) return json(res, { error: "project not found" }, 404);
+        scope = { kind: "project", slug: found.slug };
+        // Like agent sessions: the project decides the harness, not the caller.
+        agent = found.harness;
       } else {
         scope = { kind: "general" };
       }
@@ -1300,7 +1395,7 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
       disposeAllBackends();
       disposeAllDevs();
       unregisterInstance();
-      markProjectStopped();
+      markWorkspaceStopped();
       process.exit(sig === "SIGINT" ? 130 : 143);
     });
   }
@@ -1309,7 +1404,7 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
     disposeAllDevs();
     unregisterInstance();
     // A self-restart (new version) is not a stop — the project stays "running".
-    if (code !== RESTART_EXIT_CODE) markProjectStopped();
+    if (code !== RESTART_EXIT_CODE) markWorkspaceStopped();
   });
   const server = http.createServer(async (req, res) => {
     try {
@@ -1339,7 +1434,7 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : opts.port;
       void registerInstance(port, getProjectRoot());
-      void registerProject(getProjectRoot());
+      void registerWorkspace(getProjectRoot());
       resolve(server);
     });
   });

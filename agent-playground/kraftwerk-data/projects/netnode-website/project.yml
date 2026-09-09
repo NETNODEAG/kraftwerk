@@ -1,0 +1,28 @@
+title: netnode.ch website
+status: active
+goal: Keep netnode.ch fast, accessible and ahead of the competition
+harness: claude
+model: sonnet
+records:
+  - kind: my-netnode
+    url: https://my.netnode.ch/workspace/1
+    workspace: "1"
+    note: netnode.ch/netnode.ai Content/Marketing/Sales (Team Blau) — tickets,
+      roadmap, repositories of the website workspace; ws 4 is the Test workspace
+  - kind: url
+    title: netnode.ch
+    url: https://www.netnode.ch
+knowledge:
+  - competitor-watch
+  - netnode-helpdesk
+  - netnode-website
+repos:
+  - frontend.netnode.ch
+workflows:
+  - website-check
+  - accessibility-audit
+  - lighthouse-trend
+  - competitor-watch
+  - helpdesk-check
+agents:
+  - max

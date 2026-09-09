@@ -9,8 +9,9 @@ knowledge: kraftwerk-data/knowledge # OKF knowledge bundles
 agents: kraftwerk-data/agents # agent definitions
 skills: kraftwerk-data/skills # workspace skills (shared instruction packages)
 port: 1981
-vibeables:
-  root: kraftwerk-data/vibeables # small apps built live in a chat with a preview pane (one folder per app, versioned with the workspace)
+vibeables: {}
+projects: {}
+repos: {}
 
 # Reach this inspector from elsewhere through a Cloudflare Tunnel (uncomment to enable).
 # One-time setup: cloudflared tunnel login && cloudflared tunnel create playground && cloudflared tunnel route dns playground kw.example.com

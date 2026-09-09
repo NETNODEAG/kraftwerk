@@ -42,6 +42,7 @@ interface SettingsData {
     git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" };
     repos?: { enabled?: boolean; root?: string };
     vibeables?: { enabled?: boolean; root?: string };
+    projects?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -79,6 +80,13 @@ function vibeablesForm(d: SettingsData): ReposForm {
   return { enabled: v.enabled !== false, root: v.root ?? "" };
 }
 
+/** The projects block, same shape. */
+function projectsForm(d: SettingsData): ReposForm {
+  const p = d.config.projects;
+  if (!p) return REPOS_OFF;
+  return { enabled: p.enabled !== false, root: p.root ?? "" };
+}
+
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
@@ -88,6 +96,7 @@ export function SettingsScreen() {
   const [git, setGit] = useState<GitForm>(GIT_OFF);
   const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
   const [vibeables, setVibeables] = useState<ReposForm>(REPOS_OFF);
+  const [projects, setProjects] = useState<ReposForm>(REPOS_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -105,6 +114,7 @@ export function SettingsScreen() {
         setGit(gitForm(d));
         setRepos(reposForm(d));
         setVibeables(vibeablesForm(d));
+        setProjects(projectsForm(d));
       })
       .catch(() => setError("could not load settings"));
   }, []);
@@ -130,6 +140,7 @@ export function SettingsScreen() {
           git: { ...git, interval: git.interval === "" ? undefined : Number(git.interval) },
           repos,
           vibeables,
+          projects,
         }),
       });
       const d = (await r.json()) as SettingsData & { error?: string };
@@ -139,6 +150,7 @@ export function SettingsScreen() {
       setGit(gitForm(d));
       setRepos(reposForm(d));
       setVibeables(vibeablesForm(d));
+      setProjects(projectsForm(d));
       setDirty(false);
       setSaved(true);
       // Nudge the app shell to refetch /api/meta so header + favicon update now.
@@ -164,6 +176,10 @@ export function SettingsScreen() {
   };
   const setVibeablesField = (patch: Partial<ReposForm>): void => {
     setVibeables((v) => ({ ...v, ...patch }));
+    touch();
+  };
+  const setProjectsField = (patch: Partial<ReposForm>): void => {
+    setProjects((p) => ({ ...p, ...patch }));
     touch();
   };
 
@@ -399,6 +415,36 @@ export function SettingsScreen() {
               <div className="settings-note">
                 Relative to the project root, one folder per app. Part of the workspace: versioned with it on the git screen, not
                 git-ignored. Every chat gets a <b>vibeable</b> button; the agent then works inside the app folder.
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">projects</span>
+          <span className="spacer" />
+          <a className="run-btn tonal" href="#/projects">
+            <Icon name="folder_special" className="ms-sm" /> open projects
+          </a>
+        </div>
+        <div className="agent-form">
+          <label className="settings-check">
+            <input type="checkbox" checked={projects.enabled} onChange={(e) => setProjectsField({ enabled: e.target.checked })} />
+            gather a goal, its brief, systems of record and links in one folder, and chat inside it
+          </label>
+          {projects.enabled && (
+            <>
+              <div className="agent-form-row">
+                <label className="agent-field" style={{ flex: 1 }}>
+                  projects root
+                  <input value={projects.root} placeholder="kraftwerk-data/projects" onChange={(e) => setProjectsField({ root: e.target.value })} />
+                </label>
+              </div>
+              <div className="settings-note">
+                Relative to the project root, one folder per project (project.yml, brief.md, state.md, log.md). Part of the workspace:
+                versioned with it on the git screen. A chat opened in a project starts with all of it as context.
               </div>
             </>
           )}

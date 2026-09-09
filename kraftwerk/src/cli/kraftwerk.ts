@@ -13,6 +13,7 @@ import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
 import { registerProjectCommands } from "./projects.js";
+import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
 import { registerTunnelCommands } from "./tunnel.js";
@@ -32,7 +33,9 @@ import { runUi } from "./ui.js";
  *   kraftwerk knowledge ...           Knowledge: OKF bundles (list/get/put/verify/...)
  *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run)
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
- *   kraftwerk projects ...            known projects on this machine (list/start/forget)
+ *   kraftwerk workspaces ...          known workspaces on this machine (list/start/stop/forget)
+ *   kraftwerk projects ...            goal-scoped project folders (list/create/show/link/log/remove)
+ *   kraftwerk vibeables ...           small apps built live in a chat (list/create/remove)
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk tunnel [setup <host>]   Cloudflare Tunnel to the inspector: run it alone, or set one up
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
@@ -314,6 +317,7 @@ runs
 
 registerKnowledgeCommands(program);
 registerRoutineCommands(program);
+registerWorkspaceCommands(program);
 registerProjectCommands(program);
 registerRepoCommands(program);
 registerVibeableCommands(program);

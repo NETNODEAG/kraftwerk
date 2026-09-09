@@ -4,14 +4,14 @@ import { parse, stringify } from "yaml";
 import { getProjectRoot } from "./context.js";
 import { resolveProject } from "../config.js";
 import { listAgents, safeAgentSlug, slugFromName, type Agent } from "./agents.js";
-import { syncProjectChannels } from "./instances.js";
+import { syncWorkspaceChannels } from "./instances.js";
 
 /**
  * Channels: one transcript shared by several agents and humans — a Slack
  * channel where the coworkers are agents. The definition is git-tracked
  * with the workspace so the whole team sees the same channels:
  *
- *   channels/<slug>/channel.yml   # name, purpose, members (agent slugs), responder, maxHops
+ *   channels/<slug>/channel.yml   # name, purpose, members (agent slugs), responder, maxHops, project
  *
  * The transcript itself is a chat (scope { kind: "channel", slug }) under
  * <output>/chats/, run-state like every other chat. sessions.ts gives each
@@ -31,6 +31,13 @@ export interface Channel {
   responder?: string;
   /** Agent-to-agent handovers allowed per human message. */
   maxHops: number;
+  /**
+   * The project this channel works in (a slug under the projects root):
+   * every member gets the project's brief, state, records and links as
+   * context, and the channel lists under the project. Set when a project
+   * chat gets its first coworker; see convertChatToChannel.
+   */
+  project?: string;
 }
 
 /** What the ⌘K palette needs of a channel (and what the project registry records). */
@@ -61,7 +68,10 @@ interface ChannelYaml {
   members?: unknown;
   responder?: unknown;
   maxHops?: unknown;
+  project?: unknown;
 }
+
+const PROJECT_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,48}$/;
 
 function normalize(slug: string, raw: ChannelYaml): Channel {
   const members = Array.isArray(raw.members) ? [...new Set(raw.members.map(String))] : [];
@@ -74,6 +84,7 @@ function normalize(slug: string, raw: ChannelYaml): Channel {
     members,
     ...(responder ? { responder } : {}),
     maxHops: hops,
+    ...(typeof raw.project === "string" && PROJECT_SLUG_RE.test(raw.project) ? { project: raw.project } : {}),
   };
 }
 
@@ -91,7 +102,7 @@ export async function listChannels(): Promise<Channel[]> {
   const list = (channels.filter(Boolean) as Channel[]).sort((a, b) => a.name.localeCompare(b.name));
   // Like the agent roster: the registry copy feeds other instances' palettes.
   await resolveProject(getProjectRoot())
-    .then((p) => syncProjectChannels(p.root, list.map(toChannelSummary)))
+    .then((p) => syncWorkspaceChannels(p.root, list.map(toChannelSummary)))
     .catch(() => {});
   return list;
 }
@@ -114,6 +125,8 @@ export interface SaveChannelInput {
   /** Agent slug, or "" / null to clear. */
   responder?: string | null;
   maxHops?: number;
+  /** Project slug, or "" / null to detach. */
+  project?: string | null;
 }
 
 /** Members must be existing, non-archived agents; returns them in the order given. */
@@ -148,6 +161,11 @@ export async function saveChannel(input: SaveChannelInput): Promise<Channel> {
             throw new Error("maxHops must be a whole number");
           })()
       : existing?.maxHops ?? DEFAULT_MAX_HOPS;
+  let project = existing?.project;
+  if (input.project !== undefined) {
+    if (input.project && !PROJECT_SLUG_RE.test(input.project)) throw new Error(`invalid project name "${input.project}"`);
+    project = input.project || undefined;
+  }
   const channel: Channel = {
     slug,
     name,
@@ -161,6 +179,7 @@ export async function saveChannel(input: SaveChannelInput): Promise<Channel> {
     members,
     ...(responder ? { responder } : {}),
     maxHops,
+    ...(project ? { project } : {}),
   };
   const dir = path.join(await channelsRoot(), slug);
   await fs.mkdir(dir, { recursive: true });

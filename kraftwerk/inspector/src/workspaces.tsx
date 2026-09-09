@@ -3,7 +3,7 @@ import { fmtAgo, Icon, post, WorkspaceTile } from "./shared";
 
 /**
  * Workspaces admin (#/workspaces, expert mode): every project this machine
- * ever ran the inspector for (~/.kraftwerk/projects), joined with what is
+ * ever ran the inspector for (~/.kraftwerk/workspaces), joined with what is
  * running now. Start a stopped one, stop a running one, and drop records
  * whose root no longer holds a kraftwerk.yml. Linked from the workspace
  * switcher popover.
@@ -50,7 +50,7 @@ export function WorkspacesScreen() {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/projects", { cache: "no-store" });
+      const r = await fetch("/api/workspaces", { cache: "no-store" });
       if (r.ok) {
         setRows((await r.json()) as Workspace[]);
         setLoadError("");
@@ -60,8 +60,8 @@ export function WorkspacesScreen() {
       // spinning on "loading…" forever.
       setLoadError(
         r.status === 404
-          ? "This workspace runs a kraftwerk without the projects API. Update it and restart its UI."
-          : `Could not load the project registry (HTTP ${r.status}).`
+          ? "This workspace runs a kraftwerk without the workspaces API. Update it and restart its UI."
+          : `Could not load the workspace registry (HTTP ${r.status}).`
       );
     } catch (err) {
       setLoadError((err as Error).message || "Could not reach this workspace's server.");
@@ -91,7 +91,7 @@ export function WorkspacesScreen() {
     setConfirmRemove(null);
     try {
       const body = verb === "stop" ? { root: w.root, url: w.url } : { root: w.root };
-      const d = await post<{ url?: string; live?: boolean }>(`/api/projects/${verb}`, body);
+      const d = await post<{ url?: string; live?: boolean }>(`/api/workspaces/${verb}`, body);
       if (!d.ok) throw new Error(d.error || "failed");
       window.dispatchEvent(new Event("kw-meta-refresh"));
     } catch (err) {
@@ -126,9 +126,9 @@ export function WorkspacesScreen() {
 
       <section className="panel">
         <div className="panel-head">
-          <span className="microlabel">projects on this machine</span>
+          <span className="microlabel">workspaces on this machine</span>
           <span className="spacer" />
-          <span className="settings-note">registry: <code>~/.kraftwerk/projects</code></span>
+          <span className="settings-note">registry: <code>~/.kraftwerk/workspaces</code></span>
         </div>
         {!rows && !loadError && <div className="ws-empty">loading…</div>}
         {!rows && loadError && (
@@ -223,7 +223,7 @@ export function WorkspacesScreen() {
         Start launches <code>kraftwerk ui</code> detached in the project root (log in <code>~/.kraftwerk/logs</code>).
         Stop sends SIGTERM to the running server. Remove is offered only for records whose root no
         longer holds a <code>kraftwerk.yml</code> — the same from the terminal:{" "}
-        <code>kraftwerk projects</code>.
+        <code>kraftwerk workspaces</code>.
       </p>
     </div>
   );

@@ -780,7 +780,7 @@ function GeneralChatsLanding() {
       .then((d: { chats: ChatMeta[] }) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — first match is the latest.
-        const latest = d.chats.find((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel");
+        const latest = d.chats.find((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
         if (latest) navigate(`/agents/chats/${latest.id}`, { replace: true });
         else setNone(true);
       })
@@ -862,11 +862,11 @@ function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
 
 /* ---------- general chats sidebar ---------- */
 
-// Chats that don't belong to an agent (scope kind != agent) — the former
+// Chats that belong to no agent, channel or project — the former
 // standalone chat screen, now living under the agents screen.
 function GeneralChatsSide({ chatId }: { chatId?: string }) {
   const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
-  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel");
+  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
 
   return (
     <aside className="runs-side">

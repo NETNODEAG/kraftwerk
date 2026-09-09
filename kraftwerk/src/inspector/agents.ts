@@ -4,7 +4,7 @@ import { parse, stringify } from "yaml";
 import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
 import type { ChatAgentId } from "./chat/types.js";
-import { syncProjectAgents } from "./instances.js";
+import { syncWorkspaceAgents } from "./instances.js";
 
 /**
  * Agents: persistent agents, defined on the filesystem. Each one
@@ -147,7 +147,7 @@ export async function listAgents(): Promise<Agent[]> {
   // palettes. Awaited so a read that follows a save sees the record updated;
   // it only writes when the roster changed.
   await resolveProject(getProjectRoot())
-    .then((p) => syncProjectAgents(p.root, list.filter((a) => !a.archived).map(toSummary)))
+    .then((p) => syncWorkspaceAgents(p.root, list.filter((a) => !a.archived).map(toSummary)))
     .catch(() => {});
   return list;
 }

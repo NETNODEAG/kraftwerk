@@ -1,161 +1,227 @@
-import path from "node:path";
 import chalk from "chalk";
-import { absolutePath } from "../config.js";
 import Table from "cli-table3";
 import type { Command } from "commander";
+import { readFile } from "node:fs/promises";
 import {
-  discoverWorkspaces,
-  forgetProject,
-  startProject,
-  stopProject,
-  tildify,
-  type WorkspaceEntry,
-} from "../inspector/instances.js";
+  appendProjectLog,
+  createProject,
+  deleteProject,
+  getProject,
+  linkProject,
+  listProjects,
+  LINK_KINDS,
+  recordLine,
+  saveProject,
+  type ProjectDetail,
+} from "../inspector/projects.js";
+import { initContext as prepare } from "./routines.js";
+import { fmtAgo } from "./workspaces.js";
 
 /**
- * `kraftwerk projects` — every project that ever ran the inspector on this
- * machine (~/.kraftwerk/projects), joined with what is running right now.
- * The answer to "where did I start that UI, and how do I get it back":
+ * `kraftwerk projects` — the goal-scoped folders under the projects root
+ * (`projects.root` in kraftwerk.yml): a brief, the systems of record, and
+ * links to knowledge, vibeables, repositories, workflows and agents. The
+ * same module the inspector uses, so a project created here shows up in
+ * the UI at once, and an agent in a project chat uses `log` and `link`
+ * to keep the project current:
  *
- *   kraftwerk projects                 list: name, root, running/stopped
- *   kraftwerk projects start <ref>     relaunch `kraftwerk ui` in that root, detached
- *   kraftwerk projects stop <ref>      SIGTERM a running UI (also ones started in a terminal)
- *   kraftwerk projects forget <ref>    drop the record (the folder stays)
+ *   kraftwerk projects                              list: title, status, goal, links
+ *   kraftwerk projects create <title> [--goal ..]   new folder from the starter (project.yml, brief, state, log); --harness/--model/--effort
+ *   kraftwerk projects set <slug> [--harness ..]    change harness, model, effort, status or goal
+ *   kraftwerk projects show <slug>                  definition, links (found / missing), records, state, log
+ *   kraftwerk projects link <slug> <kind> <name>    add a knowledge|vibeables|repos|workflows|agents link
+ *   kraftwerk projects unlink <slug> <kind> <name>  remove one
+ *   kraftwerk projects log <slug> "<entry>"         append a stamped line to log.md (--actor)
+ *   kraftwerk projects remove <slug>                delete the folder (its history stays in the workspace git)
  *
- * <ref> is a project name, the root's folder name, the root path, or a
- * port / localhost:port for running instances that recorded no root.
+ * The workspace registry answered to this name until 0.48; it is
+ * `kraftwerk workspaces` now (workspaces.ts).
  */
 
-export const fmtAgo = (iso?: string): string => {
-  if (!iso) return "—";
-  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
+const die = (msg: string): never => {
+  console.error(chalk.red(msg));
+  process.exit(1);
 };
 
-/**
- * Running → its url. Not running: "stopped" after a clean shutdown, "died"
- * when the last start has no matching stop (killed, crashed, terminal
- * closed) — the case this command exists for.
- */
-const status = (e: WorkspaceEntry): string => {
-  if (e.live) return chalk.green(`● ${e.url.replace(/^https?:\/\//, "")}`);
-  if (e.exists === false) return chalk.red("path missing");
-  const clean = !!e.lastStopped && !!e.lastStarted && e.lastStopped >= e.lastStarted;
-  return clean ? chalk.dim("stopped") : chalk.yellow("died");
-};
+const linkSummary = (p: { knowledge: string[]; vibeables: string[]; repos: string[]; workflows: string[]; agents: string[] }): string =>
+  LINK_KINDS.map((k) => (p[k].length ? `${p[k].length} ${k}` : ""))
+    .filter(Boolean)
+    .join(", ");
 
-/** Match a ref against known workspaces; `needRoot` excludes rootless live instances (start/forget need a root). */
-async function resolveRef(ref: string, needRoot = true): Promise<WorkspaceEntry> {
-  const all = (await discoverWorkspaces()).filter((e) => e.root || !needRoot);
-  const abs = absolutePath(ref);
-  const port = /^\d+$/.test(ref) ? `http://localhost:${ref}` : `http://${ref.replace(/^https?:\/\//, "")}`;
-  const hits = all.filter(
-    (e) =>
-      e.root === abs ||
-      e.root === ref ||
-      e.name === ref ||
-      (e.root && path.basename(e.root) === ref) ||
-      e.url === port
-  );
-  if (hits.length === 1) return hits[0];
-  if (hits.length === 0) {
-    console.error(chalk.red(`No known project "${ref}". See \`kraftwerk projects\`.`));
-    process.exit(2);
+function printDetail(p: ProjectDetail): void {
+  console.log(`${chalk.bold(p.title)} ${chalk.dim(`(${p.slug}, ${p.status})`)}`);
+  console.log(p.goal ? p.goal : chalk.dim("(no goal yet)"));
+  console.log(chalk.dim(`runs on ${p.harness}${p.model ? ` · ${p.model}` : ""}${p.effort ? ` · effort ${p.effort}` : ""}`));
+  console.log(chalk.dim(p.path));
+  if (p.configError) console.log(chalk.red(`project.yml: ${p.configError}`));
+  if (p.records.length) {
+    console.log(`\n${chalk.bold("systems of record")}`);
+    for (const r of p.records) console.log(recordLine(r));
   }
-  console.error(chalk.red(`"${ref}" is ambiguous — use the root path or port:`));
-  for (const h of hits) console.error(`  ${h.root ?? h.url}`);
-  process.exit(2);
+  for (const kind of LINK_KINDS) {
+    if (!p.links[kind].length) continue;
+    console.log(`\n${chalk.bold(kind)}`);
+    for (const l of p.links[kind]) {
+      console.log(l.found ? `  ${chalk.green("✔")} ${l.slug}${l.label ? chalk.dim(`  ${l.label}`) : ""}` : `  ${chalk.yellow("?")} ${l.slug} ${chalk.dim("(not found)")}`);
+    }
+  }
+  if (p.state.trim()) console.log(`\n${chalk.bold("state.md")}\n${p.state.trim()}`);
+  if (p.log.trim()) console.log(`\n${chalk.bold("log.md")}\n${p.log.trim()}`);
 }
 
 export function registerProjectCommands(program: Command): void {
   const projects = program
     .command("projects")
-    .description("Known kraftwerk projects on this machine: list, start a stopped UI, stop a running one, forget");
+    .description("Projects: a goal with its brief, systems of record and links, worked on in chat — list, create, link, log");
 
   projects
     .command("list", { isDefault: true })
-    .description("List known projects with their root and whether the UI is running")
+    .description("List the projects under the projects root")
     .option("--json", "Machine-readable output")
     .action(async (opts: { json?: boolean }) => {
-      const entries = await discoverWorkspaces();
+      await prepare();
+      const view = await listProjects();
       if (opts.json) {
-        console.log(JSON.stringify(entries, null, 2));
+        console.log(JSON.stringify(view, null, 2));
         return;
       }
-      if (entries.length === 0) {
-        console.log(chalk.dim("No projects known yet — `kraftwerk ui` registers the current one."));
+      if (!view.enabled) die(view.error ?? "projects are off");
+      if (view.projects.length === 0) {
+        console.log(chalk.dim(`No projects under ${view.root} yet — \`kraftwerk projects create "<title>"\` starts one.`));
         return;
       }
       const table = new Table({
-        head: ["project", "root", "status", "last started"].map((h) => chalk.bold(h)),
+        head: ["project", "status", "goal", "links", "changed"].map((h) => chalk.bold(h)),
         wordWrap: true,
-        colWidths: [22, 48, 24, 14],
+        colWidths: [26, 10, 40, 24, 14],
       });
-      for (const e of entries) {
+      for (const p of view.projects) {
         table.push([
-          `${e.icon ? e.icon + " " : ""}${chalk.cyan(e.name)}`,
-          e.rootLabel ?? chalk.dim("(no root recorded)"),
-          status(e),
-          fmtAgo(e.lastStarted),
+          `${chalk.cyan(p.title)}\n${chalk.dim(p.slug)}`,
+          p.status === "active" ? chalk.green(p.status) : chalk.dim(p.status),
+          p.configError ? chalk.red(p.configError) : p.goal || chalk.dim("—"),
+          chalk.dim(linkSummary(p) || "—"),
+          chalk.dim(fmtAgo(p.updatedAt)),
         ]);
       }
       console.log(table.toString());
+      console.log(chalk.dim(view.root ?? ""));
     });
 
   projects
-    .command("start")
-    .description("Relaunch the UI of a stopped project (detached; logs in ~/.kraftwerk/logs)")
-    .argument("<ref>", "Project name, folder name, or root path")
-    .action(async (ref: string) => {
-      const entry = await resolveRef(ref);
-      if (entry.live) {
-        console.log(`${chalk.green("✔")} ${entry.name} already running: ${chalk.cyan(entry.url)}`);
-        return;
+    .command("create")
+    .description("Create a project folder from the starter (project.yml, brief.md, state.md, log.md)")
+    .argument("<title>", "Display title; the folder name is derived from it unless --slug is given")
+    .option("--goal <text>", "One-line goal")
+    .option("--slug <slug>", "Folder name under the root (lowercase, digits, dashes)")
+    .option("--harness <harness>", "Harness every chat in the project runs on: claude | codex | pi (default: claude)")
+    .option("--model <model>", "Model for that harness (default: the harness default)")
+    .option("--effort <effort>", "Reasoning effort: low | medium | high | xhigh | max")
+    .option("--json", "Print the new project as JSON")
+    .action(async (title: string, opts: { goal?: string; slug?: string; harness?: string; model?: string; effort?: string; json?: boolean }) => {
+      await prepare();
+      try {
+        const p = await createProject({ title, goal: opts.goal, slug: opts.slug, harness: opts.harness, model: opts.model, effort: opts.effort });
+        if (opts.json) console.log(JSON.stringify(p, null, 2));
+        else console.log(`${chalk.green("✔")} ${chalk.cyan(p.slug)} → ${p.path} ${chalk.dim("(open it on the Projects screen, or `kraftwerk projects show " + p.slug + "`)")}`);
+      } catch (err) {
+        die((err as Error).message);
       }
-      const r = await startProject(entry.root!);
-      if (!r.ok) {
-        console.error(chalk.red(`Could not start ${entry.name}: ${r.error}`));
-        if (r.log) console.error(chalk.dim(`log: ${tildify(r.log)}`));
-        process.exit(1);
-      }
-      console.log(
-        `${chalk.green("✔")} ${entry.name} ${r.live ? "running" : "starting"}: ${chalk.cyan(r.url)}` +
-          chalk.dim(` (pid ${r.pid}${r.log ? `, log ${tildify(r.log)}` : ""})`)
-      );
     });
 
   projects
-    .command("stop")
-    .description("Stop a running UI (SIGTERM to its server; works for terminal-started ones too)")
-    .argument("<ref>", "Project name, folder name, root path, or port")
-    .action(async (ref: string) => {
-      const entry = await resolveRef(ref, false);
-      if (!entry.live) {
-        console.log(chalk.dim(`${entry.name} is not running.`));
-        return;
+    .command("show")
+    .description("Show one project: definition, records, links with their state, state.md and log.md")
+    .argument("<slug>", "Folder name under the root")
+    .option("--json", "Machine-readable output")
+    .action(async (slug: string, opts: { json?: boolean }) => {
+      await prepare();
+      try {
+        const p = await getProject(slug);
+        if (!p) die(`no project "${slug}"`);
+        if (opts.json) console.log(JSON.stringify(p, null, 2));
+        else printDetail(p!);
+      } catch (err) {
+        die((err as Error).message);
       }
-      const r = await stopProject({ root: entry.root, url: entry.url });
-      if (!r.ok) {
-        console.error(chalk.red(`Could not stop ${entry.name}: ${r.error}`));
-        process.exit(1);
-      }
-      console.log(`${chalk.green("✔")} ${entry.name} stopped ${chalk.dim(`(${entry.url.replace(/^https?:\/\//, "")})`)}`);
     });
 
   projects
-    .command("forget")
-    .description("Remove a project from the registry (its folder is untouched)")
-    .argument("<ref>", "Project name, folder name, or root path")
-    .action(async (ref: string) => {
-      const entry = await resolveRef(ref);
-      if (await forgetProject(entry.root!)) {
-        console.log(`${chalk.green("✔")} forgot ${entry.name} (${entry.rootLabel})`);
-      } else {
-        console.error(chalk.red(`No record for ${entry.root}`));
-        process.exit(1);
+    .command("set")
+    .description("Change the project's harness, model, effort, status or goal (like an agent's settings)")
+    .argument("<slug>", "Project folder name")
+    .option("--harness <harness>", "claude | codex | pi")
+    .option("--model <model>", 'Model for the harness; "" for the default')
+    .option("--effort <effort>", 'low | medium | high | xhigh | max; "" for the default')
+    .option("--status <status>", "active | paused | done | archived")
+    .option("--goal <text>", "One-line goal")
+    .option("--json", "Print the project as JSON")
+    .action(async (slug: string, opts: { harness?: string; model?: string; effort?: string; status?: string; goal?: string; json?: boolean }) => {
+      await prepare();
+      const { json: asJson, ...fields } = opts;
+      if (Object.values(fields).every((v) => v === undefined)) die("nothing to set — pass --harness, --model, --effort, --status or --goal");
+      try {
+        const p = await saveProject(slug, fields);
+        if (asJson) console.log(JSON.stringify(p, null, 2));
+        else console.log(`${chalk.green("✔")} ${chalk.cyan(p.slug)} runs on ${p.harness}${p.model ? ` · ${p.model}` : ""}${p.effort ? ` · effort ${p.effort}` : ""} ${chalk.dim(`(${p.status})`)}`);
+      } catch (err) {
+        die((err as Error).message);
+      }
+    });
+
+  for (const verb of ["link", "unlink"] as const) {
+    projects
+      .command(verb)
+      .description(verb === "link" ? "Add a linked knowledge bundle, vibeable, repository, workflow or agent" : "Remove a link")
+      .argument("<slug>", "Project folder name")
+      .argument("<kind>", `One of ${LINK_KINDS.join(", ")}`)
+      .argument("<name>", "The target's name (bundle, folder, workflow or agent slug)")
+      .option("--json", "Print the project as JSON")
+      .action(async (slug: string, kind: string, name: string, opts: { json?: boolean }) => {
+        await prepare();
+        try {
+          const p = await linkProject(slug, kind, name, verb === "unlink");
+          if (opts.json) console.log(JSON.stringify(p, null, 2));
+          else {
+            const state = p.links[kind as (typeof LINK_KINDS)[number]]?.find((l) => l.slug === name);
+            const note = verb === "link" && state && !state.found ? chalk.yellow(" (not found in this workspace yet)") : "";
+            console.log(`${chalk.green("✔")} ${verb === "link" ? "linked" : "unlinked"} ${kind} ${chalk.cyan(name)} ${verb === "link" ? "to" : "from"} ${p.slug}${note}`);
+          }
+        } catch (err) {
+          die((err as Error).message);
+        }
+      });
+  }
+
+  projects
+    .command("log")
+    .description("Append a dated, attributed line to the project's log.md (newest first)")
+    .argument("<slug>", "Project folder name")
+    .argument("[entry]", "The line to record; omit with --file")
+    .option("--file <path>", "Read the entry from a file")
+    .option("--actor <actor>", "Who writes: human:<id>, <agent>/<harness>, process:<id>", "human:user")
+    .action(async (slug: string, entry: string | undefined, opts: { file?: string; actor: string }) => {
+      await prepare();
+      try {
+        const text = opts.file ? await readFile(opts.file, "utf8") : entry ?? "";
+        await appendProjectLog(slug, text, opts.actor);
+        console.log(`${chalk.green("✔")} logged to ${chalk.cyan(slug)} ${chalk.dim(`(${opts.actor})`)}`);
+      } catch (err) {
+        die((err as Error).message);
+      }
+    });
+
+  projects
+    .command("remove")
+    .description("Delete a project folder; its history stays in the workspace git")
+    .argument("<slug>", "Folder name under the root")
+    .action(async (slug: string) => {
+      await prepare();
+      try {
+        await deleteProject(slug);
+        console.log(`${chalk.green("✔")} removed ${chalk.cyan(slug)}`);
+      } catch (err) {
+        die((err as Error).message);
       }
     });
 }

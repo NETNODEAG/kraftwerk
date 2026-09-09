@@ -33,6 +33,7 @@ const runStatusLabel = (s: RunListItem["status"]) =>
 
 function chatHref(c: ChatMeta): string {
   if (c.scope.kind === "channel") return `/channels/${c.scope.slug}`;
+  if (c.scope.kind === "project") return `/projects/${c.scope.slug}/chat/${c.id}`;
   return c.scope.kind === "agent" ? `/agents/${c.scope.slug}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
@@ -43,6 +44,7 @@ function chatScopeLabel(c: ChatMeta): string {
     case "run": return c.scope.runId;
     case "knowledge": return c.scope.bundle ? `knowledge:${c.scope.bundle}` : "knowledge";
     case "kraftwerk": return "kraftwerk-aware";
+    case "project": return `project:${c.scope.slug}`;
     default: return "general";
   }
 }

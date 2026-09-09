@@ -40,6 +40,35 @@ where that work becomes shared practice.
 
 ## What's in the workspace
 
+**Projects.** A goal with everything the agents need to reach it in one
+folder: a brief, the systems of record where the truth is managed outside
+kraftwerk (a Google Drive folder, a my.netnode.ch workspace, a board), and
+links to the workspace's knowledge, vibeables, repositories, workflows and
+agents. Working in a project is chat: every session opened in it starts
+with the brief, the current state, the records and the links as context,
+and the agent keeps `state.md` and the dated `log.md` current for the next
+session. Add coworkers to a project chat and it becomes a channel of the
+project, with the same context for every agent in it. Systems of record are
+context, not credentials: the harness still decides what the agent may call.
+
+```yaml
+# kraftwerk-data/projects/relaunch/project.yml
+title: Relaunch netnode.ch
+status: active          # active | paused | done | archived
+goal: Ship the new site on NodeHive by 2026-11-30
+harness: claude          # claude | codex | pi — every chat in the project runs on it
+model: sonnet            # optional, like an agent's; effort: low … max
+records:
+  - kind: my-netnode    # my-netnode | google-drive | github | notion | slack | url | ...
+    workspace: 22
+    url: https://my.netnode.ch/workspace/22
+    note: tickets, roadmap and meetings
+knowledge: [netnode-helpdesk]
+repos: [netnode-frontend]
+workflows: [website-check, accessibility-audit]
+agents: [max]
+```
+
 **Agents.** Persistent AI coworkers, each with its own identity and memory,
 running on Claude Code, Codex, Pi, and others. An agent has a name, an emoji,
 a role, a harness and model to run on, and the workflows and knowledge that
@@ -162,7 +191,7 @@ offers a relaunch once a newer one is on disk:
 
 ```bash
 npm install -g @netnodeag/kraftwerk@latest
-kraftwerk projects                    # every workspace on this machine, running or not
+kraftwerk workspaces                  # every workspace on this machine, running or not
 ```
 
 ### Write a workflow
@@ -205,7 +234,7 @@ steps:
 npx @netnodeag/kraftwerk validate                # strict schema + semantic checks
 npx @netnodeag/kraftwerk run tagline "https://example.com"
 npx @netnodeag/kraftwerk runs                    # inspect past runs
-npx @netnodeag/kraftwerk projects                # every workspace this machine ran; projects start|stop <name>
+npx @netnodeag/kraftwerk workspaces              # every workspace this machine ran; workspaces start|stop <name>
 ```
 
 Prefer not to write it by hand? `npx @netnodeag/kraftwerk create "<what it

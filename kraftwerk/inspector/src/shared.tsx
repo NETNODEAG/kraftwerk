@@ -70,7 +70,7 @@ export function navigate(to: string, opts?: { replace?: boolean }): void {
  * the entry live through /api/meta.
  */
 export async function startWorkspace(root: string): Promise<string> {
-  const r = await fetch("/api/projects/start", {
+  const r = await fetch("/api/workspaces/start", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ root }),
@@ -136,19 +136,20 @@ export function useExpertMode(): boolean {
 
 /* ---------- feature flags ---------- */
 
-// Which optional features kraftwerk.yml turns on (git, repos, vibeables).
+// Which optional features kraftwerk.yml turns on (git, repos, vibeables, projects).
 // app.tsx sets them from /api/meta; screens read them to show or hide
 // entry points, so a chat never offers a vibeable in a workspace without them.
 export interface Features {
   git: boolean;
   repos: boolean;
   vibeables: boolean;
+  projects: boolean;
 }
-let features: Features = { git: false, repos: false, vibeables: false };
+let features: Features = { git: false, repos: false, vibeables: false, projects: false };
 const featureListeners = new Set<() => void>();
 
 export function setFeatures(next: Features): void {
-  if (next.git === features.git && next.repos === features.repos && next.vibeables === features.vibeables) return;
+  if (next.git === features.git && next.repos === features.repos && next.vibeables === features.vibeables && next.projects === features.projects) return;
   features = next;
   featureListeners.forEach((fn) => fn());
 }
@@ -262,7 +263,7 @@ export function monogram(name: string): string {
  * The icon tile of a workspace: the emoji on a tinted square in the
  * workspace colour. No emoji → the monogram fills the tile; an emoji that
  * another listed workspace also uses gets the monogram as a corner badge
- * (`ambiguous`), so two ⚡ projects still tell apart at a glance.
+ * (`ambiguous`), so two ⚡ workspaces still tell apart at a glance.
  */
 export function WorkspaceTile({
   icon,
@@ -315,6 +316,8 @@ export function usePoll<T>(url: string, fast: boolean, intervalMs = 6000): T | n
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      // An empty url pauses the poll (a screen that only needs the data in one state); a change restarts it.
+      if (!urlRef.current) return;
       try {
         const res = await fetch(urlRef.current, { cache: "no-store" });
         if (res.ok && alive) setData(await res.json());

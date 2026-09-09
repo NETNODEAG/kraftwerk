@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Agent, Channel } from "./types";
+import type { Agent, Channel, ChannelView } from "./types";
 import { ChatThread } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
 
@@ -10,7 +10,7 @@ import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
  * Routes: #/channels, #/channels/new, #/channels/<slug>[/edit].
  */
 
-export type ChannelView = Channel & { chatId: string; busy: boolean; awaitingApproval: boolean; updatedAt: string };
+export type { ChannelView };
 
 export function ChannelsScreen({ seg }: { seg: string[] }) {
   const slug = seg[0] && seg[0] !== "new" ? decodeURIComponent(seg[0]) : undefined;
@@ -60,13 +60,13 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
                   <span className="side-wf">#{c.slug}</span>
                 </div>
                 <div className="side-row-sub">
-                  <span className="side-req">{c.name}{c.members.length ? ` · ${c.members.map((m) => `@${m}`).join(" ")}` : ""}</span>
+                  <span className="side-req">{c.name}{c.project ? ` · 📁 ${c.project}` : ""}{c.members.length ? ` · ${c.members.map((m) => `@${m}`).join(" ")}` : ""}</span>
                   <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
                 </div>
               </div>
             </Link>
           ))}
-          {data && channels.length === 0 && <div className="viewer-note">no channels yet — create one, or add a coworker to an agent session</div>}
+          {data && channels.length === 0 && <div className="viewer-note">no channels yet — create one, or add a coworker to an agent session or a project chat</div>}
         </div>
       </aside>
       <div className="runs-main">{main}</div>
@@ -185,9 +185,28 @@ export function ChannelEditor({ channel, agents }: { channel?: ChannelView; agen
 
 /**
  * "Add a coworker" from an agent session: the session becomes a channel
- * with this agent plus the ones picked here. Everything said so far stays.
+ * with this agent plus the ones picked here. From a project chat (no
+ * agentSlug, a project instead): the picked agents form the channel, the
+ * first one answers unmentioned messages, and the channel stays in the
+ * project — every member reads its brief, state, records and links.
+ * Everything said so far stays.
  */
-export function AddCoworkerDialog({ chatId, agentSlug, title, onClose }: { chatId: string; agentSlug: string; title: string; onClose: () => void }) {
+export function AddCoworkerDialog({
+  chatId,
+  agentSlug,
+  project,
+  title,
+  onClose,
+  onCreated,
+}: {
+  chatId: string;
+  agentSlug?: string;
+  project?: string;
+  title: string;
+  onClose: () => void;
+  /** Called with the new channel's slug instead of navigating to the channels screen (a project chat stays where it is). */
+  onCreated?: (slug: string) => void;
+}) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [name, setName] = useState(title || "");
   const [picked, setPicked] = useState<string[]>([]);
@@ -208,12 +227,18 @@ export function AddCoworkerDialog({ chatId, agentSlug, title, onClose }: { chatI
       const r = await fetch("/api/channels/from-chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chatId, name, members: [agentSlug, ...picked], responder: agentSlug }),
+        body: JSON.stringify({
+          chatId,
+          name,
+          members: agentSlug ? [agentSlug, ...picked] : picked,
+          responder: agentSlug ?? picked[0],
+        }),
       });
       const d = (await r.json()) as { slug?: string; error?: string };
       if (!r.ok || !d.slug) throw new Error(d.error ?? `HTTP ${r.status}`);
       onClose();
-      navigate(`/channels/${encodeURIComponent(d.slug)}`);
+      if (onCreated) onCreated(d.slug);
+      else navigate(`/channels/${encodeURIComponent(d.slug)}`);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -230,8 +255,18 @@ export function AddCoworkerDialog({ chatId, agentSlug, title, onClose }: { chatI
         </div>
         <div className="agent-form">
           <p className="viewer-note">
-            This session becomes a channel: @{agentSlug} stays and keeps its memory, the agents you pick join, and
-            everyone reads the same transcript. @{agentSlug} answers when nobody is mentioned.
+            {agentSlug ? (
+              <>
+                This session becomes a channel: @{agentSlug} stays and keeps its memory, the agents you pick join, and
+                everyone reads the same transcript. @{agentSlug} answers when nobody is mentioned.
+              </>
+            ) : (
+              <>
+                This chat becomes a channel session of the project <b>{project}</b> and stays here: the agents you pick join with
+                everything said so far and the project's brief, state, records and links. The first one you pick answers when
+                nobody is mentioned.
+              </>
+            )}
           </p>
           <label className="agent-field">
             channel name

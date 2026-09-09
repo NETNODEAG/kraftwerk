@@ -17,12 +17,12 @@ import type { ChannelSummary } from "./channels.js";
  * Registered ports are verified by probing /api/meta on read; entries
  * that stop answering are pruned, so crashes leave no ghosts.
  *
- * projects/<hash(root)>.json — durable. One record per project root that
+ * workspaces/<hash(root)>.json — durable. One record per workspace root that
  * ever ran the inspector on this machine, keyed by the root and never
  * pruned automatically. Everything else (name, icon, port) is derived from
  * the root's kraftwerk.yml at read time, so it is always current. A
  * project that is not running can be started again from the switcher or
- * `kraftwerk projects start` — that is what makes a killed UI findable.
+ * `kraftwerk workspaces start` — that is what makes a killed UI findable.
  * The record also carries the project's agent roster (written whenever the
  * instance reads it), so the ⌘K palette can list every workspace's agents
  * from a handful of small files without probing anything.
@@ -30,7 +30,9 @@ import type { ChannelSummary } from "./channels.js";
 
 const HOME = path.join(os.homedir(), ".kraftwerk");
 const INSTANCES_DIR = path.join(HOME, "instances");
-const PROJECTS_DIR = path.join(HOME, "projects");
+const WORKSPACES_DIR = path.join(HOME, "workspaces");
+/** Where the records lived before 0.49 (`kraftwerk projects`); moved over once, see migrateRegistry. */
+const LEGACY_WORKSPACES_DIR = path.join(HOME, "projects");
 const LOGS_DIR = path.join(HOME, "logs");
 
 interface InstanceFile {
@@ -42,7 +44,7 @@ interface InstanceFile {
 }
 
 /** Durable per-project record. The root is the key; everything else derives from it. */
-export interface ProjectRecord {
+export interface WorkspaceRecord {
   root: string;
   firstSeen: string;
   lastStarted: string;
@@ -72,7 +74,7 @@ export interface DiscoveredInstance {
 
 /**
  * One workspace as the switcher shows it: a known project (running or
- * not) or a running instance the projects registry doesn't know yet.
+ * not) or a running instance the workspace registry doesn't know yet.
  */
 export interface WorkspaceEntry {
   name: string;
@@ -98,10 +100,11 @@ const selfFile = (): string => path.join(INSTANCES_DIR, `${process.pid}.json`);
 let selfPort: number | null = null;
 let selfRoot: string | null = null;
 
-const projectKey = (root: string): string =>
-  createHash("sha1").update(absolutePath(root)).digest("hex").slice(0, 16);
+/** File name of a root's record: a hash of the absolute root, the same under the old and the new directory. */
+export const workspaceRecordName = (root: string): string =>
+  `${createHash("sha1").update(absolutePath(root)).digest("hex").slice(0, 16)}.json`;
 
-const projectFile = (root: string): string => path.join(PROJECTS_DIR, `${projectKey(root)}.json`);
+const recordFile = (root: string): string => path.join(WORKSPACES_DIR, workspaceRecordName(root));
 
 /** ~/… for display. */
 export const tildify = (p: string): string => {
@@ -210,11 +213,40 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
   return entries;
 }
 
-/* ---------- projects (durable) ---------- */
+/* ---------- workspaces (durable) ---------- */
 
-async function readProject(file: string): Promise<ProjectRecord | null> {
+let migrated: Promise<void> | null = null;
+
+/**
+ * Records were written under ~/.kraftwerk/projects until 0.48. Copy them
+ * into the new directory once per process, never overwriting a record
+ * that is already there, so a machine that upgrades keeps every workspace
+ * it knew. The old directory stays: an inspector of an older version may
+ * still be running and reading it. forgetWorkspace drops a record from
+ * both, so a forgotten workspace does not come back on the next start.
+ * Best-effort like everything else in this registry.
+ */
+function migrateRegistry(): Promise<void> {
+  return (migrated ??= (async () => {
+    let legacy: string[];
+    try {
+      legacy = await fs.readdir(LEGACY_WORKSPACES_DIR);
+    } catch {
+      return;
+    }
+    try {
+      await fs.mkdir(WORKSPACES_DIR, { recursive: true });
+      for (const f of legacy) {
+        if (!f.endsWith(".json")) continue;
+        await fs.copyFile(path.join(LEGACY_WORKSPACES_DIR, f), path.join(WORKSPACES_DIR, f), fsSync.constants.COPYFILE_EXCL).catch(() => {});
+      }
+    } catch {}
+  })());
+}
+
+async function readRecord(file: string): Promise<WorkspaceRecord | null> {
   try {
-    const rec = JSON.parse(await fs.readFile(file, "utf8")) as Partial<ProjectRecord>;
+    const rec = JSON.parse(await fs.readFile(file, "utf8")) as Partial<WorkspaceRecord>;
     if (typeof rec.root !== "string") return null;
     return {
       root: rec.root,
@@ -231,13 +263,14 @@ async function readProject(file: string): Promise<ProjectRecord | null> {
 }
 
 /** Upsert the project record for a root (call on every inspector start). */
-export async function registerProject(root: string): Promise<void> {
+export async function registerWorkspace(root: string): Promise<void> {
+  await migrateRegistry();
   const abs = absolutePath(root);
   const now = new Date().toISOString();
   try {
-    await fs.mkdir(PROJECTS_DIR, { recursive: true });
-    const prev = await readProject(projectFile(abs));
-    const rec: ProjectRecord = {
+    await fs.mkdir(WORKSPACES_DIR, { recursive: true });
+    const prev = await readRecord(recordFile(abs));
+    const rec: WorkspaceRecord = {
       root: abs,
       firstSeen: prev?.firstSeen || now,
       lastStarted: now,
@@ -245,7 +278,7 @@ export async function registerProject(root: string): Promise<void> {
       ...(prev?.agents ? { agents: prev.agents } : {}),
       ...(prev?.channels ? { channels: prev.channels } : {}),
     };
-    await fs.writeFile(projectFile(abs), JSON.stringify(rec, null, 2));
+    await fs.writeFile(recordFile(abs), JSON.stringify(rec, null, 2));
   } catch {} // best-effort, like the instance file
 }
 
@@ -257,54 +290,60 @@ const synced = new Map<string, string>();
  * changes when the list did. Roots with no record (a CLI run in a project
  * that never started the inspector) are left alone.
  */
-async function syncProjectList<K extends "agents" | "channels">(root: string, key: K, list: NonNullable<ProjectRecord[K]>): Promise<void> {
+async function syncWorkspaceList<K extends "agents" | "channels">(root: string, key: K, list: NonNullable<WorkspaceRecord[K]>): Promise<void> {
+  await migrateRegistry();
   const stamp = `${root}\n${JSON.stringify(list)}`;
   if (synced.get(key) === stamp) return;
   try {
-    const file = projectFile(root);
-    const rec = await readProject(file);
+    const file = recordFile(root);
+    const rec = await readRecord(file);
     if (!rec) return;
     await fs.writeFile(file, JSON.stringify({ ...rec, [key]: list }, null, 2));
     synced.set(key, stamp);
   } catch {}
 }
 
-export const syncProjectAgents = (root: string, agents: AgentSummary[]): Promise<void> => syncProjectList(root, "agents", agents);
-export const syncProjectChannels = (root: string, channels: ChannelSummary[]): Promise<void> => syncProjectList(root, "channels", channels);
+export const syncWorkspaceAgents = (root: string, agents: AgentSummary[]): Promise<void> => syncWorkspaceList(root, "agents", agents);
+export const syncWorkspaceChannels = (root: string, channels: ChannelSummary[]): Promise<void> => syncWorkspaceList(root, "channels", channels);
 
 /** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */
-export function markProjectStopped(): void {
+export function markWorkspaceStopped(): void {
   if (!selfRoot) return;
   try {
-    const file = projectFile(selfRoot);
-    const rec = JSON.parse(fsSync.readFileSync(file, "utf8")) as ProjectRecord;
+    const file = recordFile(selfRoot);
+    const rec = JSON.parse(fsSync.readFileSync(file, "utf8")) as WorkspaceRecord;
     rec.lastStopped = new Date().toISOString();
     fsSync.writeFileSync(file, JSON.stringify(rec, null, 2));
   } catch {}
 }
 
-/** All known projects, most recently started first. */
-export async function listProjects(): Promise<ProjectRecord[]> {
+/** All known workspaces, most recently started first. */
+export async function listWorkspaceRecords(): Promise<WorkspaceRecord[]> {
+  await migrateRegistry();
   let files: string[];
   try {
-    files = await fs.readdir(PROJECTS_DIR);
+    files = await fs.readdir(WORKSPACES_DIR);
   } catch {
     return [];
   }
   const recs = await Promise.all(
-    files.filter((f) => f.endsWith(".json")).map((f) => readProject(path.join(PROJECTS_DIR, f)))
+    files.filter((f) => f.endsWith(".json")).map((f) => readRecord(path.join(WORKSPACES_DIR, f)))
   );
   return recs
-    .filter((r): r is ProjectRecord => r != null)
+    .filter((r): r is WorkspaceRecord => r != null)
     .sort((a, b) => b.lastStarted.localeCompare(a.lastStarted));
 }
 
-/** Drop a project record (the root itself is untouched). */
-export async function forgetProject(root: string): Promise<boolean> {
+/** Drop a workspace record (the root itself is untouched) — from the legacy directory too, see migrateRegistry. */
+export async function forgetWorkspace(root: string): Promise<boolean> {
+  await migrateRegistry();
+  const legacy = fs.unlink(path.join(LEGACY_WORKSPACES_DIR, workspaceRecordName(root))).catch(() => {});
   try {
-    await fs.unlink(projectFile(root));
+    await fs.unlink(recordFile(root));
+    await legacy;
     return true;
   } catch {
+    await legacy;
     return false;
   }
 }
@@ -347,7 +386,7 @@ let wsCache: { at: number; entries: WorkspaceEntry[] } | null = null;
  */
 export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
   if (wsCache && Date.now() - wsCache.at < 5_000) return wsCache.entries;
-  const [projects, live] = await Promise.all([listProjects(), discoverInstances()]);
+  const [projects, live] = await Promise.all([listWorkspaceRecords(), discoverInstances()]);
   const liveByRoot = new Map(live.filter((i) => i.root).map((i) => [i.root!, i]));
   const consumed = new Set<DiscoveredInstance>();
 
@@ -457,7 +496,7 @@ export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
   const all: WorkspaceEntry[] = [...others];
   if (selfRoot && selfPort) {
     const d = await describeRoot(selfRoot);
-    const rec = await readProject(projectFile(selfRoot));
+    const rec = await readRecord(recordFile(selfRoot));
     all.unshift({
       name: d.name,
       icon: d.icon,
@@ -477,7 +516,7 @@ export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
       const current = !!selfRoot && e.root === selfRoot;
       const base: WorkspaceDetail = { ...e, current, state: e.live ? "running" : "stopped" };
       if (!e.root) return base;
-      const rec = await readProject(projectFile(e.root));
+      const rec = await readRecord(recordFile(e.root));
       base.firstSeen = rec?.firstSeen;
       base.startCount = rec?.startCount;
       // "missing" = the folder is gone; "orphaned" = it is still there but
@@ -532,7 +571,7 @@ export interface StartResult {
  * Waits up to ~5s for the new inspector to answer so callers can link
  * straight to it.
  */
-export async function startProject(root: string): Promise<StartResult> {
+export async function startWorkspace(root: string): Promise<StartResult> {
   const abs = absolutePath(root);
   const { name, port, exists } = await describeRoot(abs);
   if (!exists) return { ok: false, error: `not a project directory (missing or moved): ${abs}` };
@@ -552,7 +591,7 @@ export async function startProject(root: string): Promise<StartResult> {
   let stdio: ("ignore" | number)[] = ["ignore", "ignore", "ignore"];
   try {
     await fs.mkdir(LOGS_DIR, { recursive: true });
-    log = path.join(LOGS_DIR, `${projectKey(abs)}.log`);
+    log = path.join(LOGS_DIR, workspaceRecordName(abs).replace(/\.json$/, ".log"));
     const fd = fsSync.openSync(log, "a");
     fsSync.writeSync(fd, `\n--- ${new Date().toISOString()} start ${name} (${abs}) ---\n`);
     stdio = ["ignore", fd, fd];
@@ -598,7 +637,7 @@ export async function startProject(root: string): Promise<StartResult> {
  * follows. Matched by root, or by url for instances from older versions
  * that registered no root. Waits up to ~5s for the port to go quiet.
  */
-export async function stopProject(target: { root?: string; url?: string }): Promise<{ ok: boolean; error?: string }> {
+export async function stopWorkspace(target: { root?: string; url?: string }): Promise<{ ok: boolean; error?: string }> {
   if (target.root && absolutePath(target.root) === selfRoot) {
     return { ok: false, error: "that is this workspace — stop it from its own terminal or pid" };
   }

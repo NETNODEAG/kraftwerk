@@ -77,7 +77,7 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
  * local node_modules, npx, and a file: dev checkout. Any exit other than
  * RESTART_EXIT_CODE ends the loop. A SIGTERM/SIGINT to the supervisor is
  * forwarded to the server, so `kill <supervisor pid>` (what `kraftwerk
- * projects start` reports) takes the whole UI down; Ctrl-C signals the
+ * workspaces start` reports) takes the whole UI down; Ctrl-C signals the
  * foreground group and reaches both anyway.
  */
 async function superviseUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
