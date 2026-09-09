@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import { CONFIG_SCHEMA_URL, gitignoreHas, SCHEMA_URL } from "../config.js";
+import { DOTENV_FILE } from "../dotenv.js";
 import { initBundle, writeConcept } from "../okf.js";
 
 /**
@@ -150,22 +151,22 @@ export async function runInit(cwd: string): Promise<void> {
     created.push(bundleRel);
   }
 
-  // .gitignore: the output dir and the repos root (clones must never become
-  // gitlinks of the workspace repo). A missing file gets both in one write;
-  // an existing one only the entries it lacks.
+  // .gitignore: the output dir, the repos root (clones must never become
+  // gitlinks of the workspace repo) and .env (secrets). A missing file gets
+  // all in one write; an existing one only the entries it lacks.
   const gitignorePath = path.join(cwd, ".gitignore");
   const gitignore = (await readFile(gitignorePath, "utf8").catch(() => null)) ?? null;
-  const entries = [`${DATA_DIR}/output`, `${DATA_DIR}/repos`];
+  const entries = [`${DATA_DIR}/output/`, `${DATA_DIR}/repos/`, DOTENV_FILE];
   if (gitignore === null) {
-    await writeFile(gitignorePath, entries.map((e) => `${e}/\n`).join(""));
+    await writeFile(gitignorePath, entries.map((e) => `${e}\n`).join(""));
     created.push(".gitignore");
   } else {
-    const missing = entries.filter((e) => !gitignoreHas(gitignore, e));
+    const missing = entries.filter((e) => !gitignoreHas(gitignore, e.replace(/\/$/, "")));
     if (missing.length === 0) {
       skipped.push(".gitignore");
     } else {
-      await appendFile(gitignorePath, `${gitignore.endsWith("\n") ? "" : "\n"}${missing.map((e) => `${e}/\n`).join("")}`);
-      created.push(`.gitignore (${missing.map((e) => `${e}/`).join(", ")} added)`);
+      await appendFile(gitignorePath, `${gitignore.endsWith("\n") ? "" : "\n"}${missing.map((e) => `${e}\n`).join("")}`);
+      created.push(`.gitignore (${missing.join(", ")} added)`);
     }
   }
 

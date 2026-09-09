@@ -5,6 +5,7 @@ import chalk from "chalk";
 import { ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveProject, tunnelFor } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
+import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -118,6 +119,16 @@ export async function runDoctor(cwd: string): Promise<void> {
       }
     }
   }
+  // .env next to kraftwerk.yml: already applied by the CLI hook; this call
+  // only reports what it holds (names, never values).
+  const dotenv = await applyDotenv(project.root);
+  if (dotenv.file) {
+    const names = [...dotenv.applied, ...dotenv.kept.map((k) => `${k} (shell wins)`)];
+    report("ok", `${DOTENV_FILE}: ${names.length} variable(s) loaded`, names.join(", ") || "empty");
+  } else {
+    report("info", `no ${DOTENV_FILE}`, "variables for agents, workflows and the tunnel can live there — loaded on every start and restart");
+  }
+
   // Repositories: the clones root must stay out of the workspace git. git
   // itself decides — that covers worktrees (.git is a file), a workspace
   // nested in a larger repo, a .gitignore at the toplevel, global excludes.

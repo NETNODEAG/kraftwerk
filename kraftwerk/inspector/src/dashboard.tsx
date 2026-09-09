@@ -135,7 +135,7 @@ function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
   // One filled primary per view (M3): chat is the front door; the rest is tonal.
   return (
     <div className="dash-actions">
-      <button className="run-btn dash-newchat" onClick={() => navigate("/agents/chats")}>
+      <button className="run-btn dash-newchat" onClick={() => navigate("/agents/chats/new")}>
         <Icon name="forum" /> new chat
       </button>
       <span className="wf-pick-wrap">

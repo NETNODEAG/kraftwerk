@@ -193,6 +193,16 @@ run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 `public:` and `tunnel:` expose the inspector through a
 [Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel).
 
+A `.env` next to kraftwerk.yml (`KEY=value` lines, `#` comments, quotes)
+is loaded into every kraftwerk process at start: `kraftwerk ui` and the
+server it supervises, so a restart from the UI re-reads the file; the chat
+agents, routines and workflow runs the inspector spawns; the tunnel
+(`TUNNEL_TOKEN`); `requires:` checks in `run` and `doctor`. A variable the
+shell already sets wins over the file. A project started from another
+workspace's inspector gets its own `.env`, not the other one's. The file is
+never synced (it is on the workspace git's deny list and in the .gitignore
+`kraftwerk init` writes); `kraftwerk doctor` lists the names it loaded.
+
 `switcher:` links other kraftwerk workspaces from the inspector header. The
 workspace name becomes a dropdown listing them:
 

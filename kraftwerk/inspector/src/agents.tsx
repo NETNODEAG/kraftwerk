@@ -31,9 +31,10 @@ const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const EMOJI_PRESETS = ["🤖", "🧑‍💻", "🎧", "🛠️", "📊", "✍️", "🔍", "🧹", "📦", "🚀"];
 
 export function AgentsScreen({ seg }: { seg: string[] }) {
-  // seg (after /agents): [] | [new] | [chats] | [chats, chatId] | [slug] |
-  // [slug, info] | [slug, edit] | [slug, chat, chatId]. A bare slug lands on
-  // the agent's most recent session; the profile lives at /info.
+  // seg (after /agents): [] | [new] | [chats] | [chats, new] | [chats, chatId] |
+  // [slug] | [slug, info] | [slug, edit] | [slug, chat, chatId]. A bare slug
+  // lands on the agent's most recent session and a bare /chats on the most
+  // recent general chat; the profile lives at /info, a fresh chat at /chats/new.
   const slug =
     seg[0] && seg[0] !== "new" && seg[0] !== "chats" ? decodeURIComponent(seg[0]) : undefined;
   const mode =
@@ -50,7 +51,8 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
               : slug
                 ? "agent"
                 : "home";
-  const chatId = mode === "chat" ? seg[2] : mode === "chats" ? seg[1] : undefined;
+  const newChat = mode === "chats" && seg[1] === "new";
+  const chatId = mode === "chat" ? seg[2] : mode === "chats" && !newChat ? seg[1] : undefined;
 
   const data = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
   const expert = useExpertMode();
@@ -243,8 +245,10 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
       <div className="chat-main">
         <ChatThread key={chatId} id={chatId} />
       </div>
-    ) : (
+    ) : newChat ? (
       <NewChat />
+    ) : (
+      <GeneralChatsLanding />
     );
   else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
   else if (slug) main = <AgentLanding key={slug} slug={slug} />;
@@ -762,6 +766,33 @@ function AgentLanding({ slug }: { slug: string }) {
   return <AgentView slug={slug} />;
 }
 
+/**
+ * A bare #/agents/chats (the "General Chats" entry) opens the most recent
+ * general chat, like an agent's entry opens its latest session; with none
+ * yet it shows the new-chat pane, which otherwise lives at /chats/new.
+ */
+function GeneralChatsLanding() {
+  const [none, setNone] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/chats")
+      .then((r) => r.json())
+      .then((d: { chats: ChatMeta[] }) => {
+        if (!alive) return;
+        // /api/chats is sorted by updatedAt desc — first match is the latest.
+        const latest = d.chats.find((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel");
+        if (latest) navigate(`/agents/chats/${latest.id}`, { replace: true });
+        else setNone(true);
+      })
+      .catch(() => alive && setNone(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!none) return <div className="empty">loading…</div>;
+  return <NewChat />;
+}
+
 /* ---------- sessions sidebar ---------- */
 
 function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
@@ -842,7 +873,7 @@ function GeneralChatsSide({ chatId }: { chatId?: string }) {
       <div className="side-head">
         <span className="microlabel">chats</span>
         <span className="spacer" />
-        <Link href="/agents/chats" className="open-raw">
+        <Link href="/agents/chats/new" className="open-raw">
           <Icon name="add" className="ms-sm" /> new
         </Link>
       </div>

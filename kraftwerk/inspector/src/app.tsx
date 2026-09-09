@@ -22,7 +22,7 @@ import { SearchPalette } from "./search";
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
  * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
- * #/agents[/new | /chats[/<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]],
+ * #/agents[/new | /chats[/new | /<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]],
  * #/repos, #/git, #/settings, #/workspaces.
  * A bare #/agents/<slug> opens the agent's most recent session; the profile
  * lives at /info. Legacy #/team/* and #/chats[/<id>] links still land here.

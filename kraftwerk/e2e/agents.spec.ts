@@ -29,3 +29,40 @@ test.describe("agents landing", () => {
     await expect(page.locator(".side-row.active .side-wf")).toContainText(/Landing Probe/);
   });
 });
+
+/**
+ * The "General Chats" entry: with no chats it shows the new-chat pane; once
+ * chats exist it opens the most recent one, and /chats/new is the way to a
+ * fresh pane. Chats are created over the API and never get a message, so
+ * no coding agent runs.
+ */
+test.describe("general chats landing", () => {
+  const ids: string[] = [];
+  test.afterAll(async ({ request }) => {
+    for (const id of ids) await request.delete(`/api/chats/${id}`);
+  });
+
+  test("lands on the latest general chat, /chats/new on a fresh pane", async ({ page, request }) => {
+    await page.goto("/#/agents/chats");
+    await expect(page.getByRole("button", { name: "start chat" })).toBeVisible();
+
+    const older = await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "general" } } });
+    ids.push(((await older.json()) as { id: string }).id);
+    const newer = await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "kraftwerk" } } });
+    const latest = ((await newer.json()) as { id: string }).id;
+    ids.push(latest);
+
+    // Same hash as before, so a plain goto would not re-enter the route.
+    await page.reload();
+    await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
+    await expect(page.locator(".side-row.active .side-wf").last()).toBeVisible();
+
+    await page.locator("a[href='#/agents/chats/new']").click();
+    await expect(page).toHaveURL(/#\/agents\/chats\/new$/);
+    await expect(page.getByRole("button", { name: "start chat" })).toBeVisible();
+
+    // The sidebar entry itself goes back to the latest chat.
+    await page.locator(".side-general").click();
+    await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
+  });
+});

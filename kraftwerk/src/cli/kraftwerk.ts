@@ -16,6 +16,8 @@ import { registerProjectCommands } from "./projects.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
 import { registerTunnelCommands } from "./tunnel.js";
+import { applyDotenv } from "../dotenv.js";
+import { resolveProject } from "../config.js";
 import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
@@ -66,7 +68,14 @@ const pkg = JSON.parse(
 const program = new Command()
   .name("kraftwerk")
   .description("kraftwerk — agentic workspace for teams: agents, skills, knowledge, workflows, and the inspector UI")
-  .version(pkg.version);
+  .version(pkg.version)
+  // The project's .env, before any command runs (and so before `kraftwerk
+  // ui` spawns its server, and again in that server on every restart). A
+  // broken kraftwerk.yml is the command's own error to report, not the hook's.
+  .hook("preAction", async () => {
+    const project = await resolveProject(process.cwd()).catch(() => null);
+    if (project) await applyDotenv(project.root);
+  });
 
 const agentLabel = (workflow: LoadedWorkflow): string =>
   workflow.meta.agents
