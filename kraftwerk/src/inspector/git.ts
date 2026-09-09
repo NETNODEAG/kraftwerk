@@ -34,7 +34,8 @@ import { getOutputDir, getProjectRoot } from "./context.js";
  */
 
 /** Files that must never be staged, whatever the scope says. */
-const DENY = [
+/** Paths whose content is never shown or synced, whichever repo they sit in. */
+export const DENY = [
   /(^|\/)\.env($|\.)/,
   /(^|\/)\.envrc$/,
   new RegExp(`(^|/)${ENV_FILE.replace(/\./g, "\\.")}$`),
@@ -219,7 +220,7 @@ function netArgs(cmd: string[], ...names: string[]): string[] {
  * Pathspecs are globs by default, so a file called `note[1].md` would not
  * match itself. `:(literal)` turns the pattern off.
  */
-const literal = (p: string): string => `:(literal)${p}`;
+export const literal = (p: string): string => `:(literal)${p}`;
 
 /** Repo root for a directory, or null when it is not inside a git repo. */
 export async function repoRootFor(dir: string): Promise<string | null> {
@@ -361,7 +362,7 @@ async function hasLocalChanges(repoRoot: string): Promise<boolean> {
 }
 
 /** Label for a porcelain code, using whichever half is set. */
-function label(code: string): string {
+export function label(code: string): string {
   if (code === "??") return "untracked";
   const c = code.replace(/ /g, "");
   if (c.includes("U") || c === "AA" || c === "DD") return "conflicted";
@@ -375,7 +376,7 @@ function label(code: string): string {
 }
 
 /** Parse `git status --porcelain=v1 -z`, which NUL-separates and doubles up on renames and copies. */
-function parseStatus(out: string): { path: string; code: string }[] {
+export function parseStatus(out: string): { path: string; code: string }[] {
   const parts = out.split("\0").filter((p) => p.length > 0);
   const files: { path: string; code: string }[] = [];
   for (let i = 0; i < parts.length; i++) {
@@ -520,12 +521,19 @@ export async function gitDiff(file: string): Promise<GitDiff> {
   const entry = st.files.find((f) => f.path === file);
   if (!entry) return { diff: "", error: "not shown: not a changed file under the workspace paths" };
   if (!entry.syncable) return { diff: "", error: `not shown: ${entry.reason}` };
-  const { repoRoot } = st;
+  return diffAgainstHead(st.repoRoot, file, entry.code);
+}
 
-  // A repo without commits yet has nothing for `diff HEAD` to compare with;
-  // there, as for an untracked file, the whole file is the change.
+/**
+ * Unified diff of one path in a repo against HEAD, capped. The caller has
+ * checked that the path is a listed, showable change. A repo without
+ * commits yet has nothing for `diff HEAD` to compare with; there, as for an
+ * untracked file, the whole file is the change. Shared by the workspace
+ * diff and the repositories screen so the two never drift.
+ */
+export async function diffAgainstHead(repoRoot: string, file: string, code: string): Promise<GitDiff> {
   const hasHead = (await git(["rev-parse", "--verify", "-q", "HEAD"], repoRoot)).ok;
-  if (entry.code === "??" || !hasHead) {
+  if (code === "??" || !hasHead) {
     // --no-index exits 1 when the files differ, which is the normal case here.
     const r = await git(["diff", "--no-index", "--", "/dev/null", file], repoRoot);
     return r.stdout ? capDiff(r.stdout) : { diff: "", error: r.stderr || "no diff available" };
@@ -534,7 +542,7 @@ export async function gitDiff(file: string): Promise<GitDiff> {
   return r.ok ? capDiff(r.stdout) : { diff: "", error: r.stderr || "diff failed" };
 }
 
-function capDiff(diff: string): GitDiff {
+export function capDiff(diff: string): GitDiff {
   if (diff.length <= MAX_DIFF) return { diff };
   const cut = diff.lastIndexOf("\n", MAX_DIFF);
   return { diff: diff.slice(0, cut > 0 ? cut : MAX_DIFF), truncated: true };

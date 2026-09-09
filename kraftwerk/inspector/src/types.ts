@@ -56,7 +56,7 @@ export type {
   VerifiedEntry,
   TrustTier,
 } from "../../src/okf";
-export type { RepoInfo, ReposView } from "../../src/inspector/repos";
+export type { RepoCommit, RepoDetail, RepoFile, RepoInfo, ReposView } from "../../src/inspector/repos";
 export type { VibeableConfig, VibeableDev, VibeableEvent, VibeableInfo, VibeableStatus, VibeablesView } from "../../src/inspector/vibeables";
 export type { LinkState, ProjectDetail, ProjectLinks, ProjectStatus, ProjectSummary, ProjectsView, SystemOfRecord } from "../../src/inspector/projects";
 export type { Notification, NotificationKind, NotificationsView } from "../../src/inspector/notifications";

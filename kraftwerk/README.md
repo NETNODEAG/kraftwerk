@@ -587,8 +587,13 @@ repos:
 The folder is the registry. Whatever has a `.git` directly under the root is
 a repository, whether the "repositories" screen cloned it, `kraftwerk repos
 add <url>` did, or an agent ran `git clone` there. Every entry is read live
-from git: origin, branch, head, uncommitted changes, ahead/behind. The
-screen clones by url, fetches and fast-forwards clean clones, and removes
+from git: origin, branch, head, uncommitted changes, ahead/behind. Each
+clone has a page (`#/repos/<name>`, the "changes" button) that shows what
+is happening inside: the changed files with their diff against HEAD, the
+line counts, and the recent commits with the unpushed ones marked — click
+a commit for its patch. It polls, so an agent working in the clone is
+watched live. Secrets (`.env`, keys) are never shown, as on the git screen.
+The list clones by url, fetches and fast-forwards clean clones, and removes
 them (refusing while they hold unpushed or uncommitted work). Cloning uses
 your own git credentials and never prompts, so a private remote has to work
 from a terminal first.

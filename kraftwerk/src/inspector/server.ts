@@ -79,7 +79,16 @@ import {
   startGitSync,
 } from "./git.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
-import { addRepo, listRepos, openRepos, removeRepo, updateRepo } from "./repos.js";
+import {
+  addRepo,
+  listRepos,
+  openRepos,
+  removeRepo,
+  repoCommitDiff,
+  repoDetail,
+  repoDiff,
+  updateRepo,
+} from "./repos.js";
 import {
   createVibeable,
   deleteVibeable,
@@ -666,6 +675,44 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       return json(res, { error: "not found" }, 404);
     } catch (err) {
       const [status, body] = vibeableError(err);
+      return json(res, body, status);
+    }
+  }
+
+  const repoError = (err: unknown): [number, { error: string }] => {
+    const msg = (err as Error).message;
+    return [/^no repository/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
+  };
+
+  // GET /api/repos/<slug> — what is happening in the clone: changed files, line counts, recent commits (unpushed marked)
+  if (seg.length === 3 && seg[1] === "repos" && method === "GET") {
+    try {
+      const detail = await repoDetail(seg[2]);
+      return detail ? json(res, detail) : json(res, { error: `no repository "${seg[2]}"` }, 404);
+    } catch (err) {
+      const [status, body] = repoError(err);
+      return json(res, body, status);
+    }
+  }
+
+  // GET /api/repos/<slug>/diff?path= — unified diff of one changed file against HEAD
+  if (seg.length === 4 && seg[1] === "repos" && seg[3] === "diff" && method === "GET") {
+    try {
+      const d = await repoDiff(seg[2], url.searchParams.get("path") ?? "");
+      return json(res, d, d.error ? (/^not shown/.test(d.error) ? 404 : 400) : 200);
+    } catch (err) {
+      const [status, body] = repoError(err);
+      return json(res, body, status);
+    }
+  }
+
+  // GET /api/repos/<slug>/commits/<hash> — one commit as a patch
+  if (seg.length === 5 && seg[1] === "repos" && seg[3] === "commits" && method === "GET") {
+    try {
+      const d = await repoCommitDiff(seg[2], seg[4]);
+      return json(res, d, d.error ? (/^no such commit/.test(d.error) ? 404 : 400) : 200);
+    } catch (err) {
+      const [status, body] = repoError(err);
       return json(res, body, status);
     }
   }

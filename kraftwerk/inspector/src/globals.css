@@ -2278,3 +2278,21 @@ form.empty-action .settings-note { max-width: 52ch; }
 .project-log h1 { display: none; }
 .project-log h2 { font-size: 12px; margin: 12px 0 4px; }
 .project-log ul { margin: 0; padding-left: 18px; }
+
+/* ---------- repository page (#/repos/<slug>) ---------- */
+.repo-page .settings-head h1 { margin-right: 4px; }
+.repo-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 2px 12px; }
+.repo-file, .repo-commit { border-top: 1px solid var(--outline-variant); }
+.repo-file-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px;
+  background: none; border: 0; color: var(--on-surface); font: inherit; text-align: left; cursor: pointer;
+}
+.repo-file-row:hover { background: color-mix(in srgb, var(--on-surface) 5%, transparent); }
+.repo-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-file .git-diff, .repo-commit .git-diff { margin: 0 10px 10px 30px; }
+.repo-commit.local .repo-file-row code { color: var(--primary); }
+.git-code { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--on-surface-variant); min-width: 64px; }
+.git-code-added, .git-code-untracked { color: var(--success); }
+.git-code-deleted, .git-code-conflicted { color: var(--error); }
+.repo-page .d-add { color: var(--success); }
+.repo-page .d-del { color: var(--error); }

@@ -120,7 +120,7 @@ export function App() {
   else if (seg[0] === "settings") screen = <SettingsScreen />;
   else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
   else if (seg[0] === "git") screen = <GitScreen />;
-  else if (seg[0] === "repos") screen = <ReposScreen />;
+  else if (seg[0] === "repos") screen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "vibeables") screen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "projects") screen = <ProjectsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;

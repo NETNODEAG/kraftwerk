@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, Icon, useExpertMode } from "./shared";
-import type { RepoInfo, ReposView } from "./types";
+import { DiffView } from "./git";
+import { fmtAgo, Icon, Link, useExpertMode } from "./shared";
+import type { RepoDetail, RepoInfo, ReposView } from "./types";
 
 /**
  * Repositories (#/repos): the git clones under the project's repos root,
  * read live from git. Add one by url, fetch/fast-forward, remove. The
  * folder is the registry — a clone an agent made by hand shows up here
- * too. Shown only when kraftwerk.yml turns the feature on.
+ * too. Shown only when kraftwerk.yml turns the feature on. #/repos/<slug>
+ * is one clone's page: what is happening inside — changed files with
+ * their diffs, and the recent commits with the unpushed ones marked.
  */
 
 /** "github.com/org/repo" for the row; the full url stays in the title. */
@@ -24,7 +27,160 @@ const stateOf = (r: RepoInfo): { label: string; cls: string } => {
 /** Mirrors the server's remove guard: anything it would refuse without force. */
 const needsForce = (r: RepoInfo): boolean => !!(r.error || r.dirty || r.ahead === undefined || r.ahead);
 
-export function ReposScreen() {
+export function ReposScreen({ slug }: { slug?: string }) {
+  if (slug) return <RepoPage slug={slug} />;
+  return <ReposList />;
+}
+
+/**
+ * One clone: state, changed files (click for the diff against HEAD), line
+ * counts, and the recent commits (click for the patch). Polled, so an agent
+ * working in the clone is watched live.
+ */
+function RepoPage({ slug }: { slug: string }) {
+  const [detail, setDetail] = useState<RepoDetail | null>(null);
+  // A 404 (removed), 409 (feature off) or any other answer is shown, not swallowed.
+  const [loadError, setLoadError] = useState("");
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [openCommit, setOpenCommit] = useState<string | null>(null);
+  const [verb, setVerb] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [version, setVersion] = useState(0);
+  const expert = useExpertMode();
+
+  const reload = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/repos/${encodeURIComponent(slug)}`, { cache: "no-store" });
+      const d = (await r.json()) as RepoDetail & { error?: string };
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setDetail(d);
+      setLoadError("");
+    } catch (err) {
+      setLoadError((err as Error).message || "could not load the repository");
+    }
+  }, [slug]);
+
+  // Polled, so an agent working in the clone is watched live; `version` forces a fresh read after an action.
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await reload();
+      if (alive) timer = setTimeout(tick, 5000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [reload, version]);
+
+  const update = async () => {
+    setVerb("update");
+    setActionError("");
+    try {
+      const r = await fetch(`/api/repos/${encodeURIComponent(slug)}/update`, { method: "POST" });
+      const d = (await r.json()) as { ok?: boolean; error?: string };
+      if (!r.ok || !d.ok) throw new Error(d.error || "failed");
+      if (d.error) setActionError(d.error);
+    } catch (err) {
+      setActionError((err as Error).message);
+    } finally {
+      setVerb("");
+      setVersion((v) => v + 1);
+    }
+  };
+
+  if (loadError && !detail) {
+    return (
+      <div className="settings-screen ws-screen repos-screen repo-page">
+        <div className="settings-head">
+          <Link href="/repos" className="open-raw" title="all repositories"><Icon name="arrow_back" className="ms-sm" /> repositories</Link>
+          <h1><Icon name="folder_data" className="ms-lg" /> {slug}</h1>
+        </div>
+        <div className="settings-err">{loadError}</div>
+      </div>
+    );
+  }
+  if (!detail) return <div className="empty">loading…</div>;
+  const st = stateOf(detail);
+  const unpushed = detail.commits.filter((c) => c.local).length;
+
+  return (
+    <div className="settings-screen ws-screen repos-screen repo-page">
+      <div className="settings-head">
+        <Link href="/repos" className="open-raw" title="all repositories"><Icon name="arrow_back" className="ms-sm" /> repositories</Link>
+        <h1><Icon name="folder_data" className="ms-lg" /> {detail.slug}</h1>
+        {detail.branch && <span className="repo-branch">{detail.branch}</span>}
+        {detail.upstream && <span className="settings-note" title="upstream">→ {detail.upstream}</span>}
+        <span className={`ws-state ws-state-${st.cls}`}>{st.label}</span>
+        <span className="spacer" />
+        <button className="ws-btn" disabled={!!verb} onClick={() => void update()} title="git fetch, then fast-forward when clean">
+          <Icon name={verb === "update" ? "progress_activity" : "sync"} className="ms-sm" />
+          {verb === "update" ? "updating…" : "update"}
+        </button>
+      </div>
+      <div className="settings-note repo-facts">
+        {detail.url && <span title={detail.url}>{shortUrl(detail.url)}</span>}
+        {expert && <span title={detail.path}>{detail.path}</span>}
+        {detail.head && <span>at <code>{detail.head}</code>{detail.committedAt ? ` · ${fmtAgo(detail.committedAt)}` : ""}</span>}
+        {!!detail.ahead && <span>{detail.ahead} to push</span>}
+        {!!detail.behind && <span>{detail.behind} behind</span>}
+        {detail.updatedAt && <span>changed {fmtAgo(detail.updatedAt)}</span>}
+      </div>
+      {(detail.error || actionError || loadError) && <div className="settings-err">{detail.error || actionError || loadError}</div>}
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">changes · working tree against HEAD</span>
+          <span className="spacer" />
+          <span className="settings-note">
+            {detail.files.length} file{detail.files.length === 1 ? "" : "s"}
+            {detail.insertions || detail.deletions ? (
+              <> · <span className="d-add">+{detail.insertions}</span> <span className="d-del">−{detail.deletions}</span></>
+            ) : null}
+          </span>
+        </div>
+        {detail.files.length === 0 && <div className="ws-empty">Clean — nothing changed since the last commit.</div>}
+        {detail.files.map((f) => (
+          <div key={f.path} className={`repo-file ${openFile === f.path ? "open" : ""}`} data-file={f.path}>
+            <button className="repo-file-row" onClick={() => setOpenFile(openFile === f.path ? null : f.path)}>
+              <Icon name={openFile === f.path ? "expand_more" : "chevron_right"} className="ms-sm" />
+              <span className={`git-code git-code-${f.status}`}>{f.status}</span>
+              <span className="repo-file-path">{f.path}</span>
+            </button>
+            {openFile === f.path && (
+              <DiffView url={`/api/repos/${encodeURIComponent(slug)}/diff?path=${encodeURIComponent(f.path)}&v=${encodeURIComponent(detail.updatedAt ?? "")}`} />
+            )}
+          </div>
+        ))}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <span className="microlabel">commits · newest first</span>
+          <span className="spacer" />
+          <span className="settings-note">{unpushed ? `${unpushed} not pushed` : detail.commits.length ? "all pushed" : ""}</span>
+        </div>
+        {detail.commits.length === 0 && <div className="ws-empty">No commits yet.</div>}
+        {detail.commits.map((c) => (
+          <div key={c.hash} className={`repo-commit ${openCommit === c.hash ? "open" : ""} ${c.local ? "local" : ""}`} data-commit={c.short}>
+            <button className="repo-file-row" onClick={() => setOpenCommit(openCommit === c.hash ? null : c.hash)} title={c.hash}>
+              <Icon name={openCommit === c.hash ? "expand_more" : "chevron_right"} className="ms-sm" />
+              <code>{c.short}</code>
+              <span className="repo-file-path">{c.subject}</span>
+              {c.local && <span className="chip">not pushed</span>}
+              <span className="settings-note">{c.author} · {fmtAgo(c.committedAt)}</span>
+            </button>
+            {openCommit === c.hash && <DiffView url={`/api/repos/${encodeURIComponent(slug)}/commits/${c.hash}`} />}
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function ReposList() {
   const [view, setView] = useState<ReposView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<Record<string, string>>({});
@@ -190,7 +346,7 @@ export function ReposScreen() {
                 <span className="switcher-icon ws-icon"><Icon name="folder_data" /></span>
                 <div className="ws-main">
                   <div className="ws-title">
-                    <span className="ws-name">{r.slug}</span>
+                    <Link href={`/repos/${encodeURIComponent(r.slug)}`} className="ws-name" title="changes and commits">{r.slug}</Link>
                     {r.branch && <span className="repo-branch">{r.branch}</span>}
                     <span className={`ws-state ws-state-${st.cls}`}>{st.label}</span>
                     {r.updatedAt && <span className="vibeable-when" title={r.updatedAt}>changed {fmtAgo(r.updatedAt)}</span>}
@@ -212,6 +368,9 @@ export function ReposScreen() {
                   {errors[r.slug] && <div className="settings-err">{errors[r.slug]}</div>}
                 </div>
                 <div className="ws-actions">
+                  <Link href={`/repos/${encodeURIComponent(r.slug)}`} className="ws-btn" title="changed files with diffs, recent commits">
+                    <Icon name="difference" className="ms-sm" /> changes
+                  </Link>
                   <button className="ws-btn" disabled={!!verb} onClick={() => void call(r.slug, "update")} title="git fetch, then fast-forward when clean">
                     <Icon name={verb === "update" ? "progress_activity" : "sync"} className="ms-sm" />
                     {verb === "update" ? "updating…" : "update"}

@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { RepoInfo, ReposView } from "../../src/inspector/repos.js";
+import type { RepoDetail, RepoInfo, ReposView } from "../../src/inspector/repos.js";
 
 /**
  * Repositories over the HTTP API: the feature flag, cloning into the root,
@@ -106,6 +106,82 @@ describe("repositories API", () => {
     assert.ok(existsSync(path.join(repo.path, "README.md")));
     assert.ok(repo.updatedAt && Date.now() - Date.parse(repo.updatedAt) < 60_000, `updatedAt is the newest file: ${repo.updatedAt}`);
     assert.equal((await add({ url: upstream })).status, 400, "same name twice");
+  });
+
+  it("the detail shows changed files with diffs and the commits with the unpushed ones marked", async () => {
+    const clone = path.join(fx.root, "kraftwerk-data/repos/widgets");
+    const cgit = (...args: string[]): string => execFileSync("git", args, { cwd: clone, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const detail = async (): Promise<RepoDetail> => (await fetch(`${srv.url}/api/repos/widgets`)).json();
+    const diff = async (p: string) => fetch(`${srv.url}/api/repos/widgets/diff?path=${encodeURIComponent(p)}`);
+
+    let d = await detail();
+    assert.deepEqual(d.files, []);
+    assert.equal(d.commits.length, 1);
+    assert.equal(d.commits[0].subject, "first");
+    assert.equal(d.commits[0].local, false);
+    assert.equal(d.upstream, "origin/main");
+    assert.equal((await fetch(`${srv.url}/api/repos/nope`)).status, 404);
+
+    // A modified, an added and a secret file in the working tree.
+    await writeFile(path.join(clone, "README.md"), "# widgets\nnow with gears\n");
+    await writeFile(path.join(clone, "NOTES.md"), "todo\n");
+    await writeFile(path.join(clone, ".env"), "TOKEN=hunter2\n");
+    d = await detail();
+    // git's order: tracked changes first, then untracked files.
+    assert.deepEqual(d.files.map((f) => [f.path, f.status]), [["README.md", "modified"], [".env", "untracked"], ["NOTES.md", "untracked"]]);
+    assert.equal(d.insertions, 1);
+    assert.equal(d.dirty, 3);
+    let r = await diff("README.md");
+    assert.equal(r.status, 200);
+    assert.match(((await r.json()) as { diff: string }).diff, /^\+now with gears$/m);
+    r = await diff("NOTES.md");
+    assert.match(((await r.json()) as { diff: string }).diff, /^\+todo$/m, "an untracked file is its whole content");
+    assert.equal((await diff(".env")).status, 404, "a secret is never shown");
+    assert.equal((await diff("LICENSE")).status, 404, "only changed files");
+    assert.equal((await diff("../kraftwerk.yml")).status, 400);
+    assert.equal((await fetch(`${srv.url}/api/repos/nope/diff?path=README.md`)).status, 404);
+
+    // A local commit shows as not pushed, and its patch is served.
+    await rm(path.join(clone, ".env"));
+    cgit("config", "user.email", "agent@example.com");
+    cgit("config", "user.name", "agent");
+    cgit("config", "commit.gpgsign", "false");
+    cgit("add", ".");
+    cgit("commit", "-qm", "gears");
+    d = await detail();
+    assert.deepEqual(d.files, []);
+    assert.equal(d.ahead, 1);
+    assert.deepEqual(d.commits.map((c) => [c.subject, c.local]), [["gears", true], ["first", false]]);
+    r = await fetch(`${srv.url}/api/repos/widgets/commits/${d.commits[0].hash}`);
+    assert.equal(r.status, 200);
+    const patch = ((await r.json()) as { diff: string }).diff;
+    assert.match(patch, /^    gears$/m);
+    assert.match(patch, /^\+now with gears$/m);
+    assert.equal((await fetch(`${srv.url}/api/repos/widgets/commits/deadbeefdeadbeef`)).status, 404);
+
+    // A committed secret — added, and renamed into place — is out of the patch and the stat.
+    await writeFile(path.join(clone, "config.example"), "TOKEN=example\n");
+    cgit("add", ".");
+    cgit("commit", "-qm", "example config");
+    cgit("mv", "config.example", ".env");
+    await writeFile(path.join(clone, ".env"), "TOKEN=hunter2\n");
+    await writeFile(path.join(clone, "ok.txt"), "fine\n");
+    cgit("add", "-A");
+    cgit("commit", "-qm", "secrets in");
+    d = await detail();
+    const secret = ((await (await fetch(`${srv.url}/api/repos/widgets/commits/${d.commits[0].hash}`)).json()) as { diff: string }).diff;
+    assert.match(secret, /^    secrets in$/m);
+    assert.match(secret, /^\+fine$/m, "the harmless file is shown");
+    assert.doesNotMatch(secret, /hunter2/, "the secret's content is not");
+    assert.doesNotMatch(secret, /\.env/, "nor its name in the stat");
+    assert.match(secret, /1 file not shown: secret or key/);
+    assert.equal((await fetch(`${srv.url}/api/repos/widgets/commits/not-a-hash`)).status, 400);
+
+    // Back to a clean clone for the tests that follow.
+    cgit("reset", "-q", "--hard", "origin/main");
+    d = await detail();
+    assert.equal(d.ahead, 0);
+    assert.deepEqual(d.files, []);
   });
 
   it("lists a clone an agent made by hand, and skips folders that are not repos", async () => {

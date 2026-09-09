@@ -64,6 +64,23 @@ test.describe("repositories", () => {
     await row.getByRole("button", { name: "update" }).click();
     await expect(row.getByRole("button", { name: "update" })).toBeEnabled();
 
+    // The clone's page: a change in the working tree with its diff, and the commits.
+    writeFileSync(path.join(fixture(), "kraftwerk-data/repos/widgets/README.md"), "# widgets\nnow with gears\n");
+    await row.getByRole("link", { name: "changes" }).click();
+    await expect(page).toHaveURL(/#\/repos\/widgets$/);
+    await expect(page.getByRole("heading", { name: "widgets" })).toBeVisible();
+    const file = page.locator(".repo-file[data-file='README.md']");
+    await expect(file).toContainText("modified");
+    await file.getByRole("button").click();
+    await expect(file.locator(".git-diff")).toContainText("+now with gears");
+    const commit = page.locator(".repo-commit").first();
+    await expect(commit).toContainText("first");
+    await commit.getByRole("button").click();
+    await expect(commit.locator(".git-diff")).toContainText("# widgets");
+    writeFileSync(path.join(fixture(), "kraftwerk-data/repos/widgets/README.md"), "# widgets\n");
+    await page.locator(".repo-page a[href='#/repos']").click();
+    await expect(page).toHaveURL(/#\/repos$/);
+
     await row.getByRole("button", { name: "remove" }).click();
     await row.getByRole("button", { name: "confirm remove" }).click();
     await expect(row).toHaveCount(0);

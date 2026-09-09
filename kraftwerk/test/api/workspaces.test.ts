@@ -41,15 +41,29 @@ describe("/api/workspaces", () => {
     const r = await fetch(srv.url + route, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: r.status, body: (await r.json()) as Record<string, unknown> };
   };
-  // Registration is fire-and-forget after listen; wait for the directory to appear.
+  // Registration is fire-and-forget after listen, and the legacy record is
+  // migrated first: wait until this instance's own record is there.
   const roots = async (): Promise<string[]> => {
     const dir = path.join(fx.home, ".kraftwerk", "workspaces");
-    let files: string[] = [];
-    for (let i = 0; i < 50 && files.length === 0; i++) {
-      files = await readdir(dir).catch(() => [] as string[]);
-      if (files.length === 0) await new Promise((r) => setTimeout(r, 50));
+    const read = async (): Promise<string[]> => {
+      const files = await readdir(dir).catch(() => [] as string[]);
+      const roots = await Promise.all(
+        files.map(async (f) => {
+          try {
+            return (JSON.parse(await readFile(path.join(dir, f), "utf8")) as { root: string }).root;
+          } catch {
+            return undefined; // mid-write: not there yet
+          }
+        })
+      );
+      return roots.filter((r): r is string => typeof r === "string");
+    };
+    let found = await read();
+    for (let i = 0; i < 50 && !found.includes(fx.root); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      found = await read();
     }
-    return Promise.all(files.map(async (f) => (JSON.parse(await readFile(path.join(dir, f), "utf8")) as { root: string }).root));
+    return found;
   };
 
   it("records this instance's root as an absolute path", async () => {

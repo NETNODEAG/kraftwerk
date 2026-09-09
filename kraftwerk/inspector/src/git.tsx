@@ -28,15 +28,22 @@ const LINE_CLASSES: [RegExp, string][] = [
 ];
 const lineClass = (line: string): string => LINE_CLASSES.find(([re]) => re.test(line))?.[1] ?? "";
 
-/** Unified diff, coloured per line. Small enough not to warrant a library. */
+/** The workspace repo's diff of one changed file. */
 function Diff({ file }: { file: string }) {
+  return <DiffView url={`/api/git/diff?path=${encodeURIComponent(file)}`} />;
+}
+
+/** Unified diff from any endpoint that answers a GitDiff, coloured per line. Small enough not to warrant a library. */
+export function DiffView({ url }: { url: string }) {
   const [text, setText] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/git/diff?path=${encodeURIComponent(file)}`)
+    setText(null);
+    setError("");
+    fetch(url)
       .then((r) => r.json())
       .then((d: Partial<GitDiff>) => {
         if (!alive) return;
@@ -48,7 +55,7 @@ function Diff({ file }: { file: string }) {
     return () => {
       alive = false;
     };
-  }, [file]);
+  }, [url]);
 
   if (error) return <div className="git-diff git-diff-error">{error}</div>;
   if (text === null) return <div className="git-diff">loading…</div>;
