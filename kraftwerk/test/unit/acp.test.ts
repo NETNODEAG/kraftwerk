@@ -167,6 +167,40 @@ describe("acp: session updates -> chat events", () => {
     });
   });
 
+  it("reads the failure the adapter attaches to the prompt response itself", () => {
+    // A provider condition that ends the turn (a usage limit here) never
+    // arrives as a notification: for an AIR client the adapter settles the
+    // prompt with stopReason "end_turn" and this _meta. Verbatim from
+    // claude-agent-acp 0.75 on an exhausted model quota.
+    const res = {
+      stopReason: "end_turn",
+      _meta: {
+        quota: { token_count: { totalTokens: 0 } },
+        jetbrains: {
+          air: {
+            version: 1,
+            sessionFailure: {
+              id: "1f47a346:error",
+              revision: 1,
+              category: "limit",
+              severity: "error",
+              title: "You've reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage, to continue.",
+              actions: [],
+            },
+          },
+        },
+      },
+    };
+    assert.deepEqual(failureOf(res._meta), {
+      id: "1f47a346:error",
+      revision: 1,
+      category: "limit",
+      severity: "error",
+      title: "You've reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage, to continue.",
+      actions: [],
+    });
+  });
+
   it("keeps the main agent's plan, usage, commands and settings; drops a subagent's", () => {
     const plan = { sessionUpdate: "plan", entries: [{ content: "read", priority: "high", status: "completed" }, { content: "write", priority: "odd", status: "in_progress" }] };
     assert.deepEqual(translateUpdate("root", { sessionId: "root", update: plan } as never), {

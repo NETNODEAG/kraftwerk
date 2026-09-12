@@ -122,6 +122,9 @@ function lastEventText(state: ChatState, afterSeq: number, type: "text" | "error
     if (e.type === "user_message") parts.length = 0;
     if (type === "text" && e.type === "text") parts.push(e.text);
     if (type === "error" && e.type === "error") parts.push(e.message);
+    // A turn the agent ended on a provider failure (usage limit, rate
+    // limit) reports no error event — the failure card is the outcome.
+    if (type === "error" && e.type === "failure" && e.severity === "error") parts.push(e.title);
   }
   const text = parts.join("").trim();
   if (!text) return undefined;
@@ -885,14 +888,19 @@ export async function postMessage(
       // the thread keeps the short form the user typed.
       const body = await expandSkillInvocation(state.meta.scope, text);
       const promptText = context ? `<context>\n${context}\n</context>\n\n${body}` : body;
-      const stopReason = await backend.prompt(promptText, promptFiles(id, attachments));
+      const { stopReason, failure } = await backend.prompt(promptText, promptFiles(id, attachments));
       emit(state, { type: "turn_end", stopReason });
+      // After turn_end, so the card stays live (a turn_end settles the
+      // failures reported before it): this one is why the turn ended.
+      if (failure) emit(state, { type: "failure", ...failure });
       // Routine sessions are one-shot and unattended: release the agent
       // process as soon as the turn ends instead of waiting for the reaper,
       // and tell the bell how it went.
       if (isUnattended(state.meta.scope)) {
         dropBackend(state);
-        const failed = state.events.some((e) => e.seq > turnStart && e.type === "error");
+        const failed = state.events.some(
+          (e) => e.seq > turnStart && (e.type === "error" || (e.type === "failure" && e.severity === "error"))
+        );
         void pushNotification({
           kind: failed ? "routine_failed" : "routine_done",
           title: `${chatLabel(state.meta)} ${failed ? "ended with an error" : "finished"}`,
@@ -1016,8 +1024,9 @@ async function runSeatTurn(state: ChatState, channel: Channel, seat: Seat, hops:
     const prompt =
       (context ? `<context>\n${context}\n</context>\n\n` : "") +
       (delta ? `New messages in #${channel.slug}:\n\n${delta}` : `You joined #${channel.slug}. Nothing addressed to you yet — reply with one short line saying you are here.`);
-    const stopReason = await backend.prompt(prompt);
+    const { stopReason, failure } = await backend.prompt(prompt);
     emit(state, { type: "turn_end", stopReason }, me);
+    if (failure) emit(state, { type: "failure", ...failure }, me);
     // Handover: agents this one @mentioned get its message, within the hop budget.
     const said = seatTextSince(state, start, seat.key);
     const next = mentionTargets(said, channel, seat.key);

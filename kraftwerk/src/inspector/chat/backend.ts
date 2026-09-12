@@ -1,4 +1,12 @@
-import type { AgentCommand, Attachment, ChatEvent, ConfigOption, ElicitationAnswer, ElicitationField } from "./types.js";
+import type {
+  AgentCommand,
+  Attachment,
+  ChatEvent,
+  ConfigOption,
+  ElicitationAnswer,
+  ElicitationField,
+  SessionFailure,
+} from "./types.js";
 
 /** An attachment as the backend gets it: where the file is, and what it is. */
 export interface PromptFile extends Attachment {
@@ -50,6 +58,18 @@ export interface BackendTuning {
   resume?: string;
 }
 
+/**
+ * How a turn ended. `failure` is the typed session failure the agent
+ * attached to the turn's own outcome (a usage limit, a rate limit, a
+ * provider error): ACP hands those back on the prompt response rather
+ * than as a mid-turn notification, and without it the turn would look
+ * like an ordinary empty `end_turn`.
+ */
+export interface TurnEnd {
+  stopReason: string;
+  failure?: SessionFailure;
+}
+
 export interface ChatBackend {
   /** The agent's own session id, when it has one to resume later (ACP agents). */
   sessionId?: string;
@@ -57,8 +77,8 @@ export interface ChatBackend {
   resumed?: boolean;
   /** The resumed session turned out unusable at its first prompt — its id must not be resumed again. */
   resumeFailed?: boolean;
-  /** Send one user message (plus files dropped into it); resolves with the stop reason at turn end. */
-  prompt(text: string, files?: PromptFile[]): Promise<string>;
+  /** Send one user message (plus files dropped into it); resolves with how the turn ended. */
+  prompt(text: string, files?: PromptFile[]): Promise<TurnEnd>;
   /** Branch the conversation: a new session id with this session's history (ACP agents that offer session/fork). */
   fork?(): Promise<string>;
   /**

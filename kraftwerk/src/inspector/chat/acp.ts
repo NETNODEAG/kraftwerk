@@ -24,7 +24,7 @@ import {
   type AcpAgent,
   type AcpExtensionNotification,
 } from "../../acp.js";
-import type { BackendHooks, BackendTuning, ChatBackend, PromptFile } from "./backend.js";
+import type { BackendHooks, BackendTuning, ChatBackend, PromptFile, TurnEnd } from "./backend.js";
 import { unattendedMode } from "./permissions.js";
 import type {
   AgentCommand,
@@ -502,7 +502,7 @@ export async function startAcpBackend(
   const backend: ChatBackend = {
     sessionId,
     resumed: session.resumed,
-    async prompt(text: string, files?: PromptFile[]): Promise<string> {
+    async prompt(text: string, files?: PromptFile[]): Promise<TurnEnd> {
       if (dead) throw new Error(`${agent} agent process is gone — start a new chat`);
       try {
         const res = await conn.prompt({
@@ -512,7 +512,13 @@ export async function startAcpBackend(
           _meta: fileChangeReportMeta(randomUUID()),
         });
         turns++;
-        return res.stopReason;
+        // A provider condition that ends the turn itself (usage limit, rate
+        // limit, provider error) is not a notification: the adapter settles
+        // the prompt with stopReason "end_turn" and the typed failure in the
+        // response `_meta`. Without reading it here the turn would end
+        // silently — no text, no error (see failureOf).
+        const failure = failureOf(res._meta);
+        return failure ? { stopReason: res.stopReason, failure } : { stopReason: res.stopReason };
       } catch (err) {
         // A resumed session that cannot even take its first prompt (the
         // agent's transcript is gone) must not be resumed again.

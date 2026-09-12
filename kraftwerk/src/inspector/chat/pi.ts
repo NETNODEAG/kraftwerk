@@ -46,7 +46,10 @@ export function startPiBackend(
   ];
 
   return {
-    prompt(text: string, files?: import("./backend.js").PromptFile[]): Promise<string> {
+    prompt(
+      text: string,
+      files?: import("./backend.js").PromptFile[]
+    ): Promise<import("./backend.js").TurnEnd> {
       // pi takes text only: name the files, they are on disk for it to open.
       if (files?.length) text += `\n\nAttached files:\n${files.map((f) => `- ${f.name} (${f.mimeType}, ${f.path})`).join("\n")}`;
       cancelled = false;
@@ -119,7 +122,7 @@ export function startPiBackend(
         proc.on("close", (code) => {
           child = null;
           handleLine(buffer);
-          if (cancelled) return resolve("cancelled");
+          if (cancelled) return resolve({ stopReason: "cancelled" });
           if (failure || code !== 0 || !sawAssistant) {
             reject(
               new Error(
@@ -130,7 +133,7 @@ export function startPiBackend(
             );
             return;
           }
-          resolve("end_turn");
+          resolve({ stopReason: "end_turn" });
         });
       });
     },
