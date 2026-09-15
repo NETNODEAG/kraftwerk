@@ -1362,10 +1362,14 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .skill-menu button span { color: var(--on-surface-variant); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-menu button .skill-src { margin-left: auto; flex: none; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
 .skill-menu button:hover, .skill-menu button.active { background: color-mix(in srgb, var(--on-surface) 7%, transparent); }
+/* The box follows the text, soft wraps included. rows= only counts hard line
+   breaks, so a long paragraph typed without Enter stayed one line tall and
+   scrolled out of sight. Browsers without field-sizing keep that behaviour. */
 .composer textarea {
   flex: 1; resize: none; font: 14px/1.5 var(--font-sans), sans-serif; color: var(--on-surface);
   background: var(--surface-container-high); border: 1px solid transparent; border-radius: 24px;
   padding: 12px 18px; outline: none;
+  field-sizing: content; max-height: 40vh; overflow-y: auto;
   transition: border-color 120ms ease, background 120ms ease;
 }
 .composer textarea:focus { border-color: var(--primary); background: var(--surface-container-highest); }
