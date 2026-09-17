@@ -40,8 +40,18 @@ export async function launchRun(
   return data.runId as string;
 }
 
-/** Form state + launch for one workflow; the form and the dialog render it differently. */
-export function useRunLauncher(slug: string, usesRequest: boolean, initialRequest?: string) {
+/**
+ * Form state + launch for one workflow; the form and the dialog render it
+ * differently. Without `onLaunched` a successful launch opens the run's
+ * page; with it the caller decides (the workflow overview stays put and
+ * lets the new card show up on the board).
+ */
+export function useRunLauncher(
+  slug: string,
+  usesRequest: boolean,
+  initialRequest?: string,
+  onLaunched?: (runId: string) => void
+) {
   const [request, setRequest] = useState("");
   const [sandbox, setSandbox] = useState(true);
   const [ssh, setSsh] = useState(false);
@@ -65,7 +75,13 @@ export function useRunLauncher(slug: string, usesRequest: boolean, initialReques
     setBusy(true);
     setError(null);
     try {
-      navigate(`/runs/${await launchRun(slug, { request: request.trim(), sandbox, ssh })}`);
+      const runId = await launchRun(slug, { request: request.trim(), sandbox, ssh });
+      if (onLaunched) {
+        onLaunched(runId);
+        setBusy(false);
+      } else {
+        navigate(`/runs/${runId}`);
+      }
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -75,47 +91,51 @@ export function useRunLauncher(slug: string, usesRequest: boolean, initialReques
   return { request, setRequest, sandbox, setSandbox, ssh, setSsh, busy, error, docker, canRun, launch };
 }
 
-/** Inline launcher on the workflow page: request + button on one line, options below. */
+/**
+ * Inline launcher on the workflow page. The same M3 parts as the dialog —
+ * filled text field, filled button, switch list items — laid out on one
+ * line so the page needs no heading over it: the field says what to type,
+ * the switches say where it runs.
+ */
 export function RunForm({
   slug,
   usesRequest,
   initialRequest,
+  onLaunched,
 }: {
   slug: string;
   usesRequest: boolean;
   initialRequest?: string;
+  onLaunched?: (runId: string) => void;
 }) {
-  const l = useRunLauncher(slug, usesRequest, initialRequest);
+  const l = useRunLauncher(slug, usesRequest, initialRequest, onLaunched);
   return (
     <div className="run-launcher">
-      <div className="run-form">
+      <div className="run-launcher-main">
         {usesRequest ? (
-          <input
-            type="text"
-            value={l.request}
-            aria-label="request"
-            placeholder="request — topic, URL, host …"
-            onChange={(e) => l.setRequest(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && l.launch()}
-          />
+          <label className="m3-field">
+            <input
+              type="text"
+              value={l.request}
+              placeholder=" "
+              aria-label="request"
+              onChange={(e) => l.setRequest(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && l.launch()}
+            />
+            <span className="m3-field-label">Request</span>
+          </label>
         ) : (
-          <span className="run-norequest">this workflow takes no request</span>
+          <span className="run-norequest">This workflow takes no request.</span>
         )}
-        <button className="run-btn" onClick={l.launch} disabled={!l.canRun}>
-          {l.busy ? "starting…" : <><Icon name="play_arrow" className="ms-sm" /> {l.sandbox ? "run in sandbox" : "run locally"}</>}
+        <button className="m3-filled-btn run-go" onClick={l.launch} disabled={!l.canRun}>
+          <Icon name="play_arrow" /> {l.busy ? "Starting…" : "Run"}
         </button>
       </div>
-      <div className="run-opts">
-        <label>
-          <input type="checkbox" checked={l.sandbox} onChange={(e) => l.setSandbox(e.target.checked)} />
-          docker sandbox {sandboxHint(l.docker) && <span className="opt-hint">— {sandboxHint(l.docker)}</span>}
-        </label>
-        <label>
-          <input type="checkbox" checked={l.ssh} onChange={(e) => l.setSsh(e.target.checked)} disabled={!l.sandbox} />
-          forward SSH agent
-        </label>
+      <div className="m3-switches run-switches">
+        <SwitchRow label="Docker sandbox" hint={sandboxHint(l.docker)} checked={l.sandbox} onChange={l.setSandbox} />
+        {l.sandbox && <SwitchRow label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
       </div>
-      {l.error && <div className="gate-fail-msg">{l.error}</div>}
+      {l.error && <div className="m3-error">{l.error}</div>}
     </div>
   );
 }

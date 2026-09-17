@@ -11,3 +11,6 @@ agent-playground/kraftwerk-data/knowledge/*
 !agent-playground/kraftwerk-data/knowledge/demo-customer-support/
 agent-playground/kraftwerk-data/agents/*
 !agent-playground/kraftwerk-data/agents/max/
+agent-playground/kraftwerk-data/projects/*
+!agent-playground/kraftwerk-data/projects/netnode-website/
+repos/

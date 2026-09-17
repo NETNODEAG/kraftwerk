@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: article-review
+description: "AI writes, a human reviews: an agent drafts a short article, the run waits for your decision — publish, revise (your note becomes the brief for the rewrite), or drop — the same agent revises with your feedback, you check the revision, a script publishes"
+
+# The request is the topic, e.g. "why we moved our inspector behind a
+# Cloudflare tunnel" or "three things a first-time kraftwerk user gets wrong".
+#
+# What this demos:
+#   - an agent step followed by a HUMAN step: the card waits in "review" on
+#     the board with "decision needed" until someone submits the form on the
+#     run page (or says it in the run's discuss chat)
+#   - the human's note is not a comment that gets lost: review.sh writes it to
+#     feedback.md and the writer's next step is "revise per feedback.md"
+#   - steps that only make sense after "revise" are gated with if: and show
+#     as skipped when the first draft was good enough
+#   - the same agent serves draft + revise, so the rewrite happens in the
+#     session that wrote the draft (it remembers its own reasoning)
+
+workspace: |
+  Files in the run directory:
+    draft.md              the article (v1 by the writer, rewritten in place on revise)
+    REVIEW.md             what the reviewer is being asked and how to answer
+    decision-request.json the open question — the run page renders it as a form
+    decision.json         round 1: {"decision": "publish" | "revise" | "drop", "note": "…"}
+    feedback.md           the reviewer's note when they chose revise — the writer's brief
+    decision-2.json       round 2 (only after a revise): {"decision": "publish" | "drop", "note": "…"}
+    post.md / dropped.md  the outcome; outcome.txt one line for the summary
+  If the user gives you a verdict or feedback in chat, write the answer file of
+  the CURRENT round exactly as REVIEW.md describes (their words go in "note") —
+  that is what the waiting run polls for. Never write both files at once.
+
+agents:
+  writer:
+    name: Writer
+    model: sonnet
+    tools: [Read, Write, Edit]
+    persona: |
+      You write short, concrete articles for a technical audience: a clear
+      claim, real examples, no filler, no superlatives. When you get review
+      feedback you take it literally and change exactly what was asked,
+      keeping what was not criticised. All output in English.
+
+steps:
+  - name: draft
+    agent: writer
+    prompt: prompts/draft.md
+    gates:
+      - file_non_empty: draft.md
+      - contains: { file: draft.md, text: "# ", label: has a title }
+
+  # Human step 1: publish, revise (with a note), or drop.
+  - name: review
+    run: scripts/review.sh
+    gates:
+      - contains: { file: decision.json, text: '"decision"', label: a decision was recorded }
+
+  # Only when the reviewer asked for changes — the note is the brief.
+  - name: revise
+    agent: writer
+    if:
+      - file_non_empty: feedback.md
+    prompt: prompts/revise.md
+    gates:
+      - file_non_empty: draft.md
+      - contains: { file: draft.md, text: "## Changes after review", label: change log present }
+
+  # Human step 2: check the revision. Skipped when there was nothing to revise.
+  - name: check revision
+    run: scripts/review.sh
+    if:
+      - file_non_empty: feedback.md
+    gates:
+      - contains: { file: decision-2.json, text: '"decision"', label: a second decision was recorded }
+
+  - name: publish
+    run: scripts/publish.sh
+    gates:
+      - file_non_empty: outcome.txt

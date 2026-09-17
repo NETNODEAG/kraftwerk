@@ -24,6 +24,8 @@ Any new feature that exposes an API — an inspector route under `/api/`, a CLI 
 
 Assert on behaviour a user sees (exit code, JSON shape, a file on disk, a row in the UI), not on internals. Never spawn docker or a coding agent from a test.
 
+The same goes for a workflow contract a playground demo relies on (a file the runner waits for, a step gated with `if:`, an answer the inspector writes): the demo itself cannot be tested (it runs an agent), so the mechanism gets a test with an equivalent script-only workflow driven through the real bin — `test/api/decision-loop.test.ts` is the pattern. A demo dry-run by hand does not count as a test.
+
 ## "check tests"
 
 When asked to **check tests** (or "find test gaps", "what is untested"), do not just run the suite. Go through the code and compare it against what the tests cover:

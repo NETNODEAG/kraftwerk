@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/NETNODEAG/kraftwerk/main/kraftwerk/schema/workflow.schema.json
+name: release-approval
+description: "Demo of a human step: a script drafts a release note, the run waits until a person approves or rejects it (from the run's discuss chat or a shell), then publishes — the card sits in “review” on the board until someone acts"
+
+workspace: |
+  Files: draft.md (the release note to review), REVIEW.md (how to decide),
+  decision.json (the human's answer — {"decision": "approve" | "reject", "note": "…"}),
+  published.md or rejected.md (the outcome), outcome.txt (one line for the summary).
+  If the user asks you to approve or reject, write decision.json in this folder
+  exactly as REVIEW.md describes — that is what the waiting run is looking for.
+
+steps:
+  - name: draft
+    run: scripts/draft.sh
+    gates:
+      - file_non_empty: draft.md
+      - contains: { file: draft.md, text: "## ", label: has a heading }
+
+  - name: review
+    run: scripts/review.sh
+    gates:
+      - contains: { file: decision.json, text: '"decision"', label: a decision was recorded }
+
+  - name: publish
+    run: scripts/publish.sh
+    gates:
+      - file_non_empty: outcome.txt

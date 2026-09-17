@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getOutputDir } from "./context.js";
+import { awaitingDecision, readDecision, type DecisionView } from "./decisions.js";
 
 /**
  * Filesystem + trace.jsonl reading for the inspector. The output directory
@@ -26,7 +27,8 @@ export interface PhaseView {
   model?: string;
   harness?: string;
   protocol?: string;
-  status: "running" | "ok" | "failed" | "blocked" | "pending";
+  /** skipped: an `if:` precondition was not met — settled, never ran. */
+  status: "running" | "ok" | "failed" | "blocked" | "pending" | "skipped";
   attempts: number;
   startedAt?: string;
   endedAt?: string;
@@ -56,9 +58,12 @@ export interface RunListItem {
   updatedAt: string;
   phasesDone: number;
   phasesTotal?: number;
+  /** Running phase, or the phase a failed/blocked run stopped on; unset when done. */
   currentPhase?: string;
   durationMs?: number;
   costUsd?: number;
+  /** A step wrote decision-request.json and nobody has answered yet. */
+  awaitingDecision?: boolean;
 }
 
 export interface RunDetail extends RunListItem {
@@ -66,6 +71,8 @@ export interface RunDetail extends RunListItem {
   steps?: string[];
   phases: PhaseView[];
   files: FileView[];
+  /** The human decision a step asked for, with the answer once given. */
+  decision?: DecisionView;
 }
 
 type TraceEvent = Record<string, any> & { ts: string; event: string };
@@ -93,9 +100,36 @@ function analyse(events: TraceEvent[], fallbackTs?: string) {
   const runStart = events.find((e) => e.event === "run_start");
   const summary = events.find((e) => e.event === "run_summary");
 
+  // Steps declared at run_start: string[] (older traces) or {name, kind, agent, model}[].
+  const rawSteps: any[] | undefined = runStart?.steps;
+  const declared = new Map<string, { kind: "agent" | "script"; agent?: string; model?: string }>();
+  for (const s of rawSteps ?? []) {
+    if (typeof s === "string") declared.set(s, { kind: "script" });
+    else declared.set(s.name, { kind: s.kind, agent: s.agent, model: s.model });
+  }
+
   const phases: PhaseView[] = [];
   const byName = new Map<string, PhaseView>();
   for (const e of events) {
+    if (e.event === "phase_skipped") {
+      // `if:` not met — the runner went on to the next step. In trace order,
+      // so the phase list keeps the pipeline order.
+      const p: PhaseView = {
+        phase: e.phase,
+        kind: declared.get(e.phase)?.kind ?? "script",
+        agent: declared.get(e.phase)?.agent,
+        model: declared.get(e.phase)?.model,
+        status: "skipped",
+        attempts: 0,
+        startedAt: e.ts,
+        endedAt: e.ts,
+        summary: Array.isArray(e.unmet) && e.unmet.length ? `if: ${e.unmet.join("; ")}` : "if: not met",
+        gates: [],
+      };
+      phases.push(p);
+      byName.set(e.phase, p);
+      continue;
+    }
     if (e.event === "phase_start") {
       const p: PhaseView = {
         phase: e.phase,
@@ -157,9 +191,7 @@ function analyse(events: TraceEvent[], fallbackTs?: string) {
     p.gates = [...last.values()];
   }
 
-  // Steps declared at run_start that have not started yet are pending.
-  // run_start.steps is either string[] (older traces) or {name, kind, agent, model}[].
-  const rawSteps: any[] | undefined = runStart?.steps;
+  // Steps declared at run_start that have neither started nor been skipped are pending.
   const steps: string[] | undefined = rawSteps?.map((s) => (typeof s === "string" ? s : s.name));
   if (rawSteps) {
     for (const s of rawSteps) {
@@ -264,8 +296,14 @@ export async function listRuns(): Promise<RunListItem[]> {
         runDir,
         analyse(events, events.length ? undefined : await newestFileTs(runDir))
       );
-      const done = phases.filter((p) => p.status === "ok").length;
-      const current = phases.find((p) => p.status === "running")?.phase;
+      const done = phases.filter((p) => p.status === "ok" || p.status === "skipped").length;
+      // The phase the run is at: the one running, or the one it stopped on
+      // (failed / blocked). Unset once every phase passed. The workflow board
+      // groups its cards by this, so a failed run sits in the step column
+      // where it broke instead of vanishing.
+      const current = phases.find(
+        (p) => p.status === "running" || p.status === "failed" || p.status === "blocked"
+      )?.phase;
       return {
         id,
         workflow: runStart?.workflow ?? workflowFromId(id),
@@ -278,6 +316,7 @@ export async function listRuns(): Promise<RunListItem[]> {
         currentPhase: current,
         durationMs: summary?.total?.durationMs,
         costUsd: summary?.total?.costUsd,
+        ...((await awaitingDecision(runDir)) ? { awaitingDecision: true } : {}),
       };
     })
   );
@@ -316,6 +355,7 @@ export async function getRun(id: string): Promise<RunDetail | null> {
     if (fst?.isFile()) files.push({ name, size: fst.size, mtime: fst.mtime.toISOString() });
   }
   files.sort((a, b) => a.name.localeCompare(b.name));
+  const decision = await readDecision(runDir);
 
   return {
     id,
@@ -325,7 +365,7 @@ export async function getRun(id: string): Promise<RunDetail | null> {
     status,
     startedAt: events[0]?.ts,
     updatedAt: lastTs ?? st.mtime.toISOString(),
-    phasesDone: phases.filter((p) => p.status === "ok").length,
+    phasesDone: phases.filter((p) => p.status === "ok" || p.status === "skipped").length,
     phasesTotal: steps?.length ?? (summary ? phases.length : undefined),
     currentPhase: phases.find((p) => p.status === "running")?.phase,
     durationMs: summary?.total?.durationMs,
@@ -333,6 +373,7 @@ export async function getRun(id: string): Promise<RunDetail | null> {
     steps,
     phases,
     files,
+    ...(decision ? { awaitingDecision: !decision.answer, decision } : {}),
   };
 }
 

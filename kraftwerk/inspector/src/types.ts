@@ -65,3 +65,4 @@ export type { Author } from "../../src/inspector/chat/types";
 
 /** A channel as /api/channels returns it: the definition plus its transcript's chat id and live state. */
 export type ChannelView = import("../../src/inspector/channels").Channel & { chatId: string; busy: boolean; awaitingApproval: boolean; updatedAt: string };
+export type { DecisionView, DecisionRequest, DecisionAnswer, DecisionOption } from "../../src/inspector/decisions";

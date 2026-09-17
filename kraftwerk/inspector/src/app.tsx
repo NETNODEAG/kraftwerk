@@ -21,7 +21,7 @@ import { SearchPalette } from "./search";
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
- * run), #/runs/<id>, #/workflows, #/workflows/<slug>,
+ * run), #/runs/<id>, #/workflows, #/workflows/<slug>[/details | /runs],
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
  * #/agents[/new | /chats[/new | /<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]],
  * #/repos, #/git, #/settings, #/workspaces.
@@ -113,7 +113,10 @@ export function App() {
   let screen: React.ReactNode;
   if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
   else if (seg[0] === "runs") screen = <LatestRun />;
-  else if (seg[0] === "workflows" && seg[1]) screen = <WorkflowView slug={decodeURIComponent(seg[1])} />;
+  else if (seg[0] === "workflows" && seg[1]) {
+    const tab = seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview";
+    screen = <WorkflowView slug={decodeURIComponent(seg[1])} tab={tab} />;
+  }
   else if (seg[0] === "workflows") screen = <WorkflowsScreen />;
   else if (seg[0] === "chats") screen = <AgentsScreen seg={seg} />;
   else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;

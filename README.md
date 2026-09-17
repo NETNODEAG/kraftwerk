@@ -110,7 +110,13 @@ fixes it in the same conversation.
 
 **Inspector.** The web UI for all of the above: agents and their sessions,
 knowledge, skills, workflows, and live runs with phase timeline, trace and
-artifacts. A live run can be stopped from its page, a finished one removed,
+artifacts. Each workflow page shows its runs as a board — one column per
+step plus done, a card per run at the phase it is at, so a run that failed
+or is taking long sits where it stopped. A step that needs a person writes
+`decision-request.json` into the run folder and waits: the card shows
+"decision needed", the run page renders the request as a form, and the answer
+lands next to it as a file the step reads on — the note typed there is what
+a revise step gets as feedback. A live run can be stopped from its page, a finished one removed,
 and a launch that died before writing a trace shows as failed rather than
 running forever. The frontend ships prebuilt and the server uses only Node's
 standard library, so there is nothing to install at startup.

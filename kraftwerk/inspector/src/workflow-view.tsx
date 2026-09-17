@@ -1,11 +1,23 @@
+import { useState } from "react";
 import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
-import { Link, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp } from "./shared";
+import { Link, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp, Elapsed, StatusWord } from "./shared";
 import { RunForm } from "./run-launcher";
-import { runsHref } from "./workflows";
+import { WorkflowBoard } from "./workflow-board";
 
-export function WorkflowView({ slug }: { slug: string }) {
+export type WorkflowTab = "overview" | "details" | "runs";
+
+/**
+ * One workflow, three tabs on their own routes: overview (trigger + board —
+ * what to act on), details (agents, pipeline, folder — how it is built),
+ * runs (every run of this workflow, newest first).
+ */
+export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) {
   const wf = usePoll<WorkflowDetail>(`/api/workflows/${encodeURIComponent(slug)}`, false);
-  const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", false);
+  // A launch from this page stays here; the poll tightens until the new
+  // run is on the board (and stays tight while any run of this workflow is live).
+  const [launchedAt, setLaunchedAt] = useState(0);
+  const [liveCount, setLiveCount] = useState(0);
+  const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", liveCount > 0 || Date.now() - launchedAt < 20_000);
 
   if (!wf) return <div className="empty">loading…</div>;
   if (wf.error) {
@@ -21,7 +33,10 @@ export function WorkflowView({ slug }: { slug: string }) {
   }
 
   const agentIdx = new Map(wf.agents.map((a, i) => [a.id, i % 4]));
-  const runs = (runsData?.runs ?? []).filter((r) => r.workflow === wf.name).slice(0, 8);
+  const runs = (runsData?.runs ?? []).filter((r) => r.workflow === wf.name || r.workflow === wf.slug);
+  const base = `/workflows/${encodeURIComponent(wf.slug)}`;
+  const live = runs.filter((r) => r.status === "running").length;
+  if (live !== liveCount) setLiveCount(live);
 
   return (
     <>
@@ -30,9 +45,58 @@ export function WorkflowView({ slug }: { slug: string }) {
       <div className="detail-head">
         <h1>{wf.name ?? wf.slug}</h1>
         <span className="rid mono">{wf.dir}</span>
+        <span className="spacer" />
+        <nav className="tabs" aria-label="workflow sections">
+          <Link href={base} className={tab === "overview" ? "active" : ""}>overview</Link>
+          <Link href={`${base}/details`} className={tab === "details" ? "active" : ""}>details</Link>
+          <Link href={`${base}/runs`} className={tab === "runs" ? "active" : ""}>
+            runs <span className="num">({runs.length})</span>
+          </Link>
+        </nav>
       </div>
       {wf.description && <p className="detail-req">{wf.description}</p>}
 
+      {tab === "overview" && (
+        <>
+          <section className="panel run-panel" style={{ marginBottom: 18 }}>
+            <RunForm
+              slug={wf.slug}
+              usesRequest={wf.usesRequest}
+              initialRequest={runs[0]?.request}
+              onLaunched={() => setLaunchedAt(Date.now())}
+            />
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <span className="microlabel">
+                board{" "}
+                <span className="num">
+                  ({runs.length} runs{live > 0 ? `, ${live} live` : ""})
+                </span>
+              </span>
+              <span className="spacer" />
+              {runs[0] && (
+                <Link href={`${base}/runs`} className="open-raw">
+                  all runs ↗
+                </Link>
+              )}
+            </div>
+            <WorkflowBoard wf={wf} runs={runs} agentIdx={agentIdx} runsHref={`${base}/runs`} />
+          </section>
+        </>
+      )}
+
+      {tab === "details" && <Details wf={wf} agentIdx={agentIdx} />}
+
+      {tab === "runs" && <RunList runs={runs} />}
+    </>
+  );
+}
+
+function Details({ wf, agentIdx }: { wf: WorkflowDetail; agentIdx: Map<string, number> }) {
+  return (
+    <>
       <div className="statgrid">
         <div className="stat">
           <div className="microlabel">agents</div>
@@ -55,13 +119,6 @@ export function WorkflowView({ slug }: { slug: string }) {
           </div>
         )}
       </div>
-
-      <section className="panel run-panel" style={{ marginBottom: 18 }}>
-        <div className="panel-head">
-          <span className="microlabel">trigger run</span>
-        </div>
-        <RunForm slug={wf.slug} usesRequest={wf.usesRequest} initialRequest={runs[0]?.request} />
-      </section>
 
       <section className="panel" style={{ marginBottom: 18 }}>
         <div className="panel-head">
@@ -87,50 +144,54 @@ export function WorkflowView({ slug }: { slug: string }) {
           </div>
         </section>
 
-        <div style={{ display: "grid", gap: 18 }}>
-          <section className="panel">
-            <div className="panel-head">
-              <span className="microlabel">
-                folder <span className="num">({wf.files.length} files)</span>
-              </span>
-            </div>
-            <div className="file-list">
-              {wf.files.map((f) => (
-                <div key={f} className="file-row" style={{ cursor: "default" }}>
-                  <span className="fname">{f}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel-head">
-              <span className="microlabel">
-                recent runs <span className="num">({runs.length})</span>
-              </span>
-              <span className="spacer" />
-              {runs[0] && (
-                <Link href={runsHref(runs[0], wf)} className="open-raw">
-                  all runs ↗
-                </Link>
-              )}
-            </div>
-            <div className="file-list">
-              {runs.map((r) => (
-                <Link key={r.id} href={`/runs/${r.id}`} className="file-row">
-                  <Lamp status={r.status} />
-                  <span className="fname">{r.id.replace(/^run-/, "")}</span>
-                  <span className="fsize num">
-                    {fmtDuration(r.durationMs)} · {fmtCost(r.costUsd)} · {fmtWhen(r.startedAt)}
-                  </span>
-                </Link>
-              ))}
-              {runs.length === 0 && <div className="viewer-note">no runs of this workflow yet</div>}
-            </div>
-          </section>
-        </div>
+        <section className="panel">
+          <div className="panel-head">
+            <span className="microlabel">
+              folder <span className="num">({wf.files.length} files)</span>
+            </span>
+          </div>
+          <div className="file-list">
+            {wf.files.map((f) => (
+              <div key={f} className="file-row" style={{ cursor: "default" }}>
+                <span className="fname">{f}</span>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </>
+  );
+}
+
+/** Every run of the workflow, newest first — the board's cards as a flat list. */
+function RunList({ runs }: { runs: RunListItem[] }) {
+  if (runs.length === 0) return <div className="empty">no runs of this workflow yet</div>;
+  return (
+    <div className="run-list">
+      {runs.map((r) => {
+        const total = r.phasesTotal ?? 0;
+        const pct = total > 0 ? Math.round((r.phasesDone / total) * 100) : r.status === "ok" ? 100 : 0;
+        return (
+          <Link key={r.id} href={`/runs/${r.id}`} className={`run-card is-${r.status}`}>
+            <Lamp status={r.status} />
+            <span className="rid">{r.id.replace(/^run-/, "")}</span>
+            <span className="req" title={r.request}>
+              {r.status === "running" && r.currentPhase ? r.currentPhase : (r.request ?? "")}
+            </span>
+            <span className="meta">
+              {r.awaitingDecision && <span className="chip decision">decision needed</span>}
+              <StatusWord status={r.status} />
+              <span className="progress-track" title={`${r.phasesDone}${total ? ` / ${total}` : ""} steps`}>
+                <i style={{ width: `${pct}%` }} />
+              </span>
+              <span className="num">{r.status === "running" ? <Elapsed since={r.startedAt} /> : fmtDuration(r.durationMs)}</span>
+              <span className="num">{fmtCost(r.costUsd)}</span>
+              <span className="num">{fmtWhen(r.startedAt)}</span>
+            </span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 

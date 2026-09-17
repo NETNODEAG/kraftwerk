@@ -5,7 +5,8 @@ import { attachmentPath, readMeta, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
-import { listRuns, getRun, readRunFile, deleteRun } from "./runs.js";
+import { listRuns, getRun, readRunFile, deleteRun, safeRunDir } from "./runs.js";
+import { decide } from "./decisions.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
@@ -903,6 +904,21 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       truncated = true;
     }
     return json(res, { name, size: file.size, truncated, content: text });
+  }
+
+  // POST /api/runs/:id/decision {decision, note?} — a person answers the
+  // step that wrote decision-request.json; the answer is written once.
+  if (seg.length === 4 && seg[1] === "runs" && seg[3] === "decision" && method === "POST") {
+    let runDir: string;
+    let body: { decision?: unknown; note?: unknown };
+    try {
+      runDir = safeRunDir(seg[2]);
+      body = JSON.parse((await readBody(req)) || "{}");
+    } catch {
+      return json(res, { error: "invalid request" }, 400);
+    }
+    const r = await decide(runDir, body ?? {});
+    return r.ok ? json(res, r.answer) : json(res, { error: r.error }, r.status);
   }
 
   // POST /api/runs/:id/stop

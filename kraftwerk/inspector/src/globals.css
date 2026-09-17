@@ -623,6 +623,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .lamp.failed, .lamp.blocked { background: var(--error); }
 .lamp.aborted { background: var(--outline-variant); }
 .lamp.pending { background: transparent; border: 1.5px solid var(--outline); }
+.lamp.skipped { background: transparent; border: 1.5px dashed var(--outline); }
 .lamp.running { background: var(--primary); animation: lamp-pulse 1.4s ease-in-out infinite; }
 @keyframes lamp-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent); opacity: 1; }
@@ -903,7 +904,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .m3-filled-btn { color: var(--on-primary); background: var(--primary); }
 .m3-filled-btn:hover { box-shadow: var(--elev-1); }
 .m3-filled-btn:disabled { opacity: 0.38; cursor: not-allowed; box-shadow: none; }
-.run-norequest { flex: 1; align-self: center; font-size: 13px; color: var(--on-surface-variant); }
+.run-norequest { flex: 1; font: 14px/20px var(--font-sans), sans-serif; letter-spacing: 0.25px; color: var(--on-surface-variant); }
 @media (max-width: 900px) {
   .page-head .wf-search { min-width: 0; width: 100%; }
   .wf-row { grid-template-columns: 9px minmax(0, 1fr); gap: 10px 14px; }
@@ -969,15 +970,19 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 ::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* ---- run trigger + sandbox controls ---- */
-.run-form { display: flex; gap: 10px; }
-.run-form input[type="text"] {
-  flex: 1; font: 13px/1.4 var(--font-mono), monospace; color: var(--on-surface);
-  background: var(--surface-container-high); border: 1px solid transparent;
-  border-radius: 999px; padding: 10px 18px; outline: none;
-  transition: border-color 120ms ease, background 120ms ease;
+/* ---- run trigger: filled text field + filled button on one line, switches as list items ---- */
+.run-launcher { display: flex; flex-direction: column; gap: 4px; padding: 16px 20px 8px; }
+.run-launcher-main { display: flex; align-items: center; gap: 16px; }
+.run-launcher-main .m3-field { flex: 1; min-width: 0; }
+.run-go { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 0 24px 0 16px; }
+.run-go .ms { font-size: 18px; vertical-align: 0; }
+.run-switches { flex-direction: row; flex-wrap: wrap; gap: 0 8px; margin: 4px -8px 0; }
+.run-switches .m3-switch-row { width: auto; flex: 0 1 auto; padding-right: 12px; }
+.run-launcher .m3-error { padding: 4px 8px 8px; }
+@media (max-width: 640px) {
+  .run-launcher-main { flex-wrap: wrap; }
+  .run-go { width: 100%; justify-content: center; }
 }
-.run-form input[type="text"]:focus { border-color: var(--primary); background: var(--surface-container-highest); }
 .run-btn {
   font: 500 14px/1 var(--font-sans), sans-serif; white-space: nowrap; letter-spacing: 0.01em;
   color: var(--on-primary); background: var(--primary);
@@ -1548,6 +1553,7 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 .chip.status.failed { background: var(--error-container); color: var(--on-error-container); }
 .chip.status.running { background: var(--primary-container); color: var(--on-primary-container); }
 .chip.status.aborted { background: var(--surface-container-high); color: var(--on-surface-variant); }
+.chip.status.skipped { background: var(--surface-container-high); color: var(--on-surface-variant); }
 .chip.dash-kind.run { border-color: transparent; background: var(--primary-container); color: var(--on-primary-container); }
 .chip.dash-kind.session { border-color: transparent; background: var(--tertiary-container); color: var(--on-tertiary-container); }
 .chip.dash-kind.knowledge { border-color: transparent; background: var(--success-container); color: var(--on-success-container); }
@@ -2296,3 +2302,44 @@ form.empty-action .settings-note { max-width: 52ch; }
 .git-code-deleted, .git-code-conflicted { color: var(--error); }
 .repo-page .d-add { color: var(--success); }
 .repo-page .d-del { color: var(--error); }
+
+/* ---------- workflow board ---------- */
+
+/* One lane per step, cards where the run is at; scrolls sideways inside its panel. */
+.board { display: flex; gap: 12px; padding: 14px 18px 18px; overflow-x: auto; align-items: flex-start; }
+.board-col { flex: 0 0 240px; min-width: 240px; display: flex; flex-direction: column; gap: 6px; }
+.board-col-head { display: flex; align-items: center; gap: 8px; padding: 2px 2px 4px; }
+.board-col-head .step-index { width: 22px; height: 22px; font-size: 11px; margin-top: 0; }
+.board-col.is-done .step-index { --aid: var(--success); }
+.board-col-name { font-weight: 500; font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-col-count { margin-left: auto; font-family: var(--font-mono), monospace; font-size: 11.5px; color: var(--on-surface-variant); }
+.board-col-cards {
+  display: flex; flex-direction: column; gap: 8px; min-height: 56px; padding: 8px; border-radius: 12px;
+  background: color-mix(in srgb, var(--on-surface) 4%, transparent);
+}
+.board-card {
+  display: block; text-decoration: none; color: inherit; padding: 10px 12px; border-radius: 12px;
+  background: var(--card-head); transition: background 150ms ease;
+}
+.board-card:hover { background: color-mix(in srgb, var(--on-surface) 8%, var(--card-head)); }
+.board-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.board-card-title { font-size: 13.5px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-card-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-family: var(--font-mono), monospace; font-size: 11.5px; color: var(--on-surface-variant); }
+.board-card .chip.status { display: inline-block; margin-top: 8px; }
+.board-col-empty { padding: 14px 0; text-align: center; font-size: 12px; color: var(--on-surface-variant); }
+.board-more { display: block; text-align: center; padding: 6px; font-size: 12px; color: var(--on-surface-variant); text-decoration: none; }
+.board-more:hover { color: var(--primary); }
+
+/* ---------- decision panel: a step asked a human (decision-request.json in the run) ---------- */
+.decision-panel { margin-bottom: 18px; }
+.decision-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+.decision-head { display: flex; align-items: center; gap: 10px; }
+.decision-title { font-size: 16px; font-weight: 500; }
+.decision-prompt { font-size: 14px; color: var(--on-surface-variant); max-width: 80ch; }
+.decision-options { align-self: flex-start; }
+.decision-answer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+.decision-note { color: var(--on-surface-variant); }
+.decision-when { font-size: 12px; color: var(--on-surface-variant); }
+.decision-panel .m3-actions { margin-top: 0; justify-content: flex-start; }
+.chip.decision { border-color: transparent; background: var(--primary-container); color: var(--on-primary-container); }
+.board-card .chip.decision { display: inline-block; margin-top: 8px; }

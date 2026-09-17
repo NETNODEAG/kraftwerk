@@ -1,3 +1,4 @@
+import { DecisionPanel } from "./decision";
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -192,6 +193,7 @@ function RunDetailView({ id }: { id: string }) {
 function RunTab({ run, live }: { run: RunDetail; live: boolean }) {
   return (
     <div className="run-tab">
+      {run.decision && <DecisionPanel runId={run.id} decision={run.decision} />}
       <div className="statgrid">
         <div className="stat">
           <div className="microlabel">phases</div>
@@ -261,6 +263,7 @@ function PhaseRow({ p }: { p: PhaseView }) {
         ) : (
           <span className="chip">script</span>
         )}
+        {p.status === "skipped" && <span className="chip status skipped">skipped</span>}
         <span className="right num">
           {p.attempts > 1 && <span>att {p.attempts}</span>}
           {p.status === "running" ? (
