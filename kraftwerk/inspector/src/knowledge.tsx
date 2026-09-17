@@ -194,23 +194,7 @@ function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
       ) : (
         <div className="wiki">
           <aside className="wiki-side">
-            {groupByFolder(concepts).map(({ folder, concepts: list }) => (
-              <Fragment key={folder || "."}>
-                {folder && <div className="wiki-folder">{folder}/</div>}
-                {list.map((c) => (
-                  <Link
-                    key={c.id}
-                    href={`${base}/${c.id}`}
-                    className={`wiki-page ${c.id === selected ? "active" : ""}`}
-                    title={`${c.id}.md`}
-                  >
-                    <Icon name={typeIcon(c.type)} className="ms-sm" />
-                    <span className="wiki-page-title">{c.title}</span>
-                    {(c.stale || c.error) && <span className="wiki-dot" title={c.error ?? "stale"} />}
-                  </Link>
-                ))}
-              </Fragment>
-            ))}
+            <PageTree concepts={concepts} base={base} selected={selected} />
           </aside>
           <div className="wiki-main">
             {selected && <ConceptView key={selected} bundle={name} conceptId={selected} />}
@@ -219,17 +203,6 @@ function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
       )}
     </div>
   );
-}
-
-/** Leading icon (Material Symbol name) per OKF concept type. */
-function typeIcon(type?: string): string {
-  switch ((type ?? "").toLowerCase()) {
-    case "reference": return "article";
-    case "policy": return "gavel";
-    case "guide": case "howto": return "route";
-    case "decision": return "balance";
-    default: return "menu_book";
-  }
 }
 
 /* ---------- activity log ---------- */
@@ -311,16 +284,114 @@ function ActivityPanel({ name, log }: { name: string; log: string }) {
   );
 }
 
-/** Group concepts by their directory within the bundle, root first. */
-function groupByFolder(concepts: BundleDetail["concepts"]) {
-  const groups = new Map<string, BundleDetail["concepts"]>();
+/* ---------- page tree ---------- */
+
+type Concept = BundleDetail["concepts"][number];
+interface Folder {
+  name: string;
+  path: string;
+  folders: Folder[];
+  pages: Concept[];
+  /** Pages in this folder and every folder below it. */
+  total: number;
+}
+
+/** Nest concepts by their directory within the bundle; root pages first, folders sorted by name. */
+function buildTree(concepts: Concept[]): Folder {
+  const root: Folder = { name: "", path: "", folders: [], pages: [], total: 0 };
   for (const c of concepts) {
-    const folder = c.id.includes("/") ? c.id.slice(0, c.id.lastIndexOf("/")) : "";
-    (groups.get(folder) ?? groups.set(folder, []).get(folder)!).push(c);
+    const parts = c.id.split("/");
+    let node = root;
+    node.total++;
+    for (const part of parts.slice(0, -1)) {
+      let next = node.folders.find((f) => f.name === part);
+      if (!next) {
+        next = { name: part, path: node.path ? `${node.path}/${part}` : part, folders: [], pages: [], total: 0 };
+        node.folders.push(next);
+      }
+      node = next;
+      node.total++;
+    }
+    node.pages.push(c);
   }
-  return [...groups.keys()]
-    .sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)))
-    .map((folder) => ({ folder, concepts: groups.get(folder)! }));
+  const sort = (f: Folder) => {
+    f.folders.sort((a, b) => a.name.localeCompare(b.name));
+    f.pages.sort((a, b) => a.title.localeCompare(b.title));
+    f.folders.forEach(sort);
+  };
+  sort(root);
+  return root;
+}
+
+function PageTree({ concepts, base, selected }: { concepts: Concept[]; base: string; selected?: string }) {
+  const tree = useMemo(() => buildTree(concepts), [concepts]);
+  // Folders the user closed by hand; everything is open by default and the
+  // folder holding the selected page is forced open when the selection moves.
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!selected || !selected.includes("/")) return;
+    setClosed((prev) => {
+      const next = new Set(prev);
+      const parts = selected.split("/").slice(0, -1);
+      for (let i = 1; i <= parts.length; i++) next.delete(parts.slice(0, i).join("/"));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [selected]);
+  const toggle = (path: string) =>
+    setClosed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  return <TreeLevel folder={tree} base={base} selected={selected} closed={closed} toggle={toggle} />;
+}
+
+function TreeLevel({
+  folder, base, selected, closed, toggle,
+}: {
+  folder: Folder; base: string; selected?: string;
+  closed: Set<string>; toggle: (path: string) => void;
+}) {
+  return (
+    <>
+      {folder.pages.map((c) => (
+        <Link
+          key={c.id}
+          href={`${base}/${c.id}`}
+          className={`wiki-page ${c.id === selected ? "active" : ""}`}
+          title={`${c.id}.md`}
+        >
+          <span className="wiki-page-title">{c.title}</span>
+          {(c.stale || c.error) && <span className="wiki-dot" title={c.error ?? "stale"} />}
+        </Link>
+      ))}
+      {folder.folders.map((f) => {
+        const open = !closed.has(f.path);
+        const holdsSelected = !!selected && selected.startsWith(`${f.path}/`);
+        return (
+          <Fragment key={f.path}>
+            <button
+              type="button"
+              className={`wiki-folder ${open ? "open" : ""} ${holdsSelected && !open ? "holds" : ""}`}
+                  onClick={() => toggle(f.path)}
+              aria-expanded={open}
+              title={`${f.path}/`}
+            >
+              <Icon name="chevron_right" className="ms-sm wiki-folder-chev" />
+              <span className="wiki-folder-name">{f.name}</span>
+              <span className="wiki-folder-count num">{f.total}</span>
+            </button>
+            {open && (
+              <div className="wiki-branch">
+                <TreeLevel folder={f} base={base} selected={selected} closed={closed} toggle={toggle} />
+              </div>
+            )}
+          </Fragment>
+        );
+      })}
+    </>
+  );
 }
 
 /* ---------- concept ---------- */

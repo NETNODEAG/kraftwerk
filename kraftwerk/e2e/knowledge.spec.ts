@@ -27,3 +27,43 @@ test.describe("knowledge landing", () => {
     await expect(page.locator(".know-newbundle input")).toBeVisible();
   });
 });
+
+/** Bundle pages as a folder tree; the editor opens from the page (in-app route change) and closes back. */
+test.describe("knowledge page tree and editor", () => {
+  const NAME = "tree-probe";
+  test.afterAll(() => rmSync(path.join(fixture(), "knowledge", NAME), { recursive: true, force: true }));
+
+  test("nested pages sit under a collapsible folder, open in editor works without a reload", async ({ page, request }) => {
+    expect((await request.post("/api/knowledge", { data: { name: NAME } })).ok()).toBeTruthy();
+    const put = (id: string, title: string) =>
+      request.post(`/api/knowledge/${NAME}/concept?id=${encodeURIComponent(id)}`, {
+        data: { id, content: `---\ntype: Note\ntitle: ${title}\n---\n\n# ${title}\n\nbody\n` },
+      });
+    expect((await put("overview", "Overview")).ok()).toBeTruthy();
+    expect((await put("stack/frontend", "Frontend stack")).ok()).toBeTruthy();
+
+    await page.goto(`/#/knowledge/${NAME}/stack/frontend`);
+    const folder = page.locator(".wiki-folder", { hasText: "stack" });
+    await expect(folder).toHaveClass(/open/);
+    await expect(page.locator(".wiki-branch .wiki-page.active")).toHaveText("Frontend stack");
+
+    // Collapsing hides the pages; the folder still marks that it holds the open page.
+    await folder.click();
+    await expect(page.locator(".wiki-branch")).toHaveCount(0);
+    await expect(folder).toHaveClass(/holds/);
+    await folder.click();
+    await expect(page.locator(".wiki-branch .wiki-page")).toHaveCount(1);
+
+    // Editor via the in-page link: a hash change, not a page load (regression: hooks after App's early return).
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.locator("a", { hasText: "open in editor" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/edit/${NAME}/stack/frontend`));
+    await expect(page.locator(".editor-screen .editor-title")).toHaveText("Frontend stack");
+    expect(errors).toEqual([]);
+
+    await page.locator(".editor-close").click();
+    await expect(page).toHaveURL(new RegExp(`#/knowledge/${NAME}/stack/frontend`));
+    await expect(page.locator(".wiki-page.active")).toHaveText("Frontend stack");
+  });
+});

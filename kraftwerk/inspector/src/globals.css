@@ -1785,35 +1785,46 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .tabs a + a { border-left: 1px solid var(--outline-variant); }
 .tabs a:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); color: var(--on-surface); }
 .tabs a.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 600; }
-.wiki { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+.wiki { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
 .wiki-side {
   position: sticky; top: calc(var(--topbar-h) + 18px);
   max-height: calc(100vh - var(--topbar-h) - 36px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 1px; padding: 6px 0 6px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 0 6px;
   border-right: 1px solid color-mix(in srgb, var(--outline-variant) 70%, transparent);
-  padding-right: 10px;
+  padding-right: 12px;
 }
 .wiki-folder {
-  font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: 0.04em;
-  color: var(--on-surface-variant); padding: 12px 10px 4px;
+  display: flex; align-items: center; gap: 4px; width: 100%;
+  margin: 10px 0 2px; padding: 4px 8px 4px 2px;
+  border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--on-surface-variant); line-height: 1.3;
+  transition: color 100ms ease;
 }
-.wiki-folder:first-child { padding-top: 4px; }
+.wiki-folder:hover { color: var(--on-surface); }
+.wiki-folder .ms-sm { color: var(--on-surface-variant); flex: none; font-size: 16px; }
+.wiki-folder-chev { transition: transform 140ms ease; }
+.wiki-folder.open .wiki-folder-chev { transform: rotate(90deg); }
+.wiki-folder.holds { color: var(--primary); }
+.wiki-folder.holds .ms-sm { color: var(--primary); }
+.wiki-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiki-folder-count {
+  font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--on-surface-variant); opacity: 0.7;
+}
+.wiki-branch {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-left: 9px; padding-left: 4px;
+  border-left: 1px solid color-mix(in srgb, var(--outline-variant) 80%, transparent);
+}
 .wiki-page {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: 12px; text-decoration: none;
-  color: var(--on-surface); font-size: 13px; line-height: 1.3;
+  padding: 6px 10px; border-radius: 10px; text-decoration: none;
+  color: var(--on-surface); font-size: 13px; line-height: 1.35;
   transition: background 100ms ease;
 }
-.wiki-page .ms-sm { color: var(--on-surface-variant); flex: none; }
 .wiki-page:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
 .wiki-page.active { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 500; }
-.wiki-page.active .ms-sm { color: var(--on-secondary-container); }
-.wiki-page-title {
-  flex: 1; min-width: 0; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-}
-.wiki-page { align-items: flex-start; }
-.wiki-page .ms-sm { margin-top: 1px; }
+.wiki-page-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wiki-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--error); flex: none; }
 .wiki-main { min-width: 0; }
 .concept-md a { color: var(--primary); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent); text-underline-offset: 2px; }
@@ -1823,6 +1834,7 @@ a.m3-row:hover .m3-head { color: var(--primary); }
   .wiki { grid-template-columns: 1fr; }
   .wiki-side { position: static; max-height: none; border-right: 0; padding-right: 0; flex-direction: row; flex-wrap: wrap; gap: 4px; }
   .wiki-folder { width: 100%; }
+  .wiki-branch { width: 100%; margin-left: 0; border-left: 0; flex-direction: row; flex-wrap: wrap; gap: 4px; }
 }
 .know-log-row { display: flex; gap: 10px; padding: 4px 18px; align-items: baseline; }
 .know-log-text { font-size: 12.5px; color: var(--on-surface-variant); line-height: 1.55; min-width: 0; overflow-wrap: break-word; }

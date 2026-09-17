@@ -2,7 +2,21 @@ import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 
 import type { GitStatus, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
 import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 // Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
-const EditorScreen = lazy(() => import("./editor").then((m) => ({ default: m.EditorScreen })));
+// A rebuild while the app is open replaces the hashed chunk, so the import
+// fails once; reload to pick up the new build instead of a dead editor link.
+const EditorScreen = lazy(() =>
+  import("./editor")
+    .then((m) => ({ default: m.EditorScreen }))
+    .catch((err) => {
+      const key = "kw-chunk-reload";
+      if (sessionStorage.getItem(key) !== location.hash) {
+        sessionStorage.setItem(key, location.hash);
+        location.reload();
+        return new Promise<never>(() => {});
+      }
+      throw err;
+    })
+);
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -138,22 +152,6 @@ export function App() {
     );
   } else screen = <DashboardScreen />;
 
-  // Document editor mode: nothing but the editor.
-  if (seg[0] === "edit" && seg[1] && seg.length > 2) {
-    return (
-      <Suspense fallback={<div className="empty">loading editor…</div>}>
-        <EditorScreen
-          key={seg.slice(1).join("/")}
-          bundle={decodeURIComponent(seg[1])}
-          conceptId={seg.slice(2).map(decodeURIComponent).join("/")}
-        />
-      </Suspense>
-    );
-  }
-
-  // M3 selected destination: the nav entry whose screens include the current route.
-  const navCls = (...routes: string[]) => (routes.includes(seg[0] ?? "") ? "active" : "");
-
   // The workspace colour is the accent: derive the primary roles from it and
   // hand them to the stylesheet ([data-ws-accent] in globals.css). Set only
   // once the project is known, so the default accent shows until then instead
@@ -169,6 +167,23 @@ export function App() {
     for (const [k, v] of Object.entries(pal)) el.style.setProperty(k, v);
     el.dataset.wsAccent = "";
   }, [projectColor, projectRootAbs, projectName]);
+
+  // Document editor mode: nothing but the editor. Every hook of App must
+  // run before this early return (React keeps the hook order per render).
+  if (seg[0] === "edit" && seg[1] && seg.length > 2) {
+    return (
+      <Suspense fallback={<div className="empty">loading editor…</div>}>
+        <EditorScreen
+          key={seg.slice(1).join("/")}
+          bundle={decodeURIComponent(seg[1])}
+          conceptId={seg.slice(2).map(decodeURIComponent).join("/")}
+        />
+      </Suspense>
+    );
+  }
+
+  // M3 selected destination: the nav entry whose screens include the current route.
+  const navCls = (...routes: string[]) => (routes.includes(seg[0] ?? "") ? "active" : "");
 
   return (
     <>
