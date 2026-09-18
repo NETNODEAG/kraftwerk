@@ -12,6 +12,15 @@
   --text-2: #64615a;
   --ink: #1d1c1a;
   --on-ink: #ffffff;
+  /*
+   * The one accent: what starts something (primary buttons, play) and the
+   * headings you navigate by. A violet, because every other hue here already
+   * means something — green done, red failed, amber needs you, blue working.
+   * 6.7:1 under white text, 6.1:1 as text on the page.
+   */
+  --accent: #5b3fd6;
+  --accent-hover: #4a30bd;
+  --on-accent: #ffffff;
   --ok: #1f7a4d;
   --bad: #b3261e;
   --ask: #9a5b00;
@@ -33,6 +42,9 @@
     --text-2: #a3a099;
     --ink: #ecebe7;
     --on-ink: #151514;
+    --accent: #a996ff;
+    --accent-hover: #bcadff;
+    --on-accent: #151514;
     --ok: #5fc48f;
     --bad: #f2867e;
     --ask: #e5ac52;
@@ -107,8 +119,13 @@ button.quiet {
 }
 
 button.primary {
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+button.primary:hover:not(:disabled),
+button.icon-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 button.quiet {
@@ -320,7 +337,7 @@ textarea:focus {
   padding: 10px 10px 4px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -707,12 +724,8 @@ button.icon:hover:not(:disabled) {
 button.icon-primary,
 button.icon-primary:hover:not(:disabled) {
   border-color: transparent;
-  background: var(--ink);
-  color: var(--on-ink);
-}
-
-button.icon-primary svg {
-  margin-left: 2px; /* a play triangle looks centred a little right of centre */
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .wf-broken,
@@ -1070,7 +1083,7 @@ button.menu-edit {
 
 .check input {
   cursor: pointer;
-  accent-color: var(--ink);
+  accent-color: var(--accent);
 }
 
 .advanced summary {
@@ -1181,7 +1194,7 @@ button.menu-edit {
 
 .tab[aria-selected="true"] {
   background: var(--surface);
-  color: var(--text);
+  color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
@@ -1273,7 +1286,7 @@ button.menu-edit {
   }
 
   .place[aria-current="page"] {
-    color: var(--text);
+    color: var(--accent);
     background: var(--surface-2);
   }
 
@@ -1313,7 +1326,7 @@ button.menu-edit {
   padding: 10px 10px 4px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-2);
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1383,6 +1396,10 @@ button.menu-edit {
 .targets .panel-head {
   padding: 0 10px;
   border-bottom: 0;
+}
+
+.targets .panel-head h2 {
+  color: var(--accent);
 }
 
 .targets-list {
@@ -1522,6 +1539,57 @@ button.icon {
 .modal-link {
   margin-right: auto;
   align-self: center;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* ---------- @-mentions: a list that opens above the composer ---------- */
+
+.composer {
+  position: relative;
+}
+
+.mentions {
+  position: absolute;
+  z-index: 5;
+  left: 20px;
+  bottom: calc(100% - 6px);
+  width: min(320px, calc(100% - 40px));
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.14);
+}
+
+.mention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-s);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.mention[aria-selected="true"] {
+  background: var(--surface-2);
+}
+
+.mention-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-slug {
+  margin-left: auto;
+  padding-left: 8px;
   font-size: 13px;
   color: var(--text-2);
 }

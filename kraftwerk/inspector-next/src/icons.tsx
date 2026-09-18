@@ -1,6 +1,12 @@
+/**
+ * A triangle looks centred when its centre of mass is, not its bounding box:
+ * its corners sit at x 7.8, 7.8 and 20.4, which averages to 12, the middle of
+ * the 24-unit box (and y 4.6 to 19.4 is symmetric around 12). The centring
+ * lives in the drawing, so no button has to nudge it.
+ */
 export const PlayIcon = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" />
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden style={{ display: "block" }}>
+    <path d="M7.8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72l-10.5-6.5a1 1 0 0 0-1.5.86Z" fill="currentColor" />
   </svg>
 );
 

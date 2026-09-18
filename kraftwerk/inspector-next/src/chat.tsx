@@ -22,6 +22,7 @@ import { AgentModal } from "./agent-modal";
 import { ChannelModal } from "./channel-modal";
 import { Markdown } from "./markdown";
 import { useMedia } from "./menu";
+import { useMentions } from "./mentions";
 import { GENERAL, SessionPicker, TargetPicker, TargetSidebar, channelOf, channelTarget, isSessionOf } from "./pickers";
 import { RUN_MARK, runEnded, runLine, runReport, type UiRun } from "./runs";
 
@@ -384,6 +385,13 @@ export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettle
       });
   }, [ready, runs, busy, pending, outputDir, post, onSettled]);
 
+  // In a channel "@" completes to the agents in it (the server wakes an agent by @<slug>).
+  const mentionable = useMemo(
+    () => (channel?.members ?? []).map((slug) => ({ slug, name: agents.find((a) => a.slug === slug)?.name ?? slug, emoji: agents.find((a) => a.slug === slug)?.emoji })),
+    [channel, agents]
+  );
+  const mentions = useMentions({ enabled: inChannel, people: mentionable, value: draft, setValue: setDraft, field: composer });
+
   // Wide screens have room for a third column: who can be talked to stands
   // open beside the chat, and the title stops being a dropdown.
   const wide = useMedia("(min-width: 1320px)");
@@ -616,14 +624,18 @@ export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettle
             void send();
           }}
         >
+          {mentions.list}
           <textarea
             ref={composer}
             value={draft}
             rows={1}
-            placeholder={inChannel ? "Message… @mention who should answer" : "Message…"}
+            placeholder={inChannel ? "Message… type @ to mention who should answer" : "Message…"}
             aria-label="Message"
+            {...mentions.fieldProps}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              // While the mention list is open, Enter picks from it and does not send.
+              if (mentions.handleKey(e)) return;
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void send();
