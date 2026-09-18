@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { getMeta, startWorkspace, type Meta, type SwitcherEntry } from "./api";
+import { useState, type CSSProperties } from "react";
+import { getMeta, instanceOrigin, startWorkspace, type Meta, type SwitcherEntry } from "./api";
+import { useMenu } from "./menu";
 
 /** Same seed → hue hash as the inspector, so a workspace keeps its colour in both UIs. */
 function workspaceColor(color: string | undefined, seed: string): string {
@@ -43,6 +44,12 @@ async function startAndWait(root: string): Promise<string> {
   throw new Error("started, but it does not answer yet");
 }
 
+const host = (url: string): string => url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+
+/** Where a workspace is: its folder, and its address while it has one. A stopped one only remembers its last port. */
+const whereabouts = (rootLabel: string | undefined, url: string, running: boolean): string =>
+  [rootLabel, running || !rootLabel ? host(url) : ""].filter(Boolean).join(" · ");
+
 function Tile({ icon, name, color }: { icon?: string; name: string; color: string }) {
   return (
     <span className="ws-tile" style={{ "--ws-c": color } as CSSProperties} aria-hidden>
@@ -75,7 +82,7 @@ function Entry({ entry }: { entry: SwitcherEntry }) {
       <Tile icon={entry.icon} name={entry.name} color={workspaceColor(entry.color, entry.root ?? entry.url)} />
       <span className="switcher-text">
         <span className="switcher-name">{entry.name}</span>
-        <span className="switcher-sub">{error || entry.rootLabel || entry.url.replace(/^https?:\/\//, "")}</span>
+        <span className="switcher-sub">{error || whereabouts(entry.rootLabel, entry.url, entry.live === true)}</span>
       </span>
       <span className="switcher-state">
         {missing ? "folder missing" : state === "starting" ? "starting…" : stopped ? "start" : entry.live ? "running" : "open"}
@@ -85,22 +92,7 @@ function Entry({ entry }: { entry: SwitcherEntry }) {
 }
 
 export function Switcher({ meta }: { meta: Meta }) {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const { open, setOpen, wrap } = useMenu<HTMLSpanElement>();
 
   const color = workspaceColor(meta.projectColor, meta.projectRoot || meta.projectName);
   const groups = [
@@ -124,6 +116,14 @@ export function Switcher({ meta }: { meta: Meta }) {
       </button>
       {open && (
         <div className="switcher-pop" role="menu">
+          <div className="switcher-item switcher-self" aria-current="true">
+            <Tile icon={meta.projectIcon} name={meta.projectName} color={color} />
+            <span className="switcher-text">
+              <span className="switcher-name">{meta.projectName}</span>
+              <span className="switcher-sub">{whereabouts(meta.projectRootLabel, instanceOrigin(), true)}</span>
+            </span>
+            <span className="switcher-state">this one</span>
+          </div>
           {groups.length === 0 && <div className="switcher-empty">No other workspaces on this machine yet.</div>}
           {groups.map((g) => (
             <div key={g.label} role="group" aria-label={g.label}>

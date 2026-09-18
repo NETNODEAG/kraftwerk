@@ -7,28 +7,20 @@ import {
   type RunListItem,
   type WorkflowSummary,
 } from "./api";
+import { EditIcon, PlayIcon } from "./icons";
+import { Modal } from "./modal";
+import { AddWorkflowModal, WorkflowModal } from "./workflow-modal";
 import { runLine, type UiRun } from "./runs";
-
-const PlayIcon = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-    <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" fill="currentColor" />
-  </svg>
-);
-
-const EditIcon = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17l-1 3Z" />
-    <path d="m14.5 7.5 3 3" />
-  </svg>
-);
 
 function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
   workflow: WorkflowSummary;
   sandbox: boolean;
   lastRun?: RunListItem;
   onLaunched: (run: UiRun) => void;
-  onEdit: () => void;
+  /** The change asked for in the workflow's modal, in the user's words. */
+  onEdit: (change: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState(false);
   const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
@@ -56,16 +48,20 @@ function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
       <div className="wf-head">
         <h3>{workflow.name || workflow.slug}</h3>
         <div className="wf-actions">
-          <button className="icon" title="Edit in the chat" aria-label={`Edit ${workflow.name || workflow.slug} in the chat`} onClick={onEdit}>
+          <button className="icon" title="Edit" aria-label={`Edit ${workflow.name || workflow.slug}`} onClick={() => setEditing(true)}>
             <EditIcon />
           </button>
-          {!workflow.error && !asking && (
+          {!workflow.error && (
             <button
               className="icon icon-primary"
               title={workflow.usesRequest ? "Run…" : "Run"}
               aria-label={`Run ${workflow.name || workflow.slug}`}
               disabled={busy}
-              onClick={() => (workflow.usesRequest ? setAsking(true) : void launch())}
+              onClick={() => {
+                setError("");
+                if (workflow.usesRequest) setAsking(true);
+                else void launch();
+              }}
             >
               <PlayIcon />
             </button>
@@ -80,40 +76,60 @@ function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
       )}
 
       {asking && (
-        <form
-          className="wf-ask"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (request.trim()) void launch();
-          }}
+        <Modal
+          title={`Run ${workflow.name || workflow.slug}`}
+          onClose={() => setAsking(false)}
+          onSubmit={() => request.trim() && !busy && void launch()}
+          footer={
+            <>
+              <button type="button" className="quiet" onClick={() => setAsking(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={busy || !request.trim()}>
+                {busy ? "Starting…" : "Run"}
+              </button>
+            </>
+          }
         >
-          <textarea
-            autoFocus
-            rows={2}
-            value={request}
-            placeholder="What should it work on? (a URL, a topic, a text …)"
-            aria-label={`Request for ${workflow.name || workflow.slug}`}
-            onChange={(e) => setRequest(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setAsking(false);
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim()) void launch();
-            }}
-          />
-          <div className="wf-ask-actions">
-            <button type="button" className="quiet" onClick={() => setAsking(false)}>
-              Cancel
-            </button>
-            <button type="submit" className="primary" disabled={busy || !request.trim()}>
-              {busy ? "Starting…" : "Run"}
-            </button>
+          <div className="modal-fields">
+            {workflow.description && <p className="wf-desc">{workflow.description}</p>}
+            <label className="field">
+              <span>What should it work on?</span>
+              <p className="field-hint">A URL, a topic, a text — whatever this workflow takes. You can follow the run in the chat.</p>
+              <textarea
+                autoFocus
+                rows={4}
+                value={request}
+                onChange={(e) => setRequest(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && request.trim() && !busy) void launch();
+                }}
+              />
+            </label>
+            {error && (
+              <p className="panel-error" role="alert">
+                {error}
+              </p>
+            )}
           </div>
-        </form>
+        </Modal>
       )}
 
-      {error && (
+      {error && !asking && (
         <p className="wf-error" role="alert">
           {error}
         </p>
+      )}
+
+      {editing && (
+        <WorkflowModal
+          workflow={workflow}
+          onClose={() => setEditing(false)}
+          onRequestChange={(change) => {
+            setEditing(false);
+            onEdit(change);
+          }}
+        />
       )}
 
       {status && lastRun && (
@@ -127,45 +143,67 @@ function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
   );
 }
 
-export function Workflows({ runs, onLaunched, onEdit }: {
+export function Workflows({ runs, onLaunched, onEdit, onAdd }: {
   runs: RunListItem[];
   onLaunched: (run: UiRun) => void;
-  /** Editing happens in the chat: hands over the workflow's name and its absolute folder. */
-  onEdit: (name: string, folder: string) => void;
+  /** A change asked for in a workflow's modal: its name, its absolute folder, the change in words. */
+  onEdit: (name: string, folder: string, change: string) => void;
+  /** A new workflow asked for in words, and the absolute folder the workflows live in. */
+  onAdd: (spec: string, root: string) => void;
 }) {
+  const [adding, setAdding] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null);
   const [root, setRoot] = useState("");
   const [sandbox, setSandbox] = useState(false);
   const [error, setError] = useState("");
 
+  // Workflows are added and changed by an agent in the chat, outside this
+  // component: the list is read again every so often and when the window is
+  // looked at again, so a new one appears without a reload.
   useEffect(() => {
     let alive = true;
-    listWorkflows()
-      .then(({ root, workflows: w }) => {
-        if (!alive) return;
-        setWorkflows(w);
-        setRoot(root ?? "");
-        // No usable sandbox means a local run, as in the inspector — Run! is never dead on arrival.
-        if (w[0]) void sandboxReady(w[0].slug).then((ok) => alive && setSandbox(ok));
-      })
-      .catch((err: Error) => alive && setError(err.message));
+    const load = () =>
+      listWorkflows()
+        .then(({ root, workflows: w }) => {
+          if (!alive) return;
+          setWorkflows(w);
+          setRoot(root ?? "");
+          setError("");
+        })
+        .catch((err: Error) => alive && setError(err.message));
+    void load();
+    const timer = setInterval(load, 15_000);
+    window.addEventListener("focus", load);
     return () => {
       alive = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", load);
     };
   }, []);
 
+  // No usable sandbox means a local run, as in the inspector — the play button is never dead on arrival.
+  const first = workflows?.[0]?.slug;
+  useEffect(() => {
+    let alive = true;
+    if (first) void sandboxReady(first).then((ok) => alive && setSandbox(ok));
+    return () => {
+      alive = false;
+    };
+  }, [first]);
+
   return (
-    <section className="panel workflows" aria-label="Workflows">
-      <header className="panel-head">
-        <h2>Workflows</h2>
-      </header>
+    <>
       {error && (
         <div className="panel-error" role="alert">
           {error}
         </div>
       )}
-      {workflows?.length === 0 && <p className="panel-empty">This workspace has no workflows yet.</p>}
       <ul className="wf-list">
+        <li>
+          <button className="add-card" onClick={() => setAdding(true)}>
+            <span aria-hidden>＋</span> Add workflow
+          </button>
+        </li>
         {workflows?.map((w) => (
           <WorkflowCard
             key={w.slug}
@@ -174,10 +212,20 @@ export function Workflows({ runs, onLaunched, onEdit }: {
             // Runs come newest first; a run knows its workflow by name.
             lastRun={runs.find((r) => r.workflow === (w.name || w.slug))}
             onLaunched={onLaunched}
-            onEdit={() => onEdit(w.name || w.slug, root ? `${root}/${w.slug}` : w.slug)}
+            onEdit={(change) => onEdit(w.name || w.slug, root ? `${root}/${w.slug}` : w.slug, change)}
           />
         ))}
+        {workflows?.length === 0 && <li className="panel-empty">This workspace has no workflows yet.</li>}
       </ul>
-    </section>
+      {adding && (
+        <AddWorkflowModal
+          onClose={() => setAdding(false)}
+          onRequest={(spec) => {
+            setAdding(false);
+            onAdd(spec, root);
+          }}
+        />
+      )}
+    </>
   );
 }
