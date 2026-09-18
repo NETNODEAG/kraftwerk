@@ -1,0 +1,5 @@
+name: mex2
+members:
+  - max
+responder: max
+maxHops: 3

@@ -1,0 +1,5 @@
+name: Dev team
+members:
+  - frontend
+  - backend
+maxHops: 3

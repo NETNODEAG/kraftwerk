@@ -1,0 +1,6 @@
+name: Test channel
+members:
+  - max
+  - netnode-only
+responder: max
+maxHops: 3

@@ -4,5 +4,13 @@ description: Workflow Runner
 harness: claude
 model: sonnet
 effort: medium
-workflows: []
+workflows:
+  - article-review
+  - changelog
+  - website-check
+  - tagline
 knowledge: []
+repos: []
+sandbox:
+  workspace: ro
+  memory: 2g
