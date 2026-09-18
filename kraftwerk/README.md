@@ -192,7 +192,9 @@ run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
 `public:` and `tunnel:` expose the inspector through a
-[Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel).
+[Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel). `cloud:`
+registers the instance with the
+[kraftwerk cloud](#inspector-in-the-kraftwerk-cloud).
 
 A `.env` next to kraftwerk.yml (`KEY=value` lines, `#` comments, quotes)
 is loaded into every kraftwerk process at start: `kraftwerk ui` and the
@@ -403,6 +405,32 @@ hostname has no Access application, or `team`/`aud` do not match it.
 Quick tunnels (`trycloudflare.com`) are deliberately not supported: Access
 cannot be attached to them, which would leave the UI open to anyone with
 the URL.
+
+### Inspector in the kraftwerk cloud
+
+The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the internet: every
+instance that carries a `cloud:` block registers there when `kraftwerk ui`
+starts and sends a heartbeat while it runs, so an admin sees every running
+instance across machines, and a signed-in user sees their own.
+
+```yaml
+cloud:
+  url: https://kraftwerk.start   # default
+  token: kwc_…                   # optional: account token from the cloud UI
+  interval: 60                   # seconds between heartbeats (default 60)
+```
+
+Without a token the instance registers anonymously and is visible to cloud
+admins only. With one (minted under "My instances" in the cloud UI; the
+`KRAFTWERK_CLOUD_TOKEN` environment variable or `.env` keeps it out of git)
+it shows up under that kraftwerk account. The record carries the workspace
+name, icon and colour, the machine, the root, the version, the public URL
+if there is one, and the agent and channel roster. The identity the cloud
+hands out lives under `~/.kraftwerk/cloud/`, so a restart updates the record
+rather than creating a new one; a cloud that lost its data hands out a fresh
+identity on the next heartbeat. Registration is best-effort: a cloud that is
+down never affects the UI, and `/api/meta` reports the connection state.
+`kraftwerk doctor` prints what the block will do.
 
 ## Projects
 

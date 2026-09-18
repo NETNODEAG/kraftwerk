@@ -204,6 +204,35 @@
           }
         }
       }
+    },
+    "cloud": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "kraftwerk cloud manager this instance registers with on start and heartbeats while it runs — ~/.kraftwerk made reachable over the internet. Absent = feature off, a bare `cloud:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "Origin of the cloud manager. Default: https://kraftwerk.start"
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "Account token minted under \"My instances\" in the cloud UI; the instance then shows up under that kraftwerk account. The KRAFTWERK_CLOUD_TOKEN environment variable wins over this key (keeps the token out of git)"
+        },
+        "interval": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds between heartbeats. Default: 60 (the cloud may raise it)"
+        }
+      }
     }
   }
 }
