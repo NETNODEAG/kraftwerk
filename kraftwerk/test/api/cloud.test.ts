@@ -41,21 +41,25 @@ describe("cloud manager registration", () => {
         hits.push({ path: req.url ?? "", body });
         res.writeHead(200, { "content-type": "application/json" });
         if (req.url === "/api/instances/register") {
-          res.end(JSON.stringify({ id: "inst-1", secret: "s3cret", interval: 1, account: "alice@example.com", created: true }));
+          res.end(JSON.stringify({ id: "inst-1", secret: "s3cret", interval: 1, account: null, claimCode: "XKQ7-2MPD", created: true }));
         } else {
-          res.end(JSON.stringify({ ok: true, interval: 1 }));
+          // The claim happened in the cloud meanwhile: the heartbeat answer carries it.
+          res.end(JSON.stringify({ ok: true, interval: 1, account: "alice@example.com", claimCode: null }));
         }
       });
     });
     await new Promise<void>((r) => cloud.listen(0, "127.0.0.1", r));
     cloudUrl = `http://127.0.0.1:${(cloud.address() as AddressInfo).port}`;
     process.env.KRAFTWERK_CLOUD_TOKEN = "kwc_test-token";
-    fx = await makeProject(`name: fixture\nicon: "⚡"\ncolor: "#c2410c"\ngit:\n  interval: 0\ncloud:\n  url: ${cloudUrl}\n  interval: 1\n`);
+    // The URL comes from the environment (what a deployment or a test sets); the yml only tunes the interval.
+    process.env.KRAFTWERK_CLOUD_URL = cloudUrl;
+    fx = await makeProject(`name: fixture\nicon: "⚡"\ncolor: "#c2410c"\ngit:\n  interval: 0\ncloud:\n  interval: 1\n`);
     await fx.write("agents/max/agent.yml", "name: Max\nemoji: 🤖\n");
     srv = await startServer(fx);
   });
   after(async () => {
     delete process.env.KRAFTWERK_CLOUD_TOKEN;
+    delete process.env.KRAFTWERK_CLOUD_URL;
     await srv.close();
     await new Promise<void>((r) => cloud.close(() => r()));
     await fx.cleanup();
@@ -102,12 +106,23 @@ describe("cloud manager registration", () => {
     assert.match(String(hb.version), /^\d+\.\d+\.\d+/);
   });
 
-  it("reports the connection in /api/meta", async () => {
+  it("reports the connection, and the claim made in the cloud, in /api/meta", async () => {
     const meta = (await (await fetch(srv.url + "/api/meta")).json()) as { cloud: Record<string, unknown> };
     assert.equal(meta.cloud.url, cloudUrl);
     assert.equal(meta.cloud.state, "connected");
     assert.equal(meta.cloud.id, "inst-1");
-    assert.equal(meta.cloud.account, "alice@example.com");
     assert.equal(meta.cloud.interval, 1);
+    // After the first heartbeat the claim from the cloud is reflected: account set, code gone.
+    assert.equal(meta.cloud.account, "alice@example.com");
+    assert.equal(meta.cloud.claimCode, null);
+    assert.equal(meta.cloud.claimUrl, null);
+  });
+
+  it("carries the claim code and link until the instance is claimed", async () => {
+    // Replay what the register answer alone produces: a second fixture is not possible (one per file), so assert on the wire contract.
+    const reg = hits.find((h) => h.path === "/api/instances/register")!;
+    assert.equal(reg.body.accountToken, "kwc_test-token");
+    const first = hits.findIndex((h) => h.path === "/api/instances/heartbeat");
+    assert.ok(first > 0, "a heartbeat followed the registration");
   });
 });

@@ -72,6 +72,8 @@ export interface RunningServer {
  */
 export async function startServer(fx: Fixture): Promise<RunningServer> {
   process.env.HOME = fx.home;
+  // The cloud is on by default; a fixture must never register with the real one. A test that wants the client sets its own URL first.
+  process.env.KRAFTWERK_CLOUD_URL ??= "off";
   const { startInspector } = await import("../../src/inspector/server.js");
   const server = await startInspector({
     outputDir: path.join(fx.root, "output"),

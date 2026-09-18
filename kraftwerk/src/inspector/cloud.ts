@@ -39,6 +39,10 @@ export interface CloudStatus {
   /** Effective seconds between heartbeats (the cloud may raise the configured one). */
   interval?: number;
   lastSeen?: string;
+  /** XXXX-XXXX the user types into the cloud UI to claim this instance; null once claimed. */
+  claimCode?: string | null;
+  /** The cloud page that claims this instance after sign-in. */
+  claimUrl?: string | null;
 }
 
 interface Identity {
@@ -51,8 +55,18 @@ interface RegisterResponse {
   secret: string;
   interval: number;
   account: string | null;
+  claimCode?: string | null;
   created: boolean;
 }
+
+interface HeartbeatResponse {
+  ok: true;
+  interval: number;
+  account?: string | null;
+  claimCode?: string | null;
+}
+
+const claimUrlFor = (url: string, code: string | null | undefined): string | null => (code ? `${url}/claim/${encodeURIComponent(code)}` : null);
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const GOODBYE_TIMEOUT_MS = 800;
@@ -148,7 +162,10 @@ async function register(): Promise<boolean> {
       identity = { id: r.id, secret: r.secret };
       await writeIdentity(file, cloud.url, project.root, identity);
     }
-    status = { url: cloud.url, state: "connected", id: r.id, account: r.account, interval: r.interval, lastSeen: new Date().toISOString() };
+    status = {
+      url: cloud.url, state: "connected", id: r.id, account: r.account, interval: r.interval, lastSeen: new Date().toISOString(),
+      claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(cloud.url, r.claimCode),
+    };
     return true;
   } catch (err) {
     status = { url: cloud.url, state: "error", error: (err as Error).message, ...(identity ? { id: identity.id } : {}) };
@@ -166,9 +183,13 @@ async function heartbeat(): Promise<void> {
     ...(rosterNow !== lastRoster ? { agents, channels } : {}),
   };
   try {
-    const r = await post<{ ok: true; interval: number }>(`${status.url}/api/instances/heartbeat`, body);
+    const r = await post<HeartbeatResponse>(`${status.url}/api/instances/heartbeat`, body);
     lastRoster = rosterNow;
-    status = { ...status, state: "connected", error: undefined, interval: r.interval, lastSeen: new Date().toISOString() };
+    status = {
+      ...status, state: "connected", error: undefined, interval: r.interval, lastSeen: new Date().toISOString(),
+      ...(r.account !== undefined ? { account: r.account } : {}),
+      ...(r.claimCode !== undefined ? { claimCode: r.claimCode, claimUrl: claimUrlFor(status.url, r.claimCode) } : {}),
+    };
   } catch (err) {
     const message = (err as Error).message;
     status = { ...status, state: "error", error: message };

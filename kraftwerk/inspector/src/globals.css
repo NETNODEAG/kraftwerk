@@ -2359,3 +2359,10 @@ form.empty-action .settings-note { max-width: 52ch; }
 .decision-panel .m3-actions { margin-top: 0; justify-content: flex-start; }
 .chip.decision { border-color: transparent; background: var(--primary-container); color: var(--on-primary-container); }
 .board-card .chip.decision { display: inline-block; margin-top: 8px; }
+
+/* ---------- settings: cloud claim ---------- */
+.cloud-claim { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 4px 0 8px; }
+.cloud-claim-code {
+  font-size: 24px; letter-spacing: 0.12em; padding: 8px 16px; border-radius: 12px;
+  background: var(--secondary-container); color: var(--on-secondary-container);
+}

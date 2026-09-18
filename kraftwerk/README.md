@@ -193,8 +193,8 @@ run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
 `public:` and `tunnel:` expose the inspector through a
 [Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel). `cloud:`
-registers the instance with the
-[kraftwerk cloud](#inspector-in-the-kraftwerk-cloud).
+tunes (or turns off) the registration with the
+[kraftwerk cloud](#inspector-in-the-kraftwerk-cloud), which is on by default.
 
 A `.env` next to kraftwerk.yml (`KEY=value` lines, `#` comments, quotes)
 is loaded into every kraftwerk process at start: `kraftwerk ui` and the
@@ -408,29 +408,36 @@ the URL.
 
 ### Inspector in the kraftwerk cloud
 
-The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the internet: every
-instance that carries a `cloud:` block registers there when `kraftwerk ui`
-starts and sends a heartbeat while it runs, so an admin sees every running
-instance across machines, and a signed-in user sees their own.
+The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the
+internet: every `kraftwerk ui` registers there when it starts and sends a
+heartbeat while it runs, so you can see from anywhere which of your
+workspaces are up, on which machine, with which agents — and an admin sees
+every instance at once. **This is on by default.** The record carries the
+workspace name, icon and colour, the machine, the root, the version, the
+public URL if there is one, and the agent and channel roster. Registration
+is best-effort: a cloud that is down never affects the UI.
+
+No key goes into kraftwerk.yml. The cloud hands the instance an identity
+(kept under `~/.kraftwerk/cloud/`, so a restart updates the record) and a
+**claim code**, shown under Settings → Cloud in the UI. Sign in at the
+cloud, type the code (or follow the "claim in the cloud" link), and the
+workspace appears under *My instances*; the instance learns about the claim
+with its next heartbeat.
 
 ```yaml
 cloud:
-  url: https://kraftwerk.start   # default
-  token: kwc_…                   # optional: account token from the cloud UI
-  interval: 60                   # seconds between heartbeats (default 60)
+  url: https://srv.kraftwerk-cloud.netnode.cloud   # default
+  interval: 60                                     # seconds between heartbeats (default 60)
+  enabled: false                                   # opt out of the cloud for this workspace
 ```
 
-Without a token the instance registers anonymously and is visible to cloud
-admins only. With one (minted under "My instances" in the cloud UI; the
-`KRAFTWERK_CLOUD_TOKEN` environment variable or `.env` keeps it out of git)
-it shows up under that kraftwerk account. The record carries the workspace
-name, icon and colour, the machine, the root, the version, the public URL
-if there is one, and the agent and channel roster. The identity the cloud
-hands out lives under `~/.kraftwerk/cloud/`, so a restart updates the record
-rather than creating a new one; a cloud that lost its data hands out a fresh
-identity on the next heartbeat. Registration is best-effort: a cloud that is
-down never affects the UI, and `/api/meta` reports the connection state.
-`kraftwerk doctor` prints what the block will do.
+`KRAFTWERK_CLOUD_URL` in the environment wins over the file (`off` turns the
+feature off everywhere — what the test suites set). A server that starts
+unattended and should register under an account without a claim puts an
+account token from the cloud UI into `.env` as `KRAFTWERK_CLOUD_TOKEN`; a
+`token:` key in kraftwerk.yml is refused. `/api/meta` reports the
+connection state and the claim code; `kraftwerk doctor` prints what the
+block will do.
 
 ## Projects
 

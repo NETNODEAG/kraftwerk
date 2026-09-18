@@ -211,21 +211,16 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "kraftwerk cloud manager this instance registers with on start and heartbeats while it runs — ~/.kraftwerk made reachable over the internet. Absent = feature off, a bare `cloud:` = on with defaults.",
+      "description": "kraftwerk cloud manager — ~/.kraftwerk made reachable over the internet. ON BY DEFAULT: every `kraftwerk ui` registers on start and heartbeats while it runs (name, icon, colour, root, machine, version, public URL, agent and channel roster). `enabled: false` opts out. No credential belongs here: the cloud hands the instance its identity and a claim code (Settings → Cloud), and an unattended server uses KRAFTWERK_CLOUD_TOKEN in .env.",
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+          "description": "false opts out of the cloud. Default: true"
         },
         "url": {
           "type": "string",
           "pattern": "^https?://",
-          "description": "Origin of the cloud manager. Default: https://kraftwerk.start"
-        },
-        "token": {
-          "type": "string",
-          "pattern": "^\\S+$",
-          "description": "Account token minted under \"My instances\" in the cloud UI; the instance then shows up under that kraftwerk account. The KRAFTWERK_CLOUD_TOKEN environment variable wins over this key (keeps the token out of git)"
+          "description": "Origin of the cloud manager. Default: https://srv.kraftwerk-cloud.netnode.cloud (the KRAFTWERK_CLOUD_URL environment variable wins; \"off\" disables)"
         },
         "interval": {
           "type": "integer",
@@ -235,4 +230,4 @@
       }
     }
   }
-}
+}\n

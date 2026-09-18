@@ -176,8 +176,10 @@ export async function runDoctor(cwd: string): Promise<void> {
   const cloud = cloudFor(project);
   if (cloud) {
     report("ok", `cloud: ${cloud.url}`, cloud.token
-      ? `registers under your kraftwerk account (${process.env.KRAFTWERK_CLOUD_TOKEN ? "KRAFTWERK_CLOUD_TOKEN" : "cloud.token"}), heartbeat every ${cloud.interval}s`
-      : `registers anonymously — visible to cloud admins only; add cloud.token (or KRAFTWERK_CLOUD_TOKEN) to see it under your account`);
+      ? `registers under your kraftwerk account (KRAFTWERK_CLOUD_TOKEN), heartbeat every ${cloud.interval}s`
+      : `on by default — the UI shows a claim code under Settings → Cloud; opt out with cloud.enabled: false`);
+  } else {
+    report("info", "cloud: off", process.env.KRAFTWERK_CLOUD_URL?.trim().toLowerCase() === "off" ? "KRAFTWERK_CLOUD_URL=off" : "cloud.enabled: false in kraftwerk.yml");
   }
 
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];

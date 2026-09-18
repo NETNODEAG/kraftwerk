@@ -32,6 +32,8 @@ export function cli(
         HOME: home,
         NO_COLOR: "1",
         FORCE_COLOR: "0",
+        // The cloud is on by default; a fixture must never register with the real one.
+        KRAFTWERK_CLOUD_URL: "off",
         ...opts.env,
       },
       stdio: ["pipe", "pipe", "pipe"],
