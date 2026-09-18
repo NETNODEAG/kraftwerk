@@ -14,6 +14,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   adapterEnv,
+  adapterTuningEnv,
   airMeta,
   connectAcp,
   EXT_METHODS,
@@ -25,7 +26,8 @@ import {
   type AcpExtensionNotification,
 } from "../../acp.js";
 import type { BackendHooks, BackendTuning, ChatBackend, PromptFile, TurnEnd } from "./backend.js";
-import { unattendedMode } from "./permissions.js";
+import { adapterLaunch } from "../../runner/agent-sandbox.js";
+import { allowOption, containedMode, unattendedMode } from "./permissions.js";
 import type {
   AgentCommand,
   AuthStatus,
@@ -332,20 +334,22 @@ export async function promptBlocks(text: string, files: PromptFile[] = []): Prom
   const blocks: ContentBlock[] = [];
   const mentions: string[] = [];
   for (const f of files) {
+    // Read from the host, name the path the agent can actually open.
+    const where = f.mention ?? f.path;
     try {
       if (f.mimeType.startsWith("image/")) {
         const data = await fs.readFile(f.path);
         blocks.push({ type: "image", mimeType: f.mimeType, data: data.toString("base64") });
-        mentions.push(`${f.name} (image, ${f.path})`);
+        mentions.push(`${f.name} (image, ${where})`);
       } else if (TEXT_MIME.test(f.mimeType) && f.size <= INLINE_TEXT_LIMIT) {
         const content = await fs.readFile(f.path, "utf8");
-        blocks.push({ type: "resource", resource: { uri: pathToFileURL(f.path).href, mimeType: f.mimeType, text: content } });
-        mentions.push(`${f.name} (${f.path})`);
+        blocks.push({ type: "resource", resource: { uri: pathToFileURL(where).href, mimeType: f.mimeType, text: content } });
+        mentions.push(`${f.name} (${where})`);
       } else {
-        mentions.push(`${f.name} (${f.mimeType}, ${f.path})`);
+        mentions.push(`${f.name} (${f.mimeType}, ${where})`);
       }
     } catch {
-      mentions.push(`${f.name} (could not be read: ${f.path})`);
+      mentions.push(`${f.name} (could not be read: ${where})`);
     }
   }
   const body = mentions.length ? `${text}\n\nAttached files:\n${mentions.map((m) => `- ${m}`).join("\n")}` : text;
@@ -389,11 +393,22 @@ export async function startAcpBackend(
   // Usage arrives after nearly every chunk; the thread keeps a step per
   // percent of the window and every cost total (turn ends), not each tick.
   let usagePercent = -1;
+  // Set once `backend` below exists; until then updates that would touch it
+  // are parked rather than thrown at it.
+  let opened = false;
+  let earlyCommands: AgentCommand[] | undefined;
   const client: Client = {
     sessionUpdate(params: SessionNotification): void {
       const ev = translateUpdate(sessionId, params);
       if (!ev) return;
-      if (ev.type === "commands") backend.commands = ev.commands;
+      // `backend` is declared further down, so an update arriving while the
+      // session is still opening would hit the temporal dead zone and come
+      // back to the adapter as an internal error. Adapters do announce their
+      // commands that early; hold them and hand them over once it exists.
+      if (ev.type === "commands") {
+        if (opened) backend.commands = ev.commands;
+        else earlyCommands = ev.commands;
+      }
       if (ev.type === "usage") {
         const pct = ev.size > 0 ? Math.floor((100 * ev.used) / ev.size) : 0;
         if (ev.costUsd == null && pct === usagePercent) return;
@@ -404,9 +419,19 @@ export async function startAcpBackend(
     async requestPermission(
       params: RequestPermissionRequest
     ): Promise<RequestPermissionResponse> {
+      const options = params.options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind }));
+      // Contained: the mode below already tells the harness not to ask, but
+      // adapters still raise the odd request. There is nobody to ask, so
+      // allow it — the sandbox is what bounds this session, not the prompt.
+      if (tuning.contained) {
+        const allow = allowOption(options);
+        return allow
+          ? { outcome: { outcome: "selected", optionId: allow } }
+          : { outcome: { outcome: "cancelled" } };
+      }
       const optionId = await hooks.askPermission(
         params.toolCall.title ?? params.toolCall.toolCallId,
-        params.options.map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind }))
+        options
       );
       return optionId
         ? { outcome: { outcome: "selected", optionId } }
@@ -426,9 +451,16 @@ export async function startAcpBackend(
     },
   };
 
+  // Sandboxed: the adapter runs in the agent's container and gets exactly
+  // the tuning vars, never the inspector's environment. Local: as before.
+  const tuningEnv = adapterTuningEnv(agent, tuning);
+  const launcher = tuning.sandbox
+    ? adapterLaunch({ container: tuning.sandbox.container, agent, cwd, env: tuningEnv })
+    : undefined;
   const { child, conn } = await connectAcp(agent, {
     cwd,
     env: adapterEnv(agent, tuning),
+    ...(launcher ? { launcher } : {}),
     client,
     clientName: "kraftwerk-inspector",
     elicitation: true,
@@ -477,11 +509,15 @@ export async function startAcpBackend(
     });
   }
   if (session.configOptions?.length) hooks.emit({ type: "config", options: configOptions(session.configOptions) });
-  if (tuning.unattended) {
-    // Nobody is watching: keep the harness's configured mode unless it is
-    // one that never asks (see unattendedMode). The harness keeps deciding
-    // which calls reach a human; kraftwerk only rules out "never ask".
-    const modeId = unattendedMode(agent, session.modes?.currentModeId);
+  if (tuning.unattended || tuning.contained) {
+    // Contained: the preset that never asks, because the limits are the
+    // container's and a prompt has nowhere to go. Otherwise: keep the
+    // harness's configured mode unless it is one that never asks (see
+    // unattendedMode) — the harness keeps deciding which calls reach a
+    // human, and kraftwerk only rules out "never ask".
+    const modeId = tuning.contained
+      ? containedMode(agent)
+      : unattendedMode(agent, session.modes?.currentModeId);
     if (modeId) {
       // A mode the adapter does not offer must not kill the session: the
       // harness default applies, and the thread shows why.
@@ -590,5 +626,8 @@ export async function startAcpBackend(
         });
     },
   };
+
+  opened = true;
+  if (earlyCommands) backend.commands = earlyCommands;
   return backend;
 }

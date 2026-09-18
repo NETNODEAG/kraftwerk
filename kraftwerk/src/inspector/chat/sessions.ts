@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { getOutputDir, getProjectRoot } from "../context.js";
 import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
-import { getAgent, listAgents } from "../agents.js";
+import { getAgent, listAgents, sandboxStartFor, uploadsRootFor } from "../agents.js";
+import {
+  ensureAgentContainer,
+  redactHostPaths,
+  sandboxPath,
+  type HostPaths,
+  type SandboxProfile,
+} from "../../runner/agent-sandbox.js";
 import { listRepos } from "../repos.js";
 import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { getProject, projectContext } from "../projects.js";
@@ -53,6 +61,10 @@ interface Seat {
   seenSeq: number;
   /** Channels: woken while busy — run once more when the turn ends. */
   wake: { hops: number } | null;
+  /** This seat's agent runs in a container: every path it is handed is a sandbox path. */
+  sandboxed: boolean;
+  /** Which agent definition this seat is, when it has one (uploads are staged per agent). */
+  agentSlug: string;
 }
 
 interface ChatState {
@@ -80,6 +92,8 @@ const newSeat = (key: string, harness: ChatAgentId): Seat => ({
   needsContext: true,
   seenSeq: 0,
   wake: null,
+  sandboxed: false,
+  agentSlug: "",
 });
 
 /** The one seat of an ordinary (non-channel) chat. */
@@ -98,7 +112,13 @@ const isBusy = (state: ChatState): boolean => [...state.seats.values()].some((s)
 const seatAuthor = (seat: Seat): Author | undefined => (seat.key === MAIN ? undefined : { kind: "agent", slug: seat.key });
 
 /** Routine-fired sessions: nobody is expected to be watching live. */
-const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && !!scope.routine;
+/**
+ * Nobody is watching who may decide: a scheduled routine, or a customer on a
+ * share link. A customer must never answer a permission request — that would
+ * be them approving an action on the workspace's authority.
+ */
+const isUnattended = (meta: { scope: ChatScope; share?: string }): boolean =>
+  (meta.scope.kind === "agent" && !!meta.scope.routine) || !!meta.share;
 
 /** Diagnose handle for a failed routine session (only called for unattended agent scopes). */
 function routineRef(meta: ChatMeta): DiagnoseRef | undefined {
@@ -359,15 +379,31 @@ async function agentKnowledgeContext(def: {
  * feature is on. Empty when it is off, so agents in a workspace without
  * it never hear about it.
  */
-async function reposContext(): Promise<string> {
+/**
+ * The "## Repositories" block. `only` narrows it to the clones a sandboxed
+ * agent actually has mounted — telling an agent about a repository it
+ * cannot open wastes a turn and reads like a broken workspace. It also
+ * turns read-only, because that is what the mount is.
+ */
+async function reposContext(only?: string[]): Promise<string> {
   const view = await listRepos().catch(() => null);
   if (!view?.enabled || !view.root) return "";
-  const lines = view.repos
+  const visible = only ? view.repos.filter((r) => only.includes(r.slug)) : view.repos;
+  if (only && visible.length === 0) return "";
+  const lines = visible
     .map((r) => {
       const state = r.error ? `unreadable: ${r.error}` : [r.dirty ? `${r.dirty} uncommitted` : "clean", r.ahead ? `${r.ahead} ahead` : "", r.behind ? `${r.behind} behind` : ""].filter(Boolean).join(", ");
       return `- ${r.slug} — ${r.path}${r.url ? ` (${r.url})` : ""}${r.branch ? `, branch ${r.branch}` : ""}${r.head ? ` @ ${r.head}` : ""}, ${state}`;
     })
     .join("\n");
+  if (only) {
+    return (
+      `## Repositories\nThese clones are mounted read-only under ${view.root}; they are the only ones you can ` +
+      `open, and they are kept current outside this session.\n${lines}\n\n` +
+      `Read them freely — \`git log\`, \`git show\`, \`git diff\`, \`git grep\` all work. You cannot commit, ` +
+      `push or clone: ask the humans for a change to the code, or for another repository to be connected.`
+    );
+  }
   return (
     `## Repositories\nGit repositories this workspace works on live under ${view.root} (one clone per folder). ` +
     `When the user names one of them, work inside its folder: read its README and structure first, keep commits on a ` +
@@ -594,14 +630,82 @@ async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> {
   // the rest instead of adding its spawns to the first prompt's latency.
   const [base, repos, vibe, skills, channel, project] = await Promise.all([
     baseScopeContext(scope, agent),
-    scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
+    scope.kind === "agent" || scope.kind === "kraftwerk"
+      ? reposContext(seat.sandboxed && scope.kind === "agent" ? await grantedRepos(scope.slug) : undefined)
+      : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
     availableSkills(scope),
     meta.scope.kind === "channel" ? channelContext(meta.scope.slug, seat.key) : Promise.resolve(""),
     // A channel that works in a project: every member reads the project too, as a member, not as its assistant.
     meta.scope.kind === "channel" && meta.project ? projectContext(meta.project, `${seat.key}/${agent}`, { member: true }) : Promise.resolve(""),
   ]);
-  return [base, channel, project, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  // The boundary the agent works inside, in its own words, before anything
+  // else it might try.
+  const box = seat.sandboxed && seat.agentSlug
+    ? (await getAgent(seat.agentSlug).catch(() => null))?.sandbox
+    : undefined;
+  const context = [
+    base,
+    box?.enabled ? sandboxContext(box) : "",
+    channel,
+    project,
+    repos,
+    vibe,
+    RENDERING_BLOCK,
+    skillsBlock(skills),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  // A sandboxed agent is told where things are *inside its container*. The
+  // blocks above are built by a dozen functions that legitimately work in
+  // host paths; rewriting the finished string means a new block cannot leak
+  // one by forgetting to translate.
+  return seat.sandboxed ? redactHostPaths(context, hostPaths()) : context;
+}
+
+/** The repository slugs an agent was granted (its sandbox mounts exactly these). */
+const grantedRepos = async (slug: string): Promise<string[]> =>
+  (await getAgent(slug).catch(() => null))?.repos ?? [];
+
+/**
+ * The "## Your sandbox" block: what this agent's container actually allows.
+ *
+ * Without it an agent discovers its limits by walking into them, and then
+ * does the reasonable thing — works around them. One session, told `ls` was
+ * denied, listed the directory with a shell glob and `printf` instead. That
+ * is not a hole to be plugged (a shell's builtins are not binaries and
+ * cannot be taken away without taking the shell away), it is an agent
+ * solving the problem it was given. Told the limits up front, it stops
+ * guessing and says what it cannot do instead of improvising around it.
+ *
+ * This is orientation, not enforcement. What actually holds is the mounts,
+ * the network and the file permissions — all applied before the agent runs.
+ */
+function sandboxContext(profile: SandboxProfile): string {
+  const lines = [
+    `## Your sandbox`,
+    `You run inside a container. The workspace is at /workspace and holds only what you were ` +
+      `granted — anything not there does not exist for you, and no path on the machine outside ` +
+      `this container is reachable. Files you are handed are under /workspace/output/uploads.`,
+  ];
+  if (profile.commands.length > 0) {
+    lines.push(
+      `Commands you can run: ${profile.commands.join(", ")} (plus the shell itself and node). ` +
+        `Everything else answers "Permission denied" — that is the sandbox, not a broken install, ` +
+        `and it will not change by retrying, by using an absolute path, or by copying the binary. ` +
+        `When a task needs something outside this list, say so plainly and stop; do not improvise ` +
+        `a replacement out of shell builtins, and do not report the limit as an error in the workspace.`
+    );
+  }
+  if (profile.network === "none") {
+    lines.push(`You have no network access at all.`);
+  } else if (profile.network === "allowlist") {
+    lines.push(
+      `Network: only ${profile.allow.join(", ") || "(nothing)"} are reachable, through a proxy. ` +
+        `Any other host is refused; say so rather than looking for another route to it.`
+    );
+  }
+  return lines.join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */
@@ -640,12 +744,23 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
   const agent = seat.harness;
   const tuning: BackendTuning = {};
   const agentSlug = scope.kind === "agent" ? scope.slug : scope.kind === "channel" ? seat.key : undefined;
+  // Remembered on the seat: uploads are staged per agent, and a channel
+  // seat is its member agent, not the chat's scope.
+  seat.agentSlug = agentSlug ?? "";
   if (agentSlug) {
     const def = await getAgent(agentSlug).catch(() => null);
     if (def?.model) tuning.model = def.model;
     if (def?.effort) tuning.effort = def.effort;
     // Claude discovers skills natively; an agentined allowlist narrows that.
     if (agent === "claude" && def?.skills) tuning.skills = def.skills;
+    // A sandboxed agent's adapter runs in its container. This fails closed:
+    // if the container cannot start, the chat says so and no turn happens —
+    // falling back to the host would quietly drop the boundary an admin set.
+    // pi is not an ACP agent and has no sandbox path yet.
+    if (def?.sandbox?.enabled && agent !== "pi") {
+      const start = await sandboxStartFor(agentSlug);
+      if (start) tuning.sandbox = { container: await ensureAgentContainer(start) };
+    }
   }
   // Project chats carry the project's model/effort the same way.
   if (scope.kind === "project") {
@@ -656,9 +771,18 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
   // Run chats live in the run folder — grant claude the project root so
   // project-level skills and files stay reachable.
   // A vibeable session works inside the app folder for the same reason.
-  if ((scope.kind === "run" || meta.vibeable) && agent === "claude") tuning.addDirs = [getProjectRoot()];
+  if ((scope.kind === "run" || meta.vibeable) && agent === "claude") {
+    tuning.addDirs = [tuning.sandbox ? sandboxPath(getProjectRoot(), hostPaths()) : getProjectRoot()];
+  }
   // Routine runs: never a harness mode that skips asking (see unattendedMode in permissions.ts).
-  if (isUnattended(scope)) tuning.unattended = true;
+  if (isUnattended(meta)) tuning.unattended = true;
+  // A customer on a share link cannot answer a permission request, and must
+  // not: it would be them approving an action on the workspace's authority.
+  // When the agent is sandboxed the admin has already answered — in
+  // `sandbox:`, enforced by the kernel — so the session simply does not ask.
+  // Without a sandbox there is nothing holding the agent, so the request
+  // still goes to the bell and declines on timeout.
+  if (meta.share && tuning.sandbox) tuning.contained = true;
   // A seat that had a session before (restart, idle reaper) continues it.
   const previous = meta.sessions?.[seat.key];
   if (previous && agent !== "pi") tuning.resume = previous;
@@ -707,7 +831,7 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
           body: title,
           href: chatHref(state.meta),
         });
-        if (isUnattended(state.meta.scope)) {
+        if (isUnattended(state.meta)) {
           deadline = setTimeout(() => {
             const pending = state.pendingPermissions.get(requestId);
             if (!pending) return;
@@ -747,7 +871,7 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
           body: message,
           href: chatHref(state.meta),
         });
-        if (isUnattended(state.meta.scope)) {
+        if (isUnattended(state.meta)) {
           deadline = setTimeout(() => {
             const pending = state.pendingElicitations.get(requestId);
             if (!pending) return;
@@ -763,8 +887,13 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
     },
   };
   const agent = seat.harness;
-  const cwd = await effectiveCwd(state.meta);
   const tuning = await backendTuning(state.meta, seat);
+  // A sandboxed agent works at /workspace, never at the host's path: that
+  // string would tell whoever is on the other end of a share link the
+  // admin's username and the server's layout. See SANDBOX_ROOT.
+  const hostCwd = await effectiveCwd(state.meta);
+  seat.sandboxed = !!tuning.sandbox;
+  const cwd = tuning.sandbox ? sandboxPath(hostCwd, hostPaths()) : hostCwd;
   seat.backend =
     agent === "pi"
       ? startPiBackend(cwd, hooks, tuning)
@@ -781,6 +910,9 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
 }
 
 /* ---------- public API (used by server.ts) ---------- */
+
+/** The two host anchors every sandbox path is expressed against. */
+const hostPaths = (): HostPaths => ({ projectRoot: getProjectRoot(), outputDir: getOutputDir() });
 
 /** Where a chat's agent runs when no vibeable is open: the run folder for run chats, else the project root. */
 const defaultCwd = (scope: ChatScope): string => (scope.kind === "run" ? safeRunDir(scope.runId) : getProjectRoot());
@@ -804,6 +936,8 @@ export async function createChat(opts: {
   title?: string;
   /** Continue one of the agent's own sessions (from listAgentSessionsFor) instead of starting fresh. */
   resume?: string;
+  /** Share token this thread belongs to: a customer's thread, not the workspace's. */
+  share?: string;
 }): Promise<ChatMeta> {
   const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
@@ -813,6 +947,7 @@ export async function createChat(opts: {
     title: opts.title ?? "",
     cwd,
     scope: opts.scope,
+    ...(opts.share ? { share: opts.share } : {}),
     ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
     createdAt: now,
     updatedAt: now,
@@ -853,9 +988,33 @@ export async function getChat(
   return { meta: state.meta, events: state.events, busy: isBusy(state) };
 }
 
-/** Attachments as the backend gets them: with their path on disk. */
-const promptFiles = (id: string, attachments: Attachment[] = []): PromptFile[] =>
-  attachments.map((a) => ({ ...a, path: attachmentPath(id, a.name) }));
+/**
+ * Attachments as the backend gets them: the host path the inspector reads,
+ * plus — for a sandboxed agent — the path inside its container.
+ *
+ * The file is copied into the agent's uploads root rather than the chat
+ * folder being mounted: the transcripts live there, and an agent able to
+ * read those could read every other conversation in the workspace.
+ */
+async function promptFiles(
+  id: string,
+  attachments: Attachment[] = [],
+  seat?: Seat
+): Promise<PromptFile[]> {
+  const files = attachments.map((a) => ({ ...a, path: attachmentPath(id, a.name) }));
+  if (!seat?.sandboxed || files.length === 0) return files;
+  const root = path.join(uploadsRootFor(getOutputDir(), seat.agentSlug || ""), id);
+  await fs.mkdir(root, { recursive: true }).catch(() => {});
+  return Promise.all(
+    files.map(async (f) => {
+      const staged = path.join(root, f.name);
+      // Copy failures must not lose the turn: the agent still gets the
+      // inlined image or text, only the path stops resolving.
+      await fs.copyFile(f.path, staged).catch(() => {});
+      return { ...f, mention: sandboxPath(staged, hostPaths()) };
+    })
+  );
+}
 
 export async function postMessage(
   id: string,
@@ -875,7 +1034,15 @@ export async function postMessage(
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
     void writeMeta(state.meta).catch(() => {});
   }
-  const turnStart = emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}) }).seq;
+  // A share link can be used by several people; without the poster's name
+  // their messages are indistinguishable in the transcript. Ordinary
+  // single-human chats pass no name and stay unsigned, as before.
+  const poster: Author | undefined = opts.from ? { kind: "human", name: opts.from } : undefined;
+  const turnStart = emit(
+    state,
+    { type: "user_message", text, ...(attachments ? { attachments } : {}) },
+    poster
+  ).seq;
 
   // The turn runs in the background; the HTTP request returns immediately
   // and the browser follows along on the SSE stream.
@@ -888,7 +1055,7 @@ export async function postMessage(
       // the thread keeps the short form the user typed.
       const body = await expandSkillInvocation(state.meta.scope, text);
       const promptText = context ? `<context>\n${context}\n</context>\n\n${body}` : body;
-      const { stopReason, failure } = await backend.prompt(promptText, promptFiles(id, attachments));
+      const { stopReason, failure } = await backend.prompt(promptText, await promptFiles(id, attachments, seat));
       emit(state, { type: "turn_end", stopReason });
       // After turn_end, so the card stays live (a turn_end settles the
       // failures reported before it): this one is why the turn ended.
@@ -896,7 +1063,7 @@ export async function postMessage(
       // Routine sessions are one-shot and unattended: release the agent
       // process as soon as the turn ends instead of waiting for the reaper,
       // and tell the bell how it went.
-      if (isUnattended(state.meta.scope)) {
+      if (isUnattended(state.meta)) {
         dropBackend(state);
         const failed = state.events.some(
           (e) => e.seq > turnStart && (e.type === "error" || (e.type === "failure" && e.severity === "error"))
@@ -911,7 +1078,7 @@ export async function postMessage(
       }
     } catch (err) {
       emit(state, { type: "error", message: (err as Error).message });
-      if (isUnattended(state.meta.scope)) {
+      if (isUnattended(state.meta)) {
         void pushNotification({
           kind: "routine_failed",
           title: `${chatLabel(state.meta)} failed`,
@@ -1248,7 +1415,7 @@ export async function steerChat(id: string, text: string, attachments?: Attachme
   const files = attachments?.length ? attachments : undefined;
   if (!seat.busy || !seat.backend?.steer) return postMessage(id, text, { attachments: files });
   try {
-    const outcome = await seat.backend.steer(text, promptFiles(id, files));
+    const outcome = await seat.backend.steer(text, await promptFiles(id, files, seat));
     if (outcome === "promptRequired") return postMessage(id, text, { attachments: files });
   } catch (err) {
     return { error: (err as Error).message };
@@ -1305,6 +1472,23 @@ export async function resolvePermission(
 }
 
 /** Delete a chat: kill its backend, drop the live state, remove its folder. */
+/**
+ * Remove the copies of this chat's attachments staged for the agents that
+ * saw them. Deleting a conversation has to take the files with it: they are
+ * someone's uploads, they live outside the transcript, and nothing in the UI
+ * would ever mention them again. Scanned across agents rather than derived
+ * from the scope, because a channel chat is staged once per member.
+ */
+async function dropStagedUploads(id: string): Promise<void> {
+  const root = path.join(getOutputDir(), "uploads");
+  const agents = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  await Promise.all(
+    agents
+      .filter((e) => e.isDirectory())
+      .map((e) => fs.rm(path.join(root, e.name, id), { recursive: true, force: true }).catch(() => {}))
+  );
+}
+
 export async function deleteChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
@@ -1313,6 +1497,7 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   dropBackend(state);
   states.delete(id);
   await fs.rm(safeChatDir(id), { recursive: true, force: true });
+  await dropStagedUploads(id);
   // The agent's own transcripts go with the chat (best effort, in the background).
   const cwd = await effectiveCwd(state.meta);
   for (const [seatKey, sessionId] of Object.entries(state.meta.sessions ?? {})) {

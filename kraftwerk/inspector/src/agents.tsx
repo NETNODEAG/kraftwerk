@@ -12,6 +12,7 @@ import type {
   Agent,
   AgentDetail,
   WorkflowSummary,
+  ReposView,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
@@ -978,12 +979,23 @@ function AgentsHome() {
  * skills save right here (full PUT with the changed section merged in).
  * Identity fields (name, emoji, harness, model, …) stay in the full editor.
  */
+/**
+ * A list field that an older server may not send yet.
+ *
+ * `inspector/dist` is built separately from the server and a long-running
+ * `kraftwerk ui` keeps the code it started with, so the two halves do drift
+ * during development. Reading `.length` off the gap blanks the whole app —
+ * no screen, no navigation, only a stack trace in the console. Degrading to
+ * "none" is always better than that.
+ */
+const list = <T,>(value: T[] | undefined | null): T[] => (Array.isArray(value) ? value : []);
+
 function AgentView({ slug }: { slug: string }) {
   const [agent, setMember] = useState<AgentDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [creating, setCreating] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
-  const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "skills">("");
+  const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "repos" | "skills">("");
   const [roleDraft, setRoleDraft] = useState("");
   const [listDraft, setListDraft] = useState<string[]>([]);
   const [allSkillsDraft, setAllSkillsDraft] = useState(true);
@@ -993,6 +1005,7 @@ function AgentView({ slug }: { slug: string }) {
   const wfData = usePoll<{ workflows: WorkflowSummary[] }>("/api/workflows", false);
   const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
   const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
+  const rData = usePoll<ReposView>("/api/repos", false);
 
   useEffect(() => {
     let alive = true;
@@ -1009,6 +1022,7 @@ function AgentView({ slug }: { slug: string }) {
     system?: string;
     workflows?: string[];
     knowledge?: string[];
+    repos?: string[];
     skills?: string[];
   }): Promise<void> {
     if (!agent) return;
@@ -1030,6 +1044,7 @@ function AgentView({ slug }: { slug: string }) {
           system: agent.system,
           workflows: agent.workflows,
           knowledge: agent.knowledge,
+          repos: list(agent.repos),
           skills: agent.skills,
           ...patch,
         }),
@@ -1196,7 +1211,7 @@ function AgentView({ slug }: { slug: string }) {
                   </div>
                   {editActions({ workflows: listDraft })}
                 </>
-              ) : agent.workflows.length === 0 ? (
+              ) : list(agent.workflows).length === 0 ? (
                 <span className="m3-sub">none connected — the agent can run any workflow you connect</span>
               ) : (
                 <span className="m3-chips">
@@ -1245,7 +1260,7 @@ function AgentView({ slug }: { slug: string }) {
                   </div>
                   {editActions({ knowledge: listDraft })}
                 </>
-              ) : agent.knowledge.length === 0 ? (
+              ) : list(agent.knowledge).length === 0 ? (
                 <span className="m3-sub">none connected — connected bundles are read and kept current by the agent</span>
               ) : (
                 <span className="m3-chips">
@@ -1263,6 +1278,64 @@ function AgentView({ slug }: { slug: string }) {
                 onClick={() => {
                   setListDraft(agent.knowledge);
                   setEditing("knowledge");
+                  setError("");
+                }}
+              >
+                edit
+              </button>
+            )}
+          </div>
+          <div className="m3-row">
+            <span className="m3-ico"><Icon name="folder_code" /></span>
+            <span className="m3-body">
+              <span className="m3-head">repositories</span>
+              {editing === "repos" ? (
+                <>
+                  <div className="wf-checks">
+                    {(rData?.repos ?? []).map((r) => (
+                      <label key={r.slug}>
+                        <input
+                          type="checkbox"
+                          checked={listDraft.includes(r.slug)}
+                          onChange={(e) => toggleDraft(r.slug, e.target.checked)}
+                        />
+                        <b>{r.slug}</b>
+                        <span className="opt-hint">
+                          {r.branch ? ` — ${r.branch}` : ""}
+                          {r.url ? ` (${r.url})` : ""}
+                        </span>
+                      </label>
+                    ))}
+                    {(rData?.repos ?? []).length === 0 && (
+                      <div className="viewer-note">
+                        {rData?.enabled
+                          ? "no repositories cloned yet — add one on the Repositories screen"
+                          : "repositories are off for this workspace — turn them on in settings"}
+                      </div>
+                    )}
+                  </div>
+                  {editActions({ repos: listDraft })}
+                </>
+              ) : list(agent.repos).length === 0 ? (
+                <span className="m3-sub">
+                  none connected — a sandboxed agent sees only the clones connected here
+                </span>
+              ) : (
+                <span className="m3-chips">
+                  {list(agent.repos).map((r) => (
+                    <Link key={r} href={`/repos/${encodeURIComponent(r)}`} className="chip">
+                      {r}
+                    </Link>
+                  ))}
+                </span>
+              )}
+            </span>
+            {editing !== "repos" && (
+              <button
+                className="open-raw"
+                onClick={() => {
+                  setListDraft(list(agent.repos));
+                  setEditing("repos");
                   setError("");
                 }}
               >
@@ -1306,7 +1379,7 @@ function AgentView({ slug }: { slug: string }) {
                 </>
               ) : agent.skills === undefined ? (
                 <span className="m3-sub">all discovered skills (default) — invoke with /name in a session</span>
-              ) : agent.skills.length === 0 ? (
+              ) : list(agent.skills).length === 0 ? (
                 <span className="m3-sub">none — this agent runs without skills</span>
               ) : (
                 <span className="m3-chips">
@@ -1337,8 +1410,424 @@ function AgentView({ slug }: { slug: string }) {
       </section>
 
       <AgentSkillsPanel slug={slug} />
+      <SandboxPanel agent={agent} onSaved={setMember} />
+      <SharePanel slug={slug} sandboxed={!!agent.sandbox?.enabled} />
       <RoutinesPanel slug={slug} />
     </div>
+  );
+}
+
+/* ---------- sandbox policy ---------- */
+
+/** A comma/newline separated field <-> a list, so lists stay easy to paste. */
+const toList = (text: string): string[] =>
+  text.split(/[\s,]+/).map((v) => v.trim()).filter(Boolean);
+
+/**
+ * What the agent's container allows. Editing it here writes the `sandbox:`
+ * block of agent.yml and replaces the container, so the next message runs
+ * under the new rules; the agent's harness login survives, because only the
+ * container is replaced and not its home volume.
+ *
+ * Everything is re-validated server-side (normalizeSandbox): these values
+ * end up as docker arguments, and a field that does not fit its shape falls
+ * back to the default rather than reaching a command line.
+ */
+function SandboxPanel({ agent, onSaved }: { agent: AgentDetail; onSaved: (a: AgentDetail) => void }) {
+  const box = agent.sandbox;
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const [network, setNetwork] = useState<"open" | "none" | "allowlist">(box?.network ?? "open");
+  const [allow, setAllow] = useState(list(box?.allow).join(", "));
+  const [commands, setCommands] = useState(list(box?.commands).join(", "));
+  const [envNames, setEnvNames] = useState(list(box?.env).join(", "));
+  const [memory, setMemory] = useState(box?.memory ?? "2g");
+  const [cpus, setCpus] = useState(box?.cpus ?? "2");
+  const [pids, setPids] = useState(String(box?.pids ?? 512));
+
+  const url = `/api/agents/${encodeURIComponent(agent.slug)}/sandbox`;
+
+  function startEdit(): void {
+    setNetwork(box?.network ?? "open");
+    setAllow(list(box?.allow).join(", "));
+    setCommands(list(box?.commands).join(", "));
+    setEnvNames(list(box?.env).join(", "));
+    setMemory(box?.memory ?? "2g");
+    setCpus(box?.cpus ?? "2");
+    setPids(String(box?.pids ?? 512));
+    setError("");
+    setEditing(true);
+  }
+
+  async function send(init: RequestInit): Promise<void> {
+    setSaving(true);
+    setError("");
+    try {
+      const r = await fetch(url, init);
+      const body = await r.json();
+      if (body.error) setError(body.error);
+      else {
+        onSaved(body);
+        setEditing(false);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  const save = () =>
+    send({
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        network,
+        allow: toList(allow),
+        commands: toList(commands),
+        env: toList(envNames),
+        memory,
+        cpus,
+        pids: Number(pids) || 512,
+      }),
+    });
+
+  async function turnOff(): Promise<void> {
+    if (!window.confirm(`Run ${agent.name} on the host again? It loses the container's limits.`)) return;
+    await send({ method: "DELETE" });
+  }
+
+  const row = (label: string, value: React.ReactNode) => (
+    <div style={{ marginTop: 4 }}>
+      <span className="microlabel">{label}</span> {value}
+    </div>
+  );
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="microlabel">sandbox</span>
+        <span className="spacer" />
+        {!editing && (
+          <button className="open-raw" disabled={saving} onClick={startEdit}>
+            <Icon name="edit" className="ms-sm" /> {box?.enabled ? "edit" : "contain this agent"}
+          </button>
+        )}
+        {!editing && box?.enabled && (
+          <button className="open-raw" disabled={saving} onClick={() => void turnOff()}>
+            turn off
+          </button>
+        )}
+      </div>
+
+      {!editing && !box?.enabled && (
+        <div className="viewer-note">
+          off — this agent runs on the host, with the inspector's own reach. Contain it before
+          sharing it with anyone outside this workspace.
+        </div>
+      )}
+
+      {!editing && box?.enabled && (
+        <div className="viewer-note">
+          {row(
+            "network",
+            box.network === "allowlist" ? (
+              <>
+                allowlist — only <code>{list(box.allow).join(", ") || "(nothing)"}</code>
+              </>
+            ) : box.network === "none" ? (
+              "none — no network at all"
+            ) : (
+              "open — the whole internet"
+            )
+          )}
+          {row("commands", list(box.commands).length ? <code>{list(box.commands).join(", ")}</code> : "unrestricted")}
+          {row("limits", `${box.memory} memory · ${box.cpus} cpus · ${box.pids} pids`)}
+          {row(
+            "sees",
+            `${list(agent.knowledge).length} knowledge bundle(s), ${list(agent.workflows).length} workflow(s), ` +
+              `${list(agent.repos).length} repo(s) (read-only)` +
+              (agent.skills ? `, ${list(agent.skills).length} skill(s)` : ", all skills")
+          )}
+          {list(box.env).length > 0 && row("extra secrets", <code>{list(box.env).join(", ")}</code>)}
+        </div>
+      )}
+
+      {editing && (
+        <div className="viewer-note">
+          <label className="agent-form-row">
+            <span className="microlabel">network</span>
+            <select value={network} onChange={(e) => setNetwork(e.target.value as typeof network)}>
+              <option value="open">open — the whole internet</option>
+              <option value="allowlist">allowlist — only these hosts</option>
+              <option value="none">none — no network at all</option>
+            </select>
+          </label>
+          {network === "allowlist" && (
+            <label className="agent-form-row">
+              <span className="microlabel">allowed hosts</span>
+              <input
+                value={allow}
+                onChange={(e) => setAllow(e.target.value)}
+                placeholder="api.anthropic.com, *.example.com"
+              />
+            </label>
+          )}
+          {network === "allowlist" && !toList(allow).some((h) => h.includes("anthropic")) && (
+            <div className="msg error">
+              <Icon name="error" className="ms-sm" /> The model API is egress too — without
+              <code> api.anthropic.com</code> this agent cannot answer at all.
+            </div>
+          )}
+          <label className="agent-form-row">
+            <span className="microlabel">commands</span>
+            <input
+              value={commands}
+              onChange={(e) => setCommands(e.target.value)}
+              placeholder="empty = unrestricted, e.g. ls, cat, git"
+            />
+          </label>
+          <label className="agent-form-row">
+            <span className="microlabel">extra secrets (env names)</span>
+            <input
+              value={envNames}
+              onChange={(e) => setEnvNames(e.target.value)}
+              placeholder="CUSTOMER_API_TOKEN"
+            />
+          </label>
+          <div className="agent-form-row">
+            <label>
+              <span className="microlabel">memory</span>
+              <input value={memory} onChange={(e) => setMemory(e.target.value)} size={6} />
+            </label>
+            <label>
+              <span className="microlabel">cpus</span>
+              <input value={cpus} onChange={(e) => setCpus(e.target.value)} size={4} />
+            </label>
+            <label>
+              <span className="microlabel">pids</span>
+              <input value={pids} onChange={(e) => setPids(e.target.value)} size={5} />
+            </label>
+          </div>
+          <div className="agent-form-row" style={{ marginTop: 8 }}>
+            <button className="run-btn" disabled={saving} onClick={() => void save()}>
+              {saving ? "saving…" : "save & restart sandbox"}
+            </button>
+            <button className="open-raw" disabled={saving} onClick={() => (setEditing(false), setError(""))}>
+              cancel
+            </button>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            Saving replaces the container; a conversation in mid-turn will report the agent
+            restarting. The harness login survives.
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="msg error">
+          <Icon name="error" className="ms-sm" /> {error}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ---------- share link (one per agent, for a customer) ---------- */
+
+interface SharePublic {
+  token: string;
+  kind: "agent" | "channel";
+  slug: string;
+  user: string;
+  label?: string;
+  createdAt: string;
+}
+
+/**
+ * The customer link for one agent or one channel. One per target, and
+ * creating a new one replaces the old: that is also how a link is revoked.
+ * The password exists in the clear exactly once, here, right after it is
+ * made — the server keeps only a hash, so there is no "show it again".
+ */
+export function SharePanel({
+  kind = "agent",
+  slug,
+  sandboxed,
+}: {
+  kind?: "agent" | "channel";
+  slug: string;
+  /** Every agent behind this link runs in a container. False earns a warning. */
+  sandboxed: boolean;
+}) {
+  const [share, setShare] = useState<SharePublic | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [label, setLabel] = useState("");
+  const [fresh, setFresh] = useState<{ url: string; user: string; password: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState("");
+
+  const url = `/api/${kind === "channel" ? "channels" : "agents"}/${encodeURIComponent(slug)}/share`;
+
+  useEffect(() => {
+    let alive = true;
+    fetch(url)
+      .then((r) => r.json())
+      .then((b) => alive && (setShare(b.share ?? null), setLoaded(true)))
+      .catch(() => alive && setLoaded(true));
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+
+  const linkFor = (token: string): string => `${location.origin}/s/${token}`;
+
+  async function create(): Promise<void> {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: label.trim() || undefined }),
+      });
+      const body = await r.json();
+      if (body.error) setError(body.error);
+      else {
+        setShare(body.share);
+        setFresh({ url: linkFor(body.share.token), user: body.share.user, password: body.password });
+        setLabel("");
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  }
+
+  async function revoke(): Promise<void> {
+    setBusy(true);
+    setError("");
+    try {
+      await fetch(url, { method: "DELETE" });
+      setShare(null);
+      setFresh(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  }
+
+  function copy(what: string, text: string): void {
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(what);
+        setTimeout(() => setCopied(""), 1500);
+      },
+      () => setError("could not copy — select the text instead")
+    );
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="microlabel">share link — for people outside this workspace</span>
+        <span className="spacer" />
+        {share && (
+          <button className="open-raw" disabled={busy} onClick={() => void revoke()}>
+            <Icon name="link_off" className="ms-sm" /> revoke
+          </button>
+        )}
+      </div>
+
+      {!sandboxed && (
+        <div className="viewer-note">
+          {kind === "channel"
+            ? "Not every agent in this channel runs in a sandbox. Anyone with the link talks to agents that have this machine's reach — give each member a sandbox: block before handing the link out."
+            : "This agent runs on the host, not in a sandbox. Anyone with the link talks to an agent that has this machine's reach — add a sandbox: block to its agent.yml before handing the link out."}
+        </div>
+      )}
+
+      {kind === "channel" && (
+        <div className="viewer-note">
+          A channel has one transcript. Sharing it hands over the whole conversation, including what
+          was said here before — give a customer a channel of their own.
+        </div>
+      )}
+
+      {!share && (
+        <div className="agent-form-row" style={{ marginTop: 8 }}>
+          <input
+            placeholder="who it is for (optional, e.g. ACME GmbH)"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <button className="run-btn" disabled={busy} onClick={() => void create()}>
+            {busy ? "creating…" : "create link"}
+          </button>
+        </div>
+      )}
+
+      {share && !fresh && (
+        <div className="viewer-note">
+          <div>
+            <code>{linkFor(share.token)}</code>{" "}
+            <button className="open-raw" onClick={() => copy("link", linkFor(share.token))}>
+              {copied === "link" ? "copied" : "copy"}
+            </button>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            Signs in as <code>{share.user}</code>
+            {share.label ? ` · ${share.label}` : ""} · created {fmtWhen(share.createdAt)}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            The password was shown once when the link was made.{" "}
+            <button className="open-raw" disabled={busy} onClick={() => void create()}>
+              new link &amp; password
+            </button>{" "}
+            replaces this one.
+          </div>
+        </div>
+      )}
+
+      {fresh && (
+        <div className="viewer-note">
+          <div>
+            <strong>Copy these now — the password is not stored and cannot be shown again.</strong>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <code>{fresh.url}</code>{" "}
+            <button className="open-raw" onClick={() => copy("link", fresh.url)}>
+              {copied === "link" ? "copied" : "copy"}
+            </button>
+          </div>
+          <div style={{ marginTop: 4 }}>
+            user <code>{fresh.user}</code> · password <code>{fresh.password}</code>{" "}
+            <button
+              className="open-raw"
+              onClick={() => copy("all", `${fresh.url}\nuser: ${fresh.user}\npassword: ${fresh.password}`)}
+            >
+              {copied === "all" ? "copied" : "copy all"}
+            </button>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button className="open-raw" onClick={() => setFresh(null)}>
+              done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="msg error">
+          <Icon name="error" className="ms-sm" /> {error}
+        </div>
+      )}
+    </section>
   );
 }
 

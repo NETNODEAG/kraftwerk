@@ -44,8 +44,11 @@ const CLAUDE_THINKING_BUDGET: Record<string, number> = {
  * thinking budget via env; codex-acp merges a CODEX_CONFIG env JSON into
  * the session config it hands to `codex app-server`.
  */
-export function adapterEnv(agent: AcpAgent, tuning: { model?: string; effort?: string }): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+export function adapterTuningEnv(
+  agent: AcpAgent,
+  tuning: { model?: string; effort?: string }
+): Record<string, string> {
+  const env: Record<string, string> = {};
   if (agent === "claude" && tuning.effort && CLAUDE_THINKING_BUDGET[tuning.effort]) {
     env.MAX_THINKING_TOKENS = String(CLAUDE_THINKING_BUDGET[tuning.effort]);
   }
@@ -56,6 +59,11 @@ export function adapterEnv(agent: AcpAgent, tuning: { model?: string; effort?: s
     });
   }
   return env;
+}
+
+/** The full environment for a local adapter: this process's, plus the tuning. */
+export function adapterEnv(agent: AcpAgent, tuning: { model?: string; effort?: string }): NodeJS.ProcessEnv {
+  return { ...process.env, ...adapterTuningEnv(agent, tuning) };
 }
 
 /** Kraftwerk's MCP config (stdio or url) -> the protocol's session mcpServers entries. */
@@ -243,6 +251,28 @@ export interface AcpProcess {
 }
 
 /**
+ * How the adapter process is started. The default is a plain node child on
+ * this host; a sandboxed agent passes `docker exec -i <container>` instead
+ * (see runner/agent-sandbox.ts). ACP is a stdio protocol, so everything
+ * above this line is identical either way.
+ */
+export interface AdapterLauncher {
+  command: string;
+  args: string[];
+  /**
+   * Environment for the spawned process. A local adapter inherits the
+   * inspector's environment; a sandboxed one gets nothing it was not given
+   * at container start, so the tuning vars ride in the launcher's args.
+   */
+  env?: NodeJS.ProcessEnv;
+}
+
+/** The adapter as a node child of this process (bundled with kraftwerk — no CLI on the PATH). */
+export function localLauncher(agent: AcpAgent, env: NodeJS.ProcessEnv): AdapterLauncher {
+  return { command: process.execPath, args: [fileURLToPath(import.meta.resolve(ADAPTERS[agent]))], env };
+}
+
+/**
  * Spawn the adapter for `agent` in `cwd`, wire the ACP connection to
  * `client`, and run the initialize handshake. Process failures reach the
  * caller through the callbacks (a failed spawn is otherwise an unhandled
@@ -257,6 +287,8 @@ export async function connectAcp(
   opts: {
     cwd: string;
     env: NodeJS.ProcessEnv;
+    /** Where the adapter runs; omitted = a node child on this host. */
+    launcher?: AdapterLauncher;
     client: Client;
     clientName: string;
     onExtension?: (n: AcpExtensionNotification) => void;
@@ -266,11 +298,13 @@ export async function connectAcp(
     onClose(code: number | null, stderr: string): void;
   }
 ): Promise<AcpProcess> {
-  const entry = fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
-  const child = spawn(process.execPath, [entry], {
-    cwd: opts.cwd,
+  const launcher = opts.launcher ?? localLauncher(agent, opts.env);
+  const child = spawn(launcher.command, launcher.args, {
+    // A launcher carries its own working directory (a sandbox `docker exec
+    // -w` names a path inside the container, which does not exist out here).
+    ...(opts.launcher ? {} : { cwd: opts.cwd }),
     stdio: ["pipe", "pipe", "pipe"],
-    env: opts.env,
+    env: launcher.env,
   });
   let stderr = "";
   child.stderr.on("data", (c: Buffer) => {

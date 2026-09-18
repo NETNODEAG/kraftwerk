@@ -5,6 +5,8 @@ import { attachmentPath, readMeta, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
+import { createShare, deleteShare, shareFor, type ShareKind } from "./shares.js";
+import { handleShare } from "./share-server.js";
 import { listRuns, getRun, readRunFile, deleteRun, safeRunDir } from "./runs.js";
 import { decide } from "./decisions.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
@@ -45,6 +47,7 @@ import {
   getAgent,
   listAgents,
   saveAgent,
+  saveAgentSandbox,
   setAgentArchived,
   agentsRoot,
   type SaveAgentInput,
@@ -356,6 +359,43 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
 
   if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) {
     return json(res, { error: "cross-origin request refused" }, 403);
+  }
+
+  // PUT/DELETE /api/agents/:slug/sandbox — the agent's boundary. PUT writes
+  // the block, DELETE drops it (back to running on the host). Both replace
+  // the agent's container so the next message starts under the new rules.
+  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "sandbox") {
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "PUT") {
+        const body = JSON.parse((await readBody(req)) || "{}");
+        return json(res, await saveAgentSandbox(slug, body));
+      }
+      if (method === "DELETE") return json(res, await saveAgentSandbox(slug, undefined));
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET/POST/DELETE /api/{agents,channels}/:slug/share — the customer link.
+  // POST creates it, or replaces an existing one: both the token and the
+  // password change, so handing out a new link is also how one is revoked.
+  // The password is shown once here and never stored in the clear.
+  if (seg.length === 4 && (seg[1] === "agents" || seg[1] === "channels") && seg[3] === "share") {
+    const kind: ShareKind = seg[1] === "channels" ? "channel" : "agent";
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "GET") return json(res, { share: await shareFor(kind, slug) });
+      if (method === "POST") {
+        const exists = kind === "channel" ? await getChannel(slug) : await getAgent(slug);
+        if (!exists) return json(res, { error: `${kind} not found` }, 404);
+        const body = JSON.parse((await readBody(req)) || "{}") as { label?: string; user?: string };
+        return json(res, await createShare({ kind, slug, label: body.label, user: body.user }));
+      }
+      if (method === "DELETE") return json(res, { removed: await deleteShare(kind, slug) });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
   }
 
   // Channels — shared transcripts with several agents (channels/<slug>/channel.yml + one chat).
@@ -1475,6 +1515,11 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
       if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
       const refusal = await accessRefusal(req);
       if (refusal) return json(res, { error: refusal }, 401);
+      // /s/<token>/… is a customer's share link: its own router, with none
+      // of the inspector API mounted under it (see share-server.ts).
+      if (url.pathname === "/s" || url.pathname.startsWith("/s/")) {
+        if (await handleShare(req, res, url)) return;
+      }
       if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
       // /vibeables/<slug>/… is an app's own files, served for the preview pane.
       else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) await serveVibeable(req, res, url);

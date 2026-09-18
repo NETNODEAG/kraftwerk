@@ -19,6 +19,7 @@ import { registerVibeableCommands } from "./vibeables.js";
 import { registerTunnelCommands } from "./tunnel.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveProject } from "../config.js";
+import type { SandboxStart } from "../runner/agent-sandbox.js";
 import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
@@ -38,6 +39,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk vibeables ...           small apps built live in a chat (list/create/remove)
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk tunnel [setup <host>]   Cloudflare Tunnel to the inspector: run it alone, or set one up
+ *   kraftwerk sandbox ...             per-agent Docker sandboxes (build/ps/stop)
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -374,6 +376,137 @@ runner
       console.log(chalk.green(`✔ ${runId} stopped`));
     } else {
       console.error(chalk.red(`No running container for ${runId}.`));
+      process.exit(1);
+    }
+  });
+
+// Runs inside the egress proxy container of a sandbox with
+// `network: allowlist` — not something a person invokes by hand.
+program
+  .command("egress-proxy")
+  .description("(internal) HTTP proxy that only forwards to an allowlist of hosts")
+  .option("--allow <hosts>", "Comma-separated hosts; *.example.com covers subdomains")
+  .option("--port <port>", "Listen port", "8888")
+  .action(async (opts: { allow?: string; port?: string }) => {
+    const { startEgressProxy } = await import("../runner/egress-proxy.js");
+    const allow = (opts.allow ?? process.env.KRAFTWERK_EGRESS_ALLOW ?? "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
+    startEgressProxy({ allow, port: Number(opts.port ?? process.env.KRAFTWERK_EGRESS_PORT) || 8888 });
+  });
+
+const sandbox = program
+  .command("sandbox")
+  .description("Manage the agent sandboxes (build the image, sign an agent in, see/stop containers)");
+
+/** The agent's sandbox start options, or exit with the reason. */
+async function requireSandboxedAgent(slug: string): Promise<SandboxStart> {
+  const { initContext } = await import("./routines.js");
+  const { getAgent, sandboxStartFor } = await import("../inspector/agents.js");
+  const project = await resolveProject(process.cwd()).catch(() => null);
+  if (!project) {
+    console.error(chalk.red("Not inside a kraftwerk workspace (no kraftwerk.yml found)."));
+    process.exit(2);
+  }
+  await initContext();
+  if (!(await getAgent(slug).catch(() => null))) {
+    console.error(chalk.red(`Agent "${slug}" not found (expected agents/${slug}/agent.yml).`));
+    process.exit(2);
+  }
+  const start = await sandboxStartFor(slug);
+  if (!start) {
+    console.error(
+      chalk.red(`Agent "${slug}" is not sandboxed — add a \`sandbox:\` block to agents/${slug}/agent.yml.`)
+    );
+    process.exit(2);
+  }
+  return start;
+}
+
+sandbox
+  .command("build")
+  .description("Build/update the kraftwerk-agent image")
+  .option("--local", "Install kraftwerk from this checkout instead of npm (unreleased changes)")
+  .option("--version <version>", "Install this published version instead of latest")
+  .action(async (opts: { local?: boolean; version?: string }) => {
+    const { buildAgentImage, dockerAvailable } = await import("../runner/agent-sandbox.js");
+    if (!(await dockerAvailable())) {
+      console.error(chalk.red("Docker daemon not reachable — is Docker running?"));
+      process.exit(1);
+    }
+    buildAgentImage({ local: opts.local, version: opts.version });
+    console.log(chalk.green("✔ Image kraftwerk-agent built"));
+  });
+
+sandbox
+  .command("ps")
+  .description("List running agent sandboxes (--all: every workspace on this host)")
+  .option("--all", "Every workspace on this host, not just this one")
+  .action(async (opts: { all?: boolean }) => {
+    const { listAgentContainers } = await import("../runner/agent-sandbox.js");
+    const project = opts.all ? null : await resolveProject(process.cwd()).catch(() => null);
+    const rows = await listAgentContainers(project?.root ?? undefined);
+    if (rows.length === 0) {
+      console.log(chalk.dim("No running agent sandboxes."));
+      return;
+    }
+    for (const r of rows) {
+      const where = opts.all ? `  ${chalk.dim(r.workspace)}` : "";
+      console.log(`${chalk.cyan(r.slug)}  ${r.container}  ${chalk.dim(r.status)}${where}`);
+    }
+  });
+
+// A sandbox has its own HOME volume, so the host's Claude/Codex login does
+// not apply and must not: per-agent credentials are the point. With an API
+// key in the environment (agent.yml `sandbox.env`) nothing else is needed;
+// on subscription auth, this signs the agent in once, inside its container.
+sandbox
+  .command("login")
+  .description("Sign one agent's sandbox in to its harness (interactive, persists in the sandbox)")
+  .argument("<slug>", "Agent slug")
+  .action(async (slug: string) => {
+    const { agentExecArgs, ensureAgentContainer } = await import("../runner/agent-sandbox.js");
+    const { spawnSync } = await import("node:child_process");
+    const { getAgent } = await import("../inspector/agents.js");
+    const start = await requireSandboxedAgent(slug);
+    const def = (await getAgent(slug))!;
+    if (def.harness === "pi") {
+      console.error(chalk.red("pi has no sandbox path yet — it still runs on the host."));
+      process.exit(2);
+    }
+    const container = await ensureAgentContainer(start);
+    const cli = def.harness === "codex" ? "codex" : "claude";
+    console.log(chalk.dim(`Signing ${slug} in inside ${container} (${cli} /login) ...`));
+    // As the agent, not as root: the harness writes its credentials into
+    // HOME, and a file the adapter cannot read is the same as no login.
+    const r = spawnSync("docker", ["exec", "-it", ...agentExecArgs(), container, cli, "/login"], {
+      stdio: "inherit",
+    });
+    process.exit(r.status ?? 1);
+  });
+
+sandbox
+  .command("stop")
+  .description("Stop and remove one agent's sandbox (it restarts on the next message)")
+  .argument("<slug>", "Agent slug")
+  .option("--purge", "Also drop the agent's home volume — its harness login is gone")
+  .action(async (slug: string, opts: { purge?: boolean }) => {
+    const { removeAgentSandbox, stopAgentContainer } = await import("../runner/agent-sandbox.js");
+    const project = await resolveProject(process.cwd()).catch(() => null);
+    if (!project) {
+      console.error(chalk.red("Not inside a kraftwerk workspace (no kraftwerk.yml found)."));
+      process.exit(2);
+    }
+    if (opts.purge) {
+      await removeAgentSandbox(project.root, slug);
+      console.log(chalk.green(`✔ sandbox for ${slug} stopped and its home volume dropped`));
+      return;
+    }
+    if (await stopAgentContainer(project.root, slug)) {
+      console.log(chalk.green(`✔ sandbox for ${slug} stopped`));
+    } else {
+      console.error(chalk.red(`No sandbox container for ${slug}.`));
       process.exit(1);
     }
   });

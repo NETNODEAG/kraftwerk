@@ -43,6 +43,14 @@ export interface ChatMeta {
    * over with the transcript as a summary.
    */
   sessions?: Record<string, string>;
+  /**
+   * This thread belongs to a share link (`/s/<token>`), i.e. a customer is
+   * on the other end. Two consequences: the share routes only ever touch
+   * chats carrying their own token, and nobody there can answer a
+   * permission request — those escalate to the admin's bell and decline on
+   * timeout, exactly like an unattended routine.
+   */
+  share?: string;
   createdAt: string;
   updatedAt: string;
 }

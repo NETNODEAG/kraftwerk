@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Agent, Channel, ChannelView } from "./types";
 import { ChatThread } from "./chat";
+import { SharePanel } from "./agents";
 import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
 
 /**
@@ -178,6 +179,17 @@ export function ChannelEditor({ channel, agents }: { channel?: ChannelView; agen
             </Link>
           </div>
         </div>
+        {channel && (
+          <SharePanel
+            kind="channel"
+            slug={channel.slug}
+            // Only a warning-free channel is one where every member is contained.
+            sandboxed={
+              members.length > 0 &&
+              members.every((m) => agents.find((a) => a.slug === m)?.sandbox?.enabled)
+            }
+          />
+        )}
       </div>
     </div>
   );

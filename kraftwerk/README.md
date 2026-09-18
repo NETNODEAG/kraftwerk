@@ -297,7 +297,16 @@ basic-auth on top. Treat that auth as load-bearing. The UI has no
 authentication of its own and its chat runs coding agents against the mounted
 repo. Agent logins made inside the container persist in the `agent-home`
 volume. This is a different image from the `kraftwerk-runner` sandbox
-(`runner/Dockerfile`) used by `run --sandbox`.
+(`runner/Dockerfile`) used by `run --sandbox`, and from the `kraftwerk-agent`
+sandbox (`runner/agent.Dockerfile`) used by sandboxed agents.
+
+One caveat if you plan to use sandboxed agents on that server: starting a
+container needs the Docker socket, and handing `/var/run/docker.sock` to the
+inspector's own container is equivalent to giving it root on the host — which
+takes back exactly the isolation the sandbox was for. Run the inspector on the
+host instead (systemd next to Docker), or put a socket proxy in front that
+exposes only the container endpoints it needs. The compose files deliberately
+do not mount the socket.
 
 ### Inspector through a Cloudflare Tunnel
 
@@ -573,6 +582,200 @@ the model via ACP session options and the thinking budget via
 `model_reasoning_effort`). Pi gets `--model` and `--thinking` flags. Agents
 are created and edited in the UI, or by editing the files, since the
 definition is read fresh for each new session.
+
+### Sandboxed agents
+
+By default an agent's adapter runs on the host, as the inspector's own user,
+with the inspector's environment and its reach over the filesystem. A
+`sandbox:` block in `agent.yml` moves it into a Docker container instead:
+
+```yaml
+# agents/support/agent.yml
+harness: claude
+workflows: [website-check]        # ← the workflows it can see, and run
+knowledge: [customer-support]     # ← the bundles it can see, and maintain
+repos: [our-frontend]             # ← the clones it can read (read-only)
+skills: [report-html]             # ← omit for all skills, [] for none
+sandbox:
+  network: allowlist              # open | none | allowlist (default open)
+  allow: [api.anthropic.com, "*.example.com"]
+  commands: [ls, cat, git]        # omit for no restriction
+  memory: 2g
+  cpus: "2"
+  pids: 512
+  env: [CUSTOMER_API_TOKEN]       # extra env names forwarded from the inspector
+```
+
+A bare `sandbox:` is on with those defaults; `enabled: false` keeps the block
+and turns it off. Build the image once with `kraftwerk sandbox build`.
+
+The block is also editable on the agent's profile (the "sandbox" panel), which
+writes the same YAML — so a change stays in git and still goes through review
+like any other. Saving replaces the container so the next message runs under
+the new rules; the agent's home volume, and with it its harness login, is kept.
+Every field is re-validated server-side before it becomes a docker argument,
+and one that does not fit its shape falls back to the default rather than to
+"no limit".
+
+**There is no second list of what the agent may see.** The sandbox mounts
+exactly what `workflows:`, `knowledge:`, `repos:` and `skills:` already name, so
+connecting a workflow on the profile is all there is to do — the "sees" line
+in the sandbox panel reads from those same lists. Because a running container
+keeps the mounts it started with, changing one of those grants stops the
+container too.
+
+**The workspace is never mounted.** Inside the container everything lives
+under `/workspace` — never the host path, which would tell whoever holds a
+share link the admin's username and the server's layout. The container gets
+an empty volume at `/workspace` as the agent's own working directory, and on
+top of it only what the grants already in `agent.yml` name: the granted knowledge
+bundles (writable — agents maintain their bundles), the granted workflows and
+skills (read-only — those are definitions), `kraftwerk.yml`, and
+`<output>/runs`. An ungranted bundle is not merely unreadable, it is not
+there; neither are `agents/`, other customers' data, or anything else in the
+workspace. The grants stop being advertisement and start being enforced.
+
+The agent's working directory, the mount targets and the project context in
+its first prompt are all translated, so a host path never reaches it.
+
+`<output>/runs` is writable and `<output>` is not, on purpose: a sandboxed
+agent runs its granted workflows itself, inside its own sandbox, and their
+artifacts land on the host — but the chat transcripts in `<output>/chats`
+stay out of reach, so an agent can never edit its own record.
+
+One long-lived container per agent (`kw-agent-<workspace>-<slug>`), started on
+the first message and reused by every session of that agent. Each ACP session
+enters it with `docker exec -i` and speaks the protocol over that pipe, so
+**the inspector stays the ACP client on the host** — the transcript, the
+events and the notifications are written outside the sandbox.
+
+What crosses into the container is only what is named: `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY` when set, plus `sandbox.env`. The rest of the inspector's
+environment stays outside. The agent gets its own home volume
+(`kw-home-<workspace>-<slug>`), so with subscription auth you sign it in once
+with `kraftwerk sandbox login <slug>` and the login survives restarts; deleting
+the agent drops its volumes with it.
+
+#### Network
+
+`network: open` is ordinary bridge networking and `none` is no network at
+all. `allowlist` puts the agent on a Docker network with **no route out** and
+starts a small egress proxy beside it (`kw-proxy-…`, the same image, run
+through `kraftwerk egress-proxy`). The proxy is the only thing the agent can
+reach, and it forwards to `allow` and refuses the rest — so the list is a
+boundary, not a setting the agent could talk its way past. `*.example.com`
+covers the domain and its subdomains.
+
+HTTPS goes through CONNECT, where the proxy sees the host name and nothing
+else: no certificate is forged and no traffic is read. A refusal is a 403 and
+a line in `docker logs kw-proxy-…` naming the host — the agent's own error
+("could not connect") never says which one it was. Remember that the model
+API is egress too: an allowlist without `api.anthropic.com` leaves the agent
+unable to think.
+
+#### Commands
+
+`commands:` limits which programs the agent can run. It is enforced with file
+permissions, not by reading what the agent asks for: the binaries stay owned
+by root, everything outside the list loses its "other" bits, and the agent's
+processes run as the host's uid. So an absolute path, a copy or a rename do
+not get around it, and the agent cannot chmod the bits back — unlike a list
+of tool names, which bash makes porous the moment one allowed entry can
+invoke another program.
+
+The shell, the node runtime and the harness binaries are always kept: without
+them the adapter carrying the conversation cannot run either. Everything else
+is yours to name, `ls` and `id` included.
+
+Know what this does **not** cover: a shell's builtins are not binaries, so
+`printf`, `echo`, globbing and redirection stay available whatever the list
+says — an agent denied `ls` can still list a directory with `echo *`. That is
+not a hole to plug; it is what having a shell means, and the shell cannot go
+without taking the adapter with it. The limits that hold are the ones applied
+before the agent runs: what is mounted, what the network reaches, which
+binaries exist. The command list narrows the third.
+
+Which is why the agent is *told*. A sandboxed session gets a "## Your sandbox"
+block naming its commands, its network policy and where its files are, so it
+reports what it cannot do instead of discovering the limit by walking into it
+and then improvising around it.
+
+Because it needs a non-root identity to hand down, an inspector running as
+root cannot enforce it, and says so instead of pretending.
+
+This fails closed: if the container cannot start, the chat says so and no turn
+runs. Falling back to the host would silently drop the boundary. The container
+is not handed back until its policy is fully applied, so no turn can land in a
+half-restricted sandbox.
+
+```
+kraftwerk sandbox build            build/update the kraftwerk-agent image
+kraftwerk sandbox build --local    ... from this checkout, for unreleased changes
+kraftwerk sandbox login <slug>     sign one agent's sandbox in to its harness
+kraftwerk sandbox ps [--all]       running agent sandboxes
+kraftwerk sandbox stop <slug>      stop it (restarts on the next message)
+kraftwerk sandbox stop <slug> --purge   ... and drop its volumes
+```
+
+Repositories are granted the same way, on the agent's profile or as `repos:`
+in agent.yml, and mounted **read-only**. The clone belongs to the workspace,
+which keeps it current, so the agent reads the code — `git log`, `git show`,
+`git diff`, `git grep` all work — without a deploy key ever entering the
+container, and without being able to rewrite history other agents share. Its
+context lists only the clones it was granted, because naming one it cannot
+open just wastes a turn.
+
+Note: pi is not an ACP agent and has no sandbox path yet — a pi agent keeps
+running on the host even with the block set. Vibeables and projects have no
+grant yet, so a sandboxed agent does not see them.
+
+### Share links
+
+An agent or a channel can be handed to people outside the workspace: the
+"share link" panel on the agent's profile (`#/agents/<slug>/info`) or on the
+channel's edit screen creates `https://…/s/<token>`, with a username and a
+generated password. The password is shown once, right after it is made —
+only a hash is kept. Creating a new link replaces the old one, which is also
+how a link is revoked; `revoke` drops it outright. Shares live in
+`<output>/shares.json`, not in the git-tracked definition.
+
+The page behind the link is its own small chat (`share/index.html`), not the
+inspector. `/s/<token>/…` is served by a separate router (`share-server.ts`)
+under which the inspector API is not mounted at all — the workspace, the
+other agents, the settings and the runs are unreachable there because those
+routes do not exist on that path, not because a check says no. Every chat id
+is verified against the share's own token first.
+
+The page also lists the workflows the agent was granted, with their
+descriptions. Clicking one writes the request into the composer rather than
+firing it — the person sees exactly what will be asked and can add the detail
+the workflow needs — and the agent runs it inside its own sandbox, so the run
+lands in the transcript like any other turn. There is no second surface and no
+second enforcement: a workflow that is not mounted cannot be run however it is
+asked for. A channel share lists what any of its members can run.
+
+Several people can hold one link; each picks a display name, and their
+messages are signed with it so the transcript stays readable. An **agent**
+share is a private space: every thread belongs to the link and the sidebar
+lists them all, old ones included. A **channel** share hands over the
+channel's one ongoing transcript, which the workspace writes to as well — so
+give a customer a channel of their own. Each agent in a shared channel still
+runs in its own sandbox, so the isolation is per agent, not per channel.
+
+Nobody on a share link is asked for permission, and nobody there could
+answer: approving a tool call would be a customer authorising an action on
+the workspace's authority. What happens instead depends on whether there is
+a boundary. A **sandboxed** agent simply does not ask — the admin already
+answered in `sandbox:` (which files exist, which hosts it can reach, which
+commands it can run, all enforced by the kernel), so inside that box the
+agent uses what it was given and the turn does not stall. An agent **not** in
+a sandbox has no such limits, so its requests escalate to the admin's bell
+and decline on timeout, like an unattended routine. Either way the page never
+renders them. Tool calls, plans and token usage are left out too — they carry
+workspace paths and mean nothing on that side.
+
+Basic auth is deliberately the whole of it. The link is the credential; it is
+not an account system, and it is meant to sit behind TLS.
 
 ### Repositories
 

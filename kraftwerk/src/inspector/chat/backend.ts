@@ -8,9 +8,16 @@ import type {
   SessionFailure,
 } from "./types.js";
 
-/** An attachment as the backend gets it: where the file is, and what it is. */
+/**
+ * An attachment as the backend gets it. `path` is where the *inspector* can
+ * read it, which is always the host; `mention` is the path to name to the
+ * agent, which differs once the agent lives in a container and sees the file
+ * through a read-only mount. Keeping them apart is what lets the inspector
+ * inline an image while the agent still gets a path it can open itself.
+ */
 export interface PromptFile extends Attachment {
   path: string;
+  mention?: string;
 }
 
 /**
@@ -56,6 +63,19 @@ export interface BackendTuning {
   unattended?: boolean;
   /** ACP agents: the session id to continue (from ChatMeta.sessions) instead of opening a new one. */
   resume?: string;
+  /**
+   * Run the agent's adapter inside this Docker container instead of on the
+   * host (agent.yml `sandbox:`). The inspector stays the ACP client either
+   * way, so the transcript never enters the sandbox.
+   */
+  sandbox?: { container: string };
+  /**
+   * Nobody on this session's side may decide, and the sandbox has already
+   * decided for them: run the harness preset that does not ask, and allow
+   * any request that still arrives. Set only for a share-link session whose
+   * agent is sandboxed — see permissions.ts.
+   */
+  contained?: boolean;
 }
 
 /**

@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Agent</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fff; --fg: #1f1f1f; --muted: #5f6368; --line: #dadce0;
+    --card: #f6f8fc; --accent: #0b57d0; --accent-fg: #fff; --danger: #b3261e;
+    --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1b1b; --fg: #e3e3e3; --muted: #9aa0a6; --line: #3c4043;
+      --card: #282a2c; --accent: #a8c7fa; --accent-fg: #062e6f; --danger: #f2b8b5;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--line); flex: none;
+  }
+  header .emoji { font-size: 22px; line-height: 1; }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  header button { border: 1px solid var(--line); background: transparent;
+    color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+  }
+  header button:hover { background: var(--card); }
+  header #who { margin-left: auto; }
+  header #menu { display: none; order: -1; padding: 6px 12px; }
+  aside .new-row { border: 1px dashed var(--line); text-align: center; margin-bottom: 6px; }
+  aside .new-row:hover { border-style: solid; }
+  aside .section { margin-top: 18px; }
+  aside .wf small { white-space: normal; opacity: .9; }
+  @media (max-width: 720px) {
+    header { flex-wrap: wrap; }
+    header #menu { display: block; }
+    header #new { font-size: 12.5px; padding: 6px 10px; }
+  }
+  .body { flex: 1; display: flex; min-height: 0; }
+  aside {
+    flex: none; width: 240px; border-right: 1px solid var(--line);
+    overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 4px;
+  }
+  aside .microlabel { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 4px 8px 8px; }
+  aside a {
+    display: block; padding: 8px 10px; border-radius: 10px; cursor: pointer;
+    color: inherit; text-decoration: none; font-size: 13px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  aside a:hover { background: var(--card); }
+  aside a.active { background: var(--card); font-weight: 600; }
+  aside a small { display: block; color: var(--muted); font-size: 11.5px; font-weight: 400; }
+  main { flex: 1; overflow-y: auto; padding: 20px 16px; min-width: 0; }
+  .who { font-size: 11.5px; color: var(--muted); margin: 0 0 3px 4px; }
+  .msg.user + .who { text-align: right; }
+  @media (max-width: 720px) {
+    aside { display: none; }
+    aside.open { display: flex; position: absolute; inset: 0 auto 0 0; background: var(--bg); z-index: 5; width: 82%; }
+  }
+  .wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .msg { padding: 12px 16px; border-radius: var(--radius); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { background: var(--accent); color: var(--accent-fg); align-self: flex-end; max-width: 85%; }
+  .msg.agent { background: var(--card); align-self: flex-start; max-width: 100%; }
+  .msg.error { background: transparent; border: 1px solid var(--danger); color: var(--danger); font-size: 13px; }
+  .note { color: var(--muted); font-size: 12.5px; text-align: center; padding: 8px 0; }
+  .working { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .25 } 50% { opacity: 1 } }
+  footer { flex: none; border-top: 1px solid var(--line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  form { max-width: 720px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  textarea {
+    flex: 1; resize: none; min-height: 44px; max-height: 40vh;
+    font: inherit; color: inherit; background: var(--card);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 11px 14px;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form button {
+    border: 0; background: var(--accent); color: var(--accent-fg);
+    border-radius: 999px; padding: 11px 20px; font: inherit; cursor: pointer;
+  }
+  form button:disabled { opacity: .5; cursor: default; }
+  form #attach {
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    border-radius: 999px; padding: 10px 14px; font: inherit; cursor: pointer; line-height: 1;
+  }
+  form #attach:hover { background: var(--card); }
+  .pending { max-width: 720px; margin: 0 auto 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .pending span {
+    background: var(--card); border-radius: 999px; padding: 4px 10px;
+    font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pending b { font-weight: 500; }
+  .pending button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; padding: 0; }
+  .msg .files { margin-top: 6px; font-size: 12.5px; opacity: .85; }
+  body.dropping main { outline: 2px dashed var(--accent); outline-offset: -8px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="emoji" id="emoji">🤖</span>
+  <div>
+    <h1 id="name">…</h1>
+    <p id="desc"></p>
+  </div>
+  <button id="menu" type="button" title="Conversations" aria-label="Conversations">☰</button>
+  <button id="who" type="button" title="Change the name your messages are signed with"></button>
+  <button id="new" type="button">New conversation</button>
+</header>
+<div class="body">
+  <aside id="side">
+    <span class="microlabel">conversations</span>
+    <div id="threads"></div>
+    <div class="section" id="wf-section" hidden>
+      <span class="microlabel">workflows</span>
+      <div id="workflows"></div>
+    </div>
+  </aside>
+  <main><div class="wrap" id="thread"></div></main>
+</div>
+<footer>
+  <div class="pending" id="pending"></div>
+  <form id="form">
+    <input type="file" id="file" multiple hidden />
+    <button id="attach" type="button" title="Attach files" aria-label="Attach files">+</button>
+    <textarea id="input" rows="1" placeholder="Write a message…" autocomplete="off"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+</footer>
+<script>
+(() => {
+  "use strict";
+  // /s/<token>[/…] — the link itself is the only configuration this page has.
+  const token = location.pathname.split("/").filter(Boolean)[1] || "";
+  const base = "/s/" + encodeURIComponent(token) + "/api";
+  const storeKey = "kw-share-" + token;
+
+  const thread = document.getElementById("thread");
+  const threadList = document.getElementById("threads");
+  const side = document.getElementById("side");
+  const input = document.getElementById("input");
+  const form = document.getElementById("form");
+  const send = document.getElementById("send");
+  const whoBtn = document.getElementById("who");
+  const newBtn = document.getElementById("new");
+  const fileInput = document.getElementById("file");
+  const wfBox = document.getElementById("workflows");
+  const wfSection = document.getElementById("wf-section");
+  let workflows = [];
+  const pendingBox = document.getElementById("pending");
+
+  // Files chosen but not sent yet. They upload with the message, not on
+  // pick: a file attached to a thread that was never written to would sit
+  // in the transcript of a conversation that never happened.
+  let pending = [];
+
+  let chatId = null;
+  let stream = null;
+  let lastSeq = 0;
+  let agentBubble = null;    // the current answer, appended chunk by chunk
+  let agentBubbleFrom = "";  // which agent it belongs to (channels)
+  let workingRow = null;
+  let kind = "agent";
+  let members = [];
+  let threads = [];
+  // Several people can hold one link, so a message is signed with a name the
+  // poster picks. It is a label for the transcript, not an identity: the
+  // link and its password are the only credential here.
+  let me = localStorage.getItem(storeKey + "-name") || "";
+
+  const api = async (path, init) => {
+    const res = await fetch(base + path, init);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  };
+
+  const atBottom = () => {
+    const m = document.querySelector("main");
+    return m.scrollHeight - m.scrollTop - m.clientHeight < 80;
+  };
+  const scroll = (force) => {
+    const m = document.querySelector("main");
+    if (force || atBottom()) m.scrollTop = m.scrollHeight;
+  };
+
+  const agentName = (slug) => {
+    const hit = members.find((x) => x.slug === slug);
+    return hit ? hit.emoji + " " + hit.name : slug;
+  };
+
+  function label(text) {
+    const el = document.createElement("div");
+    el.className = "who";
+    el.textContent = text;
+    thread.appendChild(el);
+  }
+
+  function drawPending() {
+    pendingBox.textContent = "";
+    pending.forEach((f, i) => {
+      const chip = document.createElement("span");
+      const label = document.createElement("b");
+      label.textContent = f.name;
+      chip.appendChild(label);
+      const x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "✕";
+      x.title = "Remove";
+      x.addEventListener("click", () => {
+        pending.splice(i, 1);
+        drawPending();
+      });
+      chip.appendChild(x);
+      pendingBox.appendChild(chip);
+    });
+  }
+
+  /**
+   * The workflows this link may run. Clicking one writes the request into
+   * the composer instead of firing it: the person sees exactly what will be
+   * asked, can add the detail the workflow needs, and the run lands in the
+   * conversation like any other turn.
+   */
+  function drawWorkflows() {
+    wfSection.hidden = workflows.length === 0;
+    wfBox.textContent = "";
+    for (const w of workflows) {
+      const a = document.createElement("a");
+      a.className = "wf";
+      a.textContent = w.name;
+      if (w.description) {
+        const d = document.createElement("small");
+        d.textContent = w.description;
+        a.appendChild(d);
+        a.title = w.description;
+      }
+      a.addEventListener("click", () => {
+        side.classList.remove("open");
+        input.value = w.usesRequest
+          ? 'Run the "' + w.name + '" workflow: '
+          : 'Run the "' + w.name + '" workflow.';
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+        input.dispatchEvent(new Event("input"));
+      });
+      wfBox.appendChild(a);
+    }
+  }
+
+  function addFiles(files) {
+    for (const f of files) pending.push(f);
+    drawPending();
+  }
+
+  function bubble(cls, text) {
+    const el = document.createElement("div");
+    el.className = "msg " + cls;
+    el.textContent = text;
+    thread.appendChild(el);
+    return el;
+  }
+
+  function setWorking(on) {
+    if (on && !workingRow) {
+      workingRow = document.createElement("div");
+      workingRow.className = "working";
+      workingRow.innerHTML = '<span class="dot"></span>';
+      workingRow.append("working…");
+      thread.appendChild(workingRow);
+      scroll(false);
+    } else if (!on && workingRow) {
+      workingRow.remove();
+      workingRow = null;
+    }
+  }
+
+  // Only what belongs on this side of the link. Tool calls, plans and token
+  // usage stay out: they carry workspace paths and mean nothing here.
+  function render(ev) {
+    if (typeof ev.seq === "number") lastSeq = Math.max(lastSeq, ev.seq);
+    const fromAgent = ev.from && ev.from.kind === "agent" ? ev.from.slug : "";
+    switch (ev.type) {
+      case "user_message": {
+        setWorking(false);
+        agentBubble = null;
+        const name = ev.from && ev.from.kind === "human" ? ev.from.name : "";
+        if (name && name !== me) label(name);
+        const el = bubble("user", ev.text);
+        if (ev.attachments && ev.attachments.length) {
+          const files = document.createElement("div");
+          files.className = "files";
+          files.textContent = "📎 " + ev.attachments.map((a) => a.name).join(", ");
+          el.appendChild(files);
+        }
+        scroll(true);
+        break;
+      }
+      case "text":
+        if (ev.subagent) return;        // a delegated helper's stream, not the answer
+        setWorking(false);
+        if (!agentBubble || agentBubbleFrom !== fromAgent) {
+          if (fromAgent) label(agentName(fromAgent));
+          agentBubble = bubble("agent", "");
+          agentBubbleFrom = fromAgent;
+        }
+        agentBubble.textContent += ev.text;
+        scroll(false);
+        break;
+      case "turn_start":
+        agentBubble = null;
+        setWorking(true);
+        break;
+      case "turn_end":
+        setWorking(false);
+        agentBubble = null;
+        send.disabled = false;
+        break;
+      case "error":
+        setWorking(false);
+        agentBubble = null;
+        bubble("error", ev.message);
+        send.disabled = false;
+        scroll(true);
+        break;
+      case "failure":
+        setWorking(false);
+        agentBubble = null;
+        bubble("error", ev.message || "The agent could not finish this turn.");
+        send.disabled = false;
+        break;
+      default:
+        break;
+    }
+  }
+
+  function drawThreads() {
+    threadList.textContent = "";
+    // A channel is one ongoing transcript; there is nothing to start.
+    if (kind !== "channel") {
+      const add = document.createElement("a");
+      add.className = "new-row";
+      add.textContent = "+ New conversation";
+      add.addEventListener("click", () => {
+        side.classList.remove("open");
+        void startNew();
+      });
+      threadList.appendChild(add);
+    }
+    for (const t of threads) {
+      const a = document.createElement("a");
+      a.className = t.id === chatId ? "active" : "";
+      // A thread is named by its first message; until then it is simply new.
+      a.textContent = t.title || "New conversation";
+      const when = document.createElement("small");
+      when.textContent = new Date(t.updatedAt).toLocaleString();
+      a.appendChild(when);
+      a.addEventListener("click", () => {
+        side.classList.remove("open");
+        void open(t.id);
+      });
+      threadList.appendChild(a);
+    }
+  }
+
+  async function refreshThreads() {
+    try {
+      const meta = await api("/meta");
+      threads = meta.threads;
+      drawThreads();
+    } catch (_) { /* the list is a convenience; the open thread still works */ }
+  }
+
+  function listen() {
+    if (stream) stream.close();
+    stream = new EventSource(base + "/chats/" + encodeURIComponent(chatId) + "/events?after=" + lastSeq);
+    stream.onmessage = (e) => {
+      let ev = null;
+      try { ev = JSON.parse(e.data); } catch (_) { return; }
+      render(ev);
+      // A first message names the thread; keep the list honest without polling.
+      if (ev.type === "turn_end" || ev.type === "user_message") void refreshThreads();
+    };
+    // The browser reconnects on its own; nothing to do but let it.
+    stream.onerror = () => {};
+  }
+
+  async function open(id) {
+    chatId = id;
+    lastSeq = 0;
+    agentBubble = null;
+    agentBubbleFrom = "";
+    thread.textContent = "";
+    localStorage.setItem(storeKey, id);
+    const chat = await api("/chats/" + encodeURIComponent(id));
+    for (const ev of chat.events) render(ev);
+    if (chat.busy) setWorking(true);
+    drawThreads();
+    scroll(true);
+    listen();
+  }
+
+  async function startNew() {
+    // Clicking "new" while already sitting in an untouched thread would add
+    // an identical empty one and change nothing on screen — which reads as
+    // a button that does not work. Use the one that is already here.
+    if (chatId && !thread.querySelector(".msg")) {
+      input.focus();
+      return;
+    }
+    const made = await api("/chats", { method: "POST" });
+    await refreshThreads();
+    await open(made.id);
+    input.focus();
+  }
+
+  function setName(next) {
+    me = (next || "").trim().slice(0, 60);
+    localStorage.setItem(storeKey + "-name", me);
+    whoBtn.textContent = me ? "signed as " + me : "set your name";
+  }
+
+  function askName() {
+    const next = prompt("Your name, so the others can tell your messages apart:", me);
+    if (next !== null) setName(next);
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    const files = pending;
+    if (!text && files.length === 0) return;
+    if (!me) {
+      askName();
+      if (!me) return;
+    }
+    send.disabled = true;
+    input.value = "";
+    input.style.height = "auto";
+    pending = [];
+    drawPending();
+    try {
+      if (!chatId) await startNew();
+      // Upload first: the message carries the names the server stored, so a
+      // failed upload stops the turn instead of attaching a missing file.
+      const attachments = [];
+      for (const f of files) {
+        const stored = await api("/chats/" + encodeURIComponent(chatId) + "/attachments", {
+          method: "POST",
+          headers: {
+            "content-type": f.type || "application/octet-stream",
+            "x-file-name": encodeURIComponent(f.name),
+          },
+          body: f,
+        });
+        attachments.push(stored);
+      }
+      await api("/chats/" + encodeURIComponent(chatId) + "/message", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, from: me, attachments }),
+      });
+    } catch (err) {
+      bubble("error", err.message);
+      send.disabled = false;
+    }
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, window.innerHeight * 0.4) + "px";
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  document.getElementById("attach").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    addFiles(fileInput.files);
+    fileInput.value = "";
+  });
+  // Dropping a file anywhere on the conversation is the obvious gesture.
+  document.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    document.body.classList.add("dropping");
+  });
+  document.addEventListener("dragleave", (e) => {
+    if (e.relatedTarget === null) document.body.classList.remove("dropping");
+  });
+  document.addEventListener("drop", (e) => {
+    e.preventDefault();
+    document.body.classList.remove("dropping");
+    if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+  newBtn.addEventListener("click", () => void startNew());
+  whoBtn.addEventListener("click", askName);
+  document.getElementById("menu").addEventListener("click", () => side.classList.toggle("open"));
+
+  (async () => {
+    setName(me);
+    try {
+      const meta = await api("/meta");
+      kind = meta.kind;
+      members = meta.target.members || [];
+      workflows = meta.workflows || [];
+      threads = meta.threads;
+      document.getElementById("emoji").textContent = meta.target.emoji || "🤖";
+      document.getElementById("name").textContent = meta.target.name;
+      document.title = meta.target.name;
+      const desc = kind === "channel" && members.length
+        ? (meta.target.description ? meta.target.description + " · " : "") +
+          members.map((m) => m.emoji + " " + m.name).join(", ")
+        : meta.target.description || "";
+      if (desc) document.getElementById("desc").textContent = desc;
+      // A channel is one ongoing transcript, so there is nothing to start.
+      if (kind === "channel") {
+        newBtn.style.display = "none";
+        document.getElementById("menu").style.display = "none";
+      }
+      drawThreads();
+      drawWorkflows();
+      const remembered = localStorage.getItem(storeKey);
+      const known = threads.some((t) => t.id === remembered);
+      if (known) await open(remembered);
+      else if (threads.length) await open(threads[0].id);
+      else thread.appendChild(Object.assign(document.createElement("div"), {
+        className: "note", textContent: "Say hello to start.",
+      }));
+    } catch (err) {
+      bubble("error", err.message);
+    }
+    input.focus();
+  })();
+})();
+</script>
+</body>
+</html>

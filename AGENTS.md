@@ -53,7 +53,79 @@ Small apps built live in a chat are **vibeables** — one folder each under `vib
 
 ## The harness is the security layer, not a kraftwerk allowlist
 
-Agents run on claude, codex or pi, and those harnesses decide which tool calls need a human. Kraftwerk never overrides that judgment in either direction: it does not auto-approve a permission request (a routine that runs unattended waits for a human and declines on timeout, `src/inspector/chat/permissions.ts`), and it does not keep its own hand-written list of tools an agent may or may not use. Capability stays with the agent; the only kraftwerk-side choice is ruling out the harness presets that never ask (`unattendedMode` in `permissions.ts`: no claude `bypassPermissions`, no codex full access for routines) — the user's configured mode otherwise stands. "Allow always" answers are stored by the harness, so the allowed set grows from the user's real decisions. A proposed fix that would strip tools from an agent or answer on the user's behalf is the wrong shape for this repo.
+Agents run on claude, codex or pi, and those harnesses decide which tool calls need a human. Kraftwerk never overrides that judgment in either direction: it does not auto-approve a permission request (a routine that runs unattended waits for a human and declines on timeout, `src/inspector/chat/permissions.ts`), and it does not keep its own hand-written list of tools an agent may or may not use.
+
+The one exception is a *contained* session, and it is one because the question moved rather than disappeared: a customer on a share link talking to a **sandboxed** agent is never asked, because there is nobody on that side who may decide, and because the admin already answered in `sandbox:` — which files exist in the container, which hosts it can reach, which commands it can run, each enforced by the kernel rather than by a prompt. `containedMode()` picks the harness preset that does not ask and `allowOption()` allows anything that still arrives. It is gated on `tuning.sandbox`: an agent on the host gets the ordinary unattended treatment, because there the prompt is the only thing standing between a customer's request and this machine. A change that lets `contained` be set without a sandbox is the wrong shape. Capability stays with the agent; the only kraftwerk-side choice is ruling out the harness presets that never ask (`unattendedMode` in `permissions.ts`: no claude `bypassPermissions`, no codex full access for routines) — the user's configured mode otherwise stands. "Allow always" answers are stored by the harness, so the allowed set grows from the user's real decisions. A proposed fix that would strip tools from an agent or answer on the user's behalf is the wrong shape for this repo.
+
+## The sandbox is the boundary, the harness is still the judge
+
+The rule above holds: kraftwerk keeps no hand-written list of tools an agent
+may or may not call. When an agent has to be *contained* — anything exposed
+beyond the people who run the workspace — the limit goes on the boundary, not
+on the tool list: what exists inside the container at all, whether it has a
+network, which secrets are in its environment, how much CPU, memory and how
+many pids it gets (`sandbox:` in agent.yml, `src/runner/agent-sandbox.ts`).
+Inside that boundary the harness keeps deciding which individual call needs a
+human, exactly as before.
+
+The workspace is never bind-mounted into a sandbox. The container gets an
+empty volume at `/workspace` and, on top of it, only what the grants already
+in agent.yml name (`knowledge:`, `workflows:`, `skills:`). Nothing inside a
+sandbox is ever addressed by its host path — an agent behind a share link is
+someone else's, and the path alone discloses the admin's username and how the
+server is laid out. `sandboxPath()` translates the structured paths (cwd,
+mount targets, claude's extra directories) and `redactHostPaths()` rewrites
+the finished context string, so a newly added context block cannot leak one
+by forgetting to translate.
+Mount-everything-then-hide is the wrong shape for the same reason a tool
+allowlist is: it defaults to "all" and relies on remembering every exception.
+`sandboxStartFor()` in `src/inspector/agents.ts` is the one place that
+resolves those grants, because the container is started once and reused —
+two callers disagreeing about the mounts would make an agent's reach depend
+on who started it first. For the same reason anything that changes what a
+sandbox would mount has to stop the container: `saveAgent` when a grant
+changed, `saveAgentSandbox` always. A grant edited in the UI that only takes
+effect the next time something happens to restart the container reads as a
+broken feature, not as a caching subtlety.
+
+The profile is editable over HTTP (`PUT /api/agents/:slug/sandbox`), so
+`normalizeSandbox()` validates every field rather than trusting it — each one
+ends up in a docker argument. A value that does not fit its shape falls back
+to the default, never to the absence of a limit.
+
+The reason the two do not conflict: a tool allowlist is a *deny* list with a
+default of "everything", and bash makes it porous (grant `git` and you have
+granted every hook it can run). A sandbox profile is a *grant* with a default
+of nothing, and it is enforced by the kernel rather than by a prompt. So a
+proposed change that strips tools from an agent is still the wrong shape; one
+that narrows what the container can reach is the right one.
+
+The two limits that exist are the two that a container can actually hold.
+`network: allowlist` puts the agent on a Docker network with no route out and
+an egress proxy as its only door, so a refused domain fails because the
+packets have nowhere to go. `commands:` takes the "other" bits off every
+binary outside the list while the agent runs as a non-root uid, so an
+absolute path or a copy does not get around it. Both are enforced by the
+kernel; neither asks the agent to cooperate. A limit that cannot be expressed
+this way does not belong in `sandbox:` — it belongs to the harness.
+
+The command list covers binaries and nothing else: a shell's builtins are not
+files, so `printf`, `echo` and globbing survive any list, and the shell cannot
+be removed without removing the adapter. Do not try to close that by
+enumerating what the agent may type — that is the porous deny-list shape
+again. The answer is the boundary below it (what is mounted, what the network
+reaches) plus `sandboxContext()`, which tells the agent its limits up front so
+it names them instead of routing around them.
+
+Three properties this must keep. It fails closed — a container that cannot start
+ends the turn with the reason, never a quiet fall back to the host, which
+would drop the boundary an admin set. The inspector stays the ACP *client* on the
+host while only the adapter moves inside, which is what keeps the transcript,
+the events and the audit trail out of the agent's own reach. And a container
+is not handed to a caller until its policy is fully applied (`waitReady`):
+`docker run -d` returns long before an init has finished, and a turn that
+landed in the gap would run in a sandbox that is only half closed — worse,
+differently so depending on how busy the machine is.
 
 ## Things that happen while nobody watches go to the bell
 

@@ -1,0 +1,96 @@
+#!/bin/sh
+# PID 1 of an agent sandbox. Runs as root, applies the container's policy,
+# marks itself ready, then does nothing for the rest of its life — the real
+# work arrives by `docker exec` as a non-root user.
+#
+# Why the policy is applied here and not in the image: it is per agent, and
+# it has to be complete before the first exec lands. The caller waits for
+# READY, so a half-applied policy is never something an agent can run in.
+set -e
+
+READY=/run/kw-sandbox-ready
+rm -f "$READY"
+
+uid="${KRAFTWERK_AGENT_UID:-0}"
+gid="${KRAFTWERK_AGENT_GID:-0}"
+
+# Mount points Docker created for grants that have since been revoked stay
+# behind in the workspace volume as empty directories. An empty folder where
+# a knowledge bundle or a repository used to be reads like one that exists and
+# is broken, so it goes. Anything actually mounted is non-empty (a bundle has
+# index.md, a repo a .git) and a live mount cannot be removed anyway.
+find /workspace -mindepth 1 -type d -empty -delete 2>/dev/null || true
+
+if [ "$uid" != "0" ]; then
+  # The volumes Docker created belong to root; the agent works as $uid.
+  # Bind mounts already carry the host's ownership and are left alone.
+  chown "$uid:$gid" /workspace 2>/dev/null || true
+  # -R on HOME, not just the directory: the harness keeps its login in there
+  # and anything root wrote (an older kraftwerk signed the agent in as root)
+  # would be unreadable to the agent, which then reports itself signed out
+  # with the credentials sitting right there.
+  chown -R "$uid:$gid" "$HOME" 2>/dev/null || true
+  chmod 700 "$HOME" 2>/dev/null || true
+fi
+
+# `commands:` in agent.yml. Empty means no restriction, which is what an
+# agent.yml without the key gets.
+#
+# The mechanism is file permissions, not a wrapper or a PATH trick: the
+# binaries stay owned by root, everything not allowed loses its "other"
+# bits, and the agent runs as a uid that is neither root nor the owner. An
+# absolute path does not get around it, and the agent cannot chmod it back.
+if [ -n "${KRAFTWERK_ALLOW_COMMANDS:-}" ] && [ "$uid" != "0" ]; then
+  # The shell, the node runtime and the harness binaries are the container
+  # itself, not tools the agent reaches for — without them nothing runs at
+  # all, including the adapter that carries the conversation.
+  keep="${KRAFTWERK_ALLOW_COMMANDS},sh,bash,dash,env,node,claude,codex,claude-agent-acp,codex-acp"
+
+  # Two passes, because npm installs every global CLI as a symlink into
+  # /usr/local/lib — `kraftwerk`, `npm`, `npx`, `codex`. A find restricted to
+  # -type f skips all of them, and the allowlist silently does not apply to
+  # the tools most worth naming.
+  #
+  # Regular files go in one batched -exec: /usr/bin alone has hundreds of
+  # entries, and a chmod per file took half a minute — long enough for a
+  # container to be exec'd into while still half open.
+  old_ifs=$IFS
+  set -- /usr/local/bin /usr/bin /usr/sbin -maxdepth 1
+  IFS=,
+  for name in $keep; do
+    [ -n "$name" ] || continue
+    set -- "$@" ! -name "$name"
+  done
+  IFS=$old_ifs
+  find "$@" -type f -exec chmod o-rwx {} + 2>/dev/null || true
+
+  # Symlinks are few, so they can afford the per-entry check they need.
+  # chmod follows a link, so what matters is where it points:
+  #
+  #   - a keep-listed target is left alone, or `nodejs -> node` would take
+  #     the node runtime down with it;
+  #   - only targets that are themselves commands are touched. A bin
+  #     directory holds links to things that are not commands at all —
+  #     `/usr/bin/ld.so` points at the dynamic loader, and stripping that
+  #     stops every dynamically linked binary in the container from running,
+  #     including the shell. Anything outside the command directories and
+  #     npm's global modules is none of this policy's business.
+  find "$@" -type l 2>/dev/null | while IFS= read -r link; do
+    target=$(readlink -f "$link" 2>/dev/null) || continue
+    [ -n "$target" ] || continue
+    case "$target" in
+      /usr/local/lib/node_modules/*|/usr/local/bin/*|/usr/bin/*|/usr/sbin/*) ;;
+      *) continue ;;
+    esac
+    base=${target##*/}
+    base=${base%.js}
+    base=${base%.exe}
+    case ",$keep," in
+      *",$base,"*) continue ;;
+    esac
+    chmod o-rwx "$target" 2>/dev/null || true
+  done
+fi
+
+: > "$READY"
+exec sleep infinity
