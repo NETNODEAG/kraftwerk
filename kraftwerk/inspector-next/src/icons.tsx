@@ -33,3 +33,12 @@ export const KnowledgeIcon = () => (
     <path d="M12 6.5v13" />
   </svg>
 );
+
+/** A clock with a turning arrow: what ran before. */
+export const RunsIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden {...line}>
+    <path d="M4 12a8 8 0 1 0 2.6-5.9" />
+    <path d="M4 4.5v4h4" />
+    <path d="M12 8v4.5l3 1.8" />
+  </svg>
+);

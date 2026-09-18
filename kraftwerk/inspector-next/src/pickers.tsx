@@ -26,8 +26,7 @@ function when(iso: string): string {
   return d.toLocaleDateString([], { day: "numeric", month: "short", ...(d.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }) });
 }
 
-/** The panel title as a dropdown: the general chat first, then every agent (each editable), then a new one. */
-export function TargetPicker({ agents, channels, target, onPick, onEdit, onNew, onNewChannel }: {
+interface TargetProps {
   agents: Agent[];
   channels: Channel[];
   target: string;
@@ -36,10 +35,18 @@ export function TargetPicker({ agents, channels, target, onPick, onEdit, onNew, 
   onEdit: (key: string) => void;
   onNew: () => void;
   onNewChannel: () => void;
+}
+
+/**
+ * Who can be talked to: the general chat, every agent, every channel (each
+ * editable), then a new one of either. The same list is the title's dropdown
+ * on ordinary screens and a sidebar on wide ones; `menu` picks the semantics,
+ * `onDone` lets the dropdown close after a choice.
+ */
+function TargetList({ agents, channels, target, onPick, onEdit, onNew, onNewChannel, menu, onDone }: TargetProps & {
+  menu: boolean;
+  onDone?: () => void;
 }) {
-  const { open, setOpen, wrap } = useMenu<HTMLDivElement>();
-  const agent = agents.find((a) => a.slug === target);
-  const channel = channels.find((c) => channelTarget(c.slug) === target);
   const names = (slugs: string[]) => slugs.map((m) => agents.find((a) => a.slug === m)?.name ?? m).join(", ");
   const groups = [
     {
@@ -63,83 +70,124 @@ export function TargetPicker({ agents, channels, target, onPick, onEdit, onNew, 
   ].filter((g) => g.items.length > 0);
 
   return (
+    <>
+      {groups.map((g) => (
+        <div key={g.label} role="group" aria-label={g.label || undefined}>
+          {g.label && <div className="menu-group">{g.label}</div>}
+          {g.items.map((it) => (
+            // Two buttons side by side, since a button cannot hold another one.
+            <div key={it.key} className="menu-row">
+              <button
+                className="menu-item"
+                {...(menu ? { role: "menuitemradio", "aria-checked": it.key === target } : { "aria-current": it.key === target ? ("true" as const) : undefined })}
+                onClick={() => {
+                  onDone?.();
+                  if (it.key !== target) onPick(it.key);
+                }}
+              >
+                <span className="menu-emoji" aria-hidden>{it.emoji}</span>
+                <span className="menu-text">
+                  <span className="menu-name">{it.name}</span>
+                  {it.sub && <span className="menu-sub">{it.sub}</span>}
+                </span>
+                {menu && it.key === target && <Check />}
+              </button>
+              {it.editable && (
+                <button
+                  className="icon menu-edit"
+                  {...(menu ? { role: "menuitem" } : {})}
+                  title="Edit"
+                  aria-label={`Edit ${it.name}`}
+                  onClick={() => {
+                    onDone?.();
+                    onEdit(it.key);
+                  }}
+                >
+                  <EditIcon />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+      <div className="menu-sep" role="separator" />
+      {[
+        { label: "New agent", run: onNew },
+        { label: "New channel", run: onNewChannel },
+      ].map((it) => (
+        <button
+          key={it.label}
+          className="menu-item"
+          {...(menu ? { role: "menuitem" } : {})}
+          onClick={() => {
+            onDone?.();
+            it.run();
+          }}
+        >
+          <span className="menu-emoji" aria-hidden>＋</span>
+          <span className="menu-text">
+            <span className="menu-name">{it.label}</span>
+          </span>
+        </button>
+      ))}
+    </>
+  );
+}
+
+/** The mark and name of who is talked to — the same the target's row carries. */
+function TargetName({ agents, channels, target }: Pick<TargetProps, "agents" | "channels" | "target">) {
+  const agent = agents.find((a) => a.slug === target);
+  const channel = channels.find((c) => channelTarget(c.slug) === target);
+  return (
+    <>
+      {agent && <span aria-hidden>{agent.emoji || "🤖"}</span>}
+      {channel && <span className="menu-hash" aria-hidden>#</span>}
+      {!agent && !channel && <span aria-hidden>💬</span>}
+      <span className="menu-title-text">{agent?.name ?? channel?.name ?? "Chat"}</span>
+    </>
+  );
+}
+
+/** The panel title as a dropdown. With `fixed` (the sidebar does the choosing) it is only the title. */
+export function TargetPicker({ fixed, ...props }: TargetProps & { fixed: boolean }) {
+  const { open, setOpen, wrap } = useMenu<HTMLDivElement>();
+
+  if (fixed) {
+    return (
+      <h2 className="target-title">
+        <TargetName {...props} />
+      </h2>
+    );
+  }
+  return (
     <div className="menu" ref={wrap}>
       {/* The heading holds the button, not the other way round: a button takes no heading inside. */}
       <h2>
         <button className="menu-button menu-title" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          {/* The same mark the row in the menu carries, so the title is that row, picked. */}
-          {agent && <span aria-hidden>{agent.emoji || "🤖"}</span>}
-          {channel && <span className="menu-hash" aria-hidden>#</span>}
-          {!agent && !channel && <span aria-hidden>💬</span>}
-          <span className="menu-title-text">{agent?.name ?? channel?.name ?? "Chat"}</span>
+          <TargetName {...props} />
           <span className="menu-caret" aria-hidden>▾</span>
         </button>
       </h2>
       {open && (
         <div className="menu-pop" role="menu">
-          {groups.map((g) => (
-            <div key={g.label} role="group" aria-label={g.label || undefined}>
-              {g.label && <div className="menu-group">{g.label}</div>}
-              {g.items.map((it) => (
-                // Two buttons side by side, since a button cannot hold another one.
-                <div key={it.key} className="menu-row">
-                  <button
-                    className="menu-item"
-                    role="menuitemradio"
-                    aria-checked={it.key === target}
-                    onClick={() => {
-                      setOpen(false);
-                      if (it.key !== target) onPick(it.key);
-                    }}
-                  >
-                    <span className="menu-emoji" aria-hidden>{it.emoji}</span>
-                    <span className="menu-text">
-                      <span className="menu-name">{it.name}</span>
-                      {it.sub && <span className="menu-sub">{it.sub}</span>}
-                    </span>
-                    {it.key === target && <Check />}
-                  </button>
-                  {it.editable && (
-                    <button
-                      className="icon menu-edit"
-                      role="menuitem"
-                      title="Edit"
-                      aria-label={`Edit ${it.name}`}
-                      onClick={() => {
-                        setOpen(false);
-                        onEdit(it.key);
-                      }}
-                    >
-                      <EditIcon />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-          <div className="menu-sep" role="separator" />
-          {[
-            { label: "New agent", run: onNew },
-            { label: "New channel", run: onNewChannel },
-          ].map((it) => (
-            <button
-              key={it.label}
-              className="menu-item"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                it.run();
-              }}
-            >
-              <span className="menu-emoji" aria-hidden>＋</span>
-              <span className="menu-text">
-                <span className="menu-name">{it.label}</span>
-              </span>
-            </button>
-          ))}
+          <TargetList {...props} menu onDone={() => setOpen(false)} />
         </div>
       )}
     </div>
+  );
+}
+
+/** Wide screens: the same list, always open, as the page's first column. */
+export function TargetSidebar(props: TargetProps) {
+  return (
+    <nav className="targets" aria-label="Conversations">
+      <header className="panel-head">
+        <h2>Conversations</h2>
+      </header>
+      <div className="targets-list">
+        <TargetList {...props} menu={false} />
+      </div>
+    </nav>
   );
 }
 

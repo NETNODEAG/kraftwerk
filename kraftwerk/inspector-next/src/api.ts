@@ -95,6 +95,10 @@ export interface WorkflowSummary {
 export interface RunListItem {
   id: string;
   workflow?: string;
+  request?: string;
+  startedAt?: string;
+  updatedAt: string;
+  durationMs?: number;
   status: "running" | "ok" | "failed" | "aborted";
   phasesDone: number;
   phasesTotal?: number;
@@ -263,3 +267,40 @@ export const saveChannel = ({ slug, ...input }: { slug?: string; name: string; p
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+
+/** One step of a run, as far as it got. */
+export interface RunPhase {
+  phase: string;
+  kind: "agent" | "script";
+  agent?: string;
+  /** skipped: a precondition was not met — settled, never ran. */
+  status: "running" | "ok" | "failed" | "blocked" | "pending" | "skipped";
+  attempts: number;
+  durationMs?: number;
+  /** The checks the step had to pass, with why one failed. */
+  gates: { gate: string; passed: boolean; failure: string | null }[];
+  summary?: string;
+  lastActivity?: string;
+  stderr?: string;
+}
+
+/** A person's decision a step waits for (decision-request.json), with the answer once given. */
+export interface RunDecision {
+  request: { title?: string; prompt?: string; options: { value: string; label?: string }[]; note?: "optional" | "required" | false };
+  answer?: { decision: string; note?: string; decidedAt: string };
+}
+
+export interface RunDetail extends RunListItem {
+  description?: string;
+  phases: RunPhase[];
+  files: { name: string; size: number }[];
+  decision?: RunDecision;
+}
+
+export const getRun = (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`);
+
+export const answerDecision = (id: string, decision: string, note: string) =>
+  post(`/api/runs/${encodeURIComponent(id)}/decision`, { decision, ...(note.trim() ? { note: note.trim() } : {}) });
+
+/** A file of the run as the server serves it raw (sandboxed there: agent-written HTML cannot reach the API). */
+export const runFileUrl = (id: string, name: string) => `/api/runs/${encodeURIComponent(id)}/file?name=${encodeURIComponent(name)}&raw=1`;

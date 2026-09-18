@@ -3,6 +3,7 @@ import { getMeta, type Meta } from "./api";
 import { Chat } from "./chat";
 import { ChatIcon, KnowledgeIcon, WorkflowIcon } from "./icons";
 import { Knowledge } from "./knowledge";
+import { RunModal } from "./run-modal";
 import { usePendingRuns, useRuns } from "./runs";
 import { Side } from "./side";
 import { Switcher } from "./switcher";
@@ -94,6 +95,8 @@ function Workspace({ workspaceKey }: { workspaceKey: string }) {
     }
   });
   const [onChat, setOnChat] = useState(true);
+  // A run's details open from a workflow's runs and from its card in the chat: one modal for the page.
+  const [openRun, setOpenRun] = useState<string | null>(null);
   const pickSideTab = (id: string) => {
     setSideTab(id);
     try {
@@ -121,6 +124,7 @@ function Workspace({ workspaceKey }: { workspaceKey: string }) {
           pending={pending}
           compose={compose}
           onSettled={(id) => setPending((prev) => prev.filter((p) => p.id !== id))}
+        onOpenRun={setOpenRun}
         />
         <Side
           active={sideTab}
@@ -132,6 +136,7 @@ function Workspace({ workspaceKey }: { workspaceKey: string }) {
               content: (
                 <Workflows
                   runs={runs ?? []}
+                onOpenRun={setOpenRun}
                   onEdit={(name, folder, change) => say(`Change the workflow "${name}" (${relative(folder)}): ${change}`)}
                   onAdd={(spec, root) =>
                   say(
@@ -164,6 +169,15 @@ function Workspace({ workspaceKey }: { workspaceKey: string }) {
           ]}
         />
       </main>
+      {openRun && (
+        <RunModal
+          runId={openRun}
+          onClose={() => {
+            setOpenRun(null);
+            refresh(); // a decision given in there changes what the cards say
+          }}
+        />
+      )}
       <nav className="places" aria-label="Sections">
         {places.map((p) => (
           <button

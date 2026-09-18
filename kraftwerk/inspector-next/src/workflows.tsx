@@ -1,21 +1,84 @@
 import { useEffect, useState } from "react";
 import {
-  inspectorUrl,
   listWorkflows,
   runWorkflow,
   sandboxReady,
   type RunListItem,
   type WorkflowSummary,
 } from "./api";
-import { EditIcon, PlayIcon } from "./icons";
+import { EditIcon, PlayIcon, RunsIcon } from "./icons";
+import { useMenu } from "./menu";
 import { Modal } from "./modal";
 import { AddWorkflowModal, WorkflowModal } from "./workflow-modal";
 import { runLine, type UiRun } from "./runs";
 
-function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
+/** "14:32" for today, "12 Sep" before. */
+const when = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toDateString() === new Date().toDateString()
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { day: "numeric", month: "short" });
+};
+
+/** The third button of a card: this workflow's runs, newest first; one opens its details. */
+function RunsMenu({ name, runs, onOpenRun }: { name: string; runs: RunListItem[]; onOpenRun: (id: string) => void }) {
+  const { open, setOpen, wrap } = useMenu<HTMLDivElement>();
+  // The card has no status line: the button carries a dot while the newest run
+  // wants a look (working, waiting for a person, failed) and none once it is done.
+  const newest = runs[0] ? runLine(runs[0]) : null;
+  const flag = newest && newest.tone !== "ok" ? newest : null;
+  return (
+    <div className="menu menu-right" ref={wrap}>
+      <button
+        className="icon"
+        title={flag ? `Runs — newest: ${flag.text}` : "Runs"}
+        aria-label={flag ? `Runs of ${name} — newest: ${flag.text}` : `Runs of ${name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <RunsIcon />
+        {flag && <span className={`icon-flag tone-${flag.tone}`} aria-hidden />}
+      </button>
+      {open && (
+        <div className="menu-pop" role="menu">
+          {runs.length === 0 && <div className="switcher-empty">No runs yet.</div>}
+          {runs.slice(0, 30).map((r) => {
+            const line = runLine(r);
+            return (
+              <button
+                key={r.id}
+                className={`menu-item tone-${line.tone}`}
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenRun(r.id);
+                }}
+              >
+                <span className="wf-run-dot" aria-hidden />
+                <span className="menu-text">
+                  <span className="menu-name">{r.request?.replace(/\s+/g, " ") || "(no request)"}</span>
+                  <span className="menu-sub">
+                    {line.text} · {when(r.startedAt ?? r.updatedAt)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+          {runs.length > 30 && <div className="switcher-empty">Older runs are in the inspector.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkflowCard({ workflow, sandbox, runs, onLaunched, onEdit, onOpenRun }: {
   workflow: WorkflowSummary;
   sandbox: boolean;
-  lastRun?: RunListItem;
+  /** This workflow's runs, newest first. */
+  runs: RunListItem[];
+  onOpenRun: (id: string) => void;
   onLaunched: (run: UiRun) => void;
   /** The change asked for in the workflow's modal, in the user's words. */
   onEdit: (change: string) => void;
@@ -41,13 +104,13 @@ function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
     }
   };
 
-  const status = lastRun && runLine(lastRun);
 
   return (
     <li className="wf">
       <div className="wf-head">
         <h3>{workflow.name || workflow.slug}</h3>
         <div className="wf-actions">
+          <RunsMenu name={workflow.name || workflow.slug} runs={runs} onOpenRun={onOpenRun} />
           <button className="icon" title="Edit" aria-label={`Edit ${workflow.name || workflow.slug}`} onClick={() => setEditing(true)}>
             <EditIcon />
           </button>
@@ -132,19 +195,13 @@ function WorkflowCard({ workflow, sandbox, lastRun, onLaunched, onEdit }: {
         />
       )}
 
-      {status && lastRun && (
-        <a className={`wf-run tone-${status.tone}`} href={inspectorUrl(`/runs/${lastRun.id}`)} target="_blank" rel="noreferrer">
-          <span className="wf-run-dot" aria-hidden />
-          Last run: {status.text}
-          <span className="wf-run-open">open</span>
-        </a>
-      )}
     </li>
   );
 }
 
-export function Workflows({ runs, onLaunched, onEdit, onAdd }: {
+export function Workflows({ runs, onLaunched, onEdit, onAdd, onOpenRun }: {
   runs: RunListItem[];
+  onOpenRun: (id: string) => void;
   onLaunched: (run: UiRun) => void;
   /** A change asked for in a workflow's modal: its name, its absolute folder, the change in words. */
   onEdit: (name: string, folder: string, change: string) => void;
@@ -210,7 +267,8 @@ export function Workflows({ runs, onLaunched, onEdit, onAdd }: {
             workflow={w}
             sandbox={sandbox}
             // Runs come newest first; a run knows its workflow by name.
-            lastRun={runs.find((r) => r.workflow === (w.name || w.slug))}
+            runs={runs.filter((r) => r.workflow === (w.name || w.slug))}
+            onOpenRun={onOpenRun}
             onLaunched={onLaunched}
             onEdit={(change) => onEdit(w.name || w.slug, root ? `${root}/${w.slug}` : w.slug, change)}
           />

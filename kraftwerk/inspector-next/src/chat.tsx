@@ -8,7 +8,6 @@ import {
   getChat,
   listChats,
   sendMessage,
-  inspectorUrl,
   listAgents,
   listChannels,
   type Agent,
@@ -22,7 +21,8 @@ import {
 import { AgentModal } from "./agent-modal";
 import { ChannelModal } from "./channel-modal";
 import { Markdown } from "./markdown";
-import { GENERAL, SessionPicker, TargetPicker, channelOf, channelTarget, isSessionOf } from "./pickers";
+import { useMedia } from "./menu";
+import { GENERAL, SessionPicker, TargetPicker, TargetSidebar, channelOf, channelTarget, isSessionOf } from "./pickers";
 import { RUN_MARK, runEnded, runLine, runReport, type UiRun } from "./runs";
 
 const HARNESSES: Harness[] = ["claude", "codex", "pi"];
@@ -151,7 +151,7 @@ function toBlocks(events: ChatEvent[]): Block[] {
  * afterwards the thread follows its SSE stream. `workspaceKey` keeps what is
  * remembered apart per instance (in dev one origin serves several of them).
  */
-export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettled }: {
+export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettled, onOpenRun }: {
   workspaceKey: string;
   /** null until the first poll answered. */
   runs: RunListItem[] | null;
@@ -161,6 +161,7 @@ export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettle
   /** A message written elsewhere on the page (a workflow's modal); `n` makes a repeat count. */
   compose: { text: string; n: number } | null;
   onSettled: (runId: string) => void;
+  onOpenRun: (runId: string) => void;
 }) {
   const targetKey = `kw-next-target:${workspaceKey}`;
   const [target, setTarget] = useState(() => stored.get(targetKey) || GENERAL);
@@ -383,257 +384,265 @@ export function Chat({ workspaceKey, runs, outputDir, pending, compose, onSettle
       });
   }, [ready, runs, busy, pending, outputDir, post, onSettled]);
 
+  // Wide screens have room for a third column: who can be talked to stands
+  // open beside the chat, and the title stops being a dropdown.
+  const wide = useMedia("(min-width: 1320px)");
+  const targetProps = {
+    agents,
+    channels: channels ?? [],
+    target,
+    onPick: pickTarget,
+    onEdit: (key: string) => (channelOf(key) ? setEditingChannel(channelOf(key)) : setEditing(key)),
+    onNew: () => setEditing(null),
+    onNewChannel: () => setEditingChannel(null),
+  };
+
   return (
-    <section className="panel chat" aria-label="Conversation">
-      <header className="panel-head">
-        <TargetPicker
-          agents={agents}
-          channels={channels ?? []}
-          target={target}
-          onPick={pickTarget}
-          onEdit={(key) => (channelOf(key) ? setEditingChannel(channelOf(key)) : setEditing(key))}
-          onNew={() => setEditing(null)}
-          onNewChannel={() => setEditingChannel(null)}
-        />
-        {!inChannel && (
-          <SessionPicker
-            sessions={chats.filter((c) => isSessionOf(c, target))}
-            current={chatId}
-            onOpen={refreshChats}
-            onPick={(id) => {
-              stored.set(chatKey, id);
-              openSession(id);
-            }}
-            onNew={() => {
-              stored.set(chatKey, "new");
-              openSession(null);
+    <>
+      {wide && <TargetSidebar {...targetProps} />}
+      <section className="panel chat" aria-label="Conversation">
+        <header className="panel-head">
+          <TargetPicker {...targetProps} fixed={wide} />
+          {!inChannel && (
+            <SessionPicker
+              sessions={chats.filter((c) => isSessionOf(c, target))}
+              current={chatId}
+              onOpen={refreshChats}
+              onPick={(id) => {
+                stored.set(chatKey, id);
+                openSession(id);
+              }}
+              onNew={() => {
+                stored.set(chatKey, "new");
+                openSession(null);
+              }}
+            />
+          )}
+        </header>
+
+        {editingChannel !== undefined && (
+          <ChannelModal
+            channel={channels?.find((c) => c.slug === editingChannel)}
+            agents={agents}
+            onClose={() => setEditingChannel(undefined)}
+            onSaved={(saved, created) => {
+              setEditingChannel(undefined);
+              // Known before it becomes the target, or the target would be given up as gone.
+              setChannels((prev) => [...(prev ?? []).filter((c) => c.slug !== saved.slug), saved].sort((a, b) => a.name.localeCompare(b.name)));
+              if (created) pickTarget(channelTarget(saved.slug));
             }}
           />
         )}
-      </header>
 
-      {editingChannel !== undefined && (
-        <ChannelModal
-          channel={channels?.find((c) => c.slug === editingChannel)}
-          agents={agents}
-          onClose={() => setEditingChannel(undefined)}
-          onSaved={(saved, created) => {
-            setEditingChannel(undefined);
-            // Known before it becomes the target, or the target would be given up as gone.
-            setChannels((prev) => [...(prev ?? []).filter((c) => c.slug !== saved.slug), saved].sort((a, b) => a.name.localeCompare(b.name)));
-            if (created) pickTarget(channelTarget(saved.slug));
+        {editing !== undefined && (
+          <AgentModal
+            slug={editing ?? undefined}
+            onClose={() => setEditing(undefined)}
+            onSaved={(agent, created) => {
+              setEditing(undefined);
+              // The list first, so the new agent exists when it becomes the target.
+              void refreshAgents().then(() => created && pickTarget(agent.slug));
+            }}
+          />
+        )}
+
+        <div
+          className="thread"
+          ref={thread}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           }}
-        />
-      )}
-
-      {editing !== undefined && (
-        <AgentModal
-          slug={editing ?? undefined}
-          onClose={() => setEditing(undefined)}
-          onSaved={(agent, created) => {
-            setEditing(undefined);
-            // The list first, so the new agent exists when it becomes the target.
-            void refreshAgents().then(() => created && pickTarget(agent.slug));
-          }}
-        />
-      )}
-
-      <div
-        className="thread"
-        ref={thread}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-      >
-        {ready && blocks.length === 0 && pending.length === 0 && (
-          <div className="thread-empty">
-            <p>
-              {channel
-                ? channel.purpose || "A shared conversation."
-                : agents.find((a) => a.slug === target)?.description || "Ask anything about this workspace, or have something done in it."}
-            </p>
-            {channel && (
+        >
+          {ready && blocks.length === 0 && pending.length === 0 && (
+            <div className="thread-empty">
               <p>
-                {channel.members.length
-                  ? `Mention who should answer: ${channel.members.map((m) => `@${m}`).join(" ")}`
-                  : "No agents are in this channel yet."}
+                {channel
+                  ? channel.purpose || "A shared conversation."
+                  : agents.find((a) => a.slug === target)?.description || "Ask anything about this workspace, or have something done in it."}
               </p>
-            )}
-            {!chatId && target === GENERAL && (
-              <label className="harness">
-                answered by{" "}
-                <select value={harness} onChange={(e) => setHarness(e.target.value as Harness)}>
-                  {HARNESSES.map((h) => (
-                    <option key={h}>{h}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-        )}
-        {blocks.map((b) => {
-          switch (b.kind) {
-            case "user":
-              return (
-                <div key={b.key} className="msg msg-user">
-                  {b.from && <span className="msg-author">{authorLabel(b.from)}</span>}
-                  {b.text}
-                </div>
-              );
-            case "run":
-              return (
-                <div key={b.key} className="run-card">
-                  <div className="run-card-title">Workflow run</div>
-                  <div className="run-card-line">{b.title}</div>
-                  {b.request && <div className="run-card-request">{b.request}</div>}
-                  {b.runId && (
-                    <a href={inspectorUrl(`/runs/${b.runId}`)} target="_blank" rel="noreferrer">
-                      open run
-                    </a>
-                  )}
-                </div>
-              );
-            case "agent":
-              return (
-                <div key={b.key} className="msg msg-agent">
-                  {b.from && <span className="msg-author">{authorLabel(b.from)}</span>}
-                  <Markdown text={b.text} />
-                </div>
-              );
-            case "activity":
-              return (
-                <div key={b.key} className={`activity${b.open && active ? " live" : ""}`}>
-                  <span className="activity-dot" aria-hidden />
-                  {b.open && active ? b.last : `${b.count} ${b.count === 1 ? "step" : "steps"} · ${b.last}`}
-                </div>
-              );
-            case "permission":
-              return (
-                <div key={b.key} className="card">
-                  <div className="card-title">Permission needed</div>
-                  <div className="card-body">{b.title}</div>
-                  {b.answer === undefined ? (
-                    <div className="card-actions">
-                      {b.options.map((o) => (
-                        <button
-                          key={o.optionId}
-                          className={o.kind?.startsWith("reject") ? "quiet" : "primary"}
-                          onClick={() => chatId && answerPermission(chatId, b.requestId, o.optionId).catch((err: Error) => setError(err.message))}
-                        >
-                          {o.name}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="card-answer">{b.answer ?? "declined"}</div>
-                  )}
-                </div>
-              );
-            case "question":
-              return (
-                <div key={b.key} className="card">
-                  <div className="card-title">The agent has a question</div>
-                  <div className="card-body">{b.message}</div>
-                  {b.resolved ? (
-                    <div className="card-answer">answered</div>
-                  ) : (
-                    <div className="card-actions">
-                      <span className="card-hint">Answer forms live in the full inspector for now.</span>
-                      <button
-                        className="quiet"
-                        onClick={() => chatId && declineElicitation(chatId, b.requestId).catch((err: Error) => setError(err.message))}
-                      >
-                        Skip
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            case "error":
-              return (
-                <div key={b.key} className="msg msg-error" role="alert">
-                  {b.text}
-                </div>
-              );
-          }
-        })}
-        {pending.map((ui) => {
-          const line = runLine(runs?.find((r) => r.id === ui.id));
-          return (
-            <div key={ui.id} className={`activity run-live tone-${line.tone}${line.tone === "live" ? " live" : ""}`}>
-              <span className="activity-dot" aria-hidden />
-              Workflow {ui.workflow} · {line.text}
+              {channel && (
+                <p>
+                  {channel.members.length
+                    ? `Mention who should answer: ${channel.members.map((m) => `@${m}`).join(" ")}`
+                    : "No agents are in this channel yet."}
+                </p>
+              )}
+              {!chatId && target === GENERAL && (
+                <label className="harness">
+                  answered by{" "}
+                  <select value={harness} onChange={(e) => setHarness(e.target.value as Harness)}>
+                    {HARNESSES.map((h) => (
+                      <option key={h}>{h}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
-          );
-        })}
-        {busy && ["user", "run"].includes(blocks[blocks.length - 1]?.kind ?? "") && (
-          <div className="activity live">
-            <span className="activity-dot" aria-hidden />
-            thinking…
+          )}
+          {blocks.map((b) => {
+            switch (b.kind) {
+              case "user":
+                return (
+                  <div key={b.key} className="msg msg-user">
+                    {b.from && <span className="msg-author">{authorLabel(b.from)}</span>}
+                    {b.text}
+                  </div>
+                );
+              case "run":
+                return (
+                  <div key={b.key} className="run-card">
+                    <div className="run-card-title">Workflow run</div>
+                    <div className="run-card-line">{b.title}</div>
+                    {b.request && <div className="run-card-request">{b.request}</div>}
+                    {b.runId && (
+                      <button className="run-card-open" onClick={() => onOpenRun(b.runId!)}>
+                        details
+                      </button>
+                    )}
+                  </div>
+                );
+              case "agent":
+                return (
+                  <div key={b.key} className="msg msg-agent">
+                    {b.from && <span className="msg-author">{authorLabel(b.from)}</span>}
+                    <Markdown text={b.text} />
+                  </div>
+                );
+              case "activity":
+                return (
+                  <div key={b.key} className={`activity${b.open && active ? " live" : ""}`}>
+                    <span className="activity-dot" aria-hidden />
+                    {b.open && active ? b.last : `${b.count} ${b.count === 1 ? "step" : "steps"} · ${b.last}`}
+                  </div>
+                );
+              case "permission":
+                return (
+                  <div key={b.key} className="card">
+                    <div className="card-title">Permission needed</div>
+                    <div className="card-body">{b.title}</div>
+                    {b.answer === undefined ? (
+                      <div className="card-actions">
+                        {b.options.map((o) => (
+                          <button
+                            key={o.optionId}
+                            className={o.kind?.startsWith("reject") ? "quiet" : "primary"}
+                            onClick={() => chatId && answerPermission(chatId, b.requestId, o.optionId).catch((err: Error) => setError(err.message))}
+                          >
+                            {o.name}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="card-answer">{b.answer ?? "declined"}</div>
+                    )}
+                  </div>
+                );
+              case "question":
+                return (
+                  <div key={b.key} className="card">
+                    <div className="card-title">The agent has a question</div>
+                    <div className="card-body">{b.message}</div>
+                    {b.resolved ? (
+                      <div className="card-answer">answered</div>
+                    ) : (
+                      <div className="card-actions">
+                        <span className="card-hint">Answer forms live in the full inspector for now.</span>
+                        <button
+                          className="quiet"
+                          onClick={() => chatId && declineElicitation(chatId, b.requestId).catch((err: Error) => setError(err.message))}
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              case "error":
+                return (
+                  <div key={b.key} className="msg msg-error" role="alert">
+                    {b.text}
+                  </div>
+                );
+            }
+          })}
+          {pending.map((ui) => {
+            const line = runLine(runs?.find((r) => r.id === ui.id));
+            return (
+              <div key={ui.id} className={`activity run-live tone-${line.tone}${line.tone === "live" ? " live" : ""}`}>
+                <span className="activity-dot" aria-hidden />
+                Workflow {ui.workflow} · {line.text}
+              </div>
+            );
+          })}
+          {busy && ["user", "run"].includes(blocks[blocks.length - 1]?.kind ?? "") && (
+            <div className="activity live">
+              <span className="activity-dot" aria-hidden />
+              thinking…
+            </div>
+          )}
+          {atWork.map((slug) => (
+            <div key={slug} className="activity live">
+              <span className="activity-dot" aria-hidden />
+              {agentOf(slug)?.name ?? slug} is working…
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <div className="panel-error" role="alert">
+            {error}
           </div>
         )}
-        {atWork.map((slug) => (
-          <div key={slug} className="activity live">
-            <span className="activity-dot" aria-hidden />
-            {agentOf(slug)?.name ?? slug} is working…
-          </div>
-        ))}
-      </div>
 
-      {error && (
-        <div className="panel-error" role="alert">
-          {error}
-        </div>
-      )}
+        {inChannel && (
+          <label className="posting-as">
+            posting as
+            <input
+              value={me}
+              placeholder="your name"
+              onChange={(e) => {
+                setMe(e.target.value);
+                stored.set(ME_KEY, e.target.value.trim());
+              }}
+            />
+          </label>
+        )}
 
-      {inChannel && (
-        <label className="posting-as">
-          posting as
-          <input
-            value={me}
-            placeholder="your name"
-            onChange={(e) => {
-              setMe(e.target.value);
-              stored.set(ME_KEY, e.target.value.trim());
+        <form
+          className="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send();
+          }}
+        >
+          <textarea
+            ref={composer}
+            value={draft}
+            rows={1}
+            placeholder={inChannel ? "Message… @mention who should answer" : "Message…"}
+            aria-label="Message"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void send();
+              }
             }}
           />
-        </label>
-      )}
-
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          ref={composer}
-          value={draft}
-          rows={1}
-          placeholder={inChannel ? "Message… @mention who should answer" : "Message…"}
-          aria-label="Message"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        {active && (
-          <button type="button" className="quiet" onClick={() => chatId && cancelChat(chatId).catch((err: Error) => setError(err.message))}>
-            {inChannel ? "Stop all" : "Stop"}
-          </button>
-        )}
-        {/* One agent is waited for; in a channel people are never kept waiting. */}
-        {(!busy || inChannel) && (
-          <button type="submit" className="primary" disabled={!draft.trim()}>
-            Send
-          </button>
-        )}
-      </form>
-    </section>
+          {active && (
+            <button type="button" className="quiet" onClick={() => chatId && cancelChat(chatId).catch((err: Error) => setError(err.message))}>
+              {inChannel ? "Stop all" : "Stop"}
+            </button>
+          )}
+          {/* One agent is waited for; in a channel people are never kept waiting. */}
+          {(!busy || inChannel) && (
+            <button type="submit" className="primary" disabled={!draft.trim()}>
+              Send
+            </button>
+          )}
+        </form>
+      </section>
+    </>
   );
 }
