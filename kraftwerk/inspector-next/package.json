@@ -1,0 +1,26 @@
+{
+  "name": "kraftwerk-inspector-next",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Experimental second frontend for kraftwerk: a chat and the workflows side by side, on the same /api as the inspector",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.14",
+    "marked": "^18.0.11"
+  }
+}
