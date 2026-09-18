@@ -80,7 +80,12 @@ describe("cloud manager registration", () => {
 
   it("stores the identity the cloud handed out under ~/.kraftwerk/cloud", async () => {
     const dir = path.join(fx.home, ".kraftwerk", "cloud");
-    const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+    // The fake cloud records the request before the inspector has processed the response and written the file.
+    let files: string[] = [];
+    await waitFor(() => {
+      readdir(dir).then((l) => (files = l.filter((f) => f.endsWith(".json"))), () => {});
+      return files.length > 0;
+    });
     assert.equal(files.length, 1);
     const rec = JSON.parse(await readFile(path.join(dir, files[0]), "utf8"));
     assert.equal(rec.id, "inst-1");
