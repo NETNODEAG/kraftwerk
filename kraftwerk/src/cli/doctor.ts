@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveProject, tunnelFor } from "../config.js";
+import { cloudFor, ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveProject, tunnelFor } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
@@ -170,6 +170,16 @@ export async function runDoctor(cwd: string): Promise<void> {
     }
     if (tunnel.access) report("ok", "tunnel.access", `tokens verified against ${tunnel.access.team}.cloudflareaccess.com`);
     else report("warn", "tunnel without access", "the UI has no login of its own — put a Cloudflare Access policy on the hostname and set tunnel.access so a removed policy fails closed");
+  }
+
+  // Cloud manager: registration is best-effort at runtime, so doctor only says what would happen.
+  const cloud = cloudFor(project);
+  if (cloud) {
+    report("ok", `cloud: ${cloud.url}`, cloud.token
+      ? `registers under your kraftwerk account (KRAFTWERK_CLOUD_TOKEN), heartbeat every ${cloud.interval}s`
+      : `on by default — the UI shows a claim code under Settings → Cloud; opt out with cloud.enabled: false`);
+  } else {
+    report("info", "cloud: off", process.env.KRAFTWERK_CLOUD_URL?.trim().toLowerCase() === "off" ? "KRAFTWERK_CLOUD_URL=off" : "cloud.enabled: false in kraftwerk.yml");
   }
 
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];

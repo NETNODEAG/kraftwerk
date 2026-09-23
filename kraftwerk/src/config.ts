@@ -43,6 +43,11 @@ import { parse } from "yaml";
  *     access:                  # verify the Cloudflare Access login on every request that arrives via `public`
  *       team: acme             # Zero Trust team name (https://<team>.cloudflareaccess.com)
  *       aud: 4714c135…         # Application Audience tag of the Access application
+ *   cloud:                     # kraftwerk cloud manager — ON BY DEFAULT, `enabled: false` opts out
+ *     url: https://srv.kraftwerk-cloud.netnode.cloud   # where the cloud answers (default). KRAFTWERK_CLOUD_URL env wins; "off" disables
+ *     interval: 60             # seconds between heartbeats. Default: 60
+ *   # No key here: the cloud hands the instance its identity and a claim code (Settings → Cloud in the UI);
+ *   # a server that should register under an account unattended puts KRAFTWERK_CLOUD_TOKEN into .env.
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -194,6 +199,49 @@ export interface TunnelConfig {
   access?: AccessConfig;
 }
 
+/**
+ * Cloud manager: the kraftwerk cloud is ~/.kraftwerk made reachable over
+ * the internet — a registry of instances across machines. Every inspector
+ * registers on start and heartbeats while it runs, so the cloud's global
+ * view shows this workspace, where it runs, and whether it is live; the
+ * user claims it into their account with the code the UI shows. On by
+ * default: an absent block is the same as a bare one, `enabled: false`
+ * opts out, and so does KRAFTWERK_CLOUD_URL=off in the environment (what
+ * the tests and CI set). No credential lives in kraftwerk.yml — the
+ * identity comes from the cloud, and an account token for unattended
+ * servers is KRAFTWERK_CLOUD_TOKEN in .env.
+ */
+export interface CloudConfig {
+  /** false turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Origin of the cloud manager. Default: https://srv.kraftwerk-cloud.netnode.cloud */
+  url?: string;
+  /** Seconds between heartbeats. Default: 60 (the cloud may raise it). */
+  interval?: number;
+}
+
+export const CLOUD_DEFAULT_URL = "https://srv.kraftwerk-cloud.netnode.cloud";
+export const CLOUD_DEFAULT_INTERVAL = 60;
+
+export interface CloudSettings {
+  url: string;
+  interval: number;
+  /** KRAFTWERK_CLOUD_TOKEN from the environment (.env), when set. */
+  token?: string;
+}
+
+/** The effective cloud settings when the feature is on; undefined when kraftwerk.yml or the environment turned it off. */
+export function cloudFor(project: Project): CloudSettings | undefined {
+  const c = project.config.cloud ?? {};
+  const envUrl = process.env.KRAFTWERK_CLOUD_URL?.trim();
+  if (c.enabled === false || envUrl?.toLowerCase() === "off") return undefined;
+  return {
+    url: (envUrl || c.url || CLOUD_DEFAULT_URL).replace(/\/+$/, ""),
+    interval: c.interval ?? CLOUD_DEFAULT_INTERVAL,
+    token: process.env.KRAFTWERK_CLOUD_TOKEN?.trim() || undefined,
+  };
+}
+
 /** The public hostname (lowercase, no port) when `public` is set, undefined otherwise. */
 export function publicHostFor(project: Project): string | undefined {
   return project.config.public ? parsePublic(project.config.public)?.hostname : undefined;
@@ -282,6 +330,8 @@ export interface ProjectConfig {
   public?: string;
   /** Cloudflare Tunnel run alongside the inspector. Absent = off. */
   tunnel?: TunnelConfig;
+  /** kraftwerk cloud manager this instance registers with. Absent = on with defaults; `enabled: false` opts out. */
+  cloud?: CloudConfig;
 }
 
 export interface Project {
@@ -365,7 +415,7 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "public", "tunnel"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "public", "tunnel", "cloud"];
 
 async function loadConfig(configPath: string): Promise<ProjectConfig> {
   let raw: unknown;
@@ -418,6 +468,9 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
     } else if (key === "tunnel") {
       if (config[key] === null) config[key] = {};
       validateTunnel(configPath, config[key]);
+    } else if (key === "cloud") {
+      if (config[key] === null) config[key] = {};
+      validateCloud(configPath, config[key]);
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
@@ -465,6 +518,37 @@ function validateTunnel(configPath: string, value: unknown): void {
     if (typeof a.aud !== "string" || !/^[a-f0-9]{64}$/i.test(a.aud)) {
       throw new Error(`${file}: tunnel.access.aud must be the 64-character Application Audience tag`);
     }
+  }
+}
+
+/** cloud: { enabled?, url?, interval? } */
+function validateCloud(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`${file}: cloud must be a mapping (enabled, url, interval)`);
+  }
+  const c = value as Record<string, unknown>;
+  for (const key of Object.keys(c)) {
+    if (key === "token") {
+      throw new Error(`${file}: cloud.token does not belong in kraftwerk.yml — put KRAFTWERK_CLOUD_TOKEN into .env (and only for unattended servers; a workspace with a UI is claimed with its code)`);
+    }
+    if (!["enabled", "url", "interval"].includes(key)) {
+      throw new Error(`${file}: cloud.${key} is unknown (allowed: enabled, url, interval)`);
+    }
+  }
+  if (c.enabled !== undefined && typeof c.enabled !== "boolean") {
+    throw new Error(`${file}: cloud.enabled must be true or false`);
+  }
+  if (c.url !== undefined) {
+    let ok = false;
+    try {
+      const u = new URL(String(c.url));
+      ok = typeof c.url === "string" && /^https?:$/.test(u.protocol) && !u.search && !u.hash && !u.username;
+    } catch {}
+    if (!ok) throw new Error(`${file}: cloud.url must be an http(s) origin like "https://kraftwerk.start"`);
+  }
+  if (c.interval !== undefined && (typeof c.interval !== "number" || !Number.isInteger(c.interval) || c.interval < 1)) {
+    throw new Error(`${file}: cloud.interval must be a positive integer (seconds between heartbeats)`);
   }
 }
 

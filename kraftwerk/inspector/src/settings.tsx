@@ -87,6 +87,113 @@ function projectsForm(d: SettingsData): ReposForm {
   return { enabled: p.enabled !== false, root: p.root ?? "" };
 }
 
+interface CloudMeta {
+  url: string;
+  state: "off" | "connecting" | "connected" | "error";
+  error?: string;
+  id?: string;
+  account?: string | null;
+  interval?: number;
+  lastSeen?: string;
+  claimCode?: string | null;
+  claimUrl?: string | null;
+}
+
+/**
+ * The cloud panel: this instance registers with the kraftwerk cloud on
+ * start; here the user sees whether that worked, and — until claimed —
+ * the code (and link) that puts the workspace under their account. Polled
+ * while the screen is open, because the claim happens in the cloud and
+ * reaches this instance with the next heartbeat.
+ */
+function CloudPanel() {
+  const [cloud, setCloud] = useState<CloudMeta | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetch("/api/meta", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((m: { cloud?: CloudMeta }) => alive && m.cloud && setCloud(m.cloud))
+        .catch(() => {});
+    void load();
+    const t = setInterval(load, 10_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  if (!cloud) return null;
+  const word = cloud.state === "connected" ? (cloud.account ? "claimed" : "unclaimed") : cloud.state;
+  const cls = cloud.state === "connected" && cloud.account ? "ok" : cloud.state === "error" ? "failed" : "";
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <span className="microlabel">cloud</span>
+        <span className={`status-word ${cls}`}>{word}</span>
+        <span className="spacer" />
+        {cloud.url && (
+          <a className="run-btn tonal" href={cloud.url} target="_blank" rel="noreferrer">
+            <Icon name="cloud" className="ms-sm" /> open the cloud
+          </a>
+        )}
+      </div>
+      <div className="agent-form">
+        {cloud.state === "off" && (
+          <div className="settings-note">
+            Off — <code>cloud.enabled: false</code> in kraftwerk.yml or <code>KRAFTWERK_CLOUD_URL=off</code> in the environment. Every other
+            <code> kraftwerk ui</code> registers with the kraftwerk cloud on start, so its owner can see it running from anywhere.
+          </div>
+        )}
+        {cloud.state === "connecting" && <div className="settings-note">Registering with {cloud.url} …</div>}
+        {cloud.state === "error" && (
+          <div className="settings-note">
+            Could not reach {cloud.url}: {cloud.error}. Retrying every {cloud.interval ?? 60}s — the UI works as before meanwhile.
+          </div>
+        )}
+        {cloud.state === "connected" && cloud.account && (
+          <div className="settings-note">
+            This workspace is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
+            Last heartbeat {cloud.lastSeen ? new Date(cloud.lastSeen).toLocaleTimeString() : "pending"}.
+          </div>
+        )}
+        {cloud.state === "connected" && !cloud.account && (
+          <>
+            <div className="settings-note">
+              Registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a>, not yet under an account. Sign in there and enter this
+              code — or open the link — and the workspace shows up under <em>My instances</em>:
+            </div>
+            <div className="cloud-claim">
+              <code className="cloud-claim-code">{cloud.claimCode ?? "…"}</code>
+              {cloud.claimCode && (
+                <button
+                  className="run-btn tonal"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(cloud.claimCode!);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}
+                >
+                  <Icon name="content_copy" className="ms-sm" /> {copied ? "copied" : "copy"}
+                </button>
+              )}
+              {cloud.claimUrl && (
+                <a className="run-btn" href={cloud.claimUrl} target="_blank" rel="noreferrer">
+                  <Icon name="link" className="ms-sm" /> claim in the cloud
+                </a>
+              )}
+            </div>
+            <div className="settings-note">
+              A claim made there reaches this instance with the next heartbeat (every {cloud.interval ?? 60}s). To keep this workspace out of the
+              cloud, set <code>cloud.enabled: false</code> in kraftwerk.yml.
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [name, setName] = useState("");
@@ -450,6 +557,8 @@ export function SettingsScreen() {
           )}
         </div>
       </section>
+
+      <CloudPanel />
 
       <section className="panel">
         <div className="panel-head">

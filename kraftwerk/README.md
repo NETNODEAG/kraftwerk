@@ -192,7 +192,9 @@ run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
 `public:` and `tunnel:` expose the inspector through a
-[Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel).
+[Cloudflare Tunnel](#inspector-through-a-cloudflare-tunnel). `cloud:`
+tunes (or turns off) the registration with the
+[kraftwerk cloud](#inspector-in-the-kraftwerk-cloud), which is on by default.
 
 A `.env` next to kraftwerk.yml (`KEY=value` lines, `#` comments, quotes)
 is loaded into every kraftwerk process at start: `kraftwerk ui` and the
@@ -403,6 +405,39 @@ hostname has no Access application, or `team`/`aud` do not match it.
 Quick tunnels (`trycloudflare.com`) are deliberately not supported: Access
 cannot be attached to them, which would leave the UI open to anyone with
 the URL.
+
+### Inspector in the kraftwerk cloud
+
+The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the
+internet: every `kraftwerk ui` registers there when it starts and sends a
+heartbeat while it runs, so you can see from anywhere which of your
+workspaces are up, on which machine, with which agents — and an admin sees
+every instance at once. **This is on by default.** The record carries the
+workspace name, icon and colour, the machine, the root, the version, the
+public URL if there is one, and the agent and channel roster. Registration
+is best-effort: a cloud that is down never affects the UI.
+
+No key goes into kraftwerk.yml. The cloud hands the instance an identity
+(kept under `~/.kraftwerk/cloud/`, so a restart updates the record) and a
+**claim code**, shown under Settings → Cloud in the UI. Sign in at the
+cloud, type the code (or follow the "claim in the cloud" link), and the
+workspace appears under *My instances*; the instance learns about the claim
+with its next heartbeat.
+
+```yaml
+cloud:
+  url: https://srv.kraftwerk-cloud.netnode.cloud   # default
+  interval: 60                                     # seconds between heartbeats (default 60)
+  enabled: false                                   # opt out of the cloud for this workspace
+```
+
+`KRAFTWERK_CLOUD_URL` in the environment wins over the file (`off` turns the
+feature off everywhere — what the test suites set). A server that starts
+unattended and should register under an account without a claim puts an
+account token from the cloud UI into `.env` as `KRAFTWERK_CLOUD_TOKEN`; a
+`token:` key in kraftwerk.yml is refused. `/api/meta` reports the
+connection state and the claim code; `kraftwerk doctor` prints what the
+block will do.
 
 ## Projects
 

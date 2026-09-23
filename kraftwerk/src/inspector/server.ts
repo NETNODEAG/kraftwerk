@@ -5,6 +5,7 @@ import { attachmentPath, readMeta, saveAttachment } from "./chat/store.js";
 import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
 import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
+import { cloudGoodbye, cloudStatus, startCloudSync, stopCloudSync } from "./cloud.js";
 import { listRuns, getRun, readRunFile, deleteRun, safeRunDir } from "./runs.js";
 import { decide } from "./decisions.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
@@ -494,6 +495,7 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       vibeables: (project?.config.vibeables && project.config.vibeables.enabled !== false) === true,
       projects: (project?.config.projects && project.config.projects.enabled !== false) === true,
       publicUrl: (project && publicUrlFor(project)) ?? "",
+      cloud: cloudStatus(),
       switcher,
     });
   }
@@ -1459,7 +1461,8 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
       disposeAllDevs();
       unregisterInstance();
       markWorkspaceStopped();
-      process.exit(sig === "SIGINT" ? 130 : 143);
+      // The cloud goodbye is bounded (cloudGoodbye) and a no-op without cloud:, so the exit stays prompt.
+      void cloudGoodbye().finally(() => process.exit(sig === "SIGINT" ? 130 : 143));
     });
   }
   process.once("exit", (code) => {
@@ -1493,11 +1496,13 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
+    server.once("close", stopCloudSync);
     server.listen(opts.port, INSPECTOR_HOST, () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : opts.port;
       void registerInstance(port, getProjectRoot());
       void registerWorkspace(getProjectRoot());
+      void getPkgVersion().then((v) => startCloudSync(port, v));
       resolve(server);
     });
   });

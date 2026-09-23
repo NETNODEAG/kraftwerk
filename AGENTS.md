@@ -47,6 +47,10 @@ Goal-scoped folders with a brief, systems of record and links are **projects** �
 
 Small apps built live in a chat are **vibeables** — one folder each under `vibeables.root`, part of the workspace (synced by the workspace git, never a repository of their own). In code, config, routes and the CLI the word is `vibeables` (`VibeablesConfig`, `listVibeables`, `/api/vibeables`, `/vibeables/<slug>/` for the served files, `kraftwerk vibeables`); the singular `vibeable` names one app (`ChatMeta.vibeable`, `/api/chats/:id/vibeable`, `vibeable.yml` inside the folder). Not "repos" — a vibeable is the workspace's own work, a repository is someone else's history.
 
+## The cloud manager is a sibling repo
+
+The kraftwerk cloud (the `~/.kraftwerk` registry over the internet: instances register and heartbeat, admins see who is active, users see their own) lives in `../kraftwerk-cloud`, its own repo with its own tests. In this repo the feature is the `cloud:` block (`CloudConfig`, `cloudFor(project)` in `src/config.ts`) and the client in `src/inspector/cloud.ts`, which registers after listen, heartbeats on a timer, says goodbye from the exit handlers and reports its state as `cloud` in `/api/meta`. The wire contract (register / heartbeat / goodbye bodies, the identity file under `~/.kraftwerk/cloud/`) is pinned by `test/api/cloud.test.ts` here against a fake cloud and by `test/api.test.ts` there against the real server; a change to the shape is a change to both.
+
 ## Optional features are flags in kraftwerk.yml
 
 `git`, `repos`, `vibeables` and `projects` are opt-in blocks: absent = off, a bare key = on with defaults, `enabled: false` keeps the block but turns it off. A new optional feature follows the same shape and plumbing — `<name>RootFor(project)` in `src/config.ts` as the one reader of the block, validation next to the other blocks, a `<name>: boolean` in `/api/meta`, a toggle on the settings screen (`settings.ts` writes the block through the yaml Document API), and the UI hides every entry point while the flag is off (`useFeatures()` in `inspector/src/shared.tsx`).
