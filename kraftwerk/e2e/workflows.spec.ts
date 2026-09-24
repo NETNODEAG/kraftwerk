@@ -92,7 +92,7 @@ test.describe("workflows screen", () => {
 
   test("a launch that never wrote a trace shows as failed and can be removed", async ({ page }) => {
     await page.goto("/#/runs/2026-01-01-0900-00-boom");
-    const head = page.locator(".detail-head");
+    const head = page.locator(".shell-global .detail-head");
     await expect(head.locator(".status-word")).toHaveText("failed");
     await expect(head.getByRole("button", { name: /stop/ })).toBeHidden();
     page.once("dialog", (d) => void d.accept());
@@ -100,29 +100,32 @@ test.describe("workflows screen", () => {
     await expect(page).toHaveURL(/#\/workflows\/boom/);
     await expect.poll(() => existsSync(path.join(fixture(), "output", "runs", "2026-01-01-0900-00-boom"))).toBe(false);
     await page.goto("/#/runs");
-    await expect(page.locator(".runs-side")).toContainText("why is the sky blue");
-    await expect(page.locator(".runs-side")).not.toContainText("boom");
+    await expect(page.locator(".shell-global .runs-side")).toContainText("why is the sky blue");
+    await expect(page.locator(".shell-global .runs-side")).not.toContainText("boom");
   });
 
-  test("simple mode keeps channels, agents, workflows, knowledge and vibeables in the top nav", async ({ page }) => {
+  test("simple mode has conversations and no top navigation; expert mode has every page", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("kw-expert", "off"));
-    await page.goto("/#/workflows");
-    const nav = page.locator(".topbar nav");
-    await expect(nav.locator("a", { hasText: "channels" })).toBeVisible();
-    await expect(nav.locator("a", { hasText: "agents" })).toBeVisible();
+    // The rail is part of the conversation view; the pages sit under the top bar on their own.
+    await page.goto("/#/agents/chats");
+    const rail = page.locator(".rail");
+    await expect(rail.locator("a", { hasText: "channels" })).toBeVisible();
+    await expect(rail.locator("a", { hasText: "agents" })).toBeVisible();
+    // Simple mode has no top navigation at all; expert mode brings every page.
+    await expect(page.locator(".global-nav")).toHaveCount(0);
+
+    await page.locator(".expert-toggle").click();
+    const nav = page.locator(".global-nav");
     await expect(nav.locator("a", { hasText: "workflows" })).toBeVisible();
     await expect(nav.locator("a", { hasText: "knowledge" })).toBeVisible();
     await expect(nav.locator("a", { hasText: "knowledge" })).not.toContainText("context");
-    await expect(nav.locator("a", { hasText: "skills" })).toBeHidden();
-
-    await page.locator(".expert-toggle").click();
     await expect(nav.locator("a", { hasText: "skills" })).toBeVisible();
   });
 
   test("lists workflows with run counts, searches, and keeps runs under workflows", async ({ page }) => {
     await page.goto("/#/workflows");
-    await expect(page.locator(".topbar nav")).not.toContainText("workflow runs");
-    await expect(page.locator(".topbar nav a", { hasText: "workflows" })).toBeVisible();
+    await expect(page.locator(".global-nav")).not.toContainText("workflow runs");
+    await expect(page.locator(".global-nav a", { hasText: "workflows" })).toBeVisible();
 
     const rows = page.locator(".wf-row");
     await expect(rows).toHaveCount(4);
@@ -146,10 +149,10 @@ test.describe("workflows screen", () => {
     await ask.locator(".wf-runs").click();
     await expect(page).toHaveURL(/#\/runs\/2026-01-01-1000-00-ask\?workflow=ask/);
     await expect(page.getByLabel("filter runs")).toHaveValue("ask");
-    await expect(page.locator(".side-row")).toHaveCount(1);
+    await expect(page.locator(".shell-global .side-row")).toHaveCount(1);
     await page.getByLabel("filter runs").fill("nothing-like-this");
-    await expect(page.locator(".runs-side")).toContainText("no run matches");
-    await page.locator(".side-back").click();
+    await expect(page.locator(".shell-global .runs-side")).toContainText("no run matches");
+    await page.locator(".shell-global .side-back").click();
     await expect(page).toHaveURL(/#\/workflows$/);
 
     // The tabs in the page head reach the runs screen too.
@@ -199,7 +202,7 @@ test.describe("workflows screen", () => {
 
   test("the workflow page has overview, details and runs tabs on their own routes", async ({ page }) => {
     await page.goto("/#/workflows/triage");
-    const tabs = page.locator(".detail-head .tabs a");
+    const tabs = page.locator(".shell-global .detail-head .tabs a");
     await expect(tabs).toHaveText(["overview", "details", "runs (3)"]);
     await expect(tabs.nth(0)).toHaveClass(/active/);
     // Overview: what to act on — the trigger and the board, nothing about how it is built.
@@ -229,7 +232,7 @@ test.describe("workflows screen", () => {
 
     // A direct link lands on the tab.
     await page.goto("/#/workflows/tick/runs");
-    await expect(page.locator(".empty")).toContainText("no runs of this workflow yet");
+    await expect(page.locator(".shell-global .empty")).toContainText("no runs of this workflow yet");
   });
 
   test("running from the overview stays on the overview and the new run appears on the board", async ({ page }) => {
@@ -259,7 +262,7 @@ test.describe("workflows screen", () => {
     await expect(col.locator(".board-card")).toContainText("thursday batch");
     await expect(col.locator(".board-card .lamp")).toHaveClass(/running/);
     await expect(page.locator(".run-panel").getByRole("button", { name: /Run/ })).toBeEnabled();
-    await expect(page.locator(".detail-head .tabs a").nth(2)).toHaveText("runs (4)");
+    await expect(page.locator(".shell-global .detail-head .tabs a").nth(2)).toHaveText("runs (4)");
   });
 
   test("a run that asks for a decision gets a form on its page and a chip on the board; the answer lands as a file", async ({ page }) => {

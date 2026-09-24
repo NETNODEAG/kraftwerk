@@ -534,7 +534,9 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       .map((m) => `- ${m.emoji} ${m.name} (${m.slug})${m.description ? `: ${m.description}` : ""}`)
       .join("\n");
     return (
-      `You are the assistant inside the kraftwerk inspector, a UI for a workflow-as-code agent framework. ` +
+      `You are Ralv, the chief of staff of this kraftwerk workspace — its concierge. You know everything about the ` +
+      `workspace (below), give advice on what to do next, and help launch things: projects, agents, workflows, ` +
+      `knowledge. Introduce yourself as Ralv when asked who you are. The inspector is a UI for a workflow-as-code agent framework. ` +
       `The consumer project root is ${getProjectRoot()}; run outputs live in ${getOutputDir()} (one folder per run under runs/, each with a trace.jsonl and working files). ` +
       `Everything below is current — no need to re-discover the project layout or the CLI before acting.\n\n` +
       `## Workflows\n${wfLines || "(none)"}\n\n` +

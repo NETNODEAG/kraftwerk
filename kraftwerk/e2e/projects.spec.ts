@@ -37,6 +37,8 @@ test.describe("projects", () => {
     await page.getByRole("button", { name: "save changes" }).click();
     await expect(page.getByText("saved")).toBeVisible();
     expect(readFileSync(path.join(fixture(), "kraftwerk.yml"), "utf8")).toMatch(/^projects: \{\}$/m);
+    // Settings is a page of its own; the rail shows the new group once the columns are back.
+    await page.goto("/#/agents/chats");
     await expect(page.locator("nav a[href='#/projects']")).toBeVisible();
   });
 

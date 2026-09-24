@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { onBrowseClick, withBrowseIcons } from "./context-browser";
 import type {
   Agent,
   AgentCommand,
@@ -43,7 +44,7 @@ function setMyName(name: string): void {
  * merge into agent messages, tool calls render as activity cards,
  * permission requests as decision cards with buttons), the new-chat pane,
  * and the composer. General chats live on the agent screen under the
- * "General Chats" entry; history comes from GET /api/chats/:id, live
+ * "Ralv" entry; history comes from GET /api/chats/:id, live
  * events stream over SSE.
  */
 
@@ -795,6 +796,7 @@ function Thread({
     <div
       className="chat-scroll"
       ref={scrollRef}
+      onClick={onBrowseClick}
       onScroll={(e) => {
         const el = e.currentTarget;
         stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
@@ -852,7 +854,8 @@ function Byline({ from, agentMap }: { from: Author; agentMap?: Map<string, Agent
 
 /** Agent replies are markdown — render them (sanitized; images/links included). */
 function AgentMessage({ text }: { text: string }) {
-  const html = useMemo(() => DOMPurify.sanitize(marked.parse(text, { async: false })), [text]);
+  // Every external link gets a small icon that opens it in the context column's browser.
+  const html = useMemo(() => withBrowseIcons(DOMPurify.sanitize(marked.parse(text, { async: false }))), [text]);
   return <div className="msg agent md-body chat-md" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

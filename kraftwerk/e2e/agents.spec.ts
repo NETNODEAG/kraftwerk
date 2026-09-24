@@ -26,12 +26,12 @@ test.describe("agents landing", () => {
     writeFileSync(path.join(dir, "agent.yml"), "name: Landing Probe\nemoji: 🧭\nharness: claude\n");
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/agents/${SLUG}`));
-    await expect(page.locator(".side-row.active .side-wf")).toContainText(/Landing Probe/);
+    await expect(page.locator(".rail .rail-row.active")).toHaveAttribute("href", `#/agents/${SLUG}`);
   });
 });
 
 /**
- * The "General Chats" entry: with no chats it shows the new-chat pane; once
+ * The "Ralv" entry (general chats): with no chats it shows the new-chat pane; once
  * chats exist it opens the most recent one, and /chats/new is the way to a
  * fresh pane. Chats are created over the API and never get a message, so
  * no coding agent runs.
@@ -55,14 +55,14 @@ test.describe("general chats landing", () => {
     // Same hash as before, so a plain goto would not re-enter the route.
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
-    await expect(page.locator(".side-row.active .side-wf").last()).toBeVisible();
+    await expect(page.locator(".rail .rail-row.active")).toHaveAttribute("href", "#/agents/chats");
 
     await page.locator("a[href='#/agents/chats/new']").click();
     await expect(page).toHaveURL(/#\/agents\/chats\/new$/);
     await expect(page.getByRole("button", { name: "start chat" })).toBeVisible();
 
     // The sidebar entry itself goes back to the latest chat.
-    await page.locator(".side-general").click();
+    await page.locator(".rail a[href='#/agents/chats']").click();
     await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
   });
 });

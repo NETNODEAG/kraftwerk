@@ -1,22 +1,6 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
-import type { GitStatus, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
-import { Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
-// Editor (MDXEditor + CodeMirror) is heavy — only loaded on the /edit route.
-// A rebuild while the app is open replaces the hashed chunk, so the import
-// fails once; reload to pick up the new build instead of a dead editor link.
-const EditorScreen = lazy(() =>
-  import("./editor")
-    .then((m) => ({ default: m.EditorScreen }))
-    .catch((err) => {
-      const key = "kw-chunk-reload";
-      if (sessionStorage.getItem(key) !== location.hash) {
-        sessionStorage.setItem(key, location.hash);
-        location.reload();
-        return new Promise<never>(() => {});
-      }
-      throw err;
-    })
-);
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { WorkflowView } from "./workflow-view";
@@ -32,6 +16,26 @@ import { ReposScreen } from "./repos";
 import { VibeablesScreen } from "./vibeables";
 import { ProjectsScreen } from "./projects";
 import { SearchPalette } from "./search";
+import { ConversationsRail } from "./rail";
+import { GlobalNav } from "./workspace-tabs";
+import { ContextPanel } from "./context-panel";
+
+const CHAT_PATH_KEY = "kw-chat-path";
+
+const remembered = (key: string, fallback: string): string => {
+  try {
+    return sessionStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+const remember = (key: string, value: string): void => {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* the column simply starts over next time */
+  }
+};
 
 /**
  * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
@@ -46,20 +50,46 @@ import { SearchPalette } from "./search";
 export function App() {
   const hash = useHashPath();
   // "#/runs/<id>?workflow=x": the query rides along the hash path.
-  const [path, query = ""] = hash.split("?");
+  const [path] = hash.split("?");
   const seg = path.split("/").filter(Boolean);
-  const runsFilter = new URLSearchParams(query).get("workflow") ?? undefined;
   const [projectName, setProjectName] = useState("");
   const [projectIcon, setProjectIcon] = useState("");
   const [projectColor, setProjectColor] = useState("");
   const [projectNamed, setProjectNamed] = useState(true);
   const [projectRoot, setProjectRoot] = useState("");
   const [projectRootAbs, setProjectRootAbs] = useState("");
-  const [gitOn, setGitOn] = useState(false);
-  const [reposOn, setReposOn] = useState(false);
-  const [vibeablesOn, setVibeablesOn] = useState(false);
-  const [projectsOn, setProjectsOn] = useState(false);
   const [switcher, setSwitcher] = useState<SwitcherEntry[]>([]);
+  // A conversation route shows the columns: the rail, the conversation, and
+  // its context. Every other route is a page of the workspace (the overview,
+  // workflows, knowledge, …) under the top bar; the conversation keeps its
+  // last path meanwhile and comes back with the next conversation link.
+  const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "");
+  // Home (#/) is today's dashboard, in the middle column with the rail beside it.
+  const isHome = seg.length === 0;
+  const isGlobalRoute = !isChatRoute && !isHome;
+  const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
+  const effChat = isChatRoute ? path : chatPath;
+  // Phones show one column at a time.
+  const [focus, setFocus] = useState<"chat" | "context">("chat");
+  useEffect(() => {
+    if (isChatRoute) {
+      setChatPath(path);
+      remember(CHAT_PATH_KEY, path);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hash]);
+  // A redirect of the column the hash is not about (see navigate in shared.tsx).
+  useEffect(() => {
+    const onPath = (e: Event) => {
+      const to = (e as CustomEvent<string>).detail;
+      if (columnOf(to) === "chat") {
+        setChatPath(to);
+        remember(CHAT_PATH_KEY, to);
+      } else window.location.replace(`#${to}`);
+    };
+    window.addEventListener(COLUMN_PATH_EVENT, onPath);
+    return () => window.removeEventListener(COLUMN_PATH_EVENT, onPath);
+  }, []);
   // Polled (not fetched once): the switcher auto-discovers other running
   // instances via ~/.kraftwerk/instances, so entries come and go.
   useEffect(() => {
@@ -87,10 +117,6 @@ export function App() {
         setProjectNamed(d.projectNamed !== false);
         setProjectRoot(d.projectRootLabel ?? "");
         setProjectRootAbs(d.projectRoot ?? "");
-        setGitOn(!!d.git);
-        setReposOn(!!d.repos);
-        setVibeablesOn(!!d.vibeables);
-        setProjectsOn(!!d.projects);
         setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects });
         setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
       } catch {}
@@ -124,33 +150,38 @@ export function App() {
     link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
   }, [projectName, projectIcon]);
 
-  let screen: React.ReactNode;
-  if (seg[0] === "runs" && seg[1]) screen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
-  else if (seg[0] === "runs") screen = <LatestRun />;
+  const chatSeg = effChat.split("/").filter(Boolean);
+  const runsFilter = new URLSearchParams(hash.split("?")[1] ?? "").get("workflow") ?? undefined;
+  // The screens the routes already answer, now placed: conversations in the middle column, everything else as a page.
+  let chatScreen: React.ReactNode;
+  if (chatSeg[0] === "chats") chatScreen = <AgentsScreen seg={chatSeg} />;
+  else if (chatSeg[0] === "projects") chatScreen = <ProjectsScreen seg={chatSeg.slice(1)} />;
+  else if (chatSeg[0] === "channels") chatScreen = <ChannelsScreen seg={chatSeg.slice(1)} />;
+  else chatScreen = <AgentsScreen seg={chatSeg.slice(1)} />;
+
+  let globalScreen: React.ReactNode = null;
+  if (seg[0] === "runs" && seg[1]) globalScreen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
+  else if (seg[0] === "runs") globalScreen = <LatestRun />;
   else if (seg[0] === "workflows" && seg[1]) {
     const tab = seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview";
-    screen = <WorkflowView slug={decodeURIComponent(seg[1])} tab={tab} />;
+    globalScreen = <WorkflowView slug={decodeURIComponent(seg[1])} tab={tab} />;
   }
-  else if (seg[0] === "workflows") screen = <WorkflowsScreen />;
-  else if (seg[0] === "chats") screen = <AgentsScreen seg={seg} />;
-  else if (seg[0] === "skills") screen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "settings") screen = <SettingsScreen />;
-  else if (seg[0] === "workspaces") screen = <WorkspacesScreen />;
-  else if (seg[0] === "git") screen = <GitScreen />;
-  else if (seg[0] === "repos") screen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "vibeables") screen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "projects") screen = <ProjectsScreen seg={seg.slice(1)} />;
-  else if (seg[0] === "agents" || seg[0] === "team") screen = <AgentsScreen seg={seg.slice(1)} />;
-  else if (seg[0] === "channels") screen = <ChannelsScreen seg={seg.slice(1)} />;
+  else if (seg[0] === "workflows") globalScreen = <WorkflowsScreen />;
+  else if (seg[0] === "vibeables") globalScreen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
-    screen = (
+    globalScreen = (
       <KnowledgeScreen
         bundle={seg[1] ? decodeURIComponent(seg[1]) : undefined}
         conceptId={seg.length > 2 ? seg.slice(2).map(decodeURIComponent).join("/") : undefined}
       />
     );
-  } else screen = <DashboardScreen />;
+  }
+  else if (seg[0] === "skills") globalScreen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
+  else if (seg[0] === "settings") globalScreen = <SettingsScreen />;
+  else if (seg[0] === "workspaces") globalScreen = <WorkspacesScreen />;
+  else if (seg[0] === "git") globalScreen = <GitScreen />;
+  else if (seg[0] === "repos") globalScreen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
 
   // The workspace colour is the accent: derive the primary roles from it and
   // hand them to the stylesheet ([data-ws-accent] in globals.css). Set only
@@ -167,23 +198,6 @@ export function App() {
     for (const [k, v] of Object.entries(pal)) el.style.setProperty(k, v);
     el.dataset.wsAccent = "";
   }, [projectColor, projectRootAbs, projectName]);
-
-  // Document editor mode: nothing but the editor. Every hook of App must
-  // run before this early return (React keeps the hook order per render).
-  if (seg[0] === "edit" && seg[1] && seg.length > 2) {
-    return (
-      <Suspense fallback={<div className="empty">loading editor…</div>}>
-        <EditorScreen
-          key={seg.slice(1).join("/")}
-          bundle={decodeURIComponent(seg[1])}
-          conceptId={seg.slice(2).map(decodeURIComponent).join("/")}
-        />
-      </Suspense>
-    );
-  }
-
-  // M3 selected destination: the nav entry whose screens include the current route.
-  const navCls = (...routes: string[]) => (routes.includes(seg[0] ?? "") ? "active" : "");
 
   return (
     <>
@@ -208,18 +222,7 @@ export function App() {
             />
           )}
         </span>
-        <nav>
-          {/* Simple mode keeps channels, projects, agents, workflows, knowledge and vibeables; .nav-expert entries are expert-only. */}
-          <a href="#/channels" className={navCls("channels")}><Icon name="forum" /> channels</a>
-          {projectsOn && <a href="#/projects" className={navCls("projects")}><Icon name="folder_special" /> projects</a>}
-          <a href="#/agents" className={navCls("agents", "team", "chats")}><Icon name="groups" /> agents</a>
-          <a href="#/workflows" className={navCls("workflows", "runs")}><Icon name="account_tree" /> workflows</a>
-          <a href="#/knowledge" className={navCls("knowledge")}><Icon name="menu_book" /> knowledge</a>
-          <a href="#/skills" className={navCls("skills") + " nav-expert"}><Icon name="extension" /> skills</a>
-          {reposOn && <a href="#/repos" className={navCls("repos") + " nav-expert"}><Icon name="source" /> repositories</a>}
-          {vibeablesOn && <a href="#/vibeables" className={navCls("vibeables")}><Icon name="web" /> vibeables</a>}
-          {gitOn && <GitNavLink active={seg[0] === "git"} />}
-        </nav>
+        <GlobalNav path={path} />
         <span className="spacer" />
         <SearchPalette />
         <NotificationBell />
@@ -227,26 +230,22 @@ export function App() {
         <ExpertToggle />
         <ProjectInfo />
       </header>
-      <main className="shell">{screen}</main>
+      {globalScreen && <main className="shell shell-global">{globalScreen}</main>}
+      <main className={`shell three${isHome ? " home" : ""}`} data-focus={focus} hidden={!!globalScreen}>
+        <ConversationsRail chatPath={isHome ? "/" : effChat} />
+        <section className="col-chat" aria-label={isHome ? "Dashboard" : "Conversation"}>
+          {isHome ? <DashboardScreen /> : chatScreen}
+        </section>
+        <ContextPanel chatPath={isHome ? "/" : effChat} workspace={{ name: projectName, icon: projectIcon }} />
+      </main>
+      {/* Phones show one column at a time; this picks which. */}
+      {!globalScreen && (
+        <nav className="places" aria-label="Sections">
+          <button className={focus === "chat" ? "active" : ""} onClick={() => setFocus("chat")}><Icon name="forum" /> chat</button>
+          <button className={focus === "context" ? "active" : ""} onClick={() => setFocus("context")}><Icon name="account_tree" /> context</button>
+        </nav>
+      )}
     </>
-  );
-}
-
-/**
- * Nav entry for the git screen, shown only when kraftwerk.yml turns the
- * feature on. Carries the ahead/behind counts so the state is visible
- * without opening the screen.
- */
-function GitNavLink({ active }: { active: boolean }) {
-  const st = usePoll<GitStatus>("/api/git", false, 15_000);
-  const dirty = st?.files?.filter((f) => f.syncable).length ?? 0;
-  return (
-    <a href="#/git" className={active ? "nav-expert active" : "nav-expert"}>
-      <Icon name="cloud_sync" /> git
-      {!!st?.behind && <span className="git-badge behind">{st.behind}↓</span>}
-      {!!st?.ahead && <span className="git-badge ahead">{st.ahead}↑</span>}
-      {!st?.ahead && !st?.behind && !!dirty && <span className="git-badge dirty">{dirty}</span>}
-    </a>
   );
 }
 

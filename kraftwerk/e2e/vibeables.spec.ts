@@ -79,7 +79,7 @@ test.describe("vibeables", () => {
 
     await page.getByRole("button", { name: "open in chat" }).click();
     await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
-    await expect(page.locator(".vibeable-pane[data-vibe=older]")).toBeVisible();
+    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=older]")).toBeVisible();
     const openedChat = /chats\/(chat-[^/]+)/.exec(page.url())?.[1];
     if (openedChat) await request.delete(`/api/chats/${openedChat}`);
 
@@ -104,7 +104,7 @@ test.describe("vibeables", () => {
     await expect(page.getByRole("dialog", { name: "Open a vibeable" })).toBeVisible();
     await page.locator(".vibeable-repo", { hasText: "demo" }).click();
 
-    const pane = page.locator(".vibeable-pane[data-vibe=demo]");
+    const pane = page.locator(".col-chat .vibeable-pane[data-vibe=demo]");
     await expect(pane).toBeVisible();
     await expect(pane.locator(".vibeable-mode")).toContainText("static");
     const frame = page.frameLocator(".vibeable-frame");
@@ -115,10 +115,10 @@ test.describe("vibeables", () => {
     await expect(frame.getByRole("heading", { name: "changed by the agent" })).toBeVisible({ timeout: 10_000 });
 
     await page.reload();
-    await expect(page.locator(".vibeable-pane[data-vibe=demo]")).toBeVisible();
+    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=demo]")).toBeVisible();
 
     await page.getByRole("button", { name: "close preview" }).click();
-    await expect(page.locator(".vibeable-pane")).toHaveCount(0);
+    await expect(page.locator(".col-chat .vibeable-pane")).toHaveCount(0);
     await expect(page.locator(".chat-thread .rid")).not.toContainText("vibeables/demo");
   });
 
@@ -127,11 +127,11 @@ test.describe("vibeables", () => {
     await page.getByRole("button", { name: "vibeable" }).click();
     await page.getByRole("textbox", { name: "new vibeable name" }).fill("fresh-one");
     await page.getByRole("button", { name: "create" }).click();
-    await expect(page.locator(".vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
+    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
     await expect(page.frameLocator(".vibeable-frame").getByRole("heading", { name: "fresh-one" })).toBeVisible();
     const view = (await (await page.request.get("/api/vibeables")).json()) as { vibeables: { slug: string }[] };
     expect(view.vibeables.map((v) => v.slug)).toContain("fresh-one");
     await page.getByRole("button", { name: "close preview" }).click();
-    await expect(page.locator(".vibeable-pane")).toHaveCount(0);
+    await expect(page.locator(".col-chat .vibeable-pane")).toHaveCount(0);
   });
 });

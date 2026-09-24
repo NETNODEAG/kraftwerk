@@ -1,11 +1,13 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
 import { navigate, Icon, Link, usePoll } from "./shared";
 import { exportBundlePdf, wikilinks } from "./export";
-import { editorHref } from "./editor-link";
+// The rich-text editor (MDXEditor + CodeMirror) is heavy: loaded the first time a page is edited as a document.
+const DocEditor = lazy(() => import("./editor").then((m) => ({ default: m.DocEditor })));
+const editorHelpers = () => import("./editor");
 
 /**
  * Knowledge: OKF bundles under the project's knowledge/ root.
@@ -135,7 +137,7 @@ const ACTIVITY_ID = "@activity";
  * the OKF update log. The selected page lives in the URL so links stay
  * shareable.
  */
-function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
+export function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
   const data = usePoll<BundleDetail | { error: string }>(
     `/api/knowledge/${encodeURIComponent(name)}`,
     false
@@ -400,36 +402,38 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const [concept, setConcept] = useState<ConceptDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [editing, setEditing] = useState(false);
+  /** The page is its editor: "document" (rich text, autosaved) is the view; "markdown" edits the whole file as text with an explicit save. */
+  const [mode, setMode] = useState<"document" | "markdown">("document");
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const [view, setView] = useState<"rendered" | "source">("rendered");
-  // Concept bodies are (often agent-)generated markdown — sanitize before injecting.
-  const html = useMemo(
-    () => (concept ? DOMPurify.sanitize(marked.parse(wikilinks(concept.body, bundle), { async: false })) : ""),
-    [concept?.body, bundle]
-  );
+  /** What the editor started from; a new key restarts it (the file changed underneath, or was saved as markdown). */
+  const [doc, setDoc] = useState<{ key: number; body: string } | null>(null);
+  const [state, setState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
+  const [error, setError] = useState("");
+  const headRef = useRef(""); // the frontmatter, carried over untouched (the server re-stamps provenance)
+  const lastRawRef = useRef<string | null>(null); // the file the editor currently shows
+  const latestRef = useRef<string | null>(null); // a body waiting to be saved
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingRef = useRef<Promise<void> | null>(null);
+  const url = `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`;
 
   const load = () => {
-    fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`)
+    fetch(url)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setConcept)
       .catch(() => setGone(true));
   };
 
   // Poll so agent-written updates appear without a manual refresh; paused while
-  // editing, and state identity is kept when nothing changed to avoid re-renders.
+  // the markdown is edited, and state identity is kept when nothing changed.
   useEffect(() => {
-    if (editing) return;
+    if (mode === "markdown") return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const r = await fetch(
-          `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`,
-          { cache: "no-store" }
-        );
+        const r = await fetch(url, { cache: "no-store" });
         if (r.ok) {
           const c = (await r.json()) as ConceptDetail;
           if (alive) {
@@ -447,7 +451,82 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
       alive = false;
       clearTimeout(timer);
     };
-  }, [bundle, conceptId, editing]);
+  }, [url, mode]);
+
+  // The editor starts from the file on disk, and restarts when the file
+  // changed underneath while nothing here is unsaved (an agent wrote it).
+  useEffect(() => {
+    if (!concept || concept.raw === lastRawRef.current || latestRef.current !== null || savingRef.current) return;
+    let alive = true;
+    void editorHelpers().then(({ splitFrontmatter, unwrapParagraphs }) => {
+      if (!alive) return;
+      const { head, body } = splitFrontmatter(concept.raw);
+      headRef.current = head;
+      lastRawRef.current = concept.raw;
+      setDoc((d) => ({ key: (d?.key ?? 0) + 1, body: unwrapParagraphs(body) }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [concept]);
+
+  /** Write the pending body (frontmatter kept) — Google-Docs style, ~1s after the last change. */
+  async function flush(): Promise<void> {
+    if (savingRef.current) await savingRef.current;
+    const body = latestRef.current;
+    if (body === null) return;
+    latestRef.current = null;
+    setState("saving");
+    const run = (async () => {
+      try {
+        const head = headRef.current;
+        const content = head ? `${head}${head.endsWith("\n") ? "" : "\n"}${body.replace(/^\n+/, "\n")}` : body;
+        const r = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: conceptId, content }),
+          keepalive: true,
+        });
+        const res = (await r.json()) as ConceptDetail & { error?: string };
+        if (res.error) throw new Error(res.error);
+        headRef.current = (await editorHelpers()).splitFrontmatter(res.raw).head;
+        lastRawRef.current = res.raw; // what we saved is what the editor shows: no restart
+        setConcept(res);
+        setError("");
+        setState(latestRef.current === null ? "saved" : "unsaved");
+      } catch (err) {
+        setError((err as Error).message);
+        setState("error");
+        if (latestRef.current === null) latestRef.current = body; // retry with the next change
+      }
+    })();
+    savingRef.current = run;
+    await run;
+    savingRef.current = null;
+  }
+
+  function schedule(body: string): void {
+    latestRef.current = body;
+    setState("unsaved");
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => void flush(), 1000);
+  }
+
+  // Unsaved changes go out on tab close, and when the page is left.
+  useEffect(() => {
+    const onUnload = () => {
+      if (latestRef.current !== null) void flush();
+    };
+    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onUnload);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (latestRef.current !== null) void flush();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function verify() {
     setVerifying(true);
@@ -460,7 +539,15 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
     load();
   }
 
-  async function save() {
+  /** The whole file as text — the way to touch the frontmatter. */
+  function editMarkdown() {
+    if (!concept) return;
+    setDraft(concept.raw);
+    setSaveError("");
+    setMode("markdown");
+  }
+
+  async function saveMarkdown() {
     setSaving(true);
     setSaveError("");
     const body = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
@@ -473,13 +560,17 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
     setSaving(false);
     if (body.error) setSaveError(body.error);
     else {
+      lastRawRef.current = null; // the editor restarts from the saved file
       setConcept(body);
-      setEditing(false);
+      setMode("document");
     }
   }
 
   if (gone) return <div className="empty">concept not found</div>;
   if (!concept) return <div className="empty">loading…</div>;
+
+  const status =
+    state === "saving" ? "saving…" : state === "unsaved" ? "unsaved changes" : state === "error" ? `not saved — ${error}` : "all changes saved";
 
   return (
     <div className="agent-view">
@@ -492,9 +583,6 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
         )}
         {concept.stale && <span className="chip stale">stale since {concept.staleAfter?.slice(0, 10)}</span>}
         <span className="spacer" />
-        <Link href={editorHref(bundle, concept.id)} className="open-raw" title="Full-screen document editor with autosave">
-          <Icon name="edit_document" className="ms-sm" /> open in editor
-        </Link>
         <button className="open-raw" onClick={() => void exportBundlePdf(bundle, concept.id)}>
           <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
         </button>
@@ -512,35 +600,31 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
             <span className="side-meta">
               {bundle}/{concept.id}.md
             </span>
-            {editing ? (
+            {mode === "markdown" ? (
               <>
                 <button
                   className="open-raw"
                   onClick={() => {
-                    setEditing(false);
+                    setMode("document");
                     setSaveError("");
                   }}
                 >
                   cancel
                 </button>
-                <button className="open-raw" disabled={saving} onClick={save}>
+                <button className="open-raw" disabled={saving} onClick={() => void saveMarkdown()}>
                   {saving ? "saving…" : <><Icon name="check" className="ms-sm" /> save</>}
                 </button>
               </>
             ) : (
-              <button
-                className="open-raw"
-                onClick={() => {
-                  setDraft(concept.raw);
-                  setEditing(true);
-                  setSaveError("");
-                }}
-              >
-                <Icon name="edit" className="ms-sm" /> edit
-              </button>
+              <>
+                <span className={`concept-status ${state}`}>{status}</span>
+                <button className="open-raw" title="The whole file as text, frontmatter included" onClick={editMarkdown}>
+                  <Icon name="code" className="ms-sm" /> edit markdown
+                </button>
+              </>
             )}
           </div>
-          {editing ? (
+          {mode === "markdown" ? (
             <>
               <textarea
                 className="concept-edit"
@@ -555,25 +639,24 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
               </div>
             </>
           ) : (
-            <>
-              <div className="viewer-note md-toolbar">
-                <div className="tabs">
-                  <button className={view === "rendered" ? "active" : ""} onClick={() => setView("rendered")}>
-                    rendered
-                  </button>
-                  <button className={view === "source" ? "active" : ""} onClick={() => setView("source")}>
-                    source
-                  </button>
-                </div>
+            <div className="concept-doc">
+              {doc ? (
+                <Suspense fallback={<div className="viewer-note">loading the editor…</div>}>
+                  <DocEditor
+                    key={doc.key}
+                    markdown={doc.body}
+                    autoFocus={false}
+                    onChange={schedule}
+                    onError={editMarkdown}
+                  />
+                </Suspense>
+              ) : (
+                <div className="viewer-note">loading…</div>
+              )}
+              <div className="viewer-note">
+                the page as a document, saved as you type; every save stamps provenance as <code>human:user</code> and logs an update.
               </div>
-              <div className="viewer-body">
-                {view === "rendered" ? (
-                  <div className="md-body concept-md" dangerouslySetInnerHTML={{ __html: html }} />
-                ) : (
-                  <pre>{concept.body.trim() || "(empty body)"}</pre>
-                )}
-              </div>
-            </>
+            </div>
           )}
           {saveError && <div className="msg error"><Icon name="error" className="ms-sm" /> {saveError}</div>}
         </section>

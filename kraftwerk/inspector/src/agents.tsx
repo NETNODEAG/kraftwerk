@@ -16,7 +16,6 @@ import type {
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
 import { exportBundlePdf } from "./export";
-import { editorHref } from "./editor-link";
 
 /**
  * Agents: persistent agents ("employees"), each defined in
@@ -295,14 +294,14 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
             className={`side-row side-general ${mode === "chats" ? "active" : ""}`}
           >
             <span className="agent-avatar sm">
-              <span aria-hidden>💬</span>
+              <span aria-hidden>🎩</span>
             </span>
             <div className="side-row-body">
               <div className="side-row-top">
-                <span className="side-wf">General Chats</span>
+                <span className="side-wf">Ralv</span>
               </div>
               <div className="side-row-sub">
-                <span className="side-req">chats without an agent</span>
+                <span className="side-req">chief of staff of the workspace</span>
               </div>
             </div>
           </Link>
@@ -692,11 +691,11 @@ function KnowledgeSide({
                                   <Icon name="edit" className="ms-sm" /> edit
                                 </button>
                                 <Link
-                                  href={editorHref(b, c.id)}
+                                  href={`/knowledge/${encodeURIComponent(b)}/${c.id}`}
                                   className="open-raw"
-                                  title="Full-screen document editor with autosave"
+                                  title="The page in the knowledge section"
                                 >
-                                  <Icon name="edit_document" className="ms-sm" /> editor
+                                  <Icon name="open_in_new" className="ms-sm" /> page
                                 </Link>
                                 <Link href={conceptHref} className="open-raw">
                                   open ↗
@@ -767,7 +766,7 @@ function AgentLanding({ slug }: { slug: string }) {
 }
 
 /**
- * A bare #/agents/chats (the "General Chats" entry) opens the most recent
+ * A bare #/agents/chats (the "Ralv" entry) opens the most recent
  * general chat, like an agent's entry opens its latest session; with none
  * yet it shows the new-chat pane, which otherwise lives at /chats/new.
  */

@@ -21,6 +21,6 @@ test.describe("skills landing", () => {
     writeFileSync(path.join(dir, "SKILL.md"), "---\nname: landing-probe\ndescription: probes the landing\n---\n# Landing probe\n");
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/skills/${NAME}`));
-    await expect(page.locator(".side-row.active .side-wf")).toHaveText(`/${NAME}`);
+    await expect(page.locator(".shell-global .side-row.active .side-wf")).toHaveText(`/${NAME}`);
   });
 });

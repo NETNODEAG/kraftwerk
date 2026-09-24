@@ -36,6 +36,8 @@ skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packag
 #   access:                       # verify the Access login on every request via public: (team = Zero Trust team name, aud = the application's audience tag)
 #     team: my-team
 #     aud: 4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2
+# cloud:                          # the kraftwerk cloud is ON BY DEFAULT: \`kraftwerk ui\` registers this workspace there and shows a claim code under Settings → Cloud
+#   enabled: false                # uncomment both lines to keep this workspace out of the cloud (or set KRAFTWERK_CLOUD_URL=off for the whole machine)
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}

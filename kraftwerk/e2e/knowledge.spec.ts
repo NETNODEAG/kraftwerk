@@ -20,7 +20,7 @@ test.describe("knowledge landing", () => {
     expect(created.ok()).toBeTruthy();
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/knowledge/${NAME}`));
-    await expect(page.locator(".side-row.active .side-wf")).toHaveText(NAME);
+    await expect(page.locator(".shell-global .side-row.active .side-wf")).toHaveText(NAME);
 
     // The explicit "new" route keeps the form reachable.
     await page.goto("/#/knowledge/new");
@@ -33,7 +33,7 @@ test.describe("knowledge page tree and editor", () => {
   const NAME = "tree-probe";
   test.afterAll(() => rmSync(path.join(fixture(), "knowledge", NAME), { recursive: true, force: true }));
 
-  test("nested pages sit under a collapsible folder, open in editor works without a reload", async ({ page, request }) => {
+  test("nested pages sit under a collapsible folder, a page opens as a document", async ({ page, request }) => {
     expect((await request.post("/api/knowledge", { data: { name: NAME } })).ok()).toBeTruthy();
     const put = (id: string, title: string) =>
       request.post(`/api/knowledge/${NAME}/concept?id=${encodeURIComponent(id)}`, {
@@ -54,16 +54,18 @@ test.describe("knowledge page tree and editor", () => {
     await folder.click();
     await expect(page.locator(".wiki-branch .wiki-page")).toHaveCount(1);
 
-    // Editor via the in-page link: a hash change, not a page load (regression: hooks after App's early return).
+    // A page opens as a document in its own box: the rich-text editor is the view, no route change.
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.locator("a", { hasText: "open in editor" }).click();
-    await expect(page).toHaveURL(new RegExp(`#/edit/${NAME}/stack/frontend`));
-    await expect(page.locator(".editor-screen .editor-title")).toHaveText("Frontend stack");
+    await expect(page.locator(".concept-doc .editor-content")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`#/knowledge/${NAME}/stack/frontend`));
     expect(errors).toEqual([]);
 
-    await page.locator(".editor-close").click();
-    await expect(page).toHaveURL(new RegExp(`#/knowledge/${NAME}/stack/frontend`));
+    // The raw file (frontmatter included) is one click away and one click back.
+    await page.getByRole("button", { name: "edit markdown" }).click();
+    await expect(page.locator("textarea.concept-edit")).toBeVisible();
+    await page.getByRole("button", { name: "cancel" }).click();
+    await expect(page.locator(".concept-doc .editor-content")).toBeVisible();
     await expect(page.locator(".wiki-page.active")).toHaveText("Frontend stack");
   });
 });

@@ -10,6 +10,12 @@ export default defineConfig({
     // Object form, so the Host header stays localhost:1980 (the string form
     // rewrites it to the target): the API's origin check compares Origin to
     // Host and would 403 every POST from the dev server otherwise.
-    proxy: { "/api": { target: "http://localhost:1981", changeOrigin: false } },
+    proxy: {
+      "/api": { target: "http://localhost:1981", changeOrigin: false },
+      // Vibeables are served by the inspector server as static folders (not by
+      // the SPA): without this the dev server answers /vibeables/<slug>/ with
+      // index.html and the preview is blank.
+      "/vibeables": { target: "http://localhost:1981", changeOrigin: false },
+    },
   },
 });

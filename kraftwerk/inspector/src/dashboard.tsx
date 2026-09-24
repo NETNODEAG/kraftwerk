@@ -61,7 +61,6 @@ export function DashboardScreen() {
   const agentsData = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
   const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const skillsData = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
-  const meta = usePoll<{ projectName?: string; projectIcon?: string }>("/api/meta", false);
   const [filter, setFilter] = useState<FeedFilter>("all");
 
   const runs = runsData?.runs ?? [];
@@ -83,11 +82,8 @@ export function DashboardScreen() {
 
   return (
     <div className="dash">
-      <div className="page-head">
-        <h1>
-          {meta?.projectIcon ? `${meta.projectIcon} ` : ""}
-          {meta?.projectName || "workspace"}
-        </h1>
+      {/* The workspace's name is the sign on the panel; the head keeps only the inventory (expert mode). */}
+      <div className="page-head dash-head">
         <span className="spacer" />
         <span className="dash-mini">
           {mini.map(([count, label, href]) => (
@@ -96,10 +92,7 @@ export function DashboardScreen() {
             </Link>
           ))}
         </span>
-        <QuickActions workflows={wfData?.workflows ?? []} />
       </div>
-
-      <AgentsRow agents={agentsData?.agents.filter((m) => !m.archived)} chats={chats} />
 
       {failed.length > 0 && filter !== "failed" && (
         <button className="dash-alert" onClick={() => setFilter("failed")}>
@@ -116,143 +109,6 @@ export function DashboardScreen() {
         filter={filter}
         setFilter={setFilter}
       />
-    </div>
-  );
-}
-
-/* ---------- quick actions ---------- */
-
-/** Start work from here: pick a workflow to run, or open a fresh chat. */
-function QuickActions({ workflows }: { workflows: WorkflowSummary[] }) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest(".wf-pick-wrap")) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
-  // One filled primary per view (M3): chat is the front door; the rest is tonal.
-  return (
-    <div className="dash-actions">
-      <button className="run-btn dash-newchat" onClick={() => navigate("/agents/chats/new")}>
-        <Icon name="forum" /> new chat
-      </button>
-      <span className="wf-pick-wrap">
-        <button
-          className="run-btn tonal"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <Icon name="play_arrow" /> run workflow
-        </button>
-        {open && (
-          <div className="wf-pick-pop" role="menu">
-            {workflows.length === 0 && <span className="wf-pick-empty">no workflows yet</span>}
-            {workflows.map((w) => (
-              <Link
-                key={w.slug}
-                href={`/workflows/${encodeURIComponent(w.slug)}`}
-                className="wf-pick-item"
-                role="menuitem"
-              >
-                <span className="wf-pick-name">{w.name ?? w.slug}</span>
-                {w.description && <span className="wf-pick-desc">{w.description}</span>}
-              </Link>
-            ))}
-          </div>
-        )}
-      </span>
-    </div>
-  );
-}
-
-/* ---------- agents ---------- */
-
-/** The agents, as colleague cards: presence from live sessions + a chat button. */
-function AgentsRow({ agents, chats }: { agents?: Agent[]; chats: BusyChat[] }) {
-  const expert = useExpertMode();
-  if (agents && agents.length === 0) {
-    return (
-      <section className="panel dash-agents-empty">
-        <div className="viewer-note">
-          {expert ? (
-            <>
-              No agents yet — <Link href="/agents/new">create your first agent</Link> and
-              it will show up here, ready to chat.
-            </>
-          ) : (
-            <>No agents yet — ask an expert-mode user to create one.</>
-          )}
-        </div>
-      </section>
-    );
-  }
-  return (
-    <div className="dash-agents">
-      {(agents ?? []).map((m) => {
-        const sessions = chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === m.slug);
-        const waiting = sessions.find((c) => c.awaitingApproval);
-        const working = sessions.find((c) => c.busy);
-        const open = () => navigate(`/agents/${encodeURIComponent(m.slug)}`);
-        return (
-          // The whole card opens the agent; inner controls stop the bubble.
-          <div
-            key={m.slug}
-            className="dash-agent"
-            role="link"
-            tabIndex={0}
-            onClick={open}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") open();
-            }}
-          >
-            <div className="dash-agent-id">
-              {/* The face carries presence: pulsing badge while working, hollow when idle. */}
-              <span className="agent-avatar lg">
-                <span aria-hidden>{m.emoji}</span>
-                <span className={`lamp ${working ? "running" : "idle"}`} />
-              </span>
-              <span className="dash-agent-name">{m.name}</span>
-              {m.description && <span className="dash-agent-desc">{m.description}</span>}
-            </div>
-            <div className="dash-agent-foot">
-              <span className="dash-agent-state">
-                {waiting ? (
-                  <Link
-                    href={`/agents/${encodeURIComponent(m.slug)}/chat/${waiting.id}`}
-                    className="chip attention"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    needs approval
-                  </Link>
-                ) : (
-                  working && (
-                    <Link
-                      href={`/agents/${encodeURIComponent(m.slug)}/chat/${working.id}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      working…
-                    </Link>
-                  )
-                )}
-              </span>
-              <button
-                className="run-btn dash-chat-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void createChatAndOpen("claude", { kind: "agent", slug: m.slug });
-                }}
-              >
-                <Icon name="chat_bubble" className="ms-sm" /> chat
-              </button>
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }

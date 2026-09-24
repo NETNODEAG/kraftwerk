@@ -309,6 +309,15 @@ setup kw.example.com` creates the tunnel and writes the config, `kraftwerk
 ui` then runs it alongside the inspector. The steps are in
 [Inspector through a Cloudflare Tunnel](kraftwerk/README.md#inspector-through-a-cloudflare-tunnel).
 
+Every `kraftwerk ui` also registers with the **kraftwerk cloud** on start
+and heartbeats while it runs, so you can see from anywhere which of your
+workspaces are up, on which machine, with which agents; sign in there and
+claim a workspace with the code it shows under Settings → Cloud. This is
+on by default. To keep a workspace out, set `cloud: { enabled: false }` in
+its kraftwerk.yml; to turn it off for a whole machine, set
+`KRAFTWERK_CLOUD_URL=off`. Details in
+[Inspector in the kraftwerk cloud](kraftwerk/README.md#inspector-in-the-kraftwerk-cloud).
+
 ## Go deeper
 
 The full YAML reference, gates, MCP servers, CLI grants, knowledge CLI and

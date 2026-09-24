@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 
 /* ---------- icons ---------- */
 
@@ -58,7 +58,22 @@ export function setPageTitle(t: string): void {
   applyTitle();
 }
 
+/** Routes that are a conversation (the middle column); everything else is the workspace column. */
+export const CHAT_ROUTES = new Set(["agents", "team", "chats", "projects", "channels"]);
+export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path.split("?")[0].split("/").filter(Boolean)[0] ?? "") ? "chat" : "side");
+
+/** A column's screen resolved where it wants to be without touching the hash (see navigate). */
+export const COLUMN_PATH_EVENT = "kw-column-path";
+
 export function navigate(to: string, opts?: { replace?: boolean }): void {
+  // Two columns share one hash. A screen that redirects on landing (a bare
+  // #/runs to the latest run, a bare #/agents/chats to the latest chat) may
+  // be the column the hash is not about: then the hash stays, and the column
+  // alone follows the redirect.
+  if (opts?.replace && columnOf(to) !== columnOf(window.location.hash.slice(1) || "/")) {
+    window.dispatchEvent(new CustomEvent(COLUMN_PATH_EVENT, { detail: to }));
+    return;
+  }
   if (opts?.replace) window.location.replace(`#${to}`);
   else window.location.hash = to;
 }
@@ -92,11 +107,33 @@ export async function startWorkspace(root: string): Promise<string> {
   throw new Error("started, but the UI did not answer yet — see ~/.kraftwerk/logs");
 }
 
+/**
+ * A screen embedded somewhere other than its route (the context column shows
+ * a bundle, a workflow, a vibeable) hands its links to the host: the handler
+ * gets the href and answers true when it took it — the hash then stays and
+ * the host re-renders the screen at that path. Links it declines (a run's
+ * page, the editor) still go to the hash as usual.
+ */
+export const LocalNav = createContext<((href: string) => boolean) | null>(null);
+
 export function Link({
   href,
+  onClick,
   ...rest
 }: { href: string } & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href">) {
-  return <a href={`#${href}`} {...rest} />;
+  const local = useContext(LocalNav);
+  return (
+    <a
+      href={`#${href}`}
+      onClick={(e) => {
+        onClick?.(e);
+        if (e.defaultPrevented || !local) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; // a new tab still gets the real route
+        if (local(href)) e.preventDefault();
+      }}
+      {...rest}
+    />
+  );
 }
 
 /* ---------- expert mode ---------- */
