@@ -7,6 +7,7 @@ import { absolutePath, isDir, resolveProject } from "../config.js";
 import { selfCommand } from "./self-command.js";
 import type { AgentSummary } from "./agents.js";
 import type { ChannelSummary } from "./channels.js";
+import type { ProjectHit } from "./projects.js";
 
 /**
  * Two registries under ~/.kraftwerk, two lifecycles:
@@ -55,6 +56,8 @@ export interface WorkspaceRecord {
   agents?: AgentSummary[];
   /** Channels, as last seen by the instance serving this root. */
   channels?: ChannelSummary[];
+  /** Projects (not archived), as last seen by the instance serving this root. */
+  projects?: ProjectHit[];
 }
 
 /** A verified running instance, shaped like a switcher entry. */
@@ -256,6 +259,7 @@ async function readRecord(file: string): Promise<WorkspaceRecord | null> {
       startCount: rec.startCount ?? 1,
       ...(Array.isArray(rec.agents) ? { agents: rec.agents } : {}),
       ...(Array.isArray(rec.channels) ? { channels: rec.channels } : {}),
+      ...(Array.isArray(rec.projects) ? { projects: rec.projects } : {}),
     };
   } catch {
     return null;
@@ -277,6 +281,7 @@ export async function registerWorkspace(root: string): Promise<void> {
       startCount: (prev?.startCount ?? 0) + 1,
       ...(prev?.agents ? { agents: prev.agents } : {}),
       ...(prev?.channels ? { channels: prev.channels } : {}),
+      ...(prev?.projects ? { projects: prev.projects } : {}),
     };
     await fs.writeFile(recordFile(abs), JSON.stringify(rec, null, 2));
   } catch {} // best-effort, like the instance file
@@ -285,12 +290,12 @@ export async function registerWorkspace(root: string): Promise<void> {
 const synced = new Map<string, string>();
 
 /**
- * Write the roster (or the channel list) into the project's record. Called
+ * Write the roster (or the channel or project list) into the workspace's record. Called
  * on every read (the UI polls it, routines tick it), so a record only
  * changes when the list did. Roots with no record (a CLI run in a project
  * that never started the inspector) are left alone.
  */
-async function syncWorkspaceList<K extends "agents" | "channels">(root: string, key: K, list: NonNullable<WorkspaceRecord[K]>): Promise<void> {
+async function syncWorkspaceList<K extends "agents" | "channels" | "projects">(root: string, key: K, list: NonNullable<WorkspaceRecord[K]>): Promise<void> {
   await migrateRegistry();
   const stamp = `${root}\n${JSON.stringify(list)}`;
   if (synced.get(key) === stamp) return;
@@ -305,6 +310,7 @@ async function syncWorkspaceList<K extends "agents" | "channels">(root: string, 
 
 export const syncWorkspaceAgents = (root: string, agents: AgentSummary[]): Promise<void> => syncWorkspaceList(root, "agents", agents);
 export const syncWorkspaceChannels = (root: string, channels: ChannelSummary[]): Promise<void> => syncWorkspaceList(root, "channels", channels);
+export const syncWorkspaceProjects = (root: string, projects: ProjectHit[]): Promise<void> => syncWorkspaceList(root, "projects", projects);
 
 /** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */
 export function markWorkspaceStopped(): void {

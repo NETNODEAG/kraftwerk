@@ -5,6 +5,7 @@ import { projectsRootFor, resolveProject, type Project } from "../config.js";
 import { EFFORTS, HARNESSES, listAgents } from "./agents.js";
 import type { ChatAgentId } from "./chat/types.js";
 import { getProjectRoot } from "./context.js";
+import { syncWorkspaceProjects } from "./instances.js";
 import { knowledgeIndex } from "./knowledge.js";
 import { newestMtime } from "./mtime.js";
 import { listRepos } from "./repos.js";
@@ -91,6 +92,21 @@ export interface ProjectDef {
   /** Agent slugs. */
   agents: string[];
 }
+
+/** What the ⌘K palette needs of a project: also the shape kept in the workspace registry. */
+export interface ProjectHit {
+  slug: string;
+  title: string;
+  status: ProjectStatus;
+  goal?: string;
+}
+
+export const toProjectHit = (p: ProjectDef): ProjectHit => ({
+  slug: p.slug,
+  title: p.title,
+  status: p.status,
+  ...(p.goal ? { goal: p.goal } : {}),
+});
 
 export interface ProjectSummary extends ProjectDef {
   /** Absolute folder path. */
@@ -335,6 +351,8 @@ export async function listProjects(): Promise<ProjectsView> {
   const slugs = entries.filter((e) => e.isDirectory() && SLUG_RE.test(e.name)).map((e) => e.name);
   const projects = (await Promise.all(slugs.map((s) => readSummary(root, s)))).filter((p): p is ProjectSummary => p != null);
   projects.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.title.localeCompare(b.title));
+  // Like the agent roster: the registry copy feeds other instances' palettes. Archived projects stay out.
+  await syncWorkspaceProjects(opened.project!.root, projects.filter((p) => p.status !== "archived").map(toProjectHit)).catch(() => {});
   return { enabled: true, root, projects };
 }
 

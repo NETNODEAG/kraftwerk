@@ -65,12 +65,26 @@ export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path
 /** A column's screen resolved where it wants to be without touching the hash (see navigate). */
 export const COLUMN_PATH_EVENT = "kw-column-path";
 
+/** A conversation's edit or create route: rendered as a modal over the columns, not in them (edit-modal.tsx). */
+export function isEditPath(path: string): boolean {
+  const seg = path.split("/").filter(Boolean);
+  const slug = seg[1] ? decodeURIComponent(seg[1]) : "";
+  if (!slug || slug === "chats") return false;
+  if (slug === "new") return ["projects", "agents", "team", "channels"].includes(seg[0]) && !seg[2];
+  if (seg[0] === "projects") return seg[2] === "info";
+  if (seg[0] === "agents" || seg[0] === "team") return seg[2] === "info" || seg[2] === "edit";
+  if (seg[0] === "channels") return seg[2] === "edit";
+  return false;
+}
+
 export function navigate(to: string, opts?: { replace?: boolean }): void {
   // Two columns share one hash. A screen that redirects on landing (a bare
   // #/runs to the latest run, a bare #/agents/chats to the latest chat) may
-  // be the column the hash is not about: then the hash stays, and the column
+  // be the column the hash is not about — another column, or the
+  // conversation under an edit modal: then the hash stays, and the column
   // alone follows the redirect.
-  if (opts?.replace && columnOf(to) !== columnOf(window.location.hash.slice(1) || "/")) {
+  const at = window.location.hash.slice(1) || "/";
+  if (opts?.replace && (columnOf(to) !== columnOf(at) || (isEditPath(at) && !isEditPath(to) && columnOf(to) === "chat"))) {
     window.dispatchEvent(new CustomEvent(COLUMN_PATH_EVENT, { detail: to }));
     return;
   }

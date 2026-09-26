@@ -12,6 +12,17 @@ import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
 
 export type { ChannelView };
 
+/** The editor of one channel — or the create form without a slug — on its own (the modal over a conversation). */
+export function ChannelEditPage({ slug }: { slug?: string }) {
+  const data = usePoll<{ root: string; channels: ChannelView[] }>("/api/channels", false, 4000);
+  const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000);
+  const current = slug ? data?.channels.find((c) => c.slug === slug) : undefined;
+  if (!slug) return <ChannelEditor agents={agents?.agents ?? []} />;
+  if (!data) return <div className="empty">loading…</div>;
+  if (!current) return <div className="empty">channel not found</div>;
+  return <ChannelEditor key={current.slug} channel={current} agents={agents?.agents ?? []} />;
+}
+
 export function ChannelsScreen({ seg }: { seg: string[] }) {
   const slug = seg[0] && seg[0] !== "new" ? decodeURIComponent(seg[0]) : undefined;
   const mode = seg[0] === "new" ? "new" : slug && seg[1] === "edit" ? "edit" : slug ? "channel" : "home";

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type {
@@ -15,6 +15,7 @@ import type {
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
 import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
+import { SessionsPane, useSessionsList, type Session } from "./sessions";
 import { exportBundlePdf } from "./export";
 
 /**
@@ -55,6 +56,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
 
   const data = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
   const expert = useExpertMode();
+  const listOpen = useSessionsList();
 
   // Agent groups: persisted per agent (agent.yml `group:`); a freshly created,
   // still-empty group lives in localStorage until an agent is dropped into it.
@@ -228,6 +230,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
   let main: React.ReactNode;
   if (mode === "new") main = <AgentEditor key="new" />;
   else if (mode === "edit" && slug) main = <AgentEditor key={slug} slug={slug} />;
+  else if (mode === "chat" && slug && chatId === "new") main = <NewAgentSession key={slug} slug={slug} name={agents.find((m) => m.slug === slug)?.name} />;
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
@@ -250,7 +253,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
       <GeneralChatsLanding />
     );
   else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
-  else if (slug) main = <AgentLanding key={slug} slug={slug} />;
+  else if (slug) main = <AgentLanding key={slug} slug={slug} name={agents.find((m) => m.slug === slug)?.name} />;
   else if (!data) main = <div className="empty">loading…</div>;
   else if (active.length) main = <AgentsLanding agents={active} />;
   else main = <AgentsHome />;
@@ -275,7 +278,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
 
   return (
     <div
-      className={`runs-screen agents-screen ${slug || mode === "chats" ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
+      className={`runs-screen agents-screen ${slug || mode === "chats" ? "has-tabs" : ""} ${(slug || mode === "chats") && listOpen ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
       style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
     >
       <aside className="runs-side">
@@ -412,8 +415,8 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
             ))}
         </div>
       </aside>
-      {slug && <SessionsSide slug={slug} chatId={chatId} />}
-      {mode === "chats" && <GeneralChatsSide chatId={chatId} />}
+      {slug && <AgentSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
+      {mode === "chats" && <GeneralSessions chatId={chatId} />}
       <div className="runs-main">{main}</div>
       {showKnowledge && (
         <KnowledgeSide bundles={kBundles} onHide={() => toggleKnowledge(false)} onResize={resizeKnowledge} />
@@ -739,9 +742,10 @@ function conceptUpdatedAt(c: ConceptInfo): string | undefined {
 
 /**
  * A bare #/agents/<slug> URL jumps straight into the agent's most recent
- * session; with no sessions yet it shows the profile instead.
+ * session; with no sessions yet it offers a first one (the profile is the
+ * pencil on the sign).
  */
-function AgentLanding({ slug }: { slug: string }) {
+function AgentLanding({ slug, name }: { slug: string; name?: string }) {
   const [noSessions, setNoSessions] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -762,7 +766,35 @@ function AgentLanding({ slug }: { slug: string }) {
     };
   }, [slug]);
   if (!noSessions) return <div className="empty">loading…</div>;
-  return <AgentView slug={slug} />;
+  return <NewAgentSession slug={slug} name={name} />;
+}
+
+/** The fresh pane of an agent: what shows when no session is open. */
+function NewAgentSession({ slug, name }: { slug: string; name?: string }) {
+  const [creating, setCreating] = useState(false);
+  return (
+    <div className="new-chat">
+      <div className="page-head">
+        <h1>new session with {name ?? slug}</h1>
+      </div>
+      <section className="panel new-chat-panel">
+        <div className="agent-pick">
+          <button
+            className="agent-pick-btn active"
+            disabled={creating}
+            onClick={async () => {
+              setCreating(true);
+              await createChatAndOpen("claude", { kind: "agent", slug });
+              setCreating(false);
+            }}
+          >
+            <b>{creating ? "starting…" : "start session"}</b>
+            <span>on the agent's harness, with its role, knowledge and skills</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 /**
@@ -792,135 +824,73 @@ function GeneralChatsLanding() {
   return <NewChat />;
 }
 
-/* ---------- sessions sidebar ---------- */
+/* ---------- sessions: tabs above the chat, the list on request ---------- */
 
-function SessionsSide({ slug, chatId }: { slug: string; chatId?: string }) {
-  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
-  const sessions = (data?.chats ?? []).filter(
-    (c) => c.scope.kind === "agent" && c.scope.slug === slug
-  );
+function AgentSessions({ slug, chatId }: { slug: string; chatId?: string }) {
   const [creating, setCreating] = useState(false);
-
+  const filter = useCallback((chats: Session[]) => chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === slug), [slug]);
+  const hrefOf = useCallback((c: Session) => `/agents/${encodeURIComponent(slug)}/chat/${c.id}`, [slug]);
   return (
-    <aside className="runs-side">
-      <div className="side-head">
-        <span className="microlabel">sessions</span>
-        <span className="spacer" />
-        <Link href={`/agents/${encodeURIComponent(slug)}/info`} className="open-raw" title="agent profile & settings">
-          profile
-        </Link>
+    <SessionsPane
+      storeKey={`agent:${slug}`}
+      label="sessions"
+      fallbackTitle="new session"
+      chatId={chatId}
+      filter={filter}
+      hrefOf={hrefOf}
+      closeHref={`/agents/${encodeURIComponent(slug)}/chat/new`}
+      actions={
         <button
-          className="open-raw"
+          type="button"
+          className="tab-new"
           disabled={creating}
+          title="new session"
+          aria-label="new session"
           onClick={async () => {
             setCreating(true);
             await createChatAndOpen("claude", { kind: "agent", slug: slug });
             setCreating(false);
           }}
         >
-          {creating ? "…" : <><Icon name="add" className="ms-sm" /> new</>}
+          <Icon name={creating ? "progress_activity" : "add"} className="ms-sm" />
         </button>
-      </div>
-      <div className="side-list">
-        {sessions.map((c) => (
-          <Link
-            key={c.id}
-            href={`/agents/${encodeURIComponent(slug)}/chat/${c.id}`}
-            className={`side-row ${c.id === chatId ? "active" : ""}`}
-          >
-            <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
-            <div className="side-row-body">
-              <div className="side-row-top">
-                <span className="side-wf">{c.title || "new session"}</span>
-              </div>
-              <div className="side-row-sub">
-                <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="row-x"
-              title="delete session"
-              onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!window.confirm(`Delete session "${c.title || c.id}"?`)) return;
-                await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
-                if (c.id === chatId) navigate(`/agents/${encodeURIComponent(slug)}`);
-              }}
-            >
-              <Icon name="close" className="ms-sm" />
-            </button>
-          </Link>
-        ))}
-        {data && sessions.length === 0 && <div className="viewer-note">no sessions yet</div>}
-      </div>
-    </aside>
+      }
+    />
   );
 }
 
-/* ---------- general chats sidebar ---------- */
+// Chats that belong to no agent, channel or project — Ralv's.
+const generalChats = (chats: Session[]): Session[] => chats.filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
+const generalHref = (c: Session): string => `/agents/chats/${c.id}`;
 
-// Chats that belong to no agent, channel or project — the former
-// standalone chat screen, now living under the agents screen.
-function GeneralChatsSide({ chatId }: { chatId?: string }) {
-  const data = usePoll<{ chats: Array<ChatMeta & { busy: boolean; awaitingApproval?: boolean }> }>("/api/chats", false);
-  const chats = (data?.chats ?? []).filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
-
+function GeneralSessions({ chatId }: { chatId?: string }) {
   return (
-    <aside className="runs-side">
-      <div className="side-head">
-        <span className="microlabel">chats</span>
-        <span className="spacer" />
-        <Link href="/agents/chats/new" className="open-raw">
-          <Icon name="add" className="ms-sm" /> new
+    <SessionsPane
+      storeKey="general"
+      label="chats"
+      fallbackTitle="new chat"
+      chatId={chatId}
+      filter={generalChats}
+      hrefOf={generalHref}
+      closeHref="/agents/chats/new"
+      subOf={(c) => (
+        <>
+          {c.agent}
+          {c.scope.kind === "run"
+            ? ` · ${c.scope.runId}`
+            : c.scope.kind === "kraftwerk"
+              ? " · kraftwerk"
+              : c.scope.kind === "knowledge"
+                ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
+                : ""}
+        </>
+      )}
+      actions={
+        <Link href="/agents/chats/new" className="tab-new" title="new chat" aria-label="new chat">
+          <Icon name="add" className="ms-sm" />
         </Link>
-      </div>
-      <div className="side-list">
-        {chats.map((c) => (
-          <Link
-            key={c.id}
-            href={`/agents/chats/${c.id}`}
-            className={`side-row ${c.id === chatId ? "active" : ""}`}
-          >
-            <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
-            <div className="side-row-body">
-              <div className="side-row-top">
-                <span className="side-wf">{c.title || "new chat"}</span>
-              </div>
-              <div className="side-row-sub">
-                <span className="side-req">
-                  {c.agent}
-                  {c.scope.kind === "run"
-                    ? ` · ${c.scope.runId}`
-                    : c.scope.kind === "kraftwerk"
-                      ? " · kraftwerk"
-                      : c.scope.kind === "knowledge"
-                        ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
-                        : ""}
-                </span>
-                <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="row-x"
-              title="delete chat"
-              onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!window.confirm(`Delete chat "${c.title || c.id}"?`)) return;
-                await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
-                if (c.id === chatId) navigate("/agents/chats");
-              }}
-            >
-              <Icon name="close" className="ms-sm" />
-            </button>
-          </Link>
-        ))}
-        {data && chats.length === 0 && <div className="viewer-note">no chats yet</div>}
-      </div>
-    </aside>
+      }
+    />
   );
 }
 
@@ -977,10 +947,9 @@ function AgentsHome() {
  * skills save right here (full PUT with the changed section merged in).
  * Identity fields (name, emoji, harness, model, …) stay in the full editor.
  */
-function AgentView({ slug }: { slug: string }) {
+export function AgentView({ slug }: { slug: string }) {
   const [agent, setMember] = useState<AgentDetail | null>(null);
   const [gone, setGone] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
   const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "skills">("");
   const [roleDraft, setRoleDraft] = useState("");
@@ -1109,17 +1078,6 @@ function AgentView({ slug }: { slug: string }) {
               onClick={() => void setArchived(true)}
             >
               <Icon name="archive" className="ms-sm" /> archive
-            </button>
-            <button
-              className="run-btn"
-              disabled={creating}
-              onClick={async () => {
-                setCreating(true);
-                await createChatAndOpen("claude", { kind: "agent", slug: slug });
-                setCreating(false);
-              }}
-            >
-              {creating ? "starting…" : "new session"}
             </button>
           </>
         )}
@@ -1700,7 +1658,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
 /* ---------- editor ---------- */
 
-function AgentEditor({ slug }: { slug?: string }) {
+export function AgentEditor({ slug }: { slug?: string }) {
   const [form, setForm] = useState<{
     name: string;
     emoji: string;

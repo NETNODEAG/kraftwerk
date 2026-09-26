@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RunListItem, WorkflowSummary } from "./types";
 import { Icon, Lamp, Link, StatusWord, fmtAgo, navigate, usePoll } from "./shared";
-import { SwitchRow, launchRun, sandboxHint, sandboxReady, useDocker, useRunLauncher } from "./run-launcher";
+import { WorkflowView, type WorkflowTab } from "./workflow-view";
 
 /**
- * Workflows: one searchable list, a ▶ per row. A workflow whose steps read
- * `${{ request }}` opens a dialog (overview + request box); one that does
- * not starts straight away. Each row counts its runs and links to them —
- * the runs screen lives under this one, not in the main navigation.
+ * Workflows, laid out like the knowledge page: the workflows in a sidebar
+ * (lamp = last run, its count, a search), the selected one beside it with
+ * its overview (request box + board), details and runs. A bare #/workflows
+ * lands on the workflow that ran last. The runs screen lives under this one
+ * (the side head's "runs"), not in the main navigation.
  */
 
 interface RunStats {
@@ -26,184 +27,103 @@ export function runsHref(last: RunListItem, w: { name?: string; slug: string }):
   return `/runs/${last.id}?workflow=${encodeURIComponent(w.name ?? w.slug)}`;
 }
 
-export function WorkflowsScreen() {
+export function WorkflowsScreen({ slug, tab }: { slug?: string; tab: WorkflowTab }) {
   const data = usePoll<{ root?: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", false);
-  const docker = useDocker();
   const [q, setQ] = useState("");
-  const [dialog, setDialog] = useState<WorkflowSummary | null>(null);
-  const [starting, setStarting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const wfs = data?.workflows ?? [];
   const runs = runsData?.runs ?? [];
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return wfs;
-    return wfs.filter((w) =>
-      [w.name, w.slug, w.description].some((s) => s?.toLowerCase().includes(needle))
-    );
+    return wfs.filter((w) => [w.name, w.slug, w.description].some((s) => s?.toLowerCase().includes(needle)));
   }, [wfs, q]);
 
-  async function run(w: WorkflowSummary) {
-    if (w.usesRequest) return setDialog(w);
-    // No request to ask for: go. Sandbox when it is ready, else local —
-    // the run page shows which it was.
-    setStarting(w.slug);
-    setError(null);
-    try {
-      const runId = await launchRun(w.slug, { request: "", sandbox: sandboxReady(docker), ssh: false });
-      navigate(`/runs/${runId}`);
-    } catch (err) {
-      setError(`${w.name ?? w.slug}: ${(err as Error).message}`);
-      setStarting(null);
-    }
-  }
+  // A bare #/workflows lands on the workflow that ran last, else the first one
+  // (like #/knowledge lands on the bundle touched last). Waits for the runs so
+  // it does not jump twice.
+  const landing = useMemo(() => {
+    if (wfs.length === 0) return undefined;
+    const ran = wfs
+      .map((w) => ({ w, last: runStats(runs, w).last }))
+      .filter((x): x is { w: WorkflowSummary; last: RunListItem } => !!x.last)
+      .sort((a, b) => (b.last.updatedAt ?? "").localeCompare(a.last.updatedAt ?? ""));
+    return (ran[0]?.w ?? wfs[0]).slug;
+  }, [wfs, runs]);
+  const runsLoaded = !!runsData;
+  useEffect(() => {
+    if (!slug && landing && runsLoaded) navigate(`/workflows/${encodeURIComponent(landing)}`, { replace: true });
+  }, [slug, landing, runsLoaded]);
 
   return (
-    <>
-      <div className="page-head">
-        <h1>Workflows</h1>
-        <nav className="tabs" aria-label="workflows sections">
-          <Link href="/workflows" className="active">workflows <span className="num">({wfs.length})</span></Link>
-          <Link href="/runs">runs <span className="num">({runs.length})</span></Link>
-        </nav>
-        <span className="spacer" />
-        <label className="wf-search">
-          <Icon name="search" />
-          <input
-            type="search"
-            value={q}
-            placeholder="search workflows"
-            aria-label="search workflows"
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
-      </div>
-
-      {error && <div className="gate-fail-msg wf-error">{error}</div>}
-
-      {data && wfs.length === 0 && (
-        <div className="empty">
-          No workflows found — expected <code>src/workflows/</code> or <code>workflows/</code>{" "}
-          next to the output folder.
+    <div className="runs-screen workflows-screen">
+      <aside className="runs-side">
+        <div className="side-head">
+          <span className="microlabel">workflows</span>
+          {data && <span className="microlabel num">{wfs.length}</span>}
+          <span className="spacer" />
+          <Link href="/runs" className="open-raw" title="every run of every workflow, newest first">
+            <Icon name="history" className="ms-sm" /> runs <span className="num">{runs.length}</span>
+          </Link>
         </div>
-      )}
-
-      {wfs.length > 0 && (
-        <div className="wf-list" role="list">
+        {wfs.length > 0 && (
+          <label className="side-filter">
+            <Icon name="search" className="ms-sm" />
+            <input type="search" value={q} placeholder="search workflows" aria-label="search workflows" onChange={(e) => setQ(e.target.value)} />
+          </label>
+        )}
+        <div className="side-list">
           {shown.map((w) => {
             const st = runStats(runs, w);
             return (
-              <div key={w.slug} className="wf-row" role="listitem">
+              <Link key={w.slug} href={`/workflows/${encodeURIComponent(w.slug)}`} className={`side-row wf-row${w.slug === slug ? " active" : ""}`}>
                 <Lamp status={st.last?.status ?? "idle"} />
-                <div className="wf-row-main">
-                  <div className="wf-row-top">
-                    <Link href={`/workflows/${encodeURIComponent(w.slug)}`} className="wf-name">
-                      {w.name ?? w.slug}
-                    </Link>
+                <div className="side-row-body">
+                  <div className="side-row-top">
+                    <span className="side-wf">{w.name ?? w.slug}</span>
                     {w.error && <span className="status-word failed">broken</span>}
-                    <span className="wf-meta num">
-                      {w.agents} agents · {w.steps} steps{w.usesRequest ? "" : " · no request"}
-                    </span>
+                    {st.last && <span className="side-when num">{fmtAgo(st.last.updatedAt)}</span>}
                   </div>
-                  <p className="wf-desc" title={w.error ?? w.description ?? ""}>{w.error ?? w.description ?? ""}</p>
-                </div>
-                {st.last ? (
-                  <Link href={runsHref(st.last, w)} className="wf-runs" title="show the runs of this workflow">
-                    <Icon name="history" className="ms-sm" />
-                    <span className="num">{st.count} {st.count === 1 ? "run" : "runs"}</span>
-                    <span className="wf-last">
-                      · <StatusWord status={st.last.status} /> {fmtAgo(st.last.updatedAt)}
+                  <div className="side-row-sub">
+                    <span className="side-req" title={w.error ?? w.description ?? ""}>
+                      {w.error ?? w.description ?? `${w.agents} agents · ${w.steps} steps`}
                     </span>
-                  </Link>
-                ) : (
-                  <span className="wf-runs none num">no runs yet</span>
-                )}
-                <button
-                  className="run-btn wf-run"
-                  disabled={!!w.error || starting === w.slug}
-                  title={w.usesRequest ? "run with a request…" : "run now"}
-                  onClick={() => void run(w)}
-                >
-                  {starting === w.slug ? (
-                    "starting…"
-                  ) : (
-                    <><Icon name="play_arrow" className="ms-sm" /> run{w.usesRequest ? "…" : ""}</>
-                  )}
-                </button>
-              </div>
+                    {st.last ? (
+                      <button
+                        type="button"
+                        className="wf-runs num"
+                        title="show the runs of this workflow"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          navigate(runsHref(st.last!, w));
+                        }}
+                      >
+                        {st.count} {st.count === 1 ? "run" : "runs"} · <StatusWord status={st.last.status} />
+                      </button>
+                    ) : (
+                      <span className="wf-runs none num">no runs yet</span>
+                    )}
+                  </div>
+                </div>
+              </Link>
             );
           })}
-          {shown.length === 0 && <div className="viewer-note wf-nomatch">no workflow matches “{q}”</div>}
+          {data && wfs.length > 0 && shown.length === 0 && <div className="viewer-note wf-nomatch">no workflow matches “{q}”</div>}
+          {data && wfs.length === 0 && <div className="viewer-note">no workflows yet</div>}
         </div>
-      )}
-
-      {dialog && (
-        <RunDialog
-          w={dialog}
-          lastRequest={runStats(runs, dialog).last?.request}
-          onClose={() => setDialog(null)}
-        />
-      )}
-    </>
-  );
-}
-
-/**
- * M3 basic dialog: headline, supporting text, one text field, the two
- * options as switch rows, actions bottom-right. Everything else about the
- * workflow lives on its page — the "details" link leads there.
- */
-function RunDialog({ w, lastRequest, onClose }: { w: WorkflowSummary; lastRequest?: string; onClose: () => void }) {
-  const l = useRunLauncher(w.slug, w.usesRequest, lastRequest);
-  const name = w.name ?? w.slug;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="m3-dialog" role="dialog" aria-label={`Run ${name}`} aria-describedby="run-dialog-desc">
-        <h2 className="m3-headline">Run {name}</h2>
-        <p className="m3-supporting" id="run-dialog-desc">
-          {w.description && <>{w.description} </>}
-          <span className="m3-facts num">
-            {w.agents} agents · {w.steps} steps ·{" "}
-            <Link href={`/workflows/${encodeURIComponent(w.slug)}`}>details</Link>
-          </span>
-        </p>
-
-        <label className="m3-field">
-          <input
-            type="text"
-            value={l.request}
-            placeholder=" "
-            autoFocus
-            aria-label="request"
-            onChange={(e) => l.setRequest(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && l.launch()}
-          />
-          <span className="m3-field-label">Request</span>
-          <span className="m3-field-support">What the workflow should work on — a topic, URL, host …</span>
-        </label>
-
-        <div className="m3-switches">
-          <SwitchRow label="Run in Docker sandbox" hint={sandboxHint(l.docker)} checked={l.sandbox} onChange={l.setSandbox} />
-          {l.sandbox && <SwitchRow label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
-        </div>
-
-        {l.error && <div className="m3-error">{l.error}</div>}
-
-        <div className="m3-actions">
-          <button className="m3-text-btn" onClick={onClose}>Cancel</button>
-          <button className="m3-filled-btn" onClick={l.launch} disabled={!l.canRun}>
-            {l.busy ? "Starting…" : "Run"}
-          </button>
-        </div>
+      </aside>
+      <div className="runs-main">
+        {slug ? (
+          <WorkflowView key={slug} slug={slug} tab={tab} />
+        ) : data && wfs.length === 0 ? (
+          <div className="empty">
+            No workflows found — expected <code>src/workflows/</code> or <code>workflows/</code> next to the output folder.
+          </div>
+        ) : (
+          <div className="empty">loading…</div>
+        )}
       </div>
     </div>
   );

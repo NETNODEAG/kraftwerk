@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import { EditModal, editScreenOf } from "./edit-modal";
 import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
@@ -21,6 +22,55 @@ import { GlobalNav } from "./workspace-tabs";
 import { ContextPanel } from "./context-panel";
 
 const CHAT_PATH_KEY = "kw-chat-path";
+/** Width of the context column in px, set by dragging the divider; absent = half. */
+const CTX_W_KEY = "kw-ctx-w";
+const readCtxW = (): number | null => {
+  try {
+    const n = Number(localStorage.getItem(CTX_W_KEY));
+    return n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The divider between the conversation and its context: drag to resize,
+ * double-click to go back to half. The width is remembered per browser.
+ */
+function SplitHandle({ onResize }: { onResize: (px: number | null) => void }) {
+  const [drag, setDrag] = useState(false);
+  return (
+    <div
+      className={`split-handle${drag ? " dragging" : ""}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="resize chat and context"
+      title="drag to resize · double-click for half and half"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        const shell = e.currentTarget.closest(".shell") as HTMLElement | null;
+        if (!shell) return;
+        e.preventDefault();
+        // The context column ends at the shell's content edge; its width is the distance from the pointer.
+        const right = shell.getBoundingClientRect().right - parseFloat(getComputedStyle(shell).paddingRight);
+        const move = (ev: PointerEvent) => onResize(Math.round(right - ev.clientX));
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          window.removeEventListener("pointercancel", up);
+          document.body.classList.remove("kw-resizing");
+          setDrag(false);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", up);
+        document.body.classList.add("kw-resizing");
+        setDrag(true);
+      }}
+      onDoubleClick={() => onResize(null)}
+    />
+  );
+}
 
 const remembered = (key: string, fallback: string): string => {
   try {
@@ -68,11 +118,21 @@ export function App() {
   const isHome = seg.length === 0;
   const isGlobalRoute = !isChatRoute && !isHome;
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
-  const effChat = isChatRoute ? path : chatPath;
+  // Editing the thing you talk to (its /info or /edit route) is a modal over the conversation.
+  const editScreen = isChatRoute ? editScreenOf(path) : null;
+  const effChat = isChatRoute && !editScreen ? path : chatPath;
   // Phones show one column at a time.
   const [focus, setFocus] = useState<"chat" | "context">("chat");
+  const [ctxW, setCtxW] = useState<number | null>(readCtxW);
+  const resizeCtx = (px: number | null) => {
+    setCtxW(px);
+    try {
+      if (px === null) localStorage.removeItem(CTX_W_KEY);
+      else localStorage.setItem(CTX_W_KEY, String(px));
+    } catch {}
+  };
   useEffect(() => {
-    if (isChatRoute) {
+    if (isChatRoute && !editScreenOf(path)) {
       setChatPath(path);
       remember(CHAT_PATH_KEY, path);
     }
@@ -162,11 +222,8 @@ export function App() {
   let globalScreen: React.ReactNode = null;
   if (seg[0] === "runs" && seg[1]) globalScreen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
   else if (seg[0] === "runs") globalScreen = <LatestRun />;
-  else if (seg[0] === "workflows" && seg[1]) {
-    const tab = seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview";
-    globalScreen = <WorkflowView slug={decodeURIComponent(seg[1])} tab={tab} />;
-  }
-  else if (seg[0] === "workflows") globalScreen = <WorkflowsScreen />;
+  else if (seg[0] === "workflows")
+    globalScreen = <WorkflowsScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} tab={seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview"} />;
   else if (seg[0] === "vibeables") globalScreen = <VibeablesScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "knowledge") {
     // Concept ids are paths — everything after the bundle segment.
@@ -231,12 +288,19 @@ export function App() {
         <ProjectInfo />
       </header>
       {globalScreen && <main className="shell shell-global">{globalScreen}</main>}
-      <main className={`shell three${isHome ? " home" : ""}`} data-focus={focus} hidden={!!globalScreen}>
+      <main
+        className={`shell three${isHome ? " home" : ""}`}
+        data-focus={focus}
+        hidden={!!globalScreen}
+        style={ctxW ? ({ "--ctx-w": `${ctxW}px` } as React.CSSProperties) : undefined}
+      >
         <ConversationsRail chatPath={isHome ? "/" : effChat} />
         <section className="col-chat" aria-label={isHome ? "Dashboard" : "Conversation"}>
           {isHome ? <DashboardScreen /> : chatScreen}
+          <SplitHandle onResize={resizeCtx} />
         </section>
         <ContextPanel chatPath={isHome ? "/" : effChat} workspace={{ name: projectName, icon: projectIcon }} />
+        {editScreen && <EditModal back={effChat}>{editScreen}</EditModal>}
       </main>
       {/* Phones show one column at a time; this picks which. */}
       {!globalScreen && (

@@ -21,7 +21,7 @@ import type {
   StoredChatEvent,
 } from "./types";
 import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
-import { VibeOffNote, VibePane, VibePicker } from "./vibeables";
+import { VibeOffNote, VibePane } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
 
 /** The name a human posts under in channels; per browser, changeable in the composer. */
@@ -284,7 +284,6 @@ export function ChatThread({
   const [meta, setMeta] = useState<ChatMeta | null>(null);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
-  const [picker, setPicker] = useState(false);
   const [coworker, setCoworker] = useState(false);
   const [forking, setForking] = useState(false);
   const [forkNote, setForkNote] = useState<string | null>(null);
@@ -483,11 +482,6 @@ export function ChatThread({
           </button>
         )}
         {forkNote && <span className="fork-note">{forkNote}</span>}
-        {!meta.vibeable && features.vibeables && (
-          <button className="ws-btn vibeable-open" onClick={() => setPicker(true)} title="Build a small app live: a preview pane next to this chat" disabled={busy}>
-            <Icon name="web" className="ms-sm" /> vibeable
-          </button>
-        )}
         <span className="chip agent">{meta.agent}</span>
         <AgentStatus id={id} live={live} />
         {meta.scope.kind === "run" && (
@@ -518,16 +512,6 @@ export function ChatThread({
     </div>
     {meta.vibeable && features.vibeables && <VibePane key={meta.vibeable} chatId={id} slug={meta.vibeable} agentBusy={busy} onClosed={setMeta} />}
     {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
-    {picker && (
-      <VibePicker
-        chatId={id}
-        onClose={() => setPicker(false)}
-        onOpened={(m) => {
-          setMeta(m);
-          setPicker(false);
-        }}
-      />
-    )}
     {coworker && meta.scope.kind === "agent" && (
       <AddCoworkerDialog chatId={id} agentSlug={meta.scope.slug} title={title} onClose={() => setCoworker(false)} />
     )}
@@ -1542,18 +1526,12 @@ function Composer({
         </div>
       )}
       {problem && <div className="composer-problem">{problem}</div>}
+      <div className="composer-box">
       <textarea
         ref={taRef}
         value={text}
-        placeholder={
-          locked
-            ? "agent is working…"
-            : steering
-              ? "agent is working — a message now steers it mid-turn"
-              : channel
-              ? "message the channel  ·  @ to mention an agent, / for skills, Enter to send"
-              : "message  ·  Enter to send, Shift+Enter for newline, / for skills, drop or paste files"
-        }
+        placeholder={locked ? "agent is working…" : steering ? "steer the agent mid-turn…" : channel ? "message the channel" : "message"}
+        title={channel ? "Enter to send · Shift+Enter for a newline · @ mentions an agent · / for skills · drop or paste files" : "Enter to send · Shift+Enter for a newline · / for skills · drop or paste files"}
         rows={Math.min(6, Math.max(1, text.split("\n").length))}
         onChange={(e) => {
           setText(e.target.value);
@@ -1620,10 +1598,17 @@ function Composer({
         }}
       />
       {!locked && (
-        <button className="run-btn" disabled={(!text.trim() && files.length === 0) || uploading > 0} onClick={send} title={steering ? "hand this into the running turn" : undefined}>
-          <Icon name={steering ? "alt_route" : "send"} className="ms-sm" /> {steering ? "steer" : "send"}
+        <button
+          className="send-btn"
+          disabled={(!text.trim() && files.length === 0) || uploading > 0}
+          onClick={send}
+          aria-label={steering ? "steer" : "send"}
+          title={steering ? "steer: hand this into the running turn (Enter)" : "send (Enter)"}
+        >
+          <Icon name={steering ? "alt_route" : "send"} />
         </button>
       )}
+      </div>
     </div>
   );
 }

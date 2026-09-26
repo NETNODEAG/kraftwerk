@@ -43,6 +43,13 @@ test.describe("projects", () => {
   });
 
   test("a project is created from the form, lands on its page, and the goal can be set", async ({ page }) => {
+    // "new project" from a conversation is a modal; escape leaves it even with the title field focused.
+    await page.goto("/#/projects/new");
+    const modal = page.getByRole("dialog", { name: "edit" });
+    await expect(modal.getByRole("textbox", { name: "project title" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+
     await page.goto("/#/projects");
     await expect(page.getByRole("heading", { name: "new project" })).toBeVisible();
     await page.getByRole("textbox", { name: "project title" }).fill("Relaunch the website");
@@ -50,7 +57,8 @@ test.describe("projects", () => {
     await page.getByRole("button", { name: "create project" }).click();
 
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/info$/);
-    await expect(page.getByRole("heading", { name: "Relaunch the website" })).toBeVisible();
+    // The page is a modal over the conversation columns.
+    await expect(page.getByRole("dialog", { name: "edit" }).getByRole("heading", { name: "Relaunch the website" })).toBeVisible();
     const dir = path.join(fixture(), "kraftwerk-data", "projects", "relaunch-the-website");
     expect(existsSync(path.join(dir, "project.yml"))).toBe(true);
     expect(readFileSync(path.join(dir, "project.yml"), "utf8")).toMatch(/^goal: Ship the new site$/m);
@@ -81,10 +89,35 @@ test.describe("projects", () => {
     // A project chat can take coworkers, like an agent session.
     await expect(page.getByRole("button", { name: "add coworker" })).toBeVisible();
 
-    // The project's chat column lists it; the general chats column does not.
-    await expect(page.locator(`.runs-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toBeVisible();
+    // The chat is a tab above the project's chat; the general chats do not know it.
+    const tab = page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`);
+    await expect(tab).toBeVisible();
     await page.goto("/#/agents/chats");
     await expect(page.locator(`a[href='#/agents/chats/${chatId}']`)).toHaveCount(0);
+
+    // The full list is hidden until asked for; it names the chat too.
+    await page.goto(`/#/projects/relaunch-the-website/chat/${chatId}`);
+    await expect(page.locator(".sessions-side")).toHaveCount(0);
+    await page.getByRole("button", { name: "chats list" }).click();
+    await expect(page.locator(`.sessions-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toBeVisible();
+    await page.getByRole("button", { name: "hide the list" }).click();
+    await expect(page.locator(".sessions-side")).toHaveCount(0);
+
+    // Closing the tab keeps the chat and lands on a fresh pane.
+    await tab.hover();
+    await tab.getByRole("button", { name: /^close / }).click();
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
+    await expect(page.getByRole("heading", { name: "new chat in Relaunch the website" })).toBeVisible();
+    await expect(page.locator(".session-tab")).toHaveCount(0);
+
+    // The pencil on the sign edits the project in a modal over the conversation; escape closes it.
+    await page.getByRole("link", { name: /edit the project/ }).click();
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/info$/);
+    await expect(page.getByRole("dialog", { name: "edit" }).getByRole("textbox", { name: "goal" })).toHaveValue("Ship the new site by November");
+    await expect(page.getByRole("heading", { name: "new chat in Relaunch the website" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
+    await expect(page.getByRole("dialog", { name: "edit" })).toHaveCount(0);
 
     // A bare project URL now lands on that chat.
     await page.goto("/#/projects/relaunch-the-website");
@@ -102,7 +135,9 @@ test.describe("projects", () => {
     await expect(page.getByRole("heading", { name: "#relaunch-crew" })).toBeVisible();
     await expect(page.locator(".channel-members .member-handle", { hasText: "@crew-planner" })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`#/projects/relaunch-the-website/chat/${chatId}$`));
-    const row = page.locator(`.runs-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`);
+    await expect(page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toContainText("Relaunch crew");
+    await page.getByRole("button", { name: "chats list" }).click();
+    const row = page.locator(`.sessions-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`);
     await expect(row).toContainText("channel session");
     await expect(row).toContainText("#relaunch-crew");
   });

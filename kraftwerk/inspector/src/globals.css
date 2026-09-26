@@ -689,9 +689,6 @@ html[data-expert="off"] .chat-thread .detail-head .rid { display: none; }
 
 /* ---------- run detail ---------- */
 
-.crumbs { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--on-surface-variant); margin-bottom: 14px; }
-.crumbs a:hover { color: var(--primary); }
-.crumbs .sep { color: var(--outline-variant); }
 
 .detail-head {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 6px;
@@ -2138,7 +2135,6 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 
 .chat-split { display: flex; flex: 1; min-height: 0; gap: 16px; }
 .chat-split.open .chat-thread { max-width: none; margin: 0; flex: 0 1 44%; min-width: 340px; }
-.vibeable-open { margin-left: auto; }
 .vibeable-pane {
   flex: 1 1 56%; min-width: 0; display: flex; flex-direction: column; min-height: 0;
   background: var(--surface-container-low); border-radius: 16px; box-shadow: var(--elev-1); overflow: hidden;
@@ -2746,8 +2742,6 @@ code, pre, .mono { font-family: var(--font-mono); }
 .ctx-embed .page-head, .ctx-embed .detail-head { flex-wrap: wrap; row-gap: 8px; margin-bottom: 12px; }
 .ctx-embed .page-head h1, .ctx-embed .detail-head h1 { font-size: 20px; line-height: 28px; }
 .ctx-embed .detail-head .rid { display: none; }
-.ctx-embed .wiki { grid-template-columns: 200px minmax(0, 1fr); gap: 16px; }
-@media (max-width: 1400px) { .ctx-embed .wiki { grid-template-columns: minmax(0, 1fr); } }
 .ctx-embed-vibe { flex: 1; min-height: 0; overflow: hidden; }
 .ctx-embed-vibe .vibeable-pane { flex: 1; min-height: 0; }
 
@@ -2855,3 +2849,233 @@ html[data-expert="off"] .dash-head { display: none; }
 .topbar .spacer { flex: 1 1 8px; }
 .topbar > nav.global-nav { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .topbar > .search-btn, .topbar > .bell-wrap, .topbar > .relaunch, .topbar > .expert-toggle, .topbar > .info-wrap { flex: none; }
+
+/* ---------- sessions: open ones as tabs above the chat, the list on request ---------- */
+.col-chat .runs-screen.has-tabs { grid-template-rows: auto minmax(0, 1fr); }
+.session-tabs {
+  order: -1; grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 4px; min-width: 0;
+  padding: 6px 8px 0 6px; border-bottom: 1px solid var(--outline-variant); background: var(--surface-container-low);
+}
+.session-tabs .spacer { flex: 1; }
+.session-tabs .open-raw { align-self: center; margin-bottom: 4px; }
+.tab-toggle {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; align-self: center; margin-bottom: 4px;
+  border: 0; background: transparent; border-radius: 999px; padding: 5px 8px; cursor: pointer;
+  color: var(--on-surface-variant); font-size: 11px;
+}
+.tab-toggle:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); }
+.tab-toggle.on { background: var(--secondary-container); color: var(--on-secondary-container); }
+.session-tab-list { display: flex; align-items: flex-end; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.session-tab {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 220px; min-width: 0;
+  padding: 7px 6px 7px 12px; margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0;
+  border-radius: 10px 10px 0 0; font-size: 12.5px; font-weight: 500; color: var(--on-surface-variant); text-decoration: none;
+}
+.session-tab:hover { background: color-mix(in srgb, var(--on-surface) 6%, transparent); }
+.session-tab.active { background: var(--surface-1, var(--surface)); border-color: var(--outline-variant); color: var(--on-surface); }
+.session-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-tab .lamp { width: 7px; height: 7px; }
+.session-tab > .ms-sm { color: var(--on-surface-variant); }
+.tab-x {
+  flex: none; display: inline-flex; border: 0; background: transparent; padding: 2px; border-radius: 6px; cursor: pointer;
+  color: var(--on-surface-variant); opacity: 0; transition: opacity 100ms ease, background 100ms ease;
+}
+.session-tab:hover .tab-x, .session-tab.active .tab-x, .tab-x:focus-visible { opacity: 1; }
+.tab-x:hover { background: color-mix(in srgb, var(--on-surface) 12%, transparent); color: var(--on-surface); }
+/* The knowledge sidebar while the sessions list is hidden. */
+.col-chat .agents-screen.has-knowledge:not(.has-sessions) { grid-template-columns: minmax(0, 1fr) var(--kside-w, 380px); }
+@media (max-width: 1199px) {
+  .col-chat .agents-screen.has-knowledge:not(.has-sessions) { grid-template-columns: 220px minmax(0, 1fr) var(--kside-w, 360px); }
+}
+/* The strip shares the top edge with the sign: the sign is a label, not a target, and the tabs keep clear of it. */
+.ctx-head { pointer-events: none; }
+.shell.three .session-tabs { padding-right: clamp(140px, 30%, 320px); }
+.col-chat .has-tabs .chat-main, .col-chat .has-tabs .runs-main > .agent-view, .col-chat .has-tabs .runs-main > .new-chat { padding-top: 16px; }
+.col-chat .has-tabs .sessions-side .side-head { padding-top: 14px; }
+@media (max-width: 800px) {
+  .shell.three .session-tabs { padding-right: 8px; }
+}
+/* The pencil on the sign: the one thing there that takes clicks. */
+.ctx-head .ctx-edit {
+  pointer-events: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%; color: var(--on-surface-variant); text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ctx-head .ctx-edit:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--accent); }
+.ctx-head .ctx-edit .ms { font-size: 18px; }
+/* ---------- editing the context: a modal over the conversation ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 6vh 16px 16px; background: rgba(0, 0, 0, 0.38);
+}
+.modal {
+  position: relative; width: min(960px, 100%); max-height: 88dvh; overflow-y: auto;
+  background: var(--surface-1, var(--surface)); border: 1px solid var(--line, var(--outline-variant));
+  border-radius: var(--radius, 14px); box-shadow: var(--elev-3);
+}
+.modal-x {
+  position: absolute; top: 12px; right: 12px; z-index: 1;
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border: 0; border-radius: 50%; background: transparent; color: var(--on-surface-variant); cursor: pointer;
+}
+.modal-x:hover { background: color-mix(in srgb, var(--on-surface) 8%, transparent); color: var(--on-surface); }
+.modal-body { padding: 18px 48px 40px 24px; }
+.modal-body .page-head, .modal-body .detail-head { flex-wrap: wrap; row-gap: 8px; }
+@media (max-width: 800px) {
+  .modal-backdrop { padding: 0; }
+  .modal { max-height: 100dvh; border-radius: 0; }
+}
+
+/* ---------- motion: short, eased, transform and opacity only ----------
+   Things that appear rise in; things you press give; states cross-fade.
+   Nothing animates layout, nothing runs longer than 260ms, and reduced
+   motion turns it all off. */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --t-fast: 120ms; --t-base: 180ms; --t-slow: 260ms;
+}
+@keyframes kw-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kw-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes kw-slide-left { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes kw-modal { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes kw-sign { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes kw-tab-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* what appears */
+.modal-backdrop, .palette-backdrop { animation: kw-fade var(--t-base) var(--ease-out); }
+.modal { animation: kw-modal var(--t-slow) var(--ease-out); }
+.palette { animation: kw-modal var(--t-base) var(--ease-out); }
+.chat-thread, .new-chat, .agent-view, .col-chat .runs-main > .empty,
+.ctx-body[role="tabpanel"], .ctx-embed:not(.ctx-browser) > *,
+.shell-global > *, .dash-feed { animation: kw-rise var(--t-base) var(--ease-out) both; }
+.sessions-side { animation: kw-slide-left var(--t-base) var(--ease-out); }
+.session-tab { animation: kw-tab-in var(--t-base) var(--ease-out) both; }
+.ctx-head.sign-in { animation: kw-sign var(--t-slow) var(--ease-spring) both; }
+@media (max-width: 800px) { .ctx-head.sign-in { animation-name: kw-fade; } }
+/* The newest messages rise in; older ones are already there. */
+.chat-scroll > :nth-last-child(-n + 3) { animation: kw-rise var(--t-base) var(--ease-out) both; }
+/* "working…" breathes with its lamp instead of sitting still. */
+@keyframes kw-breathe { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+.chat-working { animation: kw-rise var(--t-base) var(--ease-out), kw-breathe 1.4s ease-in-out infinite; }
+
+/* what you press gives, what you point at lifts */
+.run-btn, .ws-btn, .open-raw, .tab-toggle, .ctx-tab, .modal-x, .tab-x, .ctx-edit, .rail-add, .search-btn, .send-btn, .agent-pick-btn, .dash-chat-btn, .side-back, .row-x {
+  transition: background var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease,
+    box-shadow var(--t-fast) ease, opacity var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
+}
+.run-btn:active:not(:disabled), .ws-btn:active:not(:disabled), .open-raw:active, .tab-toggle:active, .ctx-tab:active, .modal-x:active,
+.ctx-edit:active, .rail-add:active, .search-btn:active, .send-btn:active:not(:disabled), .agent-pick-btn:active:not(:disabled), .dash-chat-btn:active { transform: scale(0.96); }
+.rail-row, .ctx-row, .side-row, .session-tab, .palette-item, .dash-agent, .dash-alert, .card, .panel {
+  transition: background var(--t-fast) ease, color var(--t-fast) ease, box-shadow var(--t-base) var(--ease-out),
+    border-color var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
+}
+.rail-row:active, .ctx-row:active, .side-row:active, .session-tab:active, .palette-item:active { transform: scale(0.985); }
+.ctx-row:hover .ctx-go, .side-row:hover .row-x, .session-tab:hover .tab-x { transition-delay: 40ms; }
+.lamp { transition: background var(--t-base) ease, border-color var(--t-base) ease; }
+/* Fields answer focus with a soft ring, not a jump. */
+input, textarea, select { transition: border-color var(--t-fast) ease, box-shadow var(--t-fast) ease, background var(--t-fast) ease; }
+/* Icons that reveal on hover ease in rather than snap. */
+.md-browse, .ctx-go, .row-x, .tab-x { transition: opacity var(--t-fast) ease, background var(--t-fast) ease, color var(--t-fast) ease, transform var(--t-fast) var(--ease-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ---------- workflows page: the list beside the workflow, like knowledge ---------- */
+.workflows-screen .side-row .wf-runs { flex: none; padding: 0 6px; margin: -1px -6px -1px 0; font-size: 10.5px; gap: 4px; border: 0; background: transparent; cursor: pointer; }
+.workflows-screen .side-row .wf-runs .status-word { font-size: 10px; line-height: 14px; padding: 0 5px; }
+.workflows-screen .side-row .wf-runs.none { cursor: default; }
+.workflows-screen .side-row .status-word.failed { font-size: 10px; line-height: 14px; padding: 0 6px; }
+.side-filter input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
+
+/* ---------- the divider between chat and context is draggable ---------- */
+.shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%); }
+@media (max-width: 1199px) {
+  .shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 48%), 65%); }
+}
+@media (max-width: 800px) {
+  .shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr); }
+  .split-handle { display: none; }
+}
+.col-chat { position: relative; }
+.split-handle { position: absolute; top: 0; bottom: 0; right: 0; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
+.split-handle::after {
+  content: ""; position: absolute; top: 18%; bottom: 18%; left: 3px; width: 2px; border-radius: 2px;
+  background: transparent; transition: background var(--t-fast) ease;
+}
+.split-handle:hover::after, .split-handle.dragging::after { background: var(--accent); }
+body.kw-resizing { cursor: col-resize; user-select: none; }
+body.kw-resizing iframe { pointer-events: none; }
+.session-tabs .open-raw { white-space: nowrap; }
+
+/* ---------- knowledge in the context column: the page first, one column, no page chrome ---------- */
+.ctx-embed .agent-view { gap: 10px; }
+.ctx-embed .detail-cols { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+/* Exporting and curating are page things: the page link in the strip above leads there. */
+.ctx-embed .page-head > .open-raw, .ctx-embed .detail-head > .open-raw, .ctx-embed .page-head > .run-btn { display: none; }
+.ctx-embed .detail-head .run-btn { padding: 7px 14px; font-size: 12.5px; }
+.ctx-embed .page-head .count { font-size: 12.5px; }
+/* The about card becomes a compact key/value list under the page. */
+.ctx-embed .detail-rail { gap: 10px; }
+.ctx-embed .detail-rail .panel-head { padding: 8px 14px; }
+.ctx-embed .rail-kv { flex-direction: row; align-items: baseline; gap: 12px; padding: 6px 14px; }
+.ctx-embed .rail-kv .microlabel { flex: none; width: 84px; }
+.ctx-embed .rail-kv .v { font-size: 12px; }
+.ctx-embed .concept-doc .editor-content { min-height: 220px; }
+/* The page tree is a left sidebar inside the column (sticky to the column's own scroll), the
+   page beside it; a column pulled very narrow stacks them. */
+.ctx-embed { container-type: inline-size; }
+.ctx-embed .wiki { grid-template-columns: 170px minmax(0, 1fr); gap: 14px; }
+.ctx-embed .wiki-side { position: sticky; top: 0; max-height: calc(100vh - var(--topbar-h) - 160px); padding: 0 8px 6px 0; }
+.ctx-embed .wiki-page { font-size: 12.5px; }
+@container (max-width: 560px) {
+  .ctx-embed .wiki { grid-template-columns: minmax(0, 1fr); }
+  .ctx-embed .wiki-side { position: static; max-height: 200px; border-right: 0; padding-right: 0; }
+}
+
+/* ---------- the composer: one box, the field inside it, two round buttons at its end ---------- */
+.composer { gap: 0; padding: 10px 0 4px; }
+.composer-box {
+  flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 2px;
+  padding: 5px 5px 5px 14px; border: 1px solid var(--line, var(--outline-variant)); border-radius: 24px;
+  background: var(--surface-1, var(--surface-container-high));
+  transition: border-color var(--t-fast) ease, box-shadow var(--t-base) var(--ease-out);
+}
+.composer-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.composer.dragging .composer-box { border-style: dashed; border-color: var(--accent); }
+.composer.dragging textarea, .composer textarea, .composer textarea:focus {
+  flex: 1; min-width: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+  padding: 8px 6px; font-size: 15px; line-height: 1.5;
+}
+.composer .attach-btn, .composer .send-btn {
+  flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.composer .attach-btn { background: transparent; color: var(--text-2, var(--on-surface-variant)); }
+.composer .attach-btn:hover { background: var(--surface-2, var(--surface-container-highest)); color: var(--text, var(--on-surface)); }
+.composer .attach-btn .ms { font-size: 20px; }
+.composer .send-btn { background: var(--accent); color: var(--on-accent, var(--on-primary)); }
+.composer .send-btn .ms { font-size: 19px; }
+.composer .send-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.composer .send-btn:disabled { opacity: 0.3; cursor: default; }
+.composer .stop-btn { flex: none; align-self: center; margin-right: 4px; }
+
+/* The new-session button: a small round + right after the last tab. */
+.session-tab-list { align-items: center; }
+.session-tab-list .tab-new {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin: 0 0 4px 4px;
+  border: 0; border-radius: 50%; background: transparent; color: var(--on-surface-variant); cursor: pointer; text-decoration: none;
+  transition: background var(--t-fast) ease, color var(--t-fast) ease, transform var(--t-fast) var(--ease-out);
+}
+.session-tab-list .tab-new:hover { background: var(--surface-2, var(--surface-container-highest)); color: var(--on-surface); }
+.session-tab-list .tab-new:active { transform: scale(0.92); }
+.session-tab-list .tab-new:disabled { opacity: 0.5; cursor: default; }
+.session-tab-list .tab-new .ms { font-size: 18px; }
+
+/* The skill menu: names never wrap, the list never outgrows the pane. */
+.skill-menu { max-height: 46vh; overflow-y: auto; }
+.skill-menu button { align-items: center; white-space: nowrap; }
+.skill-menu button b { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
+.skill-menu button > span:not(.skill-src) { flex: 1; }

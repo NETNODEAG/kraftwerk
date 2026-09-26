@@ -63,6 +63,17 @@ export function ContextPanel({ chatPath, workspace }: {
   const key = `${ctx.kind}:${"slug" in ctx ? ctx.slug : ""}`;
   const features = useFeatures();
   const expert = useExpertMode();
+  // The sign's pencil: you are working on this project, agent or channel — its page is where it is edited.
+  const [editHref, editTitle] =
+    ctx.kind === "project"
+      ? [`/projects/${encodeURIComponent(ctx.slug)}/info`, "edit the project: brief, state, records, links"]
+      : ctx.kind === "agent"
+        ? [`/agents/${encodeURIComponent(ctx.slug)}/info`, "edit the agent: profile and settings"]
+        : ctx.kind === "channel"
+          ? [`/channels/${encodeURIComponent(ctx.slug)}/edit`, "edit the channel"]
+          : expert
+            ? ["/settings", "workspace settings"]
+            : [undefined, ""];
   const wfs = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false, 15_000);
   const runs = usePoll<{ runs: RunListItem[] }>("/api/runs", false, 6000);
   const know = usePoll<KnowledgeIndex>("/api/knowledge", false, 15_000);
@@ -192,8 +203,14 @@ export function ContextPanel({ chatPath, workspace }: {
 
   return (
     <aside className="ctx" aria-label="Context">
-      <div className="ctx-head">
+      {/* Keyed by the name: a new context pops its sign in. */}
+      <div key={links?.title ?? ""} className={`ctx-head${links ? " sign-in" : ""}`}>
         <span className="ctx-title" title={links?.title}>{links ? links.title : "…"}</span>
+        {editHref && (
+          <Link href={editHref} className="ctx-edit" title={editTitle} aria-label={editTitle}>
+            <Icon name="edit" className="ms-sm" />
+          </Link>
+        )}
       </div>
       <div className="ctx-tabs" role="tablist" aria-label="Categories">
         {tabs.map((t) => (
@@ -245,7 +262,7 @@ export function ContextPanel({ chatPath, workspace }: {
       <div className="ctx-body ctx-embed ctx-browser" hidden={current !== "browser"}>
         <ContextBrowser key={key} storeKey={key} onTabs={setBrowserTabs} />
       </div>
-      <div className="ctx-body" role="tabpanel" hidden={current === "browser" || (!!openPath && ["knowledge", "workflows", "vibeables"].includes(current))}>
+      <div key={current} className="ctx-body" role="tabpanel" hidden={current === "browser" || (!!openPath && ["knowledge", "workflows", "vibeables"].includes(current))}>
         {active?.allHref && (
           <div className="ctx-section-head">
             <span className="spacer" />

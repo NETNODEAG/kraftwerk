@@ -127,15 +127,20 @@ test.describe("workflows screen", () => {
     await expect(page.locator(".global-nav")).not.toContainText("workflow runs");
     await expect(page.locator(".global-nav a", { hasText: "workflows" })).toBeVisible();
 
-    const rows = page.locator(".wf-row");
+    // The list is a sidebar; a bare #/workflows lands on the workflow that ran last.
+    await expect(page).toHaveURL(/#\/workflows\/[a-z]+$/);
+    const rows = page.locator(".shell-global .runs-side .wf-row");
     await expect(rows).toHaveCount(4);
     const ask = rows.filter({ hasText: "answers a question" });
     await expect(ask.locator(".wf-runs")).toContainText("1 run");
-    await expect(ask.getByRole("button", { name: /run…/ })).toBeVisible();
+    await ask.click();
+    await expect(page).toHaveURL(/#\/workflows\/ask$/);
+    await expect(ask).toHaveClass(/active/);
     const tick = rows.filter({ hasText: "writes a stamp" });
-    await expect(tick).toContainText("no request");
     await expect(tick.locator(".wf-runs")).toContainText("no runs yet");
-    await expect(tick.getByRole("button", { name: /^run$/ })).toBeVisible();
+    // The page beside it is the workflow's own view, with the request box.
+    await expect(page.locator(".shell-global .runs-main .detail-head h1")).toHaveText("ask");
+    await expect(page.locator(".run-panel").getByLabel("request")).toHaveValue("why is the sky blue");
 
     await page.getByLabel("search workflows").fill("stamp");
     await expect(rows).toHaveCount(1);
@@ -153,10 +158,10 @@ test.describe("workflows screen", () => {
     await page.getByLabel("filter runs").fill("nothing-like-this");
     await expect(page.locator(".shell-global .runs-side")).toContainText("no run matches");
     await page.locator(".shell-global .side-back").click();
-    await expect(page).toHaveURL(/#\/workflows$/);
+    await expect(page).toHaveURL(/#\/workflows\/[a-z]+$/);
 
-    // The tabs in the page head reach the runs screen too.
-    await page.locator(".page-head .tabs a", { hasText: "runs" }).click();
+    // The side head reaches the runs screen too.
+    await page.locator(".shell-global .runs-side .side-head a", { hasText: "runs" }).click();
     await expect(page).toHaveURL(/#\/runs\/2026-01-01-1000-00-ask$/);
   });
 
@@ -295,36 +300,4 @@ test.describe("workflows screen", () => {
     await expect(card.locator(".chip.decision")).toHaveCount(0);
   });
 
-  test("a workflow that reads the request opens an overview with a request box", async ({ page }) => {
-    await page.goto("/#/workflows");
-    await page.locator(".wf-row").filter({ hasText: "answers a question" }).getByRole("button", { name: /run…/ }).click();
-    const dialog = page.getByRole("dialog", { name: "Run ask" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator(".m3-headline")).toHaveText("Run ask");
-    await expect(dialog.locator(".m3-supporting")).toContainText("answers a question");
-    await expect(dialog.locator(".m3-supporting")).toContainText("1 agents · 1 steps");
-    // The last request of this workflow is offered again; clearing it disables Run.
-    const input = dialog.getByLabel("request");
-    await expect(input).toHaveValue("why is the sky blue");
-    const run = dialog.getByRole("button", { name: "Run" });
-    await input.fill("");
-    await expect(run).toBeDisabled();
-    await input.fill("what is a rainbow");
-    // The sandbox switch starts on only where Docker is usable; SSH
-    // forwarding exists only inside the sandbox, so its row follows.
-    const sandbox = dialog.getByRole("switch", { name: /Docker sandbox/ });
-    const ssh = dialog.getByRole("switch", { name: /SSH/ });
-    const on = (await sandbox.getAttribute("aria-checked")) === "true";
-    await expect(ssh).toHaveCount(on ? 1 : 0);
-    await sandbox.click();
-    await expect(sandbox).toHaveAttribute("aria-checked", String(!on));
-    await expect(ssh).toHaveCount(on ? 0 : 1);
-    await sandbox.click();
-    await expect(sandbox).toHaveAttribute("aria-checked", String(on));
-    // Off = run locally, which needs nothing but the request.
-    if (on) await sandbox.click();
-    await expect(run).toBeEnabled();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(dialog).toBeHidden();
-  });
 });

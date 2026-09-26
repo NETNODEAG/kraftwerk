@@ -413,6 +413,10 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const [error, setError] = useState("");
   const headRef = useRef(""); // the frontmatter, carried over untouched (the server re-stamps provenance)
   const lastRawRef = useRef<string | null>(null); // the file the editor currently shows
+  // The editor reports its own normalisation of the file as a change (tables,
+  // escapes) — only what a person did in it may be saved, so nothing is
+  // scheduled before the editor was touched.
+  const touchedRef = useRef(false);
   const latestRef = useRef<string | null>(null); // a body waiting to be saved
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef<Promise<void> | null>(null);
@@ -463,6 +467,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
       const { head, body } = splitFrontmatter(concept.raw);
       headRef.current = head;
       lastRawRef.current = concept.raw;
+      touchedRef.current = false;
       setDoc((d) => ({ key: (d?.key ?? 0) + 1, body: unwrapParagraphs(body) }));
     });
     return () => {
@@ -506,6 +511,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   }
 
   function schedule(body: string): void {
+    if (!touchedRef.current) return;
     latestRef.current = body;
     setState("unsaved");
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -639,7 +645,13 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
               </div>
             </>
           ) : (
-            <div className="concept-doc">
+            <div
+              className="concept-doc"
+              onPointerDownCapture={() => (touchedRef.current = true)}
+              onKeyDownCapture={() => (touchedRef.current = true)}
+              onPasteCapture={() => (touchedRef.current = true)}
+              onDropCapture={() => (touchedRef.current = true)}
+            >
               {doc ? (
                 <Suspense fallback={<div className="viewer-note">loading the editor…</div>}>
                   <DocEditor

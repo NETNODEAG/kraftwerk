@@ -23,7 +23,6 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
   if (wf.error) {
     return (
       <>
-        <Crumbs slug={wf.slug} />
         <div className="empty">
           <span className="status-word failed">broken workflow</span>
           <pre style={{ marginTop: 12, textAlign: "left" }}>{wf.error}</pre>
@@ -40,8 +39,6 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
 
   return (
     <>
-      <Crumbs slug={wf.slug} />
-
       <div className="detail-head">
         <h1>{wf.name ?? wf.slug}</h1>
         <span className="rid mono">{wf.dir}</span>
@@ -192,16 +189,6 @@ function RunList({ runs }: { runs: RunListItem[] }) {
         );
       })}
     </div>
-  );
-}
-
-function Crumbs({ slug }: { slug: string }) {
-  return (
-    <nav className="crumbs">
-      <Link href="/workflows">workflows</Link>
-      <span className="sep">/</span>
-      <span className="mono">{slug}</span>
-    </nav>
   );
 }
 

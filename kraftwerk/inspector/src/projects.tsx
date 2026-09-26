@@ -17,7 +17,8 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, createChatAndOpen } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtWhen, fmtAgo, useExpertMode } from "./shared";
+import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
+import { SessionsPane, useSessionsList, type Session } from "./sessions";
 
 /**
  * Projects: a goal with everything the agents need to reach it in one
@@ -86,6 +87,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   const [view, setView] = useState<ProjectsView | null>(null);
   const [loadError, setLoadError] = useState("");
   const expert = useExpertMode();
+  const listOpen = useSessionsList();
 
   const reload = useCallback(async () => {
     try {
@@ -143,6 +145,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   else if (mode === "new" || (mode === "home" && projects.length === 0)) main = <NewProject root={view.root} onCreated={reload} />;
   else if (mode === "home") main = <div className="empty">loading…</div>;
   else if (slug && !current) main = <div className="empty">no project named {slug}</div>;
+  else if (mode === "chat" && slug && chatId === "new") main = <NewProjectChat key={slug} slug={slug} title={current?.title ?? slug} />;
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
@@ -154,7 +157,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   else main = <div className="empty">loading…</div>;
 
   return (
-    <div className={`runs-screen agents-screen projects-screen ${slug ? "has-sessions" : ""}`}>
+    <div className={`runs-screen agents-screen projects-screen ${slug && current ? "has-tabs" : ""} ${slug && current && listOpen ? "has-sessions" : ""}`}>
       <aside className="runs-side">
         <div className="side-head">
           <span className="microlabel">projects</span>
@@ -190,13 +193,20 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
           {loadError && <div className="viewer-note settings-err">{loadError}</div>}
         </div>
       </aside>
-      {slug && current && <ProjectChatsSide slug={slug} chatId={chatId} />}
+      {slug && current && <ProjectSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
       <div className="runs-main">{main}</div>
     </div>
   );
 }
 
 /* ---------- create ---------- */
+
+/** The create form on its own (the modal over a conversation): reads the root it will write to. */
+export function NewProjectPage() {
+  const view = usePoll<ProjectsView>("/api/projects", false, 60_000);
+  if (view && !view.enabled) return <div className="empty">Projects are off. Turn them on in <a href="#/settings">settings</a>.</div>;
+  return <NewProject root={view?.root} onCreated={async () => {}} />;
+}
 
 function NewProject({ root, onCreated }: { root?: string; onCreated: () => Promise<void> }) {
   const [title, setTitle] = useState("");
@@ -370,72 +380,38 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
   return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={title} agentDescription={goal} onConverted={() => setGen((g) => g + 1)} />;
 }
 
-function ProjectChatsSide({ slug, chatId }: { slug: string; chatId?: string }) {
-  // The selected chat is part of the URL so a freshly created one shows up
-  // on arrival, not a poll interval later (usePoll refetches on a url change).
-  const data = usePoll<{ chats: ProjectChat[] }>(`/api/chats?for=${encodeURIComponent(chatId ?? "")}`, false);
-  const chats = chatsOf(data?.chats, slug);
+/** The project's chats: open ones as tabs above the chat, all of them in the list on request. */
+function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
   const [creating, setCreating] = useState(false);
-
+  const filter = useCallback((chats: Session[]) => chatsOf(chats, slug), [slug]);
+  const hrefOf = useCallback((c: Session) => chatHref(c, slug), [slug]);
   return (
-    <aside className="runs-side">
-      <div className="side-head">
-        <span className="microlabel">chats</span>
-        <span className="spacer" />
-        <Link href={`/projects/${encodeURIComponent(slug)}/info`} className="open-raw" title="project page: brief, state, records, links">
-          info
-        </Link>
+    <SessionsPane
+      storeKey={`project:${slug}`}
+      label="chats"
+      fallbackTitle="new chat"
+      chatId={chatId}
+      filter={filter}
+      hrefOf={hrefOf}
+      closeHref={`/projects/${encodeURIComponent(slug)}/chat/new`}
+      subOf={(c) => (c.scope.kind === "channel" ? `channel session · #${c.scope.slug}` : c.agent)}
+      actions={
         <button
-          className="open-raw"
+          type="button"
+          className="tab-new"
           disabled={creating}
+          title="new chat"
+          aria-label="new chat"
           onClick={async () => {
             setCreating(true);
             await createChatAndOpen("claude", { kind: "project", slug });
             setCreating(false);
           }}
         >
-          {creating ? "…" : <><Icon name="add" className="ms-sm" /> new</>}
+          <Icon name={creating ? "progress_activity" : "add"} className="ms-sm" />
         </button>
-      </div>
-      <div className="side-list">
-        {chats.map((c) => (
-          <Link
-            key={c.id}
-            href={chatHref(c, slug)}
-            className={`side-row ${c.id === chatId ? "active" : ""}`}
-          >
-            <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
-            <div className="side-row-body">
-              <div className="side-row-top">
-                <span className="side-wf">
-                  {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm" />}
-                  {c.scope.kind === "channel" ? c.title || `#${c.scope.slug}` : c.title || "new chat"}
-                </span>
-              </div>
-              <div className="side-row-sub">
-                <span className="side-req">{c.scope.kind === "channel" ? `channel session · #${c.scope.slug}` : c.agent}</span>
-                <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="row-x"
-              title="delete chat"
-              onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!window.confirm(`Delete chat "${c.title || c.id}"?`)) return;
-                await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
-                if (c.id === chatId) navigate(`/projects/${encodeURIComponent(slug)}`);
-              }}
-            >
-              <Icon name="close" className="ms-sm" />
-            </button>
-          </Link>
-        ))}
-        {data && chats.length === 0 && <div className="viewer-note">no chats yet</div>}
-      </div>
-    </aside>
+      }
+    />
   );
 }
 
@@ -453,13 +429,12 @@ const LINKS: Array<{ kind: LinkKind; label: string; icon: string; href?: (slug: 
 /** What the workspace offers for each link kind: slug + hint, for the add picker. */
 type Option = { slug: string; hint?: string };
 
-function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () => Promise<void> }) {
+export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () => Promise<void> }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   // Head fields and the two documents are edited in place; lists and records save on each change.
   const [title, setTitle] = useState("");
@@ -570,17 +545,6 @@ function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () => Promi
         <span className="chip" title="harness · model · effort every chat in this project runs on">{runsOn(project)}</span>
         {expert && <span className="rid" title={project.path}>{project.path}</span>}
         <span className="spacer" />
-        <button
-          className="run-btn"
-          disabled={creating}
-          onClick={async () => {
-            setCreating(true);
-            await createChatAndOpen("claude", { kind: "project", slug });
-            setCreating(false);
-          }}
-        >
-          {creating ? "starting…" : "new chat"}
-        </button>
       </div>
       {project.configError && <div className="settings-err">project.yml: {project.configError}</div>}
 

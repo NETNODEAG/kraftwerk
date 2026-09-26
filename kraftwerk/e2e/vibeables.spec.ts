@@ -30,7 +30,6 @@ test.describe("vibeables", () => {
   test("the chat offers no vibeable until settings turn the feature on", async ({ page }) => {
     await page.goto(`/#/agents/chats/${chatId}`);
     await expect(page.getByRole("heading", { name: "new chat" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "vibeable" })).toHaveCount(0);
     await expect(page.locator("nav a[href='#/vibeables']")).toHaveCount(0);
 
     await page.goto("/#/settings");
@@ -41,7 +40,6 @@ test.describe("vibeables", () => {
     expect(readFileSync(path.join(fixture(), "kraftwerk.yml"), "utf8")).toMatch(/^vibeables: \{\}$/m);
 
     await page.goto(`/#/agents/chats/${chatId}`);
-    await expect(page.getByRole("button", { name: "vibeable" })).toBeVisible();
     await expect(page.locator("nav a[href='#/vibeables']")).toBeVisible();
   });
 
@@ -97,12 +95,11 @@ test.describe("vibeables", () => {
     await expect(page.getByRole("textbox", { name: "new vibeable name" })).toBeVisible();
   });
 
-  test("opens an app next to the chat and reloads the preview on a file change", async ({ page, request }) => {
+  test("an app attached to a chat shows next to it and reloads the preview on a file change", async ({ page, request }) => {
     expect((await request.post("/api/vibeables", { data: { name: "demo" } })).status()).toBe(201);
+    // Attaching is what "open in chat" on the vibeables page does; the chat has no picker of its own.
+    expect((await request.post(`/api/chats/${chatId}/vibeable`, { data: { slug: "demo" } })).ok()).toBe(true);
     await page.goto(`/#/agents/chats/${chatId}`);
-    await page.getByRole("button", { name: "vibeable" }).click();
-    await expect(page.getByRole("dialog", { name: "Open a vibeable" })).toBeVisible();
-    await page.locator(".vibeable-repo", { hasText: "demo" }).click();
 
     const pane = page.locator(".col-chat .vibeable-pane[data-vibe=demo]");
     await expect(pane).toBeVisible();
@@ -122,16 +119,21 @@ test.describe("vibeables", () => {
     await expect(page.locator(".chat-thread .rid")).not.toContainText("vibeables/demo");
   });
 
-  test("creates a new app from the picker", async ({ page }) => {
-    await page.goto(`/#/agents/chats/${chatId}`);
-    await page.getByRole("button", { name: "vibeable" }).click();
+  test("creates a new app on the vibeables page and opens it in a chat", async ({ page, request }) => {
+    await page.goto("/#/vibeables/new");
     await page.getByRole("textbox", { name: "new vibeable name" }).fill("fresh-one");
-    await page.getByRole("button", { name: "create" }).click();
-    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
+    await page.getByRole("button", { name: "new vibeable" }).click();
+    await expect(page).toHaveURL(/#\/vibeables\/fresh-one$/);
     await expect(page.frameLocator(".vibeable-frame").getByRole("heading", { name: "fresh-one" })).toBeVisible();
     const view = (await (await page.request.get("/api/vibeables")).json()) as { vibeables: { slug: string }[] };
     expect(view.vibeables.map((v) => v.slug)).toContain("fresh-one");
+
+    await page.getByRole("button", { name: "open in chat" }).click();
+    await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
+    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
     await page.getByRole("button", { name: "close preview" }).click();
     await expect(page.locator(".col-chat .vibeable-pane")).toHaveCount(0);
+    const openedChat = /chats\/(chat-[^/]+)/.exec(page.url())?.[1];
+    if (openedChat) await request.delete(`/api/chats/${openedChat}`);
   });
 });

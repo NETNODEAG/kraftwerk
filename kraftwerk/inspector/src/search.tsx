@@ -1,17 +1,21 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentSummary, AgentSearch, ChannelSummary, WorkspaceAgents } from "./types";
+import type { AgentSummary, AgentSearch, ChannelSummary, ProjectHit, WorkspaceAgents } from "./types";
 import { Icon, navigate, startWorkspace } from "./shared";
 
 /**
- * ⌘K palette: jump to any agent or channel in any workspace this machine
- * knows. The server gathers the lists (/api/search/agents); this only
+ * ⌘K palette: jump to any agent, project or channel in any workspace this
+ * machine knows. The server gathers the lists (/api/search/agents); this only
  * filters and navigates. Hits are grouped by workspace, this one first. A
  * hit of this workspace opens in place, one of another workspace loads that
  * workspace's UI at the hit's URL — starting the workspace first when it is
  * not running.
  */
 
-type Hit = { ws: WorkspaceAgents; key: string } & ({ kind: "agent"; agent: AgentSummary } | { kind: "channel"; channel: ChannelSummary });
+type Hit = { ws: WorkspaceAgents; key: string } & (
+  | { kind: "agent"; agent: AgentSummary }
+  | { kind: "project"; project: ProjectHit }
+  | { kind: "channel"; channel: ChannelSummary }
+);
 
 const MAX_SHOWN = 40;
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -22,13 +26,22 @@ let cached: AgentSearch | null = null;
 const flatten = (data: AgentSearch | null): Hit[] =>
   (data?.workspaces ?? []).flatMap((ws) => [
     ...ws.agents.map((agent): Hit => ({ kind: "agent", agent, ws, key: `${ws.url}|agent|${agent.slug}` })),
+    ...(ws.projects ?? []).map((project): Hit => ({ kind: "project", project, ws, key: `${ws.url}|project|${project.slug}` })),
     ...(ws.channels ?? []).map((channel): Hit => ({ kind: "channel", channel, ws, key: `${ws.url}|channel|${channel.slug}` })),
   ]);
 
-const nameOf = (hit: Hit): string => (hit.kind === "agent" ? hit.agent.name : hit.channel.name);
-const subOf = (hit: Hit): string | undefined => (hit.kind === "agent" ? hit.agent.description : hit.channel.purpose);
+const nameOf = (hit: Hit): string => (hit.kind === "agent" ? hit.agent.name : hit.kind === "project" ? hit.project.title : hit.channel.name);
+const subOf = (hit: Hit): string | undefined =>
+  hit.kind === "agent" ? hit.agent.description : hit.kind === "project" ? hit.project.goal || (hit.project.status !== "active" ? hit.project.status : undefined) : hit.channel.purpose;
 const hrefOf = (hit: Hit): string =>
-  hit.kind === "agent" ? `/agents/${encodeURIComponent(hit.agent.slug)}` : `/channels/${encodeURIComponent(hit.channel.slug)}`;
+  hit.kind === "agent"
+    ? `/agents/${encodeURIComponent(hit.agent.slug)}`
+    : hit.kind === "project"
+      ? `/projects/${encodeURIComponent(hit.project.slug)}`
+      : `/channels/${encodeURIComponent(hit.channel.slug)}`;
+/** The same marks the rail uses for a project's status. */
+const PROJECT_MARK: Record<ProjectHit["status"], string> = { active: "📁", paused: "⏸️", done: "✅", archived: "🗄️" };
+const emojiOf = (hit: Hit): React.ReactNode => (hit.kind === "agent" ? hit.agent.emoji : hit.kind === "project" ? PROJECT_MARK[hit.project.status] : <Icon name="forum" />);
 
 /**
  * Every whitespace-separated token has to occur somewhere in the hit's
@@ -45,7 +58,12 @@ function filter(hits: Hit[], query: string): Hit[] {
   for (const hit of hits) {
     if (!order.has(hit.ws)) order.set(hit.ws, order.size);
     const name = nameOf(hit).toLowerCase();
-    const own = hit.kind === "agent" ? [hit.agent.slug, hit.agent.description ?? "", hit.agent.group ?? "", "agent"] : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
+    const own =
+      hit.kind === "agent"
+        ? [hit.agent.slug, hit.agent.description ?? "", hit.agent.group ?? "", "agent"]
+        : hit.kind === "project"
+          ? [hit.project.slug, hit.project.goal ?? "", hit.project.status, "project"]
+          : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
     const hay = [name, ...own, hit.ws.name].join(" ").toLowerCase();
     if (!tokens.every((t) => hay.includes(t))) continue;
     const score = name.startsWith(tokens[0]) ? 0 : name.includes(tokens[0]) ? 1 : 2;
@@ -86,7 +104,7 @@ export function SearchPalette() {
   }, []);
   return (
     <>
-      <button type="button" className="search-btn" onClick={() => setOpen(true)} title="jump to an agent or channel" aria-label="search">
+      <button type="button" className="search-btn" onClick={() => setOpen(true)} title="jump to an agent, project or channel" aria-label="search">
         <Icon name="search" />
         <kbd className="kbd">{isMac ? "⌘K" : "Ctrl K"}</kbd>
       </button>
@@ -166,7 +184,7 @@ function Palette({ onClose }: { onClose: () => void }) {
   if (hits.length > 0) {
     let i = -1;
     body = (
-      <ul className="palette-list" role="listbox" aria-label="agents and channels" ref={listRef}>
+      <ul className="palette-list" role="listbox" aria-label="agents, projects and channels" ref={listRef}>
         {groups.map((g) => (
           <Fragment key={g.ws.url || g.ws.name}>
             <li className="palette-group" role="presentation" title={g.ws.current ? "this workspace" : g.ws.url}>
@@ -192,7 +210,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   onClick={() => open(hit)}
                 >
                   <span className="palette-emoji" aria-hidden>
-                    {hit.kind === "agent" ? hit.agent.emoji : <Icon name="forum" />}
+                    {emojiOf(hit)}
                   </span>
                   <span className="palette-text">
                     <span className="palette-name">{nameOf(hit)}</span>
@@ -201,7 +219,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   {starting === hit.key ? (
                     <Icon name="progress_activity" className="ms-sm" />
                   ) : (
-                    hit.kind === "channel" && <span className="palette-chip">channel</span>
+                    hit.kind !== "agent" && <span className="palette-chip">{hit.kind}</span>
                   )}
                 </li>
               );
@@ -210,19 +228,19 @@ function Palette({ onClose }: { onClose: () => void }) {
         ))}
       </ul>
     );
-  } else if (failed) body = <div className="palette-empty">could not load the agents and channels</div>;
-  else if (loading) body = <div className="palette-empty">looking for agents and channels…</div>;
+  } else if (failed) body = <div className="palette-empty">could not load the agents, projects and channels</div>;
+  else if (loading) body = <div className="palette-empty">looking for agents, projects and channels…</div>;
   else if (all.length === 0) {
     body = (
       <div className="palette-empty">
         no agents yet — <a href="#/agents/new" onClick={onClose}>create one</a>
       </div>
     );
-  } else body = <div className="palette-empty">no agent or channel matches “{query}”</div>;
+  } else body = <div className="palette-empty">no agent, project or channel matches “{query}”</div>;
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" role="dialog" aria-label="jump to an agent or channel" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+      <div className="palette" role="dialog" aria-label="jump to an agent, project or channel" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="palette-input">
           <Icon name="search" />
           <input
@@ -232,7 +250,7 @@ function Palette({ onClose }: { onClose: () => void }) {
               setQuery(e.target.value);
               setActive(0);
             }}
-            placeholder="jump to an agent or channel…"
+            placeholder="jump to an agent, project or channel…"
             aria-label="search"
             autoComplete="off"
             spellCheck={false}
