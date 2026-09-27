@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon, Lamp, Link, LocalNav, fmtAgo, useExpertMode, useFeatures, usePoll } from "./shared";
 import { BundleView } from "./knowledge";
-import { VibePane } from "./vibeables";
+import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
 import type { AgentDetail, ChannelView, KnowledgeIndex, ProjectDetail, RunListItem, VibeablesView, WorkflowSummary } from "./types";
@@ -102,7 +102,36 @@ export function ContextPanel({ chatPath, workspace }: {
       localStorage.setItem("kw-ctx-tab", id);
     } catch {}
   };
-  const showVibeables = features.vibeables && !!(links?.all || links?.vibeables);
+  // What is open in a category: a route path the embedded screen renders
+  // (/knowledge/<bundle>/<page>, /workflows/<slug>[/tab], /vibeables/<slug>);
+  // null = the list. Its links stay inside the column (LocalNav).
+  const [open, setOpen] = useState<Record<string, string | null>>({});
+  useEffect(() => setOpen(attachedRef.current ? { vibeables: `/vibeables/${encodeURIComponent(attachedRef.current.slug)}` } : {}), [key]);
+  const show = (path: string) => setOpen((o) => ({ ...o, [current]: path }));
+  const back = () => setOpen((o) => ({ ...o, [current]: null }));
+  const takeLink = (prefix: string) => (href: string) => {
+    if (!href.startsWith(prefix)) return false;
+    setOpen((o) => ({ ...o, [current]: href }));
+    return true;
+  };
+  // The app attached to the current chat (announced by the chat, rendered by it into the slot below).
+  const [attached, setAttached] = useState<VibeAttachment | null>(null);
+  const attachedRef = useRef<VibeAttachment | null>(null);
+  useEffect(() => {
+    const onAttach = (e: Event) => {
+      const detail = (e as CustomEvent<VibeAttachment | null>).detail;
+      attachedRef.current = detail;
+      setAttached(detail);
+      if (detail) {
+        pickTab("vibeables");
+        setOpen((o) => ({ ...o, vibeables: `/vibeables/${encodeURIComponent(detail.slug)}` }));
+      } else setOpen((o) => (o.vibeables?.startsWith("/vibeables/") ? { ...o, vibeables: null } : o));
+    };
+    window.addEventListener(VIBE_ATTACH_EVENT, onAttach);
+    return () => window.removeEventListener(VIBE_ATTACH_EVENT, onAttach);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const showVibeables = features.vibeables && !!(links?.all || links?.vibeables || attached);
   const showRepos = features.repos && !!links?.repos;
   const tabs: { id: string; label: string; count?: number; allHref?: string }[] = [
     { id: "workflows", label: "workflows", count: links?.workflows.length, allHref: "/workflows" },
@@ -115,20 +144,9 @@ export function ContextPanel({ chatPath, workspace }: {
   ];
   const current = tabs.some((t) => t.id === tab) ? tab : "workflows";
   const active = tabs.find((t) => t.id === current);
-
-  // What is open in a category: a route path the embedded screen renders
-  // (/knowledge/<bundle>/<page>, /workflows/<slug>[/tab], /vibeables/<slug>);
-  // null = the list. Its links stay inside the column (LocalNav).
-  const [open, setOpen] = useState<Record<string, string | null>>({});
-  useEffect(() => setOpen({}), [key]);
   const openPath = open[current] ?? null;
-  const show = (path: string) => setOpen((o) => ({ ...o, [current]: path }));
-  const back = () => setOpen((o) => ({ ...o, [current]: null }));
-  const takeLink = (prefix: string) => (href: string) => {
-    if (!href.startsWith(prefix)) return false;
-    setOpen((o) => ({ ...o, [current]: href }));
-    return true;
-  };
+  const attachedShown = !!attached && current === "vibeables" && openPath === `/vibeables/${encodeURIComponent(attached.slug)}`;
+
   const openRow = (path: string) => (e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();
@@ -254,11 +272,13 @@ export function ContextPanel({ chatPath, workspace }: {
           </LocalNav.Provider>
         </div>
       )}
-      {openPath && current === "vibeables" && (
+      {openPath && current === "vibeables" && !attachedShown && (
         <div className="ctx-body ctx-embed ctx-embed-vibe">
           <VibePane key={openPath} slug={decodeURIComponent(openPath.split("/").filter(Boolean)[1] ?? "")} />
         </div>
       )}
+      {/* The chat renders its attached app in here (a portal); always in the DOM so the portal has a target. */}
+      <div id={VIBE_SLOT_ID} className="ctx-body ctx-embed ctx-embed-vibe" hidden={!attachedShown} />
       <div className="ctx-body ctx-embed ctx-browser" hidden={current !== "browser"}>
         <ContextBrowser key={key} storeKey={key} onTabs={setBrowserTabs} />
       </div>

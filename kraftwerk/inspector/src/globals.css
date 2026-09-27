@@ -2133,8 +2133,6 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 
 /* ---------- vibeable (chat + live preview) ---------- */
 
-.chat-split { display: flex; flex: 1; min-height: 0; gap: 16px; }
-.chat-split.open .chat-thread { max-width: none; margin: 0; flex: 0 1 44%; min-width: 340px; }
 .vibeable-pane {
   flex: 1 1 56%; min-width: 0; display: flex; flex-direction: column; min-height: 0;
   background: var(--surface-container-low); border-radius: 16px; box-shadow: var(--elev-1); overflow: hidden;
@@ -2204,8 +2202,6 @@ a.m3-row:hover .m3-head { color: var(--primary); }
 .vibeable-picker-err { margin-top: 10px; }
 
 @media (max-width: 1100px) {
-  .chat-split.open { flex-direction: column; }
-  .chat-split.open .chat-thread { flex: none; min-width: 0; min-height: 50vh; }
   .vibeable-pane { flex: none; min-height: 460px; }
 }
 
@@ -2488,17 +2484,6 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
 /* Legacy page heads were laid out for a full-width page: in a column they wrap instead of overlapping. */
 .col-side .page-head, .col-side .detail-head { flex-wrap: wrap; row-gap: 8px; }
 
-/* A chat with a vibeable open needs the room: the conversation column grows
-   and drops its sessions sidebar while the pane is up. (The pane moves to the
-   workspace column in a later step.) */
-.shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: 250px minmax(0, 2fr) minmax(320px, 1fr); }
-.col-chat .agents-screen:has(.chat-split.open) > .runs-side,
-.col-chat .projects-screen:has(.chat-split.open) > .runs-side { display: none; }
-.col-chat .agents-screen.has-sessions:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr); }
-.col-chat .chat-split.open .chat-thread { min-width: 0; }
-@media (max-width: 1199px) {
-  .shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); }
-}
 
 /* ---------- global pages: the overview and the configuration ----------
    Opened from the top bar, they take the whole window under it; the
@@ -2535,10 +2520,8 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
 .ctx-empty a { color: var(--primary); }
 /* The context column is narrow and fixed; the conversation takes the rest. */
 .shell.three, .shell.three.wide-side { grid-template-columns: 250px minmax(360px, 1fr) 320px; }
-.shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: 250px minmax(0, 1fr) 320px; }
 @media (max-width: 1199px) {
   .shell.three, .shell.three.wide-side { grid-template-columns: minmax(360px, 1fr) 300px; }
-  .shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr) 300px; }
 }
 @media (max-width: 800px) {
   .shell.three[data-focus="context"] > .col-chat { display: none; }
@@ -2548,7 +2531,6 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
 /* The agent screen's own knowledge sidebar says what the context column says: it steps aside in the columns. */
 .col-chat .knowledge-side, .col-chat .kside-reopen { display: none; }
 .col-chat .agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px minmax(0, 1fr); }
-.col-chat .agents-screen.has-sessions.has-knowledge:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr); }
 
 /* Home: the dashboard in the middle column, the rail beside it. */
 .shell.three.home .col-chat { overflow-y: auto; }
@@ -2724,10 +2706,8 @@ code, pre, .mono { font-family: var(--font-mono); }
 
 /* The context is half the page: the conversation and what it works with, side by side. */
 .shell.three, .shell.three.wide-side { grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1fr); }
-.shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 1199px) {
-  .shell.three, .shell.three.wide-side,
-  .shell.three:has(.chat-split.open), .shell.three.wide-side:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .shell.three, .shell.three.wide-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 .ctx-body { padding: 8px 12px 24px; }
 .ctx-row { padding: 10px 12px; }
@@ -2991,12 +2971,12 @@ input, textarea, select { transition: border-color var(--t-fast) ease, box-shado
 .side-filter input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 
 /* ---------- the divider between chat and context is draggable ---------- */
-.shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%); }
+.shell.three { grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%); }
 @media (max-width: 1199px) {
-  .shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 48%), 65%); }
+  .shell.three { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 48%), 65%); }
 }
 @media (max-width: 800px) {
-  .shell.three, .shell.three:has(.chat-split.open) { grid-template-columns: minmax(0, 1fr); }
+  .shell.three { grid-template-columns: minmax(0, 1fr); }
   .split-handle { display: none; }
 }
 .col-chat { position: relative; }

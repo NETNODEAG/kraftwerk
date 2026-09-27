@@ -77,7 +77,7 @@ test.describe("vibeables", () => {
 
     await page.getByRole("button", { name: "open in chat" }).click();
     await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
-    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=older]")).toBeVisible();
+    await expect(page.locator(".ctx .vibeable-pane[data-vibe=older]")).toBeVisible();
     const openedChat = /chats\/(chat-[^/]+)/.exec(page.url())?.[1];
     if (openedChat) await request.delete(`/api/chats/${openedChat}`);
 
@@ -95,13 +95,13 @@ test.describe("vibeables", () => {
     await expect(page.getByRole("textbox", { name: "new vibeable name" })).toBeVisible();
   });
 
-  test("an app attached to a chat shows next to it and reloads the preview on a file change", async ({ page, request }) => {
+  test("an app attached to a chat shows in the context column and reloads the preview on a file change", async ({ page, request }) => {
     expect((await request.post("/api/vibeables", { data: { name: "demo" } })).status()).toBe(201);
     // Attaching is what "open in chat" on the vibeables page does; the chat has no picker of its own.
     expect((await request.post(`/api/chats/${chatId}/vibeable`, { data: { slug: "demo" } })).ok()).toBe(true);
     await page.goto(`/#/agents/chats/${chatId}`);
 
-    const pane = page.locator(".col-chat .vibeable-pane[data-vibe=demo]");
+    const pane = page.locator(".ctx .vibeable-pane[data-vibe=demo]");
     await expect(pane).toBeVisible();
     await expect(pane.locator(".vibeable-mode")).toContainText("static");
     const frame = page.frameLocator(".vibeable-frame");
@@ -112,10 +112,10 @@ test.describe("vibeables", () => {
     await expect(frame.getByRole("heading", { name: "changed by the agent" })).toBeVisible({ timeout: 10_000 });
 
     await page.reload();
-    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=demo]")).toBeVisible();
+    await expect(page.locator(".ctx .vibeable-pane[data-vibe=demo]")).toBeVisible();
 
     await page.getByRole("button", { name: "close preview" }).click();
-    await expect(page.locator(".col-chat .vibeable-pane")).toHaveCount(0);
+    await expect(page.locator(".ctx .vibeable-pane")).toHaveCount(0);
     await expect(page.locator(".chat-thread .rid")).not.toContainText("vibeables/demo");
   });
 
@@ -130,9 +130,9 @@ test.describe("vibeables", () => {
 
     await page.getByRole("button", { name: "open in chat" }).click();
     await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
-    await expect(page.locator(".col-chat .vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
+    await expect(page.locator(".ctx .vibeable-pane[data-vibe=fresh-one]")).toBeVisible();
     await page.getByRole("button", { name: "close preview" }).click();
-    await expect(page.locator(".col-chat .vibeable-pane")).toHaveCount(0);
+    await expect(page.locator(".ctx .vibeable-pane")).toHaveCount(0);
     const openedChat = /chats\/(chat-[^/]+)/.exec(page.url())?.[1];
     if (openedChat) await request.delete(`/api/chats/${openedChat}`);
   });

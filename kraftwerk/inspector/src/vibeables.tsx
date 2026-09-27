@@ -10,6 +10,22 @@ import type { ChatAgentId, ChatMeta, VibeableInfo, VibeablesView, VibeableStatus
  * the agent edits.
  */
 
+/**
+ * A chat with an app attached shows it in the context column: the chat owns
+ * the pane (it knows the chat, whether a turn runs, and takes the detach)
+ * and renders it through a portal into the column's slot; this event tells
+ * the column to open the vibeables category on that app.
+ */
+export const VIBE_ATTACH_EVENT = "kw-vibeable";
+export const VIBE_SLOT_ID = "kw-vibe-slot";
+export interface VibeAttachment {
+  chatId: string;
+  slug: string;
+}
+export function announceVibeable(detail: VibeAttachment | null): void {
+  window.dispatchEvent(new CustomEvent(VIBE_ATTACH_EVENT, { detail }));
+}
+
 async function setVibeable(chatId: string, slug: string | null): Promise<ChatMeta> {
   const r = await fetch(`/api/chats/${chatId}/vibeable`, {
     method: "POST",

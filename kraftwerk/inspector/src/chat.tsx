@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { onBrowseClick, withBrowseIcons } from "./context-browser";
@@ -21,7 +22,7 @@ import type {
   StoredChatEvent,
 } from "./types";
 import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
-import { VibeOffNote, VibePane } from "./vibeables";
+import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
 
 /** The name a human posts under in channels; per browser, changeable in the composer. */
@@ -290,6 +291,16 @@ export function ChatThread({
   // Channels: look at one agent's own session (its stream alone, tools included).
   const [focus, setFocus] = useState<string | null>(null);
   const features = useFeatures();
+  // An attached app shows in the context column: announce it, and render the
+  // pane into the column's slot once it is in the DOM.
+  const attachedSlug = meta?.vibeable && features.vibeables ? meta.vibeable : null;
+  const [vibeSlot, setVibeSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!attachedSlug) return setVibeSlot(null);
+    announceVibeable({ chatId: id, slug: attachedSlug });
+    setVibeSlot(document.getElementById(VIBE_SLOT_ID));
+    return () => announceVibeable(null);
+  }, [id, attachedSlug]);
   const live = useMemo(() => liveState(events), [events]);
 
   useEffect(() => {
@@ -369,7 +380,7 @@ export function ChatThread({
 
   if (channel) {
     return (
-      <div className="chat-split">
+      <>
         <div className="chat-thread channel-thread">
           <div className="detail-head channel-head">
             <span className={`lamp ${busy ? "running" : "ok"}`} />
@@ -442,12 +453,12 @@ export function ChatThread({
           <Thread id={id} events={events} busy={busy} channel={channel} agentMap={agentMap} working={working} focus={focus ?? undefined} />
           <Composer id={id} busy={busy} scope={meta.scope} channel={channel} agentMap={agentMap} />
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className={`chat-split${meta.vibeable ? " open" : ""}`}>
+    <>
     <div className="chat-thread">
       <div className="detail-head">
         <span className={`lamp ${busy ? "running" : "ok"}`} />
@@ -507,18 +518,18 @@ export function ChatThread({
           {meta.cwd}
         </span>
       </div>
+      {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
       <Thread id={id} events={events} busy={busy} />
       <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} />
     </div>
-    {meta.vibeable && features.vibeables && <VibePane key={meta.vibeable} chatId={id} slug={meta.vibeable} agentBusy={busy} onClosed={setMeta} />}
-    {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
+    {attachedSlug && vibeSlot && createPortal(<VibePane key={attachedSlug} chatId={id} slug={attachedSlug} agentBusy={busy} onClosed={setMeta} />, vibeSlot)}
     {coworker && meta.scope.kind === "agent" && (
       <AddCoworkerDialog chatId={id} agentSlug={meta.scope.slug} title={title} onClose={() => setCoworker(false)} />
     )}
     {coworker && meta.scope.kind === "project" && (
       <AddCoworkerDialog chatId={id} project={meta.scope.slug} title={title || agentName || ""} onClose={() => setCoworker(false)} onCreated={onConverted} />
     )}
-    </div>
+    </>
   );
 }
 
