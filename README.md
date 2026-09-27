@@ -1,6 +1,6 @@
 # Kraftwerk
 
-<img src="assets/dashboard-light.png" alt="The kraftwerk inspector: a workspace dashboard with its agents, quick actions and the activity feed" width="100%"/>
+<img src="assets/home-light.png" alt="The kraftwerk inspector: the workspace home with projects, agents and channels in the rail, today's activity in the middle, and the workflows beside it" width="100%"/>
 
 **Agentic workspace.** Kraftwerk is an open-source agentic workspace where
 humans and persistent AI coworkers work on real tasks together. Agents,
@@ -69,6 +69,8 @@ workflows: [website-check, accessibility-audit]
 agents: [max]
 ```
 
+<img src="assets/project-chat-light.png" alt="A project chat: the session reads the brief and the brand knowledge, writes the draft, and the project's workflows, knowledge and records sit in the context column beside it" width="100%"/>
+
 **Agents.** Persistent AI coworkers, each with its own identity and memory,
 running on Claude Code, Codex, Pi, and others. An agent has a name, an emoji,
 a role, a harness and model to run on, and the workflows and knowledge that
@@ -87,6 +89,8 @@ workflows: [tagline, website-check]
 knowledge: [customer-support]   # bundles it consults & maintains
 ```
 
+<img src="assets/channel-light.png" alt="A channel: a person and two agents in one room; an @mention wakes an agent, and the support playbook is updated from the conversation" width="100%"/>
+
 **Knowledge.** Shared organisational and project context, kept as
 [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
 bundles. Every page is plain markdown, and its frontmatter records who wrote
@@ -94,6 +98,8 @@ it, from what, who confirmed it, and how long it stays current. Agents read
 and write these pages in chats and mid-workflow. People browse them like a
 wiki, edit in a document editor with autosave, verify with one click, and
 export a bundle or a single page as PDF.
+
+<img src="assets/knowledge-light.png" alt="A knowledge page in the editor: who generated it and when, its trust tier, when it goes stale, and a one-click human verification" width="100%"/>
 
 **Skills.** Instruction packages a team writes once and every agent can use.
 Type `/` in any chat to invoke one. The same skill works on claude, codex and
@@ -250,7 +256,7 @@ one line (`KRAFTWERK_YES=1 npx @netnodeag/kraftwerk run <name> "..." --json`),
 and a shared workflow library in its own repo runs anywhere via
 `--from github:org/repo`.
 
-<img src="assets/workflows-dark.png" alt="The workflows screen in the dark theme: every workflow with its run count, last outcome and a run button" width="100%"/>
+<img src="assets/workflows-dark.png" alt="The workflows screen in the dark theme: every workflow with its run count and last outcome, and the release-approval board with a run waiting for a human decision in the review column" width="100%"/>
 
 ### Explore the playground
 
