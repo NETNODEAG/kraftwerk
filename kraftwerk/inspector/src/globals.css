@@ -2518,6 +2518,11 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
 .ctx-row:hover .ctx-go { opacity: 1; }
 .ctx-empty { padding: 6px 10px 8px; font-size: 13px; color: var(--on-surface-variant); }
 .ctx-empty a { color: var(--primary); }
+/* A project's state and log read as a document inside the column. */
+.ctx-md { padding: 4px 10px 8px; font-size: 13px; line-height: 1.5; }
+.ctx-md h1 { font-size: 15px; }
+.ctx-md h2 { font-size: 14px; }
+.ctx-md h3 { font-size: 13px; }
 /* The context column is narrow and fixed; the conversation takes the rest. */
 .shell.three, .shell.three.wide-side { grid-template-columns: 250px minmax(360px, 1fr) 320px; }
 @media (max-width: 1199px) {

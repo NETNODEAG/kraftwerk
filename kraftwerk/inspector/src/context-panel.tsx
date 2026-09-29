@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { Icon, Lamp, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath, usePoll } from "./shared";
 import { BundleView } from "./knowledge";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
@@ -31,6 +33,9 @@ interface Links {
   repos?: { slug: string; found: boolean }[];
   agents?: { slug: string; found: boolean; label?: string }[];
   records?: ProjectDetail["records"];
+  /** A project's state.md and log.md, shown as documents; absent for everything but a project. */
+  state?: string;
+  log?: string;
   /** Where the links are edited. */
   editHref?: string;
   /** Everything the workspace has, not a selection. */
@@ -47,6 +52,16 @@ async function getJson<T>(url: string): Promise<T | null> {
 }
 
 const present = (slugs: string[], have: Set<string>) => slugs.map((slug) => ({ slug, found: have.has(slug) }));
+
+/** Entries in a project log: one bullet per line, as `kraftwerk projects log` writes them. */
+const logEntries = (log: string): number | undefined => {
+  const n = log.split("\n").filter((l) => /^[-*] /.test(l)).length;
+  return n > 0 ? n : undefined;
+};
+
+/** Markdown from a project file, sanitized like the project page renders it. */
+const markdown = (text: string, empty: string): string =>
+  DOMPurify.sanitize(marked.parse(text.trim() || empty, { async: false }) as string);
 
 /**
  * The right column: what the current conversation works with. An agent's
@@ -140,6 +155,9 @@ export function ContextPanel({ chatPath, workspace }: {
     ...(showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
     ...(links?.agents ? [{ id: "agents", label: "agents", count: links.agents.length, allHref: "/agents" }] : []),
     ...(links?.records && links.records.length > 0 ? [{ id: "records", label: "records", count: links.records.length }] : []),
+    // A project's memory between sessions, readable beside the chat that rewrites it.
+    ...(links?.state !== undefined ? [{ id: "state", label: "state" }] : []),
+    ...(links?.log !== undefined ? [{ id: "log", label: "log", count: logEntries(links.log) }] : []),
     { id: "browser", label: "browser", count: browserTabs },
   ];
   const current = tabs.some((t) => t.id === tab) ? tab : "workflows";
@@ -184,7 +202,7 @@ export function ContextPanel({ chatPath, workspace }: {
         }
       } else if (ctx.kind === "project") {
         const p = await getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(ctx.slug)}`);
-        if (p) next = { title: `📁 ${p.title}`, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
+        if (p) next = { title: `📁 ${p.title}`, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
       } else if (ctx.kind === "channel") {
         const d = await getJson<{ channels: ChannelView[] }>("/api/channels");
         const c = d?.channels.find((x) => x.slug === ctx.slug);
@@ -395,6 +413,14 @@ export function ContextPanel({ chatPath, workspace }: {
               </Link>
             ))}
           </>
+        )}
+
+        {current === "state" && links?.state !== undefined && (
+          <div className="md-body ctx-md" dangerouslySetInnerHTML={{ __html: markdown(links.state, "_nothing recorded yet — the assistant rewrites state.md at the end of a session that changed something_") }} />
+        )}
+
+        {current === "log" && links?.log !== undefined && (
+          <div className="md-body ctx-md" dangerouslySetInnerHTML={{ __html: markdown(links.log, "_no entries yet_") }} />
         )}
 
         {current === "records" && links?.records && (
