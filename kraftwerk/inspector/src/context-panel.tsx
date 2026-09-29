@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon, Lamp, Link, LocalNav, fmtAgo, useExpertMode, useFeatures, usePoll } from "./shared";
+import { Icon, Lamp, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath, usePoll } from "./shared";
 import { BundleView } from "./knowledge";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
@@ -158,6 +158,15 @@ export function ContextPanel({ chatPath, workspace }: {
     const t = setInterval(() => setVersion((v) => v + 1), 15_000);
     return () => clearInterval(t);
   }, []);
+  // The editing happens in a modal over this very conversation, so the route
+  // key does not change: reload the moment the modal closes instead of
+  // waiting for the next tick.
+  const editing = isEditPath(useHashPath());
+  const wasEditing = useRef(editing);
+  useEffect(() => {
+    if (wasEditing.current && !editing) setVersion((v) => v + 1);
+    wasEditing.current = editing;
+  }, [editing]);
 
   useEffect(() => {
     let alive = true;

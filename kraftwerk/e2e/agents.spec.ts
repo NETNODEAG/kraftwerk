@@ -105,5 +105,16 @@ test.describe("agent vibeables", () => {
     await expect(tab).toContainText("1");
     await tab.click();
     await expect(page.locator(`.ctx .ctx-row[href='#/vibeables/${APP}']`)).toBeVisible();
+
+    // Unlink in the modal over the chat: the column follows as soon as the modal closes, not on its next tick.
+    await page.locator(".ctx .ctx-edit").click();
+    const modalRow = page.locator(".edit-modal [data-link-kind=vibeables]");
+    await modalRow.getByRole("button", { name: "edit" }).click();
+    await modalRow.getByRole("checkbox", { name: new RegExp(APP) }).uncheck();
+    await modalRow.getByRole("button", { name: "save" }).click();
+    await expect(modalRow).toContainText("none linked");
+    await page.getByRole("button", { name: "close" }).click();
+    await expect(page.locator(".edit-modal")).toHaveCount(0);
+    await expect(page.locator(".ctx").getByRole("tab", { name: /vibeables/ })).toHaveCount(0, { timeout: 3_000 });
   });
 });
