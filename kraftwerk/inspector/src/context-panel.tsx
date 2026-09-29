@@ -163,11 +163,16 @@ export function ContextPanel({ chatPath, workspace }: {
     let alive = true;
     const wfSlugs = new Set((wfs?.workflows ?? []).map((w) => w.slug));
     const bundleNames = new Set((know?.bundles ?? []).map((b) => b.name));
+    const vibeSlugs = new Set((vibes?.vibeables ?? []).map((v) => v.slug));
     (async () => {
       let next: Links | null = null;
       if (ctx.kind === "agent") {
         const a = await getJson<AgentDetail>(`/api/agents/${encodeURIComponent(ctx.slug)}`);
-        if (a) next = { title: `${a.emoji ? `${a.emoji} ` : ""}${a.name}`, workflows: present(a.workflows, wfSlugs), knowledge: present(a.knowledge, bundleNames), editHref: `/agents/${encodeURIComponent(ctx.slug)}/edit` };
+        if (a) {
+          next = { title: `${a.emoji ? `${a.emoji} ` : ""}${a.name}`, workflows: present(a.workflows, wfSlugs), knowledge: present(a.knowledge, bundleNames), editHref: `/agents/${encodeURIComponent(ctx.slug)}/edit` };
+          // Linked apps show like a project's; an agent without any keeps the column as it was.
+          if ((a.vibeables ?? []).length > 0) next.vibeables = present(a.vibeables, vibeSlugs);
+        }
       } else if (ctx.kind === "project") {
         const p = await getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(ctx.slug)}`);
         if (p) next = { title: `📁 ${p.title}`, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
@@ -177,10 +182,12 @@ export function ContextPanel({ chatPath, workspace }: {
         if (c) {
           const members = (await Promise.all(c.members.map((m) => getJson<AgentDetail>(`/api/agents/${encodeURIComponent(m)}`)))).filter((a): a is AgentDetail => !!a);
           const union = (pick: (a: AgentDetail) => string[]) => [...new Set(members.flatMap(pick))];
+          const memberVibes = union((a) => a.vibeables ?? []);
           next = {
             title: `#${c.slug}`,
             workflows: present(union((a) => a.workflows), wfSlugs),
             knowledge: present(union((a) => a.knowledge), bundleNames),
+            ...(memberVibes.length > 0 ? { vibeables: present(memberVibes, vibeSlugs) } : {}),
             agents: c.members.map((m) => ({ slug: m, found: members.some((a) => a.slug === m), label: members.find((a) => a.slug === m)?.name })),
             editHref: `/channels/${encodeURIComponent(ctx.slug)}/edit`,
           };
@@ -199,7 +206,7 @@ export function ContextPanel({ chatPath, workspace }: {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, version, wfs, know, workspace.name, workspace.icon]);
+  }, [key, version, wfs, know, vibes, workspace.name, workspace.icon]);
 
   const wfOf = (slug: string) => wfs?.workflows.find((w) => w.slug === slug);
   const lastRun = (w: WorkflowSummary | undefined) => (w ? runs?.runs.find((r) => r.workflow === (w.name ?? w.slug) || r.workflow === w.slug) : undefined);

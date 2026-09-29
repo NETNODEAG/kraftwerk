@@ -87,6 +87,7 @@ harness: claude        # claude | codex | pi
 model: sonnet
 workflows: [tagline, website-check]
 knowledge: [customer-support]   # bundles it consults & maintains
+vibeables: [support-dashboard]  # apps it builds & maintains (optional)
 ```
 
 <img src="assets/channel-light.png" alt="A channel: a person and two agents in one room; an @mention wakes an agent, and the support playbook is updated from the conversation" width="100%"/>

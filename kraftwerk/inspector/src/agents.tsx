@@ -11,10 +11,11 @@ import type {
   SkillInfo,
   Agent,
   AgentDetail,
+  VibeablesView,
   WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode } from "./shared";
+import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode, useFeatures } from "./shared";
 import { SessionsPane, useSessionsList, type Session } from "./sessions";
 import { exportBundlePdf } from "./export";
 
@@ -943,23 +944,25 @@ function AgentsHome() {
 /* ---------- agent profile ---------- */
 
 /**
- * Agent profile with in-place editing: role, workflows, knowledge, and
- * skills save right here (full PUT with the changed section merged in).
+ * Agent profile with in-place editing: role, workflows, knowledge, vibeables
+ * and skills save right here (full PUT with the changed section merged in).
  * Identity fields (name, emoji, harness, model, …) stay in the full editor.
  */
 export function AgentView({ slug }: { slug: string }) {
   const [agent, setMember] = useState<AgentDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [roleOpen, setRoleOpen] = useState(false);
-  const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "skills">("");
+  const [editing, setEditing] = useState<"" | "role" | "workflows" | "knowledge" | "vibeables" | "skills">("");
   const [roleDraft, setRoleDraft] = useState("");
   const [listDraft, setListDraft] = useState<string[]>([]);
   const [allSkillsDraft, setAllSkillsDraft] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const features = useFeatures();
   const wfData = usePoll<{ workflows: WorkflowSummary[] }>("/api/workflows", false);
   const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
+  const vData = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false);
   const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
 
   useEffect(() => {
@@ -977,6 +980,7 @@ export function AgentView({ slug }: { slug: string }) {
     system?: string;
     workflows?: string[];
     knowledge?: string[];
+    vibeables?: string[];
     skills?: string[];
   }): Promise<void> {
     if (!agent) return;
@@ -998,6 +1002,7 @@ export function AgentView({ slug }: { slug: string }) {
           system: agent.system,
           workflows: agent.workflows,
           knowledge: agent.knowledge,
+          vibeables: agent.vibeables,
           skills: agent.skills,
           ...patch,
         }),
@@ -1227,6 +1232,77 @@ export function AgentView({ slug }: { slug: string }) {
               </button>
             )}
           </div>
+          {(features.vibeables || (agent.vibeables ?? []).length > 0) && (
+            <div className="m3-row" data-link-kind="vibeables">
+              <span className="m3-ico"><Icon name="web" /></span>
+              <span className="m3-body">
+                <span className="m3-head">vibeables</span>
+                {editing === "vibeables" ? (
+                  <>
+                    <div className="wf-checks">
+                      {(vData?.vibeables ?? []).map((v) => (
+                        <label key={v.slug}>
+                          <input
+                            type="checkbox"
+                            checked={listDraft.includes(v.slug)}
+                            onChange={(e) => toggleDraft(v.slug, e.target.checked)}
+                          />
+                          <b>{v.slug}</b>
+                          <span className="opt-hint"> — {v.dev ? "dev" : "static"}</span>
+                        </label>
+                      ))}
+                      {/* A linked app that is gone stays in the draft so unticking removes it; it just has no folder to show. */}
+                      {listDraft
+                        .filter((slug) => !(vData?.vibeables ?? []).some((v) => v.slug === slug))
+                        .map((slug) => (
+                          <label key={slug}>
+                            <input type="checkbox" checked onChange={(e) => toggleDraft(slug, e.target.checked)} />
+                            <b>{slug}</b>
+                            <span className="opt-hint"> — not found in this workspace</span>
+                          </label>
+                        ))}
+                      {!features.vibeables && <div className="viewer-note">vibeables are off in this workspace's settings</div>}
+                      {features.vibeables && (vData?.vibeables ?? []).length === 0 && (
+                        <div className="viewer-note">no vibeables in this workspace yet — create one on the vibeables screen</div>
+                      )}
+                    </div>
+                    {editActions({ vibeables: listDraft })}
+                  </>
+                ) : (agent.vibeables ?? []).length === 0 ? (
+                  <span className="m3-sub">none linked — linked apps are the agent's to build and maintain; it knows them from the first message</span>
+                ) : (
+                  <span className="m3-chips">
+                    {(agent.vibeables ?? []).map((v) => {
+                      const found = !features.vibeables || !vData || vData.vibeables.some((x) => x.slug === v);
+                      return (
+                        <Link
+                          key={v}
+                          href={`/vibeables/${encodeURIComponent(v)}`}
+                          className={`chip ${found ? "" : "attention"}`}
+                          title={found ? undefined : "configured but not found in this workspace"}
+                        >
+                          {v}
+                          {!found && " · not found"}
+                        </Link>
+                      );
+                    })}
+                  </span>
+                )}
+              </span>
+              {editing !== "vibeables" && (
+                <button
+                  className="open-raw"
+                  onClick={() => {
+                    setListDraft(agent.vibeables ?? []);
+                    setEditing("vibeables");
+                    setError("");
+                  }}
+                >
+                  edit
+                </button>
+              )}
+            </div>
+          )}
           <div className="m3-row">
             <span className="m3-ico"><Icon name="extension" /></span>
             <span className="m3-body">
@@ -1670,6 +1746,7 @@ export function AgentEditor({ slug }: { slug?: string }) {
     system: string;
     workflows: string[];
     knowledge: string[];
+    vibeables: string[];
     skillsAll: boolean;
     skills: string[];
   } | null>(slug ? null : defaults());
@@ -1679,6 +1756,9 @@ export function AgentEditor({ slug }: { slug?: string }) {
   const available = wfData?.workflows ?? [];
   const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
   const bundles = kData?.bundles ?? [];
+  const features = useFeatures();
+  const vData = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false);
+  const vibeables = vData?.vibeables ?? [];
   const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
   const allSkills = sData?.skills ?? [];
 
@@ -1698,6 +1778,7 @@ export function AgentEditor({ slug }: { slug?: string }) {
           system: m.system,
           workflows: m.workflows,
           knowledge: m.knowledge ?? [],
+          vibeables: m.vibeables ?? [],
           skillsAll: m.skills === undefined,
           skills: m.skills ?? [],
         })
@@ -1717,6 +1798,7 @@ export function AgentEditor({ slug }: { slug?: string }) {
       system: "",
       workflows: [] as string[],
       knowledge: [] as string[],
+      vibeables: [] as string[],
       skillsAll: true,
       skills: [] as string[],
     };
@@ -1881,6 +1963,41 @@ export function AgentEditor({ slug }: { slug?: string }) {
               {bundles.length === 0 && <div className="viewer-note">no knowledge bundles in this project</div>}
             </div>
           </div>
+          {(features.vibeables || form.vibeables.length > 0) && (
+            <div className="agent-field" data-link-kind="vibeables">
+              <span className="agent-field-label">connected vibeables — small apps the agent builds and maintains</span>
+              <div className="wf-checks">
+                {vibeables.map((v) => (
+                  <label key={v.slug}>
+                    <input
+                      type="checkbox"
+                      checked={form.vibeables.includes(v.slug)}
+                      onChange={(e) =>
+                        set({
+                          vibeables: e.target.checked
+                            ? [...form.vibeables, v.slug]
+                            : form.vibeables.filter((n) => n !== v.slug),
+                        })
+                      }
+                    />
+                    <b>{v.slug}</b>
+                    <span className="opt-hint"> — {v.dev ? "dev" : "static"}</span>
+                  </label>
+                ))}
+                {form.vibeables
+                  .filter((slug) => !vibeables.some((v) => v.slug === slug))
+                  .map((slug) => (
+                    <label key={slug}>
+                      <input type="checkbox" checked onChange={() => set({ vibeables: form.vibeables.filter((n) => n !== slug) })} />
+                      <b>{slug}</b>
+                      <span className="opt-hint"> — not found in this workspace</span>
+                    </label>
+                  ))}
+                {!features.vibeables && <div className="viewer-note">vibeables are off in this workspace's settings</div>}
+                {features.vibeables && vibeables.length === 0 && <div className="viewer-note">no vibeables in this workspace yet</div>}
+              </div>
+            </div>
+          )}
           <div className="agent-field">
             <span className="agent-field-label">connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions</span>
             <div className="wf-checks">

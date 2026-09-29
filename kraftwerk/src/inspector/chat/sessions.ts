@@ -7,7 +7,7 @@ import { listSkills, readSkill, type SkillInfo } from "../skills.js";
 import { listWorkflows } from "../workflows.js";
 import { getAgent, listAgents } from "../agents.js";
 import { listRepos } from "../repos.js";
-import { resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
+import { listVibeables, resolveVibeable, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { getProject, projectContext } from "../projects.js";
 import { deleteAgentSession, listAgentSessions, startAcpBackend } from "./acp.js";
 import { startPiBackend } from "./pi.js";
@@ -355,6 +355,39 @@ async function agentKnowledgeContext(def: {
 }
 
 /**
+ * "## Your vibeables" block: the apps an agent builds and maintains, linked
+ * in agent.yml like knowledge. Empty when nothing is linked. When the
+ * feature is off the agent hears that its apps are unreachable instead of
+ * guessing at folders; a linked folder that is gone is reported, not
+ * recreated — the same rule linked knowledge follows.
+ */
+export async function agentVibeablesContext(def: { vibeables: string[] }): Promise<string> {
+  if (def.vibeables.length === 0) return "";
+  const view = await listVibeables().catch(() => null);
+  if (!view?.enabled || !view.root) {
+    return (
+      `## Your vibeables\nagent.yml links the vibeables ${def.vibeables.join(", ")} to you, but vibeables are switched off in this ` +
+      `workspace's settings, so their folders are not reachable right now — tell the user when they ask about one.\n\n`
+    );
+  }
+  const lines = def.vibeables
+    .map((slug) => {
+      const v = view.vibeables.find((x) => x.slug === slug);
+      if (!v) return `- ${slug} (configured but not found under ${view.root} — tell the user; do not recreate it unasked)`;
+      const mode = v.dev ? `dev: ${v.dev}` : "static";
+      return `- ${slug} — ${v.path} (${mode}${v.hasIndex ? "" : ", no index.html yet"}${v.configError ? `, ${v.configError}` : ""})`;
+    })
+    .join("\n");
+  return (
+    `## Your vibeables\nThese small apps (one folder each under ${view.root}) are yours to build and maintain — ` +
+    `you know their code and their purpose:\n${lines}\n\n` +
+    `The user opens one in the preview pane with the vibeable button; from then on that folder is your working directory and ` +
+    `every file you save is what they see next. Until then you may read them by path and answer questions about them, ` +
+    `but make changes only when the user asks for them. \`npx kraftwerk vibeables\` lists every app in the workspace.\n\n`
+  );
+}
+
+/**
  * "## Repositories" block: the clones under the repos root, when the
  * feature is on. Empty when it is off, so agents in a workspace without
  * it never hear about it.
@@ -465,6 +498,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
           `unless they clearly asked for it.\n\n`
         : "") +
       (await agentKnowledgeContext(def)) +
+      (await agentVibeablesContext(def)) +
       `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
       `say so and suggest which agent or tool fits better.` +
       (scope.routine

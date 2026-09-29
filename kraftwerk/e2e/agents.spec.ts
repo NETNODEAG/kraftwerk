@@ -66,3 +66,44 @@ test.describe("general chats landing", () => {
     await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
   });
 });
+
+/**
+ * Vibeables linked to an agent, like knowledge: the profile row saves the
+ * link into agent.yml, and a session with the agent shows the linked app in
+ * the context column. The agent and app come over the API; no session gets
+ * a message, so no coding agent runs.
+ */
+test.describe("agent vibeables", () => {
+  const SLUG = "vibe-owner";
+  const APP = "owned-app";
+
+  test.beforeAll(async ({ request }) => {
+    await request.put("/api/settings", { data: { vibeables: { enabled: true } } });
+    expect((await request.post("/api/vibeables", { data: { name: APP } })).status()).toBe(201);
+    const a = await request.post("/api/agents", { data: { name: "Vibe Owner", emoji: "🧱", harness: "claude", system: "build the app" } });
+    expect(a.ok()).toBe(true);
+  });
+  test.afterAll(async ({ request }) => {
+    await request.delete(`/api/agents/${SLUG}`);
+    await request.delete(`/api/vibeables/${APP}`);
+    await request.put("/api/settings", { data: { vibeables: { enabled: false } } });
+  });
+
+  test("the profile links an app into agent.yml and the agent's context column lists it", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("kw-expert", "on"));
+    await page.goto(`/#/agents/${SLUG}/info`);
+    const row = page.locator(".agent-view [data-link-kind=vibeables]");
+    await expect(row).toContainText("none linked");
+    await row.getByRole("button", { name: "edit" }).click();
+    await row.getByRole("checkbox", { name: new RegExp(APP) }).check();
+    await row.getByRole("button", { name: "save" }).click();
+    await expect(row.locator(`a.chip[href='#/vibeables/${APP}']`)).toBeVisible();
+    expect(readFileSync(path.join(fixture(), "agents", SLUG, "agent.yml"), "utf8")).toMatch(new RegExp(`^vibeables:\\n  - ${APP}$`, "m"));
+
+    await page.goto(`/#/agents/${SLUG}/chat/new`);
+    const tab = page.locator(".ctx").getByRole("tab", { name: /vibeables/ });
+    await expect(tab).toContainText("1");
+    await tab.click();
+    await expect(page.locator(`.ctx .ctx-row[href='#/vibeables/${APP}']`)).toBeVisible();
+  });
+});

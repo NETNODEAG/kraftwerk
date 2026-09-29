@@ -10,7 +10,7 @@ import { syncWorkspaceAgents } from "./instances.js";
  * Agents: persistent agents, defined on the filesystem. Each one
  * is one folder under the project's agents/ root:
  *
- *   agents/<slug>/agent.yml    # name, emoji, harness, model, effort, workflows
+ *   agents/<slug>/agent.yml    # name, emoji, harness, model, effort, workflows, knowledge, vibeables
  *   agents/<slug>/system.md    # the agent's system prompt / role description
  *
  * Definitions are git-tracked project config (like workflows/), not run
@@ -34,6 +34,8 @@ export interface Agent {
   workflows: string[];
   /** Knowledge bundles (OKF) this member works with. */
   knowledge: string[];
+  /** Vibeables (folder names under the vibeables root) this member builds and maintains. */
+  vibeables: string[];
   /**
    * Skill allowlist (names from .claude/skills, project or user level).
    * Absent = all discovered skills; empty list = no skills.
@@ -100,6 +102,7 @@ interface AgentYaml {
   group?: unknown;
   workflows?: unknown;
   knowledge?: unknown;
+  vibeables?: unknown;
   skills?: unknown;
   archived?: unknown;
 }
@@ -117,6 +120,7 @@ function normalize(slug: string, raw: AgentYaml): Agent {
     ...(raw.group ? { group: String(raw.group) } : {}),
     workflows: Array.isArray(raw.workflows) ? raw.workflows.map(String) : [],
     knowledge: Array.isArray(raw.knowledge) ? raw.knowledge.map(String) : [],
+    vibeables: Array.isArray(raw.vibeables) ? raw.vibeables.map(String) : [],
     ...(Array.isArray(raw.skills) ? { skills: raw.skills.map(String) } : {}),
     ...(raw.archived === true ? { archived: true } : {}),
   };
@@ -176,6 +180,7 @@ export interface SaveAgentInput {
   group?: string;
   workflows?: string[];
   knowledge?: string[];
+  vibeables?: string[];
   /** Omit for "all skills"; a list (possibly empty) restricts to those names. */
   skills?: string[];
   system?: string;
@@ -210,6 +215,8 @@ export async function saveAgent(input: SaveAgentInput): Promise<AgentDetail> {
     ...(input.group?.trim() ? { group: input.group.trim() } : {}),
     workflows: (input.workflows ?? []).map(String),
     knowledge: (input.knowledge ?? []).map(String),
+    // Empty list left out: most agents build nothing, and agent.yml stays as short as before.
+    ...(input.vibeables?.length ? { vibeables: [...new Set(input.vibeables.map((v) => String(v).trim()).filter(Boolean))] } : {}),
     ...(input.skills ? { skills: input.skills.map(String) } : {}),
     ...(existing?.archived === true ? { archived: true } : {}),
   };

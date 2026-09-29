@@ -537,7 +537,7 @@ agent is one folder under the project's `agents/` root:
 
 ```
 agents/max/
-  agent.yml     # name, emoji, description, harness, model, effort, workflows
+  agent.yml     # name, emoji, description, harness, model, effort, workflows, knowledge, vibeables
   system.md     # the agent's system prompt (its role)
 ```
 
@@ -551,13 +551,14 @@ model: sonnet          # optional; harness default when omitted
 effort: medium         # optional: low | medium | high | xhigh | max
 workflows: [tagline, website-check]
 knowledge: [customer-support]   # OKF bundles the agent consults & maintains
+vibeables: [support-dashboard]  # optional: apps under the vibeables root the agent builds & maintains
 skills: [report-html]           # optional allowlist; omit = all skills, [] = none
 ```
 
 Sessions with an agent are ordinary chats scoped `{ kind: "agent", slug }`,
 listed per agent in a second sidebar. On the first message the agent gets
-its role plus its connected workflows and knowledge bundles injected as
-context. That context includes how to run workflows
+its role plus its connected workflows, knowledge bundles and vibeables
+injected as context. That context includes how to run workflows
 (`KRAFTWERK_YES=1 npx kraftwerk run <workflow> "<request>"`) and how to read
 and write knowledge through `kraftwerk knowledge`, with writes stamped with
 the agent's own actor, `<slug>/<harness>`. So the agent triggers its own
