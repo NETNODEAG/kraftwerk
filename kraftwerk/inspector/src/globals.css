@@ -2393,7 +2393,6 @@ form.empty-action .settings-note { max-width: 52ch; }
 .col-chat .channels-screen > aside.runs-side:first-child { display: none; }
 .col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); }
 .col-chat .agents-screen.has-sessions { grid-template-columns: 240px minmax(0, 1fr); }
-.col-chat .agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px minmax(0, 1fr) var(--kside-w, 380px); }
 
 /* ---------- the rail ---------- */
 .rail {
@@ -2455,7 +2454,6 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
   .col-chat .channels-screen > aside.runs-side:first-child { display: flex; }
   .col-chat .runs-screen { grid-template-columns: 220px minmax(0, 1fr); }
   .col-chat .agents-screen.has-sessions { grid-template-columns: 220px 220px minmax(0, 1fr); }
-  .col-chat .agents-screen.has-sessions.has-knowledge { grid-template-columns: 220px 220px minmax(0, 1fr) var(--kside-w, 360px); }
 }
 @media (max-width: 800px) {
   .shell.three, .shell.three.wide-side { grid-template-columns: minmax(0, 1fr); height: calc(100vh - var(--topbar-h) - 52px); }
@@ -2535,7 +2533,6 @@ html[data-expert="off"] .ws-tab.nav-expert { display: none; }
 
 /* The agent screen's own knowledge sidebar says what the context column says: it steps aside in the columns. */
 .col-chat .knowledge-side, .col-chat .kside-reopen { display: none; }
-.col-chat .agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px minmax(0, 1fr); }
 
 /* Home: the dashboard in the middle column, the rail beside it. */
 .shell.three.home .col-chat { overflow-y: auto; }
@@ -2686,6 +2683,9 @@ code, pre, .mono { font-family: var(--font-mono); }
   align-self: flex-end; max-width: 80%; padding: 9px 14px;
   border-radius: 16px 16px 4px 16px; background: var(--surface-2); color: var(--text); border: 0;
 }
+/* In the chat column the conversation takes the column's whole width; the column itself is the measure. */
+.col-chat .chat-thread { max-width: none; }
+.col-chat .msg.agent, .col-chat .msg.thought { max-width: none; }
 .composer { border-top: 1px solid var(--line); padding: 12px 0 4px; }
 .composer textarea {
   border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface-1); padding: 10px 12px;
@@ -2804,22 +2804,16 @@ code, pre, .mono { font-family: var(--font-mono); }
 .ctx-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 .ctx-tabs { padding-top: 34px; }
 
-/* The sign sits on the top edge of the whole panel (chat + context), over the divider, big. */
-.shell.three { position: relative; }
-.ctx { position: static; }
+/* The sign sits on the context column's top edge, big; the chat's tab strip keeps the whole of its own edge. */
 .ctx-head {
-  top: 24px; left: calc(50% + 133px); /* the panel starts after the 250px rail and its 16px gap: its centre is 133px right of the page's */
   padding: 12px 30px; gap: 12px;
   border-radius: 999px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.16);
 }
 .ctx-head .microlabel { font-size: 12px; letter-spacing: 0.12em; }
-.ctx-title { font-size: 26px; font-weight: 750; letter-spacing: -0.015em; line-height: 1.1; }
+.ctx-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 26px; font-weight: 750; letter-spacing: -0.015em; line-height: 1.1; }
 .ctx-tabs { padding-top: 40px; }
 .col-chat .chat-main, .col-chat .runs-main > .agent-view, .col-chat .runs-main > .new-chat { padding-top: 36px; }
 .col-chat .runs-side .side-head { padding-top: 30px; }
-@media (max-width: 1199px) {
-  .ctx-head { left: 50%; }
-}
 @media (max-width: 800px) {
   .ctx-head { position: static; transform: none; margin: 0 auto 8px; max-width: none; }
   .ctx-title { font-size: 18px; }
@@ -2867,19 +2861,10 @@ html[data-expert="off"] .dash-head { display: none; }
 }
 .session-tab:hover .tab-x, .session-tab.active .tab-x, .tab-x:focus-visible { opacity: 1; }
 .tab-x:hover { background: color-mix(in srgb, var(--on-surface) 12%, transparent); color: var(--on-surface); }
-/* The knowledge sidebar while the sessions list is hidden. */
-.col-chat .agents-screen.has-knowledge:not(.has-sessions) { grid-template-columns: minmax(0, 1fr) var(--kside-w, 380px); }
-@media (max-width: 1199px) {
-  .col-chat .agents-screen.has-knowledge:not(.has-sessions) { grid-template-columns: 220px minmax(0, 1fr) var(--kside-w, 360px); }
-}
-/* The strip shares the top edge with the sign: the sign is a label, not a target, and the tabs keep clear of it. */
+/* The sign is a label, not a target. */
 .ctx-head { pointer-events: none; }
-.shell.three .session-tabs { padding-right: clamp(140px, 30%, 320px); }
 .col-chat .has-tabs .chat-main, .col-chat .has-tabs .runs-main > .agent-view, .col-chat .has-tabs .runs-main > .new-chat { padding-top: 16px; }
 .col-chat .has-tabs .sessions-side .side-head { padding-top: 14px; }
-@media (max-width: 800px) {
-  .shell.three .session-tabs { padding-right: 8px; }
-}
 /* The pencil on the sign: the one thing there that takes clicks. */
 .ctx-head .ctx-edit {
   pointer-events: auto; display: inline-flex; align-items: center; justify-content: center;
