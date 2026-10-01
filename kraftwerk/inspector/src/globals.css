@@ -2686,6 +2686,12 @@ code, pre, .mono { font-family: var(--font-mono); }
 /* In the chat column the conversation takes the column's whole width; the column itself is the measure. */
 .col-chat .chat-thread { max-width: none; }
 .col-chat .msg.agent, .col-chat .msg.thought { max-width: none; }
+/* What you said is a band across the column, edge to edge, not a bubble: the turns read as sections. */
+.col-chat .chat-scroll { margin-inline: -20px; padding-inline: 22px; }
+.col-chat .msg.user {
+  align-self: stretch; max-width: none; margin: 6px -22px; padding: 16px 22px;
+  border-radius: 0; background: color-mix(in srgb, var(--primary) 14%, var(--surface-1)); color: var(--text);
+}
 .composer { border-top: 1px solid var(--line); padding: 12px 0 4px; }
 .composer textarea {
   border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface-1); padding: 10px 12px;
