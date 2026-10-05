@@ -46,7 +46,7 @@ export async function makeProject(config = DEFAULT_CONFIG): Promise<Fixture> {
     home,
     git,
     write,
-    cleanup: () => rm(base, { recursive: true, force: true }),
+    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
   };
 }
 
@@ -57,7 +57,7 @@ export async function makeEmptyDir(): Promise<{ root: string; home: string; clea
   const home = path.join(base, "home");
   await mkdir(root, { recursive: true });
   await mkdir(home, { recursive: true });
-  return { root, home, cleanup: () => rm(base, { recursive: true, force: true }) };
+  return { root, home, cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 export interface RunningServer {

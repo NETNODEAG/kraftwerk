@@ -104,6 +104,21 @@ describe("kraftwerk projects", () => {
     assert.equal((await cli(fx.root, fx.home, ["projects", "log", "demo-project"])).code, 1, "empty entry");
   });
 
+  it("log works from inside the project folder, next to kraftwerk-data/workflows", async () => {
+    // A project chat's agent cds into its project folder; kraftwerk-data/ holds a workflows/ folder of its own.
+    await fx.write("kraftwerk.yml", "name: fixture\nworkflows: kraftwerk-data/workflows\nprojects:\n");
+    await fx.write("kraftwerk-data/workflows/.keep", "");
+    const r = await cli(dir(), fx.home, ["projects", "log", "demo-project", "Logged from the folder.", "--actor", "claude"]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(await readFile(path.join(dir(), "log.md"), "utf8"), /^\* Logged from the folder\. \(claude\)$/m);
+
+    // A workflows folder that is not the workspace's own still marks a project of its own.
+    await fx.write("other/workflows/.keep", "");
+    const other = await cli(path.join(fx.root, "other"), fx.home, ["projects"]);
+    assert.equal(other.code, 1);
+    assert.match(other.stderr, /projects are off/);
+  });
+
   it("remove deletes the folder; unknown slugs exit 1", async () => {
     const r = await cli(fx.root, fx.home, ["projects", "remove", "demo-project"]);
     assert.equal(r.code, 0, r.all);

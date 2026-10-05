@@ -385,32 +385,37 @@ async function findWorkflowsDir(dir: string, configured?: string): Promise<strin
 /**
  * Resolve the project for a cwd: walk up until a kraftwerk.yml or a
  * workflows root appears; a .git directory is the fallback root, the cwd
- * itself the last resort.
+ * itself the last resort. A bare workflows root is only a candidate: a
+ * kraftwerk.yml further up whose `workflows:` is that very folder wins, so
+ * a command run inside the workspace's own data (kraftwerk-data/projects/<slug>,
+ * next to kraftwerk-data/workflows) still finds the workspace.
  */
 export async function resolveProject(cwd: string): Promise<Project> {
   const start = path.resolve(cwd);
   let gitFallback: string | undefined;
+  let bare: Project | undefined;
 
   for (let dir = start; ; dir = path.dirname(dir)) {
     const configPath = await findConfigFile(dir);
     if (configPath) {
-      const config = await loadConfig(configPath);
-      return {
-        root: dir,
-        config,
-        configPath,
-        workflowsRoot: await findWorkflowsDir(dir, config.workflows),
-        outputDir: path.resolve(dir, config.output ?? "output"),
-      };
+      // Above a bare candidate an unreadable kraftwerk.yml is someone else's problem.
+      const config = bare ? await loadConfig(configPath).catch(() => null) : await loadConfig(configPath);
+      if (!config) return bare!;
+      const workflowsRoot = await findWorkflowsDir(dir, config.workflows);
+      if (!bare || (workflowsRoot && path.resolve(workflowsRoot) === bare.workflowsRoot)) {
+        return { root: dir, config, configPath, workflowsRoot, outputDir: path.resolve(dir, config.output ?? "output") };
+      }
+      return bare;
     }
-    const workflowsRoot = await findWorkflowsDir(dir);
-    if (workflowsRoot) {
-      return { root: dir, config: {}, workflowsRoot, outputDir: path.join(dir, "output") };
+    if (!bare) {
+      const workflowsRoot = await findWorkflowsDir(dir);
+      if (workflowsRoot) bare = { root: dir, config: {}, workflowsRoot, outputDir: path.join(dir, "output") };
     }
     if (!gitFallback && (await exists(path.join(dir, ".git")))) gitFallback = dir;
     if (dir === path.dirname(dir)) break;
   }
 
+  if (bare) return bare;
   const root = gitFallback ?? start;
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
