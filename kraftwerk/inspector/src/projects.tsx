@@ -486,7 +486,8 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
       const d = (await r.json()) as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       await onChanged();
-      navigate("/projects", { replace: true });
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+      navigate("/", { replace: true });
     } catch (err) {
       setError((err as Error).message);
       setSaving(false);
@@ -639,30 +640,28 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
         />
       </Panel>
 
-      {expert && (
-        <Panel
-          title="danger zone"
-          className="flex-none [&>div]:border-b-0"
-          actions={
-            !confirmRemove ? (
-              <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => setConfirmRemove(true)} title="Move the folder to the trash">
-                remove project
+      <Panel
+        title="danger zone"
+        className="flex-none [&>div]:border-b-0"
+        actions={
+          !confirmRemove ? (
+            <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => setConfirmRemove(true)} title="Move the project, its files and log to the trash; #/trash puts it back">
+              delete project
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => void remove()}>
+                confirm delete
               </Button>
-            ) : (
-              <>
-                <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => void remove()}>
-                  confirm remove
-                </Button>
-                <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>
-                  cancel
-                </Button>
-              </>
-            )
-          }
-        >
-          {null}
-        </Panel>
-      )}
+              <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>
+                cancel
+              </Button>
+            </>
+          )
+        }
+      >
+        {null}
+      </Panel>
     </div>
   );
 }

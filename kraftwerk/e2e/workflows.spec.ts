@@ -114,9 +114,8 @@ test.describe("workflows screen", () => {
     // Simple mode has no top navigation at all; expert mode brings every page.
     await expect(page.locator(".global-nav")).toHaveCount(0);
 
-    // The switch lives in the workspace menu, behind the workspace's name.
-    await page.locator(".env-switch").click();
-    await page.locator(".ws-menu .expert-toggle").click();
+    // The switch sits in the top bar, beside the search.
+    await page.locator(".expert-toggle").click();
     const nav = page.locator(".global-nav");
     await expect(nav.locator("a", { hasText: "workflows" })).toBeVisible();
     await expect(nav.locator("a", { hasText: "knowledge" })).toBeVisible();
@@ -302,4 +301,17 @@ test.describe("workflows screen", () => {
     await expect(card.locator("[data-ui=decision]")).toHaveCount(0);
   });
 
+  test("a workflow is deleted from its details, into the trash", async ({ page }) => {
+    const dir = path.join(fixture(), "workflows", "scrap");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "workflow.yml"), "name: scrap\ndescription: here to be deleted\nsteps:\n  - name: s\n    run: echo\n");
+    await page.goto("/#/workflows/scrap/details");
+    await page.getByRole("button", { name: "delete workflow" }).click();
+    await page.getByRole("button", { name: "confirm delete" }).click();
+    await expect(page).not.toHaveURL(/#\/workflows\/scrap/);
+    await expect(page.locator(".runs-side a", { hasText: "scrap" })).toHaveCount(0);
+    expect(existsSync(dir)).toBe(false);
+    await page.goto("/#/trash");
+    await expect(page.getByText("scrap").first()).toBeVisible();
+  });
 });

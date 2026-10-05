@@ -25,7 +25,6 @@ export function GlobalNav({ path }: { path: string }) {
     ...(features.repos ? [{ id: "repos", href: "/repos", label: "repositories", icon: "source" }] : []),
     ...(features.git ? [{ id: "git", href: "/git", label: "git", icon: "cloud_sync", badge: <GitBadge /> }] : []),
     { id: "workspaces", href: "/workspaces", label: "workspaces", icon: "grid_view" },
-    { id: "settings", href: "/settings", label: "settings", icon: "settings" },
     { id: "trash", href: "/trash", label: "trash", icon: "delete" },
   ];
   const active = (id: string) => first === id || (id === "workflows" && first === "runs");

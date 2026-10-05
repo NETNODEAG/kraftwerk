@@ -6,7 +6,8 @@ import type { WorkflowDetail, WorkflowSummary } from "../../src/inspector/workfl
 /**
  * Workflows over the HTTP API: the listing says whether a workflow reads
  * the request, and the run trigger refuses an empty request only for those
- * that do. Nothing here starts a run — that would spawn the runner.
+ * that do; deleting moves a workflow (folder or lone yml) to the trash.
+ * Nothing here starts a run — that would spawn the runner.
  */
 describe("workflows API", () => {
   let fx: Fixture;
@@ -84,6 +85,24 @@ describe("workflows API", () => {
       });
       assert.equal(r.status, 404, slug);
     }
+  });
+
+  it("deletes a workflow into the trash and restores it", async () => {
+    for (const slug of ["shout", "broken"]) {
+      const r = await fetch(srv.url + `/api/workflows/${slug}`, { method: "DELETE", headers: origin() });
+      assert.equal(r.status, 200, slug);
+    }
+    const v = (await (await fetch(srv.url + "/api/workflows")).json()) as { workflows: WorkflowSummary[] };
+    assert.ok(!v.workflows.some((w) => w.slug === "shout" || w.slug === "broken"));
+    assert.equal((await fetch(srv.url + "/api/workflows/shout", { method: "DELETE", headers: origin() })).status, 404);
+
+    const trash = (await (await fetch(srv.url + "/api/trash")).json()) as { entries: { id: string; kind: string; name: string; from: string }[] };
+    const shout = trash.entries.find((e) => e.kind === "workflows" && e.name === "shout");
+    assert.equal(shout?.from, "workflows/shout");
+    assert.equal(trash.entries.find((e) => e.kind === "workflows" && e.name === "broken")?.from, "workflows/broken.yml");
+    const back = await fetch(srv.url + "/api/trash/restore", { method: "POST", headers: origin(), body: JSON.stringify({ id: shout!.id }) });
+    assert.equal(back.status, 200);
+    assert.equal(((await (await fetch(srv.url + "/api/workflows/shout")).json()) as WorkflowDetail).name, "shout");
   });
 
   it("reports docker status for the sandbox option", async () => {

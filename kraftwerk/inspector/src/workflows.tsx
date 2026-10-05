@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RunListItem, WorkflowSummary } from "./types";
 import { fmtAgo, navigate, usePoll } from "./shared";
-import { WorkflowView, type WorkflowTab } from "./workflow-view";
+import { WORKFLOW_DELETED_EVENT, WorkflowView, type WorkflowTab } from "./workflow-view";
 import { RunStatus, runTone } from "./runs";
 import { Button, Dot, EmptyState, ListRow, SideHead, SideList, SideNote, SideSearch, Tag } from "./ui";
 
@@ -30,11 +30,18 @@ export function runsHref(last: RunListItem, w: { name?: string; slug: string }):
 }
 
 export function WorkflowsScreen({ slug, tab }: { slug?: string; tab: WorkflowTab }) {
-  const data = usePoll<{ root?: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
+  // A delete drops the workflow at once and refetches the list (a new url restarts the poll).
+  const [gone, setGone] = useState<string[]>([]);
+  useEffect(() => {
+    const drop = (e: Event) => setGone((g) => [...g, (e as CustomEvent<string>).detail]);
+    window.addEventListener(WORKFLOW_DELETED_EVENT, drop);
+    return () => window.removeEventListener(WORKFLOW_DELETED_EVENT, drop);
+  }, []);
+  const data = usePoll<{ root?: string; workflows: WorkflowSummary[] }>(`/api/workflows${gone.length ? `?rev=${gone.length}` : ""}`, false);
   const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", false);
   const [q, setQ] = useState("");
 
-  const wfs = data?.workflows ?? [];
+  const wfs = useMemo(() => (data?.workflows ?? []).filter((w) => !gone.includes(w.slug)), [data, gone]);
   const runs = runsData?.runs ?? [];
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();

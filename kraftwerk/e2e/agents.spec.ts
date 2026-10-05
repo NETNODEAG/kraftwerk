@@ -107,7 +107,7 @@ test.describe("agent vibeables", () => {
     await expect(page.locator(`.ctx a[href='#/vibeables/${APP}']`)).toBeVisible();
 
     // Unlink in the modal over the chat: the column follows as soon as the modal closes, not on its next tick.
-    await page.locator(".ctx .ctx-edit").click();
+    await page.locator(".space-title .ctx-edit").click();
     const modalRow = page.locator(".edit-modal [data-link-kind=vibeables]");
     await modalRow.getByRole("button", { name: "edit" }).click();
     await modalRow.getByRole("checkbox", { name: new RegExp(APP) }).uncheck();

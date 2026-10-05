@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
 import { NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
-import { Button, cn, Dot, EmptyState, Eyebrow, ListRow, Section } from "./ui";
+import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
 import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 import { RunsScreen } from "./runs";
@@ -304,6 +304,8 @@ export function App() {
         <GlobalNav path={path} />
         <span className="flex-[1_1_8px]" />
         <SearchPalette />
+        <IconButton icon="settings" label="settings" href="/settings" aria-current={seg[0] === "settings" ? "page" : undefined} />
+        <ExpertToggle />
         <NextButton />
         <NotificationBell />
         <RelaunchNote />
@@ -726,7 +728,7 @@ function ExpertToggle() {
       <span className={cn("relative h-[15px] w-[26px] rounded-full transition-colors", on ? "bg-accent" : "bg-fg/14")}>
         <span className={cn("absolute top-0.5 size-[11px] rounded-full transition-[left,background-color]", on ? "left-[13px] bg-on-accent" : "left-0.5 bg-surface")} />
       </span>
-      expert
+      <span className="max-[640px]:hidden">expert</span>
     </button>
   );
 }
@@ -993,10 +995,9 @@ function groupByOwner(xs: AttentionItem[]): Array<[string, AttentionItem[]]> {
 
 /** Project facts behind an ⓘ icon: dirs, workflow + run counts. */
 /**
- * The workspace menu's own part (under the workspace switcher): the view
- * (expert detail, theme), where the workspace is configured, the trash,
- * and which kraftwerk runs it. What sat in the top bar as the expert
- * switch and the ⓘ popover.
+ * The workspace menu's own part (under the workspace switcher): the theme,
+ * the trash, and which kraftwerk runs it. What sat in the top bar as the ⓘ
+ * popover; the expert switch and settings sit beside the search.
  */
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const expert = useExpertMode();
@@ -1014,10 +1015,8 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   }, [expert]);
   return (
     <div className="ws-menu mt-1.5 flex flex-col gap-0.5 border-t border-line px-1.5 pb-1 pt-2">
-      <MenuLine label="Detail"><ExpertToggle /></MenuLine>
       <MenuLine label="Theme"><ThemeToggle /></MenuLine>
       <div className="flex gap-1 px-1">
-        <Button variant="quiet" size="sm" icon="settings" href="/settings" onClick={onClose}>settings</Button>
         <Button variant="quiet" size="sm" icon="delete" href="/trash" onClick={onClose}>trash</Button>
       </div>
       {expert && (

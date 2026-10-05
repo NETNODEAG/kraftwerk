@@ -171,8 +171,8 @@ kraftwerk tunnel setup kw.example.com   # Cloudflare Tunnel to the inspector: lo
 kraftwerk tunnel                        # run that tunnel alone (the UI runs elsewhere)
 ```
 
-Nothing is deleted at once. Removing an agent, a project, a knowledge bundle,
-a vibeable, a channel, a repository, a chat or a run, in the inspector or the
+Nothing is deleted at once. Removing an agent, a project, a workflow, a knowledge
+bundle, a vibeable, a channel, a repository, a chat or a run, in the inspector or the
 CLI, moves its folder to `kraftwerk-data/trash/`. The trash mirrors the
 workspace (`trash/agents/<slug>`, `trash/knowledge/<bundle>`,
 `trash/projects/<slug>`, `trash/chats/<id>`, …) and ignores itself in git.

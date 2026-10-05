@@ -4,6 +4,8 @@ import { parse as parseYaml } from "yaml";
 import { resolveProject } from "../config.js";
 import { referencesRequest } from "../yaml.js";
 import { getProjectRoot } from "./context.js";
+import { listRuns } from "./runs.js";
+import { moveToTrash } from "./trash.js";
 
 /**
  * Workflow discovery + parsing for the inspector. Uses the same root
@@ -127,6 +129,20 @@ async function locate(): Promise<Located[]> {
     }
   }
   return found.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+/**
+ * Move a workflow to the trash: its folder, or its lone yml. Refused while
+ * one of its runs is still going; its finished runs stay where they are.
+ */
+export async function deleteWorkflow(slug: string): Promise<"deleted" | "running" | "missing"> {
+  const l = (await locate()).find((x) => x.slug === slug);
+  if (!l) return "missing";
+  const name = (await parseRaw(l).catch(() => null))?.name;
+  const runs = await listRuns();
+  if (runs.some((r) => r.status === "running" && (r.workflow === slug || (name && r.workflow === name)))) return "running";
+  await moveToTrash("workflows", slug, l.baseDir ?? l.yamlPath);
+  return "deleted";
 }
 
 async function parseRaw(l: Located): Promise<any> {

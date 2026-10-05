@@ -7,7 +7,7 @@ import { getProjectRoot } from "./context.js";
  * The trash: what the inspector or the CLI deletes is moved here first and
  * only gone for good once it is deleted from the trash. The trash mirrors
  * the workspace — trash/agents/<slug>, trash/knowledge/<bundle>,
- * trash/projects/<slug>, trash/chats/<id>, … — and every trashed folder
+ * trash/projects/<slug>, trash/workflows/<slug>, trash/chats/<id>, … — and every trashed folder
  * carries a small TRASH_FILE saying what it was and where it came from, so
  * it can be put back. The trash is local: it is kept out of the workspace git.
  */
@@ -16,7 +16,7 @@ export const TRASH_DIR = "kraftwerk-data/trash";
 const TRASH_FILE = ".trashed.json";
 
 /** What can be in the trash; also the folder under trash/ it lands in. */
-export type TrashKind = "agents" | "agent-skills" | "projects" | "knowledge" | "vibeables" | "channels" | "repos" | "chats" | "runs" | "files";
+export type TrashKind = "agents" | "agent-skills" | "projects" | "workflows" | "knowledge" | "vibeables" | "channels" | "repos" | "chats" | "runs" | "files";
 
 export interface TrashEntry {
   /** Path inside the trash, forward slashes — the entry's handle. */

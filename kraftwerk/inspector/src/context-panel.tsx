@@ -120,13 +120,17 @@ export function ContextPanel({ chatPath, workspace }: {
   // null = the list. Its links stay inside the column (LocalNav).
   const [open, setOpen] = useState<Record<string, string | null>>({});
   useEffect(() => setOpen(attachedRef.current ? { vibeables: `/vibeables/${encodeURIComponent(attachedRef.current.slug)}` } : {}), [key]);
-  // A project's app opened from the rail (#/projects/<slug>?app=<vibeable>): shown in the vibeables tab.
+  // An app at full size: it takes the chat's place too (shell.css, .ctx[data-full]). Another conversation ends it.
+  const [full, setFull] = useState(false);
+  useEffect(() => setFull(false), [key]);
+  // A project's app opened from the rail (#/projects/<slug>?app=<vibeable>): shown in the vibeables tab, at full size.
   const hashPath = useHashPath();
   const appParam = ctx.kind === "project" ? new URLSearchParams(hashPath.split("?")[1] ?? "").get("app") : null;
   useEffect(() => {
     if (!appParam) return;
     pickTab("vibeables");
     setOpen((o) => ({ ...o, vibeables: `/vibeables/${encodeURIComponent(appParam)}` }));
+    setFull(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appParam, key]);
   const show = (path: string) => setOpen((o) => ({ ...o, [current]: path }));
@@ -141,7 +145,10 @@ export function ContextPanel({ chatPath, workspace }: {
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
     }
   };
-  const back = () => setOpen((o) => ({ ...o, [current]: null }));
+  const back = () => {
+    setFull(false);
+    setOpen((o) => ({ ...o, [current]: null }));
+  };
   const takeLink = (prefix: string) => (href: string) => {
     if (!href.startsWith(prefix)) return false;
     setOpen((o) => ({ ...o, [current]: href }));
@@ -184,6 +191,8 @@ export function ContextPanel({ chatPath, workspace }: {
   const active = tabs.find((t) => t.id === current);
   const openPath = open[current] ?? null;
   const attachedShown = !!attached && current === "vibeables" && openPath === `/vibeables/${encodeURIComponent(attached.slug)}`;
+  const appOpen = current === "vibeables" && !!openPath;
+  const fullShown = full && appOpen;
 
   const openRow = (path: string) => (e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -276,30 +285,18 @@ export function ContextPanel({ chatPath, workspace }: {
 
 
   return (
-    <aside className="ctx" aria-label="Context">
-      {/* Keyed by the name: a new context pops its sign in. */}
-      {/* The sign on the column's top edge: a label, not a target — only its pencil takes clicks. */}
-      <div
-        key={links?.title ?? ""}
-        className={cn(
-          // transform, not Tailwind's translate: the kw-sign animation animates transform itself.
-          "pointer-events-none absolute top-0 left-1/2 z-3 flex max-w-[calc(100%-48px)] [transform:translate(-50%,-50%)] items-center gap-3",
-          "rounded-full border border-line bg-surface px-[30px] py-3 shadow-[0_6px_24px_rgb(0_0_0/0.16)]",
-          "max-[800px]:static max-[800px]:mx-auto max-[800px]:mb-2 max-[800px]:max-w-none max-[800px]:[transform:none]",
-          links && "animate-sign max-[800px]:animate-fade"
-        )}
-      >
-        <span
-          className="min-w-0 truncate text-[26px] leading-[1.1] font-[750] tracking-[-0.015em] text-fg max-[800px]:text-lg"
-          title={links?.title}
-        >
+    <>
+      {/* The space's title, top left above the chat and this column (shell.css places it): only its pencil is a target. */}
+      <div className="space-title flex min-w-0 items-center gap-2 px-1">
+        {/* Keyed by the name: a new context fades its title in. */}
+        <span key={links?.title ?? ""} className="min-w-0 truncate text-[22px] leading-[1.15] font-[750] tracking-[-0.015em] text-fg animate-fade max-[800px]:text-lg" title={links?.title}>
           {links ? links.title : "…"}
         </span>
         {editHref && (
           // ctx-edit: the tests open the editor by it.
           <Link
             href={editHref}
-            className="ctx-edit pointer-events-auto inline-grid size-7 place-items-center rounded-full text-fg-2 no-underline transition-colors hover:bg-surface-2 hover:text-accent active:scale-96 [&_.ms]:text-[18px]"
+            className="ctx-edit inline-grid size-7 flex-none place-items-center rounded-full text-fg-2 no-underline transition-colors hover:bg-surface-2 hover:text-accent active:scale-96 [&_.ms]:text-[18px]"
             title={editTitle}
             aria-label={editTitle}
           >
@@ -307,174 +304,187 @@ export function ContextPanel({ chatPath, workspace }: {
           </Link>
         )}
       </div>
-      <Tabs className="flex-none gap-y-0.5 pt-10" label="Categories" items={tabs} value={current} onChange={pickTab} />
-      {openPath && (
-        <div className="flex items-center gap-2 px-3 pb-1 pt-2">
-          <Button variant="quiet" size="sm" icon="arrow_back" onClick={back} aria-label="Back to the list">
-            {active?.label}
-          </Button>
-          <span className="flex-1" />
-          <Button variant="quiet" size="sm" icon="open_in_new" href={openPath} title="Open as a page">
-            page
-          </Button>
-        </div>
-      )}
-      {openPath && current === "knowledge" && (
-        <div className="ctx-body ctx-embed">
-          <LocalNav.Provider value={takeLink("/knowledge/")}>
-            {(() => {
-              const seg = openPath.split("/").filter(Boolean);
-              const bundle = decodeURIComponent(seg[1] ?? "");
-              const conceptId = seg.length > 2 ? seg.slice(2).map(decodeURIComponent).join("/") : undefined;
-              return <BundleView key={bundle} name={bundle} conceptId={conceptId} />;
-            })()}
-          </LocalNav.Provider>
-        </div>
-      )}
-      {openPath && current === "workflows" && (
-        <div className="ctx-body ctx-embed">
-          <LocalNav.Provider value={takeLink("/workflows/")}>
-            {(() => {
-              const seg = openPath.split("/").filter(Boolean);
-              const tab = seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview";
-              return <WorkflowView key={seg[1]} slug={decodeURIComponent(seg[1] ?? "")} tab={tab} />;
-            })()}
-          </LocalNav.Provider>
-        </div>
-      )}
-      {openPath && current === "vibeables" && !attachedShown && (
-        <div className="ctx-body ctx-embed ctx-embed-vibe">
-          <VibePane key={openPath} slug={decodeURIComponent(openPath.split("/").filter(Boolean)[1] ?? "")} />
-        </div>
-      )}
-      {/* The chat renders its attached app in here (a portal); always in the DOM so the portal has a target. */}
-      <div id={VIBE_SLOT_ID} className="ctx-body ctx-embed ctx-embed-vibe" hidden={!attachedShown} />
-      <div className="ctx-body ctx-embed ctx-browser" hidden={current !== "browser"}>
-        <ContextBrowser key={key} storeKey={key} onTabs={setBrowserTabs} />
-      </div>
-      <div key={current} className="ctx-body" role="tabpanel" hidden={current === "browser" || (!!openPath && ["knowledge", "workflows", "vibeables"].includes(current))}>
-        {active?.allHref && (
-          <div className="flex justify-end px-1 pb-1">
-            <Button variant="quiet" size="sm" href={active.allHref}>
-              all {active.label} <Icon name="arrow_forward" className="ms-sm" />
+      <aside className="ctx" aria-label="Context" data-full={fullShown || undefined}>
+        <Tabs className="flex-none gap-y-0.5 pt-2" label="Categories" items={tabs} value={current} onChange={pickTab} />
+        {openPath && (
+          <div className="flex items-center gap-2 px-3 pb-1 pt-2">
+            <Button variant="quiet" size="sm" icon="arrow_back" onClick={back} aria-label="Back to the list">
+              {active?.label}
+            </Button>
+            <span className="flex-1" />
+            {appOpen && (
+              <Button
+                variant="quiet"
+                size="sm"
+                icon={fullShown ? "close_fullscreen" : "open_in_full"}
+                onClick={() => setFull(!fullShown)}
+                title={fullShown ? "back beside the chat" : "full size, in place of the chat"}
+              >
+                {fullShown ? "beside the chat" : "full size"}
+              </Button>
+            )}
+            <Button variant="quiet" size="sm" icon="open_in_new" href={openPath} title="Open as a page">
+              page
             </Button>
           </div>
         )}
-
-        {current === "workflows" && (
-          <>
-            {links && links.workflows.length === 0 && empty("workflows")}
-            {links?.workflows.map(({ slug, found }) => {
-              const w = wfOf(slug);
-              const last = lastRun(w);
-              return (
-                <ListRow
-                  key={slug}
-                  href={`/workflows/${encodeURIComponent(slug)}`}
-                  onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}
-                  dim={!found}
-                  leading={<Dot tone={!found || w?.error ? "bad" : runTone(last?.status)} />}
-                  title={w?.name ?? slug}
-                  sub={!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
-                  meta={found && !w?.error ? <Icon name="chevron_right" className="ms-sm" /> : undefined}
-                />
-              );
-            })}
-          </>
+        {openPath && current === "knowledge" && (
+          <div className="ctx-body ctx-embed">
+            <LocalNav.Provider value={takeLink("/knowledge/")}>
+              {(() => {
+                const seg = openPath.split("/").filter(Boolean);
+                const bundle = decodeURIComponent(seg[1] ?? "");
+                const conceptId = seg.length > 2 ? seg.slice(2).map(decodeURIComponent).join("/") : undefined;
+                return <BundleView key={bundle} name={bundle} conceptId={conceptId} />;
+              })()}
+            </LocalNav.Provider>
+          </div>
         )}
+        {openPath && current === "workflows" && (
+          <div className="ctx-body ctx-embed">
+            <LocalNav.Provider value={takeLink("/workflows/")}>
+              {(() => {
+                const seg = openPath.split("/").filter(Boolean);
+                const tab = seg[2] === "details" || seg[2] === "runs" ? seg[2] : "overview";
+                return <WorkflowView key={seg[1]} slug={decodeURIComponent(seg[1] ?? "")} tab={tab} />;
+              })()}
+            </LocalNav.Provider>
+          </div>
+        )}
+        {openPath && current === "vibeables" && !attachedShown && (
+          <div className="ctx-body ctx-embed ctx-embed-vibe">
+            <VibePane key={openPath} slug={decodeURIComponent(openPath.split("/").filter(Boolean)[1] ?? "")} />
+          </div>
+        )}
+        {/* The chat renders its attached app in here (a portal); always in the DOM so the portal has a target. */}
+        <div id={VIBE_SLOT_ID} className="ctx-body ctx-embed ctx-embed-vibe" hidden={!attachedShown} />
+        <div className="ctx-body ctx-embed ctx-browser" hidden={current !== "browser"}>
+          <ContextBrowser key={key} storeKey={key} onTabs={setBrowserTabs} />
+        </div>
+        <div key={current} className="ctx-body" role="tabpanel" hidden={current === "browser" || (!!openPath && ["knowledge", "workflows", "vibeables"].includes(current))}>
+          {active?.allHref && (
+            <div className="flex justify-end px-1 pb-1">
+              <Button variant="quiet" size="sm" href={active.allHref}>
+                all {active.label} <Icon name="arrow_forward" className="ms-sm" />
+              </Button>
+            </div>
+          )}
 
-        {current === "knowledge" && (
-          <>
-            {links && links.knowledge.length === 0 && empty("knowledge")}
-            {links?.knowledge.map(({ slug, found }) => {
-              const b = bundleOf(slug);
-              return (
+          {current === "workflows" && (
+            <>
+              {links && links.workflows.length === 0 && empty("workflows")}
+              {links?.workflows.map(({ slug, found }) => {
+                const w = wfOf(slug);
+                const last = lastRun(w);
+                return (
+                  <ListRow
+                    key={slug}
+                    href={`/workflows/${encodeURIComponent(slug)}`}
+                    onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}
+                    dim={!found}
+                    leading={<Dot tone={!found || w?.error ? "bad" : runTone(last?.status)} />}
+                    title={w?.name ?? slug}
+                    sub={!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
+                    meta={found && !w?.error ? <Icon name="chevron_right" className="ms-sm" /> : undefined}
+                  />
+                );
+              })}
+            </>
+          )}
+
+          {current === "knowledge" && (
+            <>
+              {links && links.knowledge.length === 0 && empty("knowledge")}
+              {links?.knowledge.map(({ slug, found }) => {
+                const b = bundleOf(slug);
+                return (
+                  <ListRow
+                    key={slug}
+                    href={`/knowledge/${encodeURIComponent(slug)}`}
+                    onClick={found ? openRow(`/knowledge/${encodeURIComponent(slug)}`) : undefined}
+                    dim={!found}
+                    leading={<Icon name="menu_book" className="ms-sm" />}
+                    title={slug}
+                    sub={!found ? "not in this workspace" : b ? `${b.concepts} ${b.concepts === 1 ? "page" : "pages"}${b.updatedAt ? ` · ${fmtAgo(b.updatedAt)}` : ""}` : undefined}
+                  />
+                );
+              })}
+            </>
+          )}
+
+          {current === "vibeables" && links && (
+            <>
+              {(links.all ? (vibes?.vibeables ?? []).map((v) => ({ slug: v.slug, found: true })) : (links.vibeables ?? [])).map(({ slug, found }) => {
+                const v = vibeOf(slug);
+                return (
+                  <ListRow
+                    key={slug}
+                    href={`/vibeables/${encodeURIComponent(slug)}`}
+                    onClick={found ? openRow(`/vibeables/${encodeURIComponent(slug)}`) : undefined}
+                    dim={!found}
+                    leading={<Icon name="web" className="ms-sm" />}
+                    title={slug}
+                    sub={!found ? "not in this workspace" : v?.updatedAt ? `changed ${fmtAgo(v.updatedAt)}` : undefined}
+                    actions={
+                      ctx.kind === "project" ? (
+                        <IconButton icon="keep_off" size="sm" label={`unpin ${slug}`} onClick={() => void pinApp(ctx.slug, slug, true)} />
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+              {ctx.kind === "project" && vibes && (
+                <PinApp options={vibes.vibeables.map((v) => v.slug).filter((s) => !links.vibeables?.some((l) => l.slug === s))} onPin={(s) => void pinApp(ctx.slug, s, false)} />
+              )}
+              {links.all && vibes && vibes.vibeables.length === 0 && empty("vibeables")}
+              {!links.all && links.vibeables?.length === 0 && empty("vibeables")}
+            </>
+          )}
+
+          {current === "repos" && links?.repos && (
+            <>
+              {links.repos.length === 0 && empty("repositories")}
+              {links.repos.map(({ slug, found }) => (
                 <ListRow
                   key={slug}
-                  href={`/knowledge/${encodeURIComponent(slug)}`}
-                  onClick={found ? openRow(`/knowledge/${encodeURIComponent(slug)}`) : undefined}
+                  href={`/repos/${encodeURIComponent(slug)}`}
                   dim={!found}
-                  leading={<Icon name="menu_book" className="ms-sm" />}
+                  leading={<Icon name="source" className="ms-sm" />}
                   title={slug}
-                  sub={!found ? "not in this workspace" : b ? `${b.concepts} ${b.concepts === 1 ? "page" : "pages"}${b.updatedAt ? ` · ${fmtAgo(b.updatedAt)}` : ""}` : undefined}
+                  sub={!found ? "not in this workspace" : undefined}
                 />
-              );
-            })}
-          </>
-        )}
+              ))}
+            </>
+          )}
 
-        {current === "vibeables" && links && (
-          <>
-            {(links.all ? (vibes?.vibeables ?? []).map((v) => ({ slug: v.slug, found: true })) : (links.vibeables ?? [])).map(({ slug, found }) => {
-              const v = vibeOf(slug);
-              return (
-                <ListRow
-                  key={slug}
-                  href={`/vibeables/${encodeURIComponent(slug)}`}
-                  onClick={found ? openRow(`/vibeables/${encodeURIComponent(slug)}`) : undefined}
-                  dim={!found}
-                  leading={<Icon name="web" className="ms-sm" />}
-                  title={slug}
-                  sub={!found ? "not in this workspace" : v?.updatedAt ? `changed ${fmtAgo(v.updatedAt)}` : undefined}
-                  actions={
-                    ctx.kind === "project" ? (
-                      <IconButton icon="keep_off" size="sm" label={`unpin ${slug}`} onClick={() => void pinApp(ctx.slug, slug, true)} />
-                    ) : undefined
-                  }
-                />
-              );
-            })}
-            {ctx.kind === "project" && vibes && (
-              <PinApp options={vibes.vibeables.map((v) => v.slug).filter((s) => !links.vibeables?.some((l) => l.slug === s))} onPin={(s) => void pinApp(ctx.slug, s, false)} />
-            )}
-            {links.all && vibes && vibes.vibeables.length === 0 && empty("vibeables")}
-            {!links.all && links.vibeables?.length === 0 && empty("vibeables")}
-          </>
-        )}
+          {current === "overview" && links && (
+            <Overview
+              key={key}
+              of={
+                links.project
+                  ? { kind: "project", project: links.project }
+                  : links.agent
+                    ? { kind: "agent", agent: links.agent, journal: links.journal ?? "" }
+                    : links.channel
+                      ? { kind: "channel", channel: links.channel }
+                      : { kind: "workspace" }
+              }
+            />
+          )}
 
-        {current === "repos" && links?.repos && (
-          <>
-            {links.repos.length === 0 && empty("repositories")}
-            {links.repos.map(({ slug, found }) => (
-              <ListRow
-                key={slug}
-                href={`/repos/${encodeURIComponent(slug)}`}
-                dim={!found}
-                leading={<Icon name="source" className="ms-sm" />}
-                title={slug}
-                sub={!found ? "not in this workspace" : undefined}
-              />
-            ))}
-          </>
-        )}
-
-        {current === "overview" && links && (
-          <Overview
-            key={key}
-            of={
-              links.project
-                ? { kind: "project", project: links.project }
-                : links.agent
-                  ? { kind: "agent", agent: links.agent, journal: links.journal ?? "" }
-                  : links.channel
-                    ? { kind: "channel", channel: links.channel }
-                    : { kind: "workspace" }
-            }
-          />
-        )}
-
-        {current === "files" && (
-          <FileBrowser
-            key={filesScope}
-            compact
-            scope={filesScope}
-            dir={filesAt.dir}
-            file={filesAt.file}
-            onOpen={(dir, file) => setFilesAt({ dir, file })}
-          />
-        )}
-      </div>
-    </aside>
+          {current === "files" && (
+            <FileBrowser
+              key={filesScope}
+              compact
+              scope={filesScope}
+              dir={filesAt.dir}
+              file={filesAt.file}
+              onOpen={(dir, file) => setFilesAt({ dir, file })}
+            />
+          )}
+        </div>
+      </aside>
+    </>
   );
 }
 

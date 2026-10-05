@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Apps in a project: a vibeable pinned in the project's context column
- * shows under the project in the rail, opens beside the project's chat
- * from there, and leaves the rail when unpinned. No message is sent, so no
+ * shows under the project in the rail, opens from there at full size
+ * (and back beside the project's chat), and leaves the rail when unpinned. No message is sent, so no
  * agent spawns.
  */
 test.describe("project apps", () => {
@@ -47,6 +47,13 @@ test.describe("project apps", () => {
     await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}/chat/${id}$`));
     await expect(page.getByRole("tab", { name: /apps/ })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".ctx-embed-vibe:not([hidden])")).toBeVisible();
+    // From the rail the app opens at full size, in the chat's place, under the project's title.
+    await expect(page.locator(".ctx[data-full]")).toBeVisible();
+    await expect(page.locator(".col-chat")).toBeHidden();
+    await expect(page.locator(".space-title")).toContainText("Apps probe");
+    await page.getByRole("button", { name: "beside the chat" }).click();
+    await expect(page.locator(".ctx[data-full]")).toHaveCount(0);
+    await expect(page.locator(".col-chat")).toBeVisible();
 
     await page.getByRole("button", { name: /Back to the list/ }).click();
     await page.locator(".ctx a[href='#/vibeables/kanban']").hover();

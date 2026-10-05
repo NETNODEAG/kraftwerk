@@ -21,6 +21,7 @@ const KINDS: Record<string, { label: string; icon: string }> = {
   agents: { label: "agents", icon: "smart_toy" },
   "agent-skills": { label: "agent skills", icon: "extension" },
   projects: { label: "projects", icon: "folder" },
+  workflows: { label: "workflows", icon: "account_tree" },
   knowledge: { label: "knowledge bundles", icon: "menu_book" },
   vibeables: { label: "apps", icon: "web" },
   channels: { label: "channels", icon: "forum" },

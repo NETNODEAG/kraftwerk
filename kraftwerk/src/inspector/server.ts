@@ -14,7 +14,7 @@ import { appendJournal, readJournal } from "./journal.js";
 import { emptyTrash, listTrash, purgeFromTrash, restoreFromTrash, trashRoot } from "./trash.js";
 import { decide } from "./decisions.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
-import { listWorkflows, getWorkflow } from "./workflows.js";
+import { listWorkflows, getWorkflow, deleteWorkflow } from "./workflows.js";
 import { dockerStatus, triggerRun, stopRun } from "./runner.js";
 import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
 import { startDiagnosis } from "./diagnose.js";
@@ -959,6 +959,14 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
   if (seg.length === 3 && seg[1] === "workflows" && method === "GET") {
     const wf = await getWorkflow(decodeURIComponent(seg[2]));
     return wf ? json(res, wf) : json(res, { error: "not found" }, 404);
+  }
+
+  // DELETE /api/workflows/:slug — move it to the trash
+  if (seg.length === 3 && seg[1] === "workflows" && method === "DELETE") {
+    const outcome = await deleteWorkflow(decodeURIComponent(seg[2]));
+    if (outcome === "missing") return json(res, { error: "not found" }, 404);
+    if (outcome === "running") return json(res, { error: "a run of this workflow is still running — stop it first" }, 409);
+    return json(res, { ok: true });
   }
 
   // GET/POST /api/workflows/:slug/run

@@ -14,22 +14,26 @@
 .shell:has(.runs-screen) { max-width: none; padding: 0; }
 .shell-global > * { animation: var(--animate-rise); }
 
-/* ---------- three columns: rail | conversation | context ---------- */
+/* ---------- three columns: rail | conversation | context, the space's title above the last two ---------- */
 .shell.three {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%);
+  grid-template-rows: auto minmax(0, 1fr);
   max-width: none;
   height: calc(100vh - var(--topbar-h));
   min-height: 0;
   margin: 0;
-  padding: 24px 20px 20px;
-  row-gap: 16px;
+  padding: 14px 20px 20px;
+  row-gap: 10px;
   background: var(--bg);
 }
 .shell.three[hidden] { display: none; }
 .shell.three > * { min-width: 0; min-height: 0; }
 
-.rail { display: flex; flex-direction: column; min-height: 0; margin-right: 16px; }
+.rail { display: flex; flex-direction: column; min-height: 0; margin-right: 16px; grid-row: 1 / -1; }
+/* The title of the space you are in (context-panel.tsx): over the conversation and its context. */
+.space-title { grid-row: 1; grid-column: -3 / -1; }
+.col-chat, .ctx { grid-row: 2; }
 .places { display: none; }
 
 /* The conversation and its context are one framed panel, divided by a line. */
@@ -137,9 +141,11 @@ body.kw-resizing iframe { pointer-events: none; }
 .col-chat .runs-side { position: static; height: auto; min-height: 0; align-self: stretch; background: none; }
 .col-chat .runs-main { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 .col-chat .chat-main { flex: 1; height: auto; min-height: 0; }
-/* Room for the context's sign on the shared top edge; tabs above the chat take it instead. */
-.col-chat .chat-main, .col-chat .runs-main > .agent-view, .col-chat .runs-main > .new-chat { padding-top: 36px; }
-.col-chat .has-tabs .chat-main, .col-chat .has-tabs .runs-main > .agent-view, .col-chat .has-tabs .runs-main > .new-chat { padding-top: 16px; }
+
+/* An app at full size takes the conversation's place; the space's title stays above it. */
+.shell.three:has(> .ctx[data-full]) > .col-chat { display: none; }
+.shell.three > .ctx[data-full] { grid-column: -3 / -1; border-radius: var(--radius); }
+.ctx[data-full]::before { display: none; }
 /* The rail is the roster, the context column shows knowledge: the screens' own copies step aside. */
 .col-chat .agents-screen > aside.runs-side:first-child,
 .col-chat .channels-screen > aside.runs-side:first-child,
@@ -172,9 +178,11 @@ body.kw-resizing iframe { pointer-events: none; }
 /* Phone: one column at a time, picked from the bar at the bottom (data-focus). */
 @media (max-width: 800px) {
   .shell.three { grid-template-columns: minmax(0, 1fr); height: calc(100vh - var(--topbar-h) - 52px); }
+  .space-title { grid-column: 1; }
   .shell.three[data-focus="side"] > .col-chat,
   .shell.three[data-focus="context"] > .col-chat,
   .shell.three[data-focus="chat"] > .ctx { display: none; }
+  .shell.three > .ctx[data-full] { display: flex; }
   .col-chat, .ctx { border-right: 1px solid var(--line); border-radius: var(--radius); }
   .ctx::before, .split-handle { display: none; }
   .col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); }

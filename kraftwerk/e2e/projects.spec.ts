@@ -147,4 +147,19 @@ test.describe("projects", () => {
     await expect(row).toContainText("with coworkers");
     await expect(row).toContainText("#relaunch-crew");
   });
+
+  test("a project is deleted from its page, also in simple mode, into the trash", async ({ page, request }) => {
+    await request.put("/api/settings", { data: { projects: { enabled: true } } });
+    expect((await request.post("/api/projects", { data: { title: "Scrap project", slug: "scrap-project" } })).status()).toBe(201);
+    await page.addInitScript(() => localStorage.setItem("kw-expert", "off"));
+    await page.goto("/#/projects/scrap-project/info");
+    await expect(page.locator(".rail [data-project='scrap-project']")).toBeVisible();
+    await page.getByRole("button", { name: "delete project" }).click();
+    await page.getByRole("button", { name: "confirm delete" }).click();
+    await expect(page).not.toHaveURL(/scrap-project/);
+    await expect(page.locator(".rail [data-project='scrap-project']")).toHaveCount(0);
+    expect(existsSync(path.join(fixture(), "kraftwerk-data", "projects", "scrap-project"))).toBe(false);
+    const trash = (await (await request.get("/api/trash")).json()) as { entries: { kind: string; name: string }[] };
+    expect(trash.entries.some((e) => e.kind === "projects" && e.name === "scrap-project")).toBe(true);
+  });
 });

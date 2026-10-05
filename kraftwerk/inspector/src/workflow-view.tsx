@@ -1,17 +1,21 @@
 import { useState } from "react";
 import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
-import { Link, usePoll, fmtDuration, fmtCost, fmtWhen, Elapsed } from "./shared";
+import { Link, navigate, usePoll, fmtDuration, fmtCost, fmtWhen, Elapsed } from "./shared";
 import { RunForm } from "./run-launcher";
 import { WorkflowBoard, StepIndex, agentColour } from "./workflow-board";
 import { DecisionTag, RunStatus, Stat, STATS, TIMELINE_ROW, runTone } from "./runs";
-import { Button, cn, Dot, EmptyState, Hint, Panel, Tabs, Tag, Title } from "./ui";
+import { Button, cn, Dot, EmptyState, Hint, Notice, Panel, Tabs, Tag, Title } from "./ui";
 
 export type WorkflowTab = "overview" | "details" | "runs";
+
+/** Fired with the slug when a workflow is deleted, so the list drops it at once. */
+export const WORKFLOW_DELETED_EVENT = "kw-workflow-deleted";
 
 /**
  * One workflow, three tabs on their own routes: overview (trigger + board —
  * what to act on), details (agents, pipeline, folder — how it is built),
- * runs (every run of this workflow, newest first).
+ * runs (every run of this workflow, newest first). Details ends with the
+ * delete (into the trash), as does a broken workflow's page.
  */
 export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) {
   const wf = usePoll<WorkflowDetail>(`/api/workflows/${encodeURIComponent(slug)}`, false);
@@ -27,6 +31,9 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
       <EmptyState>
         <Tag tone="bad">broken workflow</Tag>
         <pre className="mt-3 text-left">{wf.error}</pre>
+        <div className="mt-4 flex justify-center">
+          <DeleteWorkflow slug={wf.slug} />
+        </div>
       </EmptyState>
     );
   }
@@ -148,7 +155,53 @@ function Details({ wf, agentIdx }: { wf: WorkflowDetail; agentIdx: Map<string, n
           </div>
         </Panel>
       </div>
+      <div className="mt-[18px] in-[.ctx-embed]:hidden">
+        <DeleteWorkflow slug={wf.slug} />
+      </div>
     </>
+  );
+}
+
+/** Delete, confirmed in place: the workflow goes to the trash (#/trash puts it back). */
+function DeleteWorkflow({ slug }: { slug: string }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const remove = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/workflows/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      const d = (await r.json()) as { ok?: boolean; error?: string };
+      if (!r.ok || !d.ok) throw new Error(d.error || "failed");
+      window.dispatchEvent(new CustomEvent(WORKFLOW_DELETED_EVENT, { detail: slug }));
+      navigate("/workflows", { replace: true });
+    } catch (err) {
+      setError((err as Error).message);
+      setConfirm(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {!confirm ? (
+          <Button variant="danger" icon="delete" onClick={() => setConfirm(true)} title="Move the workflow's folder to the trash">
+            delete workflow
+          </Button>
+        ) : (
+          <>
+            <Button variant="danger" icon="delete" busy={busy} onClick={() => void remove()}>
+              confirm delete
+            </Button>
+            <Button variant="quiet" onClick={() => setConfirm(false)}>cancel</Button>
+            <Hint>its runs stay; the trash can put it back</Hint>
+          </>
+        )}
+      </div>
+      {error && <Notice tone="bad">{error}</Notice>}
+    </div>
   );
 }
 
