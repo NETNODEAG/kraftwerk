@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getOutputDir } from "./context.js";
+import { moveToTrash } from "./trash.js";
 import { awaitingDecision, readDecision, type DecisionView } from "./decisions.js";
 
 /**
@@ -390,13 +391,13 @@ export async function readRunFile(
 }
 
 /**
- * Remove a run folder. A run that still looks live is refused: its process
+ * Move a run folder to the trash. A run that still looks live is refused: its process
  * would keep writing into a folder that no longer exists — stop it first.
  */
 export async function deleteRun(id: string): Promise<"deleted" | "running" | "missing"> {
   const run = await getRun(id);
   if (!run) return "missing";
   if (run.status === "running") return "running";
-  await fs.rm(safeRunDir(id), { recursive: true, force: true });
+  await moveToTrash("runs", id, safeRunDir(id));
   return "deleted";
 }

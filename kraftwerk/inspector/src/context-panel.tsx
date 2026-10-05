@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import { Icon, Lamp, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath, usePoll } from "./shared";
+import { Icon, Link, LocalNav, PROJECTS_CHANGED_EVENT, fmtAgo, isEditPath, post, useExpertMode, useFeatures, useHashPath, usePoll } from "./shared";
 import { BundleView } from "./knowledge";
+import { FileBrowser } from "./files";
+import { Overview } from "./overview";
+import { Button, cn, Dot, IconButton, ListRow, Select, Tabs, type DotTone } from "./ui";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
@@ -36,6 +37,12 @@ interface Links {
   /** A project's state.md and log.md, shown as documents; absent for everything but a project. */
   state?: string;
   log?: string;
+  /** An agent's journal.md, its memory between sessions; absent for everything but an agent. */
+  journal?: string;
+  /** The place itself, for the overview tab. */
+  project?: ProjectDetail;
+  agent?: AgentDetail;
+  channel?: ChannelView;
   /** Where the links are edited. */
   editHref?: string;
   /** Everything the workspace has, not a selection. */
@@ -53,15 +60,6 @@ async function getJson<T>(url: string): Promise<T | null> {
 
 const present = (slugs: string[], have: Set<string>) => slugs.map((slug) => ({ slug, found: have.has(slug) }));
 
-/** Entries in a project log: one bullet per line, as `kraftwerk projects log` writes them. */
-const logEntries = (log: string): number | undefined => {
-  const n = log.split("\n").filter((l) => /^[-*] /.test(l)).length;
-  return n > 0 ? n : undefined;
-};
-
-/** Markdown from a project file, sanitized like the project page renders it. */
-const markdown = (text: string, empty: string): string =>
-  DOMPurify.sanitize(marked.parse(text.trim() || empty, { async: false }) as string);
 
 /**
  * The right column: what the current conversation works with. An agent's
@@ -98,9 +96,9 @@ export function ContextPanel({ chatPath, workspace }: {
   // One category at a time, as tabs; remembered per browser.
   const [tab, setTab] = useState(() => {
     try {
-      return localStorage.getItem("kw-ctx-tab") || "workflows";
+      return localStorage.getItem("kw-ctx-tab") || "overview";
     } catch {
-      return "workflows";
+      return "overview";
     }
   });
   const [browserTabs, setBrowserTabs] = useState(0);
@@ -122,7 +120,27 @@ export function ContextPanel({ chatPath, workspace }: {
   // null = the list. Its links stay inside the column (LocalNav).
   const [open, setOpen] = useState<Record<string, string | null>>({});
   useEffect(() => setOpen(attachedRef.current ? { vibeables: `/vibeables/${encodeURIComponent(attachedRef.current.slug)}` } : {}), [key]);
+  // A project's app opened from the rail (#/projects/<slug>?app=<vibeable>): shown in the vibeables tab.
+  const hashPath = useHashPath();
+  const appParam = ctx.kind === "project" ? new URLSearchParams(hashPath.split("?")[1] ?? "").get("app") : null;
+  useEffect(() => {
+    if (!appParam) return;
+    pickTab("vibeables");
+    setOpen((o) => ({ ...o, vibeables: `/vibeables/${encodeURIComponent(appParam)}` }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appParam, key]);
   const show = (path: string) => setOpen((o) => ({ ...o, [current]: path }));
+  // Where the files tab is, per conversation.
+  const [filesAt, setFilesAt] = useState<{ dir: string; file?: string }>({ dir: "" });
+  useEffect(() => setFilesAt({ dir: "" }), [key]);
+  // Pin an app to the project (link the vibeable) or unpin it; the rail lists the pinned ones under the project.
+  const pinApp = async (project: string, vibeable: string, remove: boolean) => {
+    const d = await post(`/api/projects/${encodeURIComponent(project)}/links`, { kind: "vibeables", target: vibeable, remove }).catch(() => null);
+    if (d && !d.error) {
+      setVersion((v) => v + 1);
+      window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
+    }
+  };
   const back = () => setOpen((o) => ({ ...o, [current]: null }));
   const takeLink = (prefix: string) => (href: string) => {
     if (!href.startsWith(prefix)) return false;
@@ -146,21 +164,23 @@ export function ContextPanel({ chatPath, workspace }: {
     return () => window.removeEventListener(VIBE_ATTACH_EVENT, onAttach);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const showVibeables = features.vibeables && !!(links?.all || links?.vibeables || attached);
   const showRepos = features.repos && !!links?.repos;
+  // Where this place's files are: a project's own, a channel's project's, else the workspace's.
+  const filesScope =
+    ctx.kind === "project" ? `project:${ctx.slug}` : links?.channel?.project ? `project:${links.channel.project}` : "workspace";
+  // The same tabs in the same order everywhere: the place at a glance first, then what the work uses.
   const tabs: { id: string; label: string; count?: number; allHref?: string }[] = [
-    { id: "workflows", label: "workflows", count: links?.workflows.length, allHref: "/workflows" },
+    { id: "overview", label: "overview" },
+    { id: "files", label: "files", allHref: `/files/${encodeURIComponent(filesScope)}` },
     { id: "knowledge", label: "knowledge", count: links?.knowledge.length, allHref: "/knowledge" },
-    ...(showVibeables ? [{ id: "vibeables", label: "vibeables", count: links?.all ? vibes?.vibeables.length : links?.vibeables?.length, allHref: "/vibeables" }] : []),
-    ...(showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
-    ...(links?.agents ? [{ id: "agents", label: "agents", count: links.agents.length, allHref: "/agents" }] : []),
-    ...(links?.records && links.records.length > 0 ? [{ id: "records", label: "records", count: links.records.length }] : []),
-    // A project's memory between sessions, readable beside the chat that rewrites it.
-    ...(links?.state !== undefined ? [{ id: "state", label: "state" }] : []),
-    ...(links?.log !== undefined ? [{ id: "log", label: "log", count: logEntries(links.log) }] : []),
-    { id: "browser", label: "browser", count: browserTabs },
+    ...(features.vibeables ? [{ id: "vibeables", label: "apps", count: links?.all ? vibes?.vibeables.length : (links?.vibeables?.length ?? 0), allHref: "/vibeables" }] : []),
+    { id: "workflows", label: "workflows", count: links?.workflows.length, allHref: "/workflows" },
+    // Expert detail: the clones a project or agent works on.
+    ...(expert && showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
+    // The browser shows up once a link from the chat opened something in it.
+    ...(browserTabs > 0 || tab === "browser" ? [{ id: "browser", label: "browser", count: browserTabs }] : []),
   ];
-  const current = tabs.some((t) => t.id === tab) ? tab : "workflows";
+  const current = tabs.some((t) => t.id === tab) ? tab : "overview";
   const active = tabs.find((t) => t.id === current);
   const openPath = open[current] ?? null;
   const attachedShown = !!attached && current === "vibeables" && openPath === `/vibeables/${encodeURIComponent(attached.slug)}`;
@@ -179,7 +199,7 @@ export function ContextPanel({ chatPath, workspace }: {
   // The editing happens in a modal over this very conversation, so the route
   // key does not change: reload the moment the modal closes instead of
   // waiting for the next tick.
-  const editing = isEditPath(useHashPath());
+  const editing = isEditPath(hashPath);
   const wasEditing = useRef(editing);
   useEffect(() => {
     if (wasEditing.current && !editing) setVersion((v) => v + 1);
@@ -196,13 +216,14 @@ export function ContextPanel({ chatPath, workspace }: {
       if (ctx.kind === "agent") {
         const a = await getJson<AgentDetail>(`/api/agents/${encodeURIComponent(ctx.slug)}`);
         if (a) {
-          next = { title: `${a.emoji ? `${a.emoji} ` : ""}${a.name}`, workflows: present(a.workflows, wfSlugs), knowledge: present(a.knowledge, bundleNames), editHref: `/agents/${encodeURIComponent(ctx.slug)}/edit` };
+          next = { title: `${a.emoji ? `${a.emoji} ` : ""}${a.name}`, agent: a, workflows: present(a.workflows, wfSlugs), knowledge: present(a.knowledge, bundleNames), editHref: `/agents/${encodeURIComponent(ctx.slug)}/edit` };
           // Linked apps show like a project's; an agent without any keeps the column as it was.
           if ((a.vibeables ?? []).length > 0) next.vibeables = present(a.vibeables, vibeSlugs);
+          next.journal = (await getJson<{ journal: string }>(`/api/agents/${encodeURIComponent(ctx.slug)}/journal`))?.journal ?? "";
         }
       } else if (ctx.kind === "project") {
         const p = await getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(ctx.slug)}`);
-        if (p) next = { title: `📁 ${p.title}`, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
+        if (p) next = { title: `📁 ${p.title}`, project: p, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
       } else if (ctx.kind === "channel") {
         const d = await getJson<{ channels: ChannelView[] }>("/api/channels");
         const c = d?.channels.find((x) => x.slug === ctx.slug);
@@ -212,6 +233,7 @@ export function ContextPanel({ chatPath, workspace }: {
           const memberVibes = union((a) => a.vibeables ?? []);
           next = {
             title: `#${c.slug}`,
+            channel: c,
             workflows: present(union((a) => a.workflows), wfSlugs),
             knowledge: present(union((a) => a.knowledge), bundleNames),
             ...(memberVibes.length > 0 ? { vibeables: present(memberVibes, vibeSlugs) } : {}),
@@ -241,46 +263,60 @@ export function ContextPanel({ chatPath, workspace }: {
   const vibeOf = (slug: string) => vibes?.vibeables.find((v) => v.slug === slug);
 
   const empty = (what: string) => (
-    <div className="ctx-empty">
+    <p className="m-0 px-2.5 py-3 text-sm text-fg-2">
       {links?.all ? `No ${what} in this workspace yet.` : `No ${what} linked.`}
       {links?.editHref && expert && !links.all && (
         <>
           {" "}
-          <Link href={links.editHref}>Edit the links</Link>.
+          <Link href={links.editHref} className="text-accent">Edit the links</Link>.
         </>
       )}
-    </div>
+    </p>
   );
 
 
   return (
     <aside className="ctx" aria-label="Context">
       {/* Keyed by the name: a new context pops its sign in. */}
-      <div key={links?.title ?? ""} className={`ctx-head${links ? " sign-in" : ""}`}>
-        <span className="ctx-title" title={links?.title}>{links ? links.title : "…"}</span>
+      {/* The sign on the column's top edge: a label, not a target — only its pencil takes clicks. */}
+      <div
+        key={links?.title ?? ""}
+        className={cn(
+          // transform, not Tailwind's translate: the kw-sign animation animates transform itself.
+          "pointer-events-none absolute top-0 left-1/2 z-3 flex max-w-[calc(100%-48px)] [transform:translate(-50%,-50%)] items-center gap-3",
+          "rounded-full border border-line bg-surface px-[30px] py-3 shadow-[0_6px_24px_rgb(0_0_0/0.16)]",
+          "max-[800px]:static max-[800px]:mx-auto max-[800px]:mb-2 max-[800px]:max-w-none max-[800px]:[transform:none]",
+          links && "animate-sign max-[800px]:animate-fade"
+        )}
+      >
+        <span
+          className="min-w-0 truncate text-[26px] leading-[1.1] font-[750] tracking-[-0.015em] text-fg max-[800px]:text-lg"
+          title={links?.title}
+        >
+          {links ? links.title : "…"}
+        </span>
         {editHref && (
-          <Link href={editHref} className="ctx-edit" title={editTitle} aria-label={editTitle}>
+          // ctx-edit: the tests open the editor by it.
+          <Link
+            href={editHref}
+            className="ctx-edit pointer-events-auto inline-grid size-7 place-items-center rounded-full text-fg-2 no-underline transition-colors hover:bg-surface-2 hover:text-accent active:scale-96 [&_.ms]:text-[18px]"
+            title={editTitle}
+            aria-label={editTitle}
+          >
             <Icon name="edit" className="ms-sm" />
           </Link>
         )}
       </div>
-      <div className="ctx-tabs" role="tablist" aria-label="Categories">
-        {tabs.map((t) => (
-          <button key={t.id} role="tab" className="ctx-tab" aria-selected={t.id === current} onClick={() => pickTab(t.id)}>
-            {t.label}
-            {t.count !== undefined && <span className="ctx-tab-n num">{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <Tabs className="flex-none gap-y-0.5 pt-10" label="Categories" items={tabs} value={current} onChange={pickTab} />
       {openPath && (
-        <div className="ctx-open-head">
-          <button className="open-raw" onClick={back} aria-label="Back to the list">
-            <Icon name="arrow_back" className="ms-sm" /> {active?.label}
-          </button>
-          <span className="spacer" />
-          <Link href={openPath} className="ctx-all" title="Open as a page">
-            page <Icon name="open_in_new" className="ms-sm" />
-          </Link>
+        <div className="flex items-center gap-2 px-3 pb-1 pt-2">
+          <Button variant="quiet" size="sm" icon="arrow_back" onClick={back} aria-label="Back to the list">
+            {active?.label}
+          </Button>
+          <span className="flex-1" />
+          <Button variant="quiet" size="sm" icon="open_in_new" href={openPath} title="Open as a page">
+            page
+          </Button>
         </div>
       )}
       {openPath && current === "knowledge" && (
@@ -318,11 +354,10 @@ export function ContextPanel({ chatPath, workspace }: {
       </div>
       <div key={current} className="ctx-body" role="tabpanel" hidden={current === "browser" || (!!openPath && ["knowledge", "workflows", "vibeables"].includes(current))}>
         {active?.allHref && (
-          <div className="ctx-section-head">
-            <span className="spacer" />
-            <Link href={active.allHref} className="ctx-all">
+          <div className="flex justify-end px-1 pb-1">
+            <Button variant="quiet" size="sm" href={active.allHref}>
               all {active.label} <Icon name="arrow_forward" className="ms-sm" />
-            </Link>
+            </Button>
           </div>
         )}
 
@@ -333,16 +368,16 @@ export function ContextPanel({ chatPath, workspace }: {
               const w = wfOf(slug);
               const last = lastRun(w);
               return (
-                <Link key={slug} href={`/workflows/${encodeURIComponent(slug)}`} className={`ctx-row${found ? "" : " missing"}`} onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}>
-                  <Lamp status={!found || w?.error ? "failed" : (last?.status ?? "idle")} />
-                  <span className="ctx-text">
-                    <span className="ctx-name">{w?.name ?? slug}</span>
-                    <span className="ctx-sub">
-                      {!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
-                    </span>
-                  </span>
-                  {found && !w?.error && <Icon name="chevron_right" className="ctx-go ms-sm" />}
-                </Link>
+                <ListRow
+                  key={slug}
+                  href={`/workflows/${encodeURIComponent(slug)}`}
+                  onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}
+                  dim={!found}
+                  leading={<Dot tone={!found || w?.error ? "bad" : runTone(last?.status)} />}
+                  title={w?.name ?? slug}
+                  sub={!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
+                  meta={found && !w?.error ? <Icon name="chevron_right" className="ms-sm" /> : undefined}
+                />
               );
             })}
           </>
@@ -354,13 +389,15 @@ export function ContextPanel({ chatPath, workspace }: {
             {links?.knowledge.map(({ slug, found }) => {
               const b = bundleOf(slug);
               return (
-                <Link key={slug} href={`/knowledge/${encodeURIComponent(slug)}`} className={`ctx-row${found ? "" : " missing"}`} onClick={found ? openRow(`/knowledge/${encodeURIComponent(slug)}`) : undefined}>
-                  <Icon name="menu_book" className="ctx-icon ms-sm" />
-                  <span className="ctx-text">
-                    <span className="ctx-name">{slug}</span>
-                    <span className="ctx-sub">{!found ? "not in this workspace" : b ? `${b.concepts} ${b.concepts === 1 ? "page" : "pages"}${b.updatedAt ? ` · ${fmtAgo(b.updatedAt)}` : ""}` : ""}</span>
-                  </span>
-                </Link>
+                <ListRow
+                  key={slug}
+                  href={`/knowledge/${encodeURIComponent(slug)}`}
+                  onClick={found ? openRow(`/knowledge/${encodeURIComponent(slug)}`) : undefined}
+                  dim={!found}
+                  leading={<Icon name="menu_book" className="ms-sm" />}
+                  title={slug}
+                  sub={!found ? "not in this workspace" : b ? `${b.concepts} ${b.concepts === 1 ? "page" : "pages"}${b.updatedAt ? ` · ${fmtAgo(b.updatedAt)}` : ""}` : undefined}
+                />
               );
             })}
           </>
@@ -371,15 +408,25 @@ export function ContextPanel({ chatPath, workspace }: {
             {(links.all ? (vibes?.vibeables ?? []).map((v) => ({ slug: v.slug, found: true })) : (links.vibeables ?? [])).map(({ slug, found }) => {
               const v = vibeOf(slug);
               return (
-                <Link key={slug} href={`/vibeables/${encodeURIComponent(slug)}`} className={`ctx-row${found ? "" : " missing"}`} onClick={found ? openRow(`/vibeables/${encodeURIComponent(slug)}`) : undefined}>
-                  <Icon name="web" className="ctx-icon ms-sm" />
-                  <span className="ctx-text">
-                    <span className="ctx-name">{slug}</span>
-                    <span className="ctx-sub">{!found ? "not in this workspace" : v?.updatedAt ? `changed ${fmtAgo(v.updatedAt)}` : ""}</span>
-                  </span>
-                </Link>
+                <ListRow
+                  key={slug}
+                  href={`/vibeables/${encodeURIComponent(slug)}`}
+                  onClick={found ? openRow(`/vibeables/${encodeURIComponent(slug)}`) : undefined}
+                  dim={!found}
+                  leading={<Icon name="web" className="ms-sm" />}
+                  title={slug}
+                  sub={!found ? "not in this workspace" : v?.updatedAt ? `changed ${fmtAgo(v.updatedAt)}` : undefined}
+                  actions={
+                    ctx.kind === "project" ? (
+                      <IconButton icon="keep_off" size="sm" label={`unpin ${slug}`} onClick={() => void pinApp(ctx.slug, slug, true)} />
+                    ) : undefined
+                  }
+                />
               );
             })}
+            {ctx.kind === "project" && vibes && (
+              <PinApp options={vibes.vibeables.map((v) => v.slug).filter((s) => !links.vibeables?.some((l) => l.slug === s))} onPin={(s) => void pinApp(ctx.slug, s, false)} />
+            )}
             {links.all && vibes && vibes.vibeables.length === 0 && empty("vibeables")}
             {!links.all && links.vibeables?.length === 0 && empty("vibeables")}
           </>
@@ -389,54 +436,63 @@ export function ContextPanel({ chatPath, workspace }: {
           <>
             {links.repos.length === 0 && empty("repositories")}
             {links.repos.map(({ slug, found }) => (
-              <Link key={slug} href={`/repos/${encodeURIComponent(slug)}`} className={`ctx-row${found ? "" : " missing"}`}>
-                <Icon name="source" className="ctx-icon ms-sm" />
-                <span className="ctx-text">
-                  <span className="ctx-name">{slug}</span>
-                  {!found && <span className="ctx-sub">not in this workspace</span>}
-                </span>
-              </Link>
+              <ListRow
+                key={slug}
+                href={`/repos/${encodeURIComponent(slug)}`}
+                dim={!found}
+                leading={<Icon name="source" className="ms-sm" />}
+                title={slug}
+                sub={!found ? "not in this workspace" : undefined}
+              />
             ))}
           </>
         )}
 
-        {current === "agents" && links?.agents && (
-          <>
-            {links.agents.length === 0 && empty("agents")}
-            {links.agents.map(({ slug, found, label }) => (
-              <Link key={slug} href={`/agents/${encodeURIComponent(slug)}`} className={`ctx-row${found ? "" : " missing"}`}>
-                <Icon name="person" className="ctx-icon ms-sm" />
-                <span className="ctx-text">
-                  <span className="ctx-name">{label ?? slug}</span>
-                  {!found && <span className="ctx-sub">not in this workspace</span>}
-                </span>
-              </Link>
-            ))}
-          </>
+        {current === "overview" && links && (
+          <Overview
+            key={key}
+            of={
+              links.project
+                ? { kind: "project", project: links.project }
+                : links.agent
+                  ? { kind: "agent", agent: links.agent, journal: links.journal ?? "" }
+                  : links.channel
+                    ? { kind: "channel", channel: links.channel }
+                    : { kind: "workspace" }
+            }
+          />
         )}
 
-        {current === "state" && links?.state !== undefined && (
-          <div className="md-body ctx-md" dangerouslySetInnerHTML={{ __html: markdown(links.state, "_nothing recorded yet — the assistant rewrites state.md at the end of a session that changed something_") }} />
-        )}
-
-        {current === "log" && links?.log !== undefined && (
-          <div className="md-body ctx-md" dangerouslySetInnerHTML={{ __html: markdown(links.log, "_no entries yet_") }} />
-        )}
-
-        {current === "records" && links?.records && (
-          <>
-            {links.records.map((r, i) => (
-              <a key={i} href={r.url || undefined} target="_blank" rel="noopener" className="ctx-row">
-                <Icon name="open_in_new" className="ctx-icon ms-sm" />
-                <span className="ctx-text">
-                  <span className="ctx-name">{r.title || r.kind}</span>
-                  {r.note && <span className="ctx-sub">{r.note}</span>}
-                </span>
-              </a>
-            ))}
-          </>
+        {current === "files" && (
+          <FileBrowser
+            key={filesScope}
+            compact
+            scope={filesScope}
+            dir={filesAt.dir}
+            file={filesAt.file}
+            onOpen={(dir, file) => setFilesAt({ dir, file })}
+          />
         )}
       </div>
     </aside>
   );
+}
+
+/** "pin an app": the workspace's vibeables not yet pinned to the project. */
+function PinApp({ options, onPin }: { options: string[]; onPin: (slug: string) => void }) {
+  if (options.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-2 text-fg-2">
+      <Icon name="keep" className="ms-sm" />
+      <Select className="h-8 text-sm" value="" onChange={(e) => e.target.value && onPin(e.target.value)} aria-label="pin an app to this project">
+        <option value="">pin an app to this project…</option>
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </Select>
+    </div>
+  );
+}
+
+/** A run's status as a dot. */
+function runTone(status?: string): DotTone {
+  return status === "ok" ? "ok" : status === "failed" ? "bad" : status === "running" ? "working" : "idle";
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./shared";
+import { cn, IconButton } from "./ui";
 
 /** Ask the context column to show a url in its browser (a new tab, or the tab that already has this exact url). */
 export const BROWSE_EVENT = "kw-browse";
@@ -19,7 +20,10 @@ export function withBrowseIcons(html: string): string {
   for (const a of box.content.querySelectorAll<HTMLAnchorElement>('a[href^="http://"], a[href^="https://"]')) {
     if (a.classList.contains("md-browse")) continue;
     const icon = document.createElement("a");
-    icon.className = "md-browse";
+    // md-browse is what the click delegation (onBrowseClick) finds; the rest is its look.
+    icon.className =
+      "md-browse ml-0.5 inline-grid size-[18px] place-items-center rounded-[5px] align-[-3px] text-fg-2 no-underline opacity-55 transition " +
+      "hover:bg-surface-2 hover:text-accent hover:opacity-100 [&_.ms]:align-[0] [&_.ms]:text-[14px]";
     icon.href = a.getAttribute("href") ?? "";
     icon.title = "Open beside the conversation";
     icon.setAttribute("aria-label", "Open beside the conversation");
@@ -131,33 +135,36 @@ export function ContextBrowser({ storeKey, onTabs }: {
     else open(url);
   };
 
+  const bar = "grid size-[30px] flex-none place-items-center rounded-full text-fg-2 no-underline transition-colors hover:bg-surface hover:text-fg";
   return (
-    <div className="browser">
-      <div className="browser-tabs" role="tablist" aria-label="Browser tabs">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-line bg-surface">
+      <div className="flex flex-none items-center gap-0.5 overflow-x-auto px-1.5 pt-1.5 [scrollbar-width:none]" role="tablist" aria-label="Browser tabs">
         {tabs.map((t) => (
-          <div key={t.id} className={`browser-tab${t.id === active ? " active" : ""}`}>
-            <button role="tab" aria-selected={t.id === active} className="browser-tab-name" title={t.url} onClick={() => setActive(t.id)}>
+          <div key={t.id} className={cn("flex max-w-[180px] items-center rounded-t-lg", t.id === active ? "bg-surface-2 text-fg" : "text-fg-2")}>
+            <button
+              role="tab"
+              aria-selected={t.id === active}
+              className="min-w-0 cursor-pointer truncate border-0 bg-transparent py-1.5 pr-1 pl-2.5 text-[12.5px] font-semibold text-inherit"
+              title={t.url}
+              onClick={() => setActive(t.id)}
+            >
               {hostOf(t.url)}
             </button>
-            <button className="browser-tab-x" title="Close tab" aria-label={`Close ${hostOf(t.url)}`} onClick={() => close(t.id)}>
-              <Icon name="close" className="ms-sm" />
-            </button>
+            <IconButton icon="close" label={`Close ${hostOf(t.url)}`} className="size-6 text-inherit" onClick={() => close(t.id)} />
           </div>
         ))}
-        <button
-          className="browser-tab-new"
-          title="New tab"
-          aria-label="New tab"
+        <IconButton
+          icon="add"
+          label="New tab"
+          className="ml-1 size-6"
           onClick={() => {
             setActive(null);
             setAddress("");
           }}
-        >
-          <Icon name="add" className="ms-sm" />
-        </button>
+        />
       </div>
       <form
-        className="browser-bar"
+        className="flex flex-none items-center gap-1 border-y border-line bg-surface-2 px-2 py-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           go();
@@ -165,7 +172,7 @@ export function ContextBrowser({ storeKey, onTabs }: {
       >
         <button
           type="button"
-          className="icon-btn"
+          className={cn(bar, "cursor-pointer border-0 bg-transparent disabled:pointer-events-none disabled:opacity-40")}
           title="Reload"
           aria-label="Reload"
           disabled={!current}
@@ -174,18 +181,18 @@ export function ContextBrowser({ storeKey, onTabs }: {
           <Icon name="refresh" />
         </button>
         <input
-          className="browser-address"
+          className="h-[30px] min-w-0 flex-1 rounded-full border border-line bg-surface px-3 font-sans text-[13px] text-fg focus:border-fg focus:outline-none"
           value={address}
           placeholder="https://…"
           aria-label="Address"
           spellCheck={false}
           onChange={(e) => setAddress(e.target.value)}
         />
-        <button type="submit" className="icon-btn" title="Go" aria-label="Go">
+        <button type="submit" className={cn(bar, "cursor-pointer border-0 bg-transparent")} title="Go" aria-label="Go">
           <Icon name="arrow_forward" />
         </button>
         <a
-          className={`icon-btn${current ? "" : " disabled"}`}
+          className={cn(bar, !current && "pointer-events-none opacity-40")}
           href={current?.url}
           target="_blank"
           rel="noopener noreferrer"
@@ -195,11 +202,12 @@ export function ContextBrowser({ storeKey, onTabs }: {
           <Icon name="open_in_new" />
         </a>
       </form>
-      <div className="browser-pages">
+      {/* The page itself stays white whatever the theme: sites expect a white canvas. */}
+      <div className="relative min-h-0 flex-1 bg-white">
         {tabs.map((t) => (
           <iframe
             key={`${t.id}:${reloadKey[t.id] ?? 0}`}
-            className="browser-page"
+            className="block size-full border-0 bg-white [&[hidden]]:hidden"
             src={t.url}
             title={hostOf(t.url)}
             hidden={t.id !== active}
@@ -208,9 +216,11 @@ export function ContextBrowser({ storeKey, onTabs }: {
           />
         ))}
         {!current && (
-          <div className="browser-empty">
-            <Icon name="public" className="ms-lg" />
-            <p>Read a page beside the conversation: type an address, or click the <span className="ms material-symbols-rounded ms-sm">open_in_new</span> next to a link in the chat.</p>
+          <div className="absolute inset-0 grid place-content-center justify-items-center gap-2 bg-surface p-6 text-center text-fg-2">
+            <Icon name="public" className="text-[32px]" />
+            <p className="m-0 max-w-[36ch] text-[13.5px]">
+              Read a page beside the conversation: type an address, or click the <Icon name="open_in_new" className="ms-sm align-[-3px]" /> next to a link in the chat.
+            </p>
           </div>
         )}
       </div>

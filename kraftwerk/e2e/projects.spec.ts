@@ -89,12 +89,11 @@ test.describe("projects", () => {
     // A project chat can take coworkers, like an agent session.
     await expect(page.getByRole("button", { name: "add coworker" })).toBeVisible();
 
-    // The context column reads the project's memory: state.md and log.md as documents.
+    // The context column's overview reads the project's memory: where it stands (state.md) and lately (log.md).
     const ctx = page.locator(".ctx");
-    await ctx.getByRole("tab", { name: "state" }).click();
-    await expect(ctx.locator(".ctx-md")).toContainText("Nothing recorded yet");
-    await ctx.getByRole("tab", { name: /^log/ }).click();
-    await expect(ctx.locator(".ctx-md")).toContainText("Relaunch the website Log");
+    await ctx.getByRole("tab", { name: "overview" }).click();
+    await expect(ctx.locator("section", { hasText: "where it stands" })).toContainText("Nothing recorded yet");
+    await expect(ctx.locator("section", { hasText: "lately" })).toContainText("Created");
 
     // The chat is a tab above the project's chat; the general chats do not know it.
     const tab = page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`);
@@ -145,7 +144,7 @@ test.describe("projects", () => {
     await expect(page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toContainText("Relaunch crew");
     await page.getByRole("button", { name: "chats list" }).click();
     const row = page.locator(`.sessions-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`);
-    await expect(row).toContainText("channel session");
+    await expect(row).toContainText("with coworkers");
     await expect(row).toContainText("#relaunch-crew");
   });
 });

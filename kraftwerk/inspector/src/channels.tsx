@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { Agent, Channel, ChannelView } from "./types";
+import type { Agent, ChannelView } from "./types";
 import { ChatThread } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
+import { navigate, usePoll, fmtWhen } from "./shared";
+import { Button, Checkbox, cn, Dot, EmptyState, Eyebrow, Field, IconButton, ListRow, Notice, Page, Panel, Select, SideHead, SideList, SideNote, TextField } from "./ui";
 
 /**
  * Channels: shared transcripts where several agents (and humans) talk, like
@@ -18,8 +19,8 @@ export function ChannelEditPage({ slug }: { slug?: string }) {
   const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000);
   const current = slug ? data?.channels.find((c) => c.slug === slug) : undefined;
   if (!slug) return <ChannelEditor agents={agents?.agents ?? []} />;
-  if (!data) return <div className="empty">loading…</div>;
-  if (!current) return <div className="empty">channel not found</div>;
+  if (!data) return <EmptyState>loading…</EmptyState>;
+  if (!current) return <EmptyState icon="forum">channel not found</EmptyState>;
   return <ChannelEditor key={current.slug} channel={current} agents={agents?.agents ?? []} />;
 }
 
@@ -47,38 +48,44 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
         <ChatThread key={current.chatId} id={current.chatId} channel={current} agents={agents?.agents ?? []} />
       </div>
     );
-  else if (mode === "channel" && data) main = <div className="empty">channel not found</div>;
-  else if (mode === "channel") main = <div className="empty">loading…</div>;
-  else if (!data || latest) main = <div className="empty">loading…</div>;
+  else if (mode === "channel" && data) main = <EmptyState icon="forum">channel not found</EmptyState>;
+  else if (mode === "channel") main = <EmptyState>loading…</EmptyState>;
+  else if (!data || latest) main = <EmptyState>loading…</EmptyState>;
   else main = <ChannelsHome />;
 
   return (
     <div className="runs-screen channels-screen">
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">channels</span>
-          <span className="spacer" />
-          <Link href="/channels/new" className="open-raw">
-            <Icon name="add" className="ms-sm" /> new
-          </Link>
-        </div>
-        <div className="side-list">
+        <SideHead
+          title="channels"
+          action={
+            <Button size="sm" variant="quiet" icon="add" href="/channels/new">
+              new
+            </Button>
+          }
+        />
+        <SideList>
           {channels.map((c) => (
-            <Link key={c.slug} href={`/channels/${encodeURIComponent(c.slug)}`} className={`side-row ${c.slug === slug ? "active" : ""}`}>
-              <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : c.busy ? "an agent is working" : undefined} />
-              <div className="side-row-body">
-                <div className="side-row-top">
-                  <span className="side-wf">#{c.slug}</span>
-                </div>
-                <div className="side-row-sub">
-                  <span className="side-req">{c.name}{c.project ? ` · 📁 ${c.project}` : ""}{c.members.length ? ` · ${c.members.map((m) => `@${m}`).join(" ")}` : ""}</span>
-                  <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-                </div>
-              </div>
-            </Link>
+            <ListRow
+              key={c.slug}
+              href={`/channels/${encodeURIComponent(c.slug)}`}
+              active={c.slug === slug}
+              size="sm"
+              leading={
+                <Dot
+                  tone={c.awaitingApproval ? "bad" : c.busy ? "working" : "idle"}
+                  title={c.awaitingApproval ? "waiting for your approval" : c.busy ? "an agent is working" : undefined}
+                />
+              }
+              title={`#${c.slug}`}
+              sub={`${c.name}${c.project ? ` · 📁 ${c.project}` : ""}${c.members.length ? ` · ${c.members.map((m) => `@${m}`).join(" ")}` : ""}`}
+              meta={fmtWhen(c.updatedAt)}
+            />
           ))}
-          {data && channels.length === 0 && <div className="viewer-note">no channels yet — create one, or add a coworker to an agent session or a project chat</div>}
-        </div>
+          {data && channels.length === 0 && (
+            <SideNote>no channels yet — create one, or add a coworker to an agent session or a project chat</SideNote>
+          )}
+        </SideList>
       </aside>
       <div className="runs-main">{main}</div>
     </div>
@@ -88,10 +95,37 @@ export function ChannelsScreen({ seg }: { seg: string[] }) {
 /** No channels yet: nothing to explain, one thing to do. */
 function ChannelsHome() {
   return (
-    <div className="empty empty-action">
-      <Link href="/channels/new" className="run-btn">
-        <Icon name="add" className="ms-sm" /> new channel
-      </Link>
+    <EmptyState
+      className="m-auto"
+      action={
+        <Button variant="primary" icon="add" href="/channels/new">
+          new channel
+        </Button>
+      }
+    >
+      {null}
+    </EmptyState>
+  );
+}
+
+/** Agents to pick, one labelled checkbox row each (the label is what a test or a screen reader finds). */
+function AgentChecks({ agents, checked, onToggle, none }: { agents: Agent[]; checked: string[]; onToggle: (slug: string, on: boolean) => void; none: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-control border border-line p-1">
+      {agents.map((a) => (
+        <Checkbox
+          key={a.slug}
+          checked={checked.includes(a.slug)}
+          onChange={(on) => onToggle(a.slug, on)}
+          hint={`@${a.slug}${a.description ? ` · ${a.description}` : ""}`}
+          className={cn("rounded-control px-2.5 py-1.5 transition-colors hover:bg-surface-2", checked.includes(a.slug) && "bg-surface-2")}
+        >
+          <b className="font-semibold">
+            {a.emoji} {a.name}
+          </b>
+        </Checkbox>
+      ))}
+      {agents.length === 0 && <EmptyState className="py-4">{none}</EmptyState>}
     </div>
   );
 }
@@ -131,66 +165,56 @@ export function ChannelEditor({ channel, agents }: { channel?: ChannelView; agen
 
   async function remove(): Promise<void> {
     if (!channel) return;
-    if (!window.confirm(`Delete #${channel.slug} and its transcript?`)) return;
+    if (!window.confirm(`Move #${channel.slug} and its transcript to the trash?`)) return;
     await fetch(`/api/channels/${encodeURIComponent(channel.slug)}`, { method: "DELETE" }).catch(() => {});
     navigate("/channels");
   }
 
   return (
-    <div className="new-chat">
-      <div className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">{channel ? `edit #${channel.slug}` : "new channel"}</span>
-          <span className="spacer" />
-          {channel && (
-            <button className="open-raw" onClick={() => void remove()}>
-              <Icon name="delete" className="ms-sm" /> delete
-            </button>
-          )}
-        </div>
-        <div className="agent-form">
-          <label className="agent-field">
-            name
-            <input value={name} placeholder="e.g. Website relaunch" onChange={(e) => setName(e.target.value)} autoFocus />
-          </label>
-          <label className="agent-field">
-            purpose — one line the agents read
-            <input value={purpose} placeholder="what this channel is for" onChange={(e) => setPurpose(e.target.value)} />
-          </label>
-          <div className="agent-field">
-            members — agents in this channel
-            <div className="wf-checks">
-              {active.map((a) => (
-                <label key={a.slug}>
-                  <input type="checkbox" checked={members.includes(a.slug)} onChange={(e) => toggle(a.slug, e.target.checked)} />
-                  <b>{a.emoji} {a.name}</b>
-                  <span className="opt-hint"> — @{a.slug}{a.description ? ` · ${a.description}` : ""}</span>
-                </label>
-              ))}
-              {active.length === 0 && <div className="viewer-note">no agents yet — create one on the agents screen first</div>}
-            </div>
+    <Page width="narrow">
+      <Panel
+        title={channel ? `edit #${channel.slug}` : "new channel"}
+        actions={
+          channel && (
+            <Button size="sm" variant="danger" icon="delete" onClick={() => void remove()}>
+              delete
+            </Button>
+          )
+        }
+      >
+        <div className="flex flex-col gap-4 p-[18px]">
+          <Field label="name">
+            <TextField value={name} placeholder="e.g. Website relaunch" onChange={(e) => setName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="purpose — one line the agents read">
+            <TextField value={purpose} placeholder="what this channel is for" onChange={(e) => setPurpose(e.target.value)} />
+          </Field>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold text-fg">members — agents in this channel</span>
+            <AgentChecks agents={active} checked={members} onToggle={toggle} none="no agents yet — create one on the agents screen first" />
           </div>
-          <label className="agent-field">
-            responder — answers when a message mentions nobody
-            <select value={responder} onChange={(e) => setResponder(e.target.value)}>
+          <Field label="responder — answers when a message mentions nobody">
+            <Select value={responder} onChange={(e) => setResponder(e.target.value)}>
               <option value="">nobody (agents only answer when @mentioned)</option>
               {members.map((m) => (
-                <option key={m} value={m}>@{m}</option>
+                <option key={m} value={m}>
+                  @{m}
+                </option>
               ))}
-            </select>
-          </label>
-          {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-          <div className="agent-form-row">
-            <button className="run-btn" disabled={saving || !name.trim() || members.length === 0} onClick={() => void save()}>
+            </Select>
+          </Field>
+          {error && <Notice tone="bad">{error}</Notice>}
+          <div className="flex items-center gap-2">
+            <Button variant="primary" busy={saving} disabled={!name.trim() || members.length === 0} onClick={() => void save()}>
               {saving ? "saving…" : channel ? "save" : "create channel"}
-            </button>
-            <Link href={channel ? `/channels/${encodeURIComponent(channel.slug)}` : "/channels"} className="open-raw">
+            </Button>
+            <Button variant="quiet" href={channel ? `/channels/${encodeURIComponent(channel.slug)}` : "/channels"}>
               cancel
-            </Link>
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -257,15 +281,22 @@ export function AddCoworkerDialog({
   }
 
   return (
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-label="Add a coworker">
-        <div className="panel-head">
-          <span className="microlabel">add a coworker</span>
-          <span className="spacer" />
-          <button className="open-raw" onClick={onClose}><Icon name="close" className="ms-sm" /></button>
+    <div
+      className="fixed inset-0 z-40 grid animate-fade place-items-center bg-[color-mix(in_srgb,var(--text)_32%,transparent)] p-6"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="max-h-[calc(100dvh-48px)] w-[min(560px,100%)] animate-rise overflow-y-auto rounded-card border border-line bg-surface shadow-modal"
+        role="dialog"
+        aria-label="Add a coworker"
+      >
+        <div className="flex min-h-12 items-center gap-2 border-b border-line px-[18px] py-2">
+          <Eyebrow className="text-fg">add a coworker</Eyebrow>
+          <span className="flex-1" />
+          <IconButton icon="close" label="close" size="sm" onClick={onClose} />
         </div>
-        <div className="agent-form">
-          <p className="viewer-note">
+        <div className="flex flex-col gap-4 p-[18px]">
+          <p className="m-0 text-sm text-fg-2">
             {agentSlug ? (
               <>
                 This session becomes a channel: @{agentSlug} stays and keeps its memory, the agents you pick join, and
@@ -273,39 +304,32 @@ export function AddCoworkerDialog({
               </>
             ) : (
               <>
-                This chat becomes a channel session of the project <b>{project}</b> and stays here: the agents you pick join with
+                This chat becomes a channel session of the project <b className="text-fg">{project}</b> and stays here: the agents you pick join with
                 everything said so far and the project's brief, state, records and links. The first one you pick answers when
                 nobody is mentioned.
               </>
             )}
           </p>
-          <label className="agent-field">
-            channel name
-            <input value={name} placeholder="e.g. Website relaunch" onChange={(e) => setName(e.target.value)} autoFocus />
-          </label>
-          <div className="agent-field">
-            invite
-            <div className="wf-checks">
-              {agents.map((a) => (
-                <label key={a.slug}>
-                  <input
-                    type="checkbox"
-                    checked={picked.includes(a.slug)}
-                    onChange={(e) => setPicked((p) => (e.target.checked ? [...p, a.slug] : p.filter((x) => x !== a.slug)))}
-                  />
-                  <b>{a.emoji} {a.name}</b>
-                  <span className="opt-hint"> — @{a.slug}{a.description ? ` · ${a.description}` : ""}</span>
-                </label>
-              ))}
-              {agents.length === 0 && <div className="viewer-note">no other agents to invite yet</div>}
-            </div>
+          <Field label="channel name">
+            <TextField value={name} placeholder="e.g. Website relaunch" onChange={(e) => setName(e.target.value)} autoFocus />
+          </Field>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold text-fg">invite</span>
+            <AgentChecks
+              agents={agents}
+              checked={picked}
+              onToggle={(slug, on) => setPicked((p) => (on ? [...p, slug] : p.filter((x) => x !== slug)))}
+              none="no other agents to invite yet"
+            />
           </div>
-          {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-          <div className="agent-form-row">
-            <button className="run-btn" disabled={saving || !name.trim() || picked.length === 0} onClick={() => void create()}>
+          {error && <Notice tone="bad">{error}</Notice>}
+          <div className="flex items-center gap-2">
+            <Button variant="primary" busy={saving} disabled={!name.trim() || picked.length === 0} onClick={() => void create()}>
               {saving ? "creating…" : "create channel"}
-            </button>
-            <button className="open-raw" onClick={onClose}>cancel</button>
+            </Button>
+            <Button variant="quiet" onClick={onClose}>
+              cancel
+            </Button>
           </div>
         </div>
       </div>

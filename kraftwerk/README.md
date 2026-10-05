@@ -158,6 +158,8 @@ kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/v
 kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
+kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
+kraftwerk journal <agent> ["<entry>"]   # an agent's memory across sessions: print it, add a line (--kind)
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
 kraftwerk validate                      # all discovered: schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
@@ -168,6 +170,15 @@ kraftwerk runner ps / stop <run-id>     # see / stop running sandbox containers
 kraftwerk tunnel setup kw.example.com   # Cloudflare Tunnel to the inspector: login, create, route dns, kraftwerk.yml
 kraftwerk tunnel                        # run that tunnel alone (the UI runs elsewhere)
 ```
+
+Nothing is deleted at once. Removing an agent, a project, a knowledge bundle,
+a vibeable, a channel, a repository, a chat or a run, in the inspector or the
+CLI, moves its folder to `kraftwerk-data/trash/`. The trash mirrors the
+workspace (`trash/agents/<slug>`, `trash/knowledge/<bundle>`,
+`trash/projects/<slug>`, `trash/chats/<id>`, …) and ignores itself in git.
+The **trash** screen (`#/trash`) or `kraftwerk trash restore <id>` puts an entry
+back where it came from. Deleting it there, or `kraftwerk trash empty`, makes it
+final. A chat's agent transcripts are only removed then, so a restored chat can resume.
 
 The inspector binds `127.0.0.1` — it has no authentication of its own and
 its chat runs coding agents against the repo, so it stays off the LAN, and
@@ -510,6 +521,11 @@ directory stays the workspace root, so linked repositories and knowledge
 are reachable by path; opening a vibeable moves it into the app folder as
 in any chat.
 
+**In the rail.** The agents linked to a project and its apps (the linked
+vibeables) are listed under the project. Pin an app from the vibeables tab
+of the project's context column, or unpin it there; clicking it in the rail
+opens the project with the app beside its chat (`#/projects/<slug>?app=<vibeable>`).
+
 **Coworkers.** "Add coworker" on a project chat works as on an agent
 session: the chat becomes a channel whose members are the agents you pick,
 with everything said so far and the project's brief, state, records and
@@ -530,6 +546,37 @@ kraftwerk projects remove relaunch-netnode-ch
 The registry of workspaces on this machine, which answered to
 `kraftwerk projects` until 0.48, is `kraftwerk workspaces` now.
 
+## Files
+
+Files are the material of the work, in any format: briefings, contracts,
+designs, spreadsheets, deliverables. They are plain folders with two kinds
+of owner, chosen by how long a file lives:
+
+```
+kraftwerk-data/files/                    # workspace files: shared, outlive any project
+kraftwerk-data/projects/<slug>/files/    # a project's files: archived and trashed with the project
+```
+
+Agents own no files. They work in the project's files when they work on
+a project, and may link workspace folders in `agent.yml` (`files: [contracts]`)
+the way they link knowledge. Every session's context names the folders, the
+file count and the latest changes, not every file, and tells the agent to put
+what it produces in `files/deliverables/` (or `files/inbox/` without a
+project). Because they are plain folders, agents read and write them like any
+directory, and you can drop files in with Finder.
+
+The **files** page (`#/files`) has the workspace and every project on the
+left, the folder in the middle, and a preview on the right for images, PDFs,
+video, audio, markdown, CSV and text. Drop files anywhere on the list to
+upload. A project's chat has the same browser in its context column. Files
+are versioned in the workspace git; a file over 25 MB stays local, listed in
+the files root's own `.gitignore` and marked "local only". Deleting goes to
+the trash (`trash/files/…`, mirroring the folders).
+
+Files are not knowledge. A knowledge bundle holds curated, verified concepts,
+and a file becomes part of one as evidence, in the bundle's `references/`
+folder, which concepts cite in `sources` (OKF §5.1, §6.3).
+
 ## Persistent agents
 
 The inspector's "agents" screen turns chat agents into persistent teammates. An
@@ -539,6 +586,7 @@ agent is one folder under the project's `agents/` root:
 agents/max/
   agent.yml     # name, emoji, description, harness, model, effort, workflows, knowledge, vibeables
   system.md     # the agent's system prompt (its role)
+  journal.md    # the agent's own memory across sessions (written through `kraftwerk journal`)
 ```
 
 ```yaml
@@ -563,6 +611,40 @@ injected as context. That context includes how to run workflows
 and write knowledge through `kraftwerk knowledge`, with writes stamped with
 the agent's own actor, `<slug>/<harness>`. So the agent triggers its own
 workflows when a request matches, and keeps its bundles current.
+
+Every agent keeps a journal, `agents/<slug>/journal.md`: what it learned,
+decided, promised and finished, one line per entry under a dated heading,
+newest first. The recent days (about 4,000 characters) are part of every
+new session's context, together with how to add to it:
+
+```bash
+kraftwerk journal max                                          # print it
+kraftwerk journal max "send the summary on Friday" --kind promised   # learned | decided | promised | done | note
+```
+
+The agent's own lines are not signed; a line from anyone else is stamped
+with its actor. In the inspector, the agent's context column has a
+**journal** tab, where you can also add a note for the agent to remember
+(`GET`/`POST /api/agents/:slug/journal`). That is what makes an agent the
+same colleague next week, whichever chat you open.
+
+**What needs you.** Everything that blocks an agent, an approval or a
+question it asked, plus failures nobody has opened yet, is one list
+(`GET /api/attention`), oldest first, each item with its owner: the agent,
+the project or the channel. The rail puts a red count on every row that
+leads there: the agent, the project (its own chats and its agents'), the
+channel, Ralv, and the projects header while folded. The bell lists these
+items under "needs you", grouped by owner, with finished runs and routines
+below as "updates". **next** in the top bar (⌥N) opens the next waiting
+item where it lives: the chat, scrolled to the card, which lights up, with
+the project's or agent's context beside it. Answer, press next again.
+Notification titles name the owner first ("🦊 Lisa needs approval").
+
+Under each agent's name the rail shows what it is doing now: waiting for
+you (an approval or a question, with a red light), working (in which chat,
+for how long, with a pulsing light), the next routine due within a day and
+a half, or when it was last active (`GET /api/agent-status`). Agents linked
+to a project are listed under the project too.
 
 A chat keeps the agent's own session. The ACP session id is stored with the
 chat (`sessions` in `meta.json`), and the next process — after an inspector
@@ -593,8 +675,8 @@ and cost plus the model and thinking settings it lets you change live
 (`POST /api/chats/:id/config`). The agent's slash commands join the
 skills in the `/` menu. Each turn ends with the files the agent says it
 changed. Background tasks that can be stopped have a stop button
-(`POST /api/chats/:id/task-stop`). Deleting a chat deletes the agent's own
-sessions with it, and "continue a session" on the new-chat screen lists
+(`POST /api/chats/:id/task-stop`). Deleting a chat moves it to the trash; the
+agent's own sessions go when it is deleted from there, and "continue a session" on the new-chat screen lists
 the agent's sessions in the project (`GET /api/agent-sessions`) to pick
 one up as a chat.
 
@@ -821,6 +903,7 @@ kraftwerk knowledge search "refund"                     # full-text across bundl
 kraftwerk knowledge verify customer-support/playbooks/refunds --by human:user
 kraftwerk knowledge validate                            # OKF conformance + warnings
 kraftwerk knowledge fsck --fix                          # heal out-of-band edits (reindex)
+kraftwerk knowledge remove customer-support             # move the bundle to the trash
 ```
 
 Actors follow the OKF convention: `<producer>/<version>` for agents,

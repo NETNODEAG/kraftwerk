@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   MDXEditor,
-  type MDXEditorMethods,
   headingsPlugin,
   listsPlugin,
   quotePlugin,
@@ -26,6 +25,7 @@ import {
   InsertCodeBlock,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import "./editor.css";
 
 /**
  * The rich-text editor for a knowledge page, loaded lazily by knowledge.tsx

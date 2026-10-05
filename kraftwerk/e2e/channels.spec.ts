@@ -29,7 +29,7 @@ test.describe("channels", () => {
 
     // No channels yet: the home is nothing but the one action.
     await page.goto("/#/channels");
-    await expect(page.locator(".empty-action .run-btn")).toHaveText(/new channel/);
+    await expect(page.locator(".channels-screen").getByRole("link", { name: /new channel/ })).toBeVisible();
     await expect(page.locator(".channel-head")).toHaveCount(0);
 
     await page.goto("/#/channels/new");
@@ -43,7 +43,7 @@ test.describe("channels", () => {
     await expect(page.locator(".channel-head h1")).toHaveText("#launch-week");
     await expect(page.locator(".member-chip")).toHaveCount(2);
     await expect(page.locator(".channel-purpose")).toHaveText("coordinate the launch");
-    await expect(page.locator(".rail .rail-row.active")).toHaveAttribute("href", "#/channels/launch-week");
+    await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", "#/channels/launch-week");
 
     // Name yourself, then post. Nobody is mentioned and there is no
     // responder, so the message just lands in the transcript.

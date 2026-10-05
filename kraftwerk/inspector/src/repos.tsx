@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { DiffView } from "./git";
+import { DiffView, FileStatus, NOTE, PANEL_EMPTY } from "./git";
 import { fmtAgo, Icon, Link, useExpertMode } from "./shared";
+import { Button, cn, EmptyState, Field, Notice, Page, PageHeader, Panel, Tag, TextField, Title } from "./ui";
 import type { RepoDetail, RepoInfo, ReposView } from "./types";
 
 /**
@@ -16,13 +17,48 @@ import type { RepoDetail, RepoInfo, ReposView } from "./types";
 const shortUrl = (url: string): string =>
   url.replace(/^https?:\/\//, "").replace(/^git@([^:]+):/, "$1/").replace(/\.git$/, "");
 
-const stateOf = (r: RepoInfo): { label: string; cls: string } => {
-  if (r.error) return { label: "unreadable", cls: "missing" };
-  if (r.dirty) return { label: `${r.dirty} changed`, cls: "died" };
-  if (r.ahead) return { label: `${r.ahead} to push`, cls: "running" };
-  if (r.behind) return { label: `${r.behind} behind`, cls: "stopped" };
-  return { label: "clean", cls: "running" };
+type RepoState = "clean" | "changed" | "behind" | "unreadable";
+const stateOf = (r: RepoInfo): { label: string; state: RepoState } => {
+  if (r.error) return { label: "unreadable", state: "unreadable" };
+  if (r.dirty) return { label: `${r.dirty} changed`, state: "changed" };
+  if (r.ahead) return { label: `${r.ahead} to push`, state: "clean" };
+  if (r.behind) return { label: `${r.behind} behind`, state: "behind" };
+  return { label: "clean", state: "clean" };
 };
+
+/** The state word after the name: green when clean, amber with local changes, red when git cannot read it. */
+function StateWord({ label, state }: { label: string; state: RepoState }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center text-2xs font-semibold tracking-[0.4px] uppercase",
+        state === "clean" ? "text-ok" : state === "changed" ? "text-ask" : state === "unreadable" ? "text-bad" : "text-fg-2"
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+const BRANCH = "rounded-full border border-line px-[7px] py-px font-mono text-xs text-fg-2";
+/** A file or commit line that opens its diff. */
+const ITEM = "border-line px-[18px] py-2 [&+&]:border-t";
+const ITEM_BUTTON =
+  "group/item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-0.5 text-left font-[inherit] text-fg";
+const ITEM_PATH = "min-w-0 truncate font-mono text-[12.5px] group-hover/item:underline";
+
+function BackHead({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-center gap-3">
+      <Button size="sm" variant="quiet" icon="arrow_back" href="/repos" title="all repositories">
+        repositories
+      </Button>
+      <Icon name="folder_data" className="text-[26px] text-fg-2" />
+      <Title>{title}</Title>
+      {children}
+    </header>
+  );
+}
 
 /** Mirrors the server's remove guard: anything it would refuse without force. */
 const needsForce = (r: RepoInfo): boolean => !!(r.error || r.dirty || r.ahead === undefined || r.ahead);
@@ -93,34 +129,28 @@ function RepoPage({ slug }: { slug: string }) {
 
   if (loadError && !detail) {
     return (
-      <div className="settings-screen ws-screen repos-screen repo-page">
-        <div className="settings-head">
-          <Link href="/repos" className="open-raw" title="all repositories"><Icon name="arrow_back" className="ms-sm" /> repositories</Link>
-          <h1><Icon name="folder_data" className="ms-lg" /> {slug}</h1>
-        </div>
-        <div className="settings-err">{loadError}</div>
-      </div>
+      <Page className="repo-page">
+        <BackHead title={slug} />
+        <Notice tone="bad">{loadError}</Notice>
+      </Page>
     );
   }
-  if (!detail) return <div className="empty">loading…</div>;
+  if (!detail) return <EmptyState>loading…</EmptyState>;
   const st = stateOf(detail);
   const unpushed = detail.commits.filter((c) => c.local).length;
 
   return (
-    <div className="settings-screen ws-screen repos-screen repo-page">
-      <div className="settings-head">
-        <Link href="/repos" className="open-raw" title="all repositories"><Icon name="arrow_back" className="ms-sm" /> repositories</Link>
-        <h1><Icon name="folder_data" className="ms-lg" /> {detail.slug}</h1>
-        {detail.branch && <span className="repo-branch">{detail.branch}</span>}
-        {detail.upstream && <span className="settings-note" title="upstream">→ {detail.upstream}</span>}
-        <span className={`ws-state ws-state-${st.cls}`}>{st.label}</span>
-        <span className="spacer" />
-        <button className="ws-btn" disabled={!!verb} onClick={() => void update()} title="git fetch, then fast-forward when clean">
-          <Icon name={verb === "update" ? "progress_activity" : "sync"} className="ms-sm" />
+    <Page className="repo-page">
+      <BackHead title={detail.slug}>
+        {detail.branch && <span className={BRANCH}>{detail.branch}</span>}
+        {detail.upstream && <span className={NOTE} title="upstream">→ {detail.upstream}</span>}
+        <StateWord {...st} />
+        <span className="flex-1" />
+        <Button size="sm" icon="sync" busy={verb === "update"} disabled={!!verb} onClick={() => void update()} title="git fetch, then fast-forward when clean">
           {verb === "update" ? "updating…" : "update"}
-        </button>
-      </div>
-      <div className="settings-note repo-facts">
+        </Button>
+      </BackHead>
+      <div className={cn(NOTE, "flex flex-wrap gap-x-3.5 gap-y-1")}>
         {detail.url && <span title={detail.url}>{shortUrl(detail.url)}</span>}
         {expert && <span title={detail.path}>{detail.path}</span>}
         {detail.head && <span>at <code>{detail.head}</code>{detail.committedAt ? ` · ${fmtAgo(detail.committedAt)}` : ""}</span>}
@@ -128,55 +158,50 @@ function RepoPage({ slug }: { slug: string }) {
         {!!detail.behind && <span>{detail.behind} behind</span>}
         {detail.updatedAt && <span>changed {fmtAgo(detail.updatedAt)}</span>}
       </div>
-      {(detail.error || actionError || loadError) && <div className="settings-err">{detail.error || actionError || loadError}</div>}
+      {(detail.error || actionError || loadError) && <Notice tone="bad">{detail.error || actionError || loadError}</Notice>}
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">changes · working tree against HEAD</span>
-          <span className="spacer" />
-          <span className="settings-note">
+      <Panel
+        title="changes · working tree against HEAD"
+        actions={
+          <span className={NOTE}>
             {detail.files.length} file{detail.files.length === 1 ? "" : "s"}
             {detail.insertions || detail.deletions ? (
-              <> · <span className="d-add">+{detail.insertions}</span> <span className="d-del">−{detail.deletions}</span></>
+              <> · <span className="text-ok">+{detail.insertions}</span> <span className="text-bad">−{detail.deletions}</span></>
             ) : null}
           </span>
-        </div>
-        {detail.files.length === 0 && <div className="ws-empty">Clean — nothing changed since the last commit.</div>}
+        }
+      >
+        {detail.files.length === 0 && <p className={PANEL_EMPTY}>Clean — nothing changed since the last commit.</p>}
         {detail.files.map((f) => (
-          <div key={f.path} className={`repo-file ${openFile === f.path ? "open" : ""}`} data-file={f.path}>
-            <button className="repo-file-row" onClick={() => setOpenFile(openFile === f.path ? null : f.path)}>
+          <div key={f.path} className={cn("repo-file", ITEM)} data-file={f.path}>
+            <button type="button" className={ITEM_BUTTON} onClick={() => setOpenFile(openFile === f.path ? null : f.path)}>
               <Icon name={openFile === f.path ? "expand_more" : "chevron_right"} className="ms-sm" />
-              <span className={`git-code git-code-${f.status}`}>{f.status}</span>
-              <span className="repo-file-path">{f.path}</span>
+              <FileStatus status={f.status} />
+              <span className={ITEM_PATH}>{f.path}</span>
             </button>
             {openFile === f.path && (
               <DiffView url={`/api/repos/${encodeURIComponent(slug)}/diff?path=${encodeURIComponent(f.path)}&v=${encodeURIComponent(detail.updatedAt ?? "")}`} />
             )}
           </div>
         ))}
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">commits · newest first</span>
-          <span className="spacer" />
-          <span className="settings-note">{unpushed ? `${unpushed} not pushed` : detail.commits.length ? "all pushed" : ""}</span>
-        </div>
-        {detail.commits.length === 0 && <div className="ws-empty">No commits yet.</div>}
+      <Panel title="commits · newest first" actions={<span className={NOTE}>{unpushed ? `${unpushed} not pushed` : detail.commits.length ? "all pushed" : ""}</span>}>
+        {detail.commits.length === 0 && <p className={PANEL_EMPTY}>No commits yet.</p>}
         {detail.commits.map((c) => (
-          <div key={c.hash} className={`repo-commit ${openCommit === c.hash ? "open" : ""} ${c.local ? "local" : ""}`} data-commit={c.short}>
-            <button className="repo-file-row" onClick={() => setOpenCommit(openCommit === c.hash ? null : c.hash)} title={c.hash}>
+          <div key={c.hash} className={cn("repo-commit", ITEM)} data-commit={c.short}>
+            <button type="button" className={ITEM_BUTTON} onClick={() => setOpenCommit(openCommit === c.hash ? null : c.hash)} title={c.hash}>
               <Icon name={openCommit === c.hash ? "expand_more" : "chevron_right"} className="ms-sm" />
-              <code>{c.short}</code>
-              <span className="repo-file-path">{c.subject}</span>
-              {c.local && <span className="chip">not pushed</span>}
-              <span className="settings-note">{c.author} · {fmtAgo(c.committedAt)}</span>
+              <code className="text-xs">{c.short}</code>
+              <span className="min-w-0 truncate text-sm group-hover/item:underline">{c.subject}</span>
+              {c.local && <Tag tone="accent">not pushed</Tag>}
+              <span className={cn(NOTE, "ml-auto flex-none")}>{c.author} · {fmtAgo(c.committedAt)}</span>
             </button>
             {openCommit === c.hash && <DiffView url={`/api/repos/${encodeURIComponent(slug)}/commits/${c.hash}`} />}
           </div>
         ))}
-      </section>
-    </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -270,92 +295,93 @@ function ReposList() {
   const repos = [...(view?.repos ?? [])].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 
   return (
-    <div className="settings-screen ws-screen repos-screen">
-      <div className="settings-head">
-        <h1><Icon name="source" className="ms-lg" /> Repositories</h1>
-        <span className="spacer" />
-        {view?.enabled && <span className="settings-note">{repos.length} cloned</span>}
-        {loadError && <span className="settings-err">{loadError}</span>}
-      </div>
+    <Page>
+      <PageHeader
+        icon="source"
+        title="Repositories"
+        actions={
+          <>
+            {view?.enabled && <span className={NOTE}>{repos.length} cloned</span>}
+            {loadError && <Notice tone="bad">{loadError}</Notice>}
+          </>
+        }
+      />
 
       {view && !view.enabled && (
-        <section className="panel">
-          <div className="ws-empty">
+        <Panel>
+          <div className={PANEL_EMPTY}>
             {view.error && !/are off/.test(view.error) ? (
-              <span className="settings-err">{view.error}</span>
+              <Notice tone="bad">{view.error}</Notice>
             ) : (
               <>
                 Repositories are off. Turn them on in <a href="#/settings">settings</a> or add a <code>repos:</code> block to kraftwerk.yml.
               </>
             )}
           </div>
-        </section>
+        </Panel>
       )}
 
       {view?.enabled && (
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">add a repository</span>
-            <span className="spacer" />
-            <span className="settings-note">clones into <code title={view.root}>{view.root}</code></span>
-          </div>
-          <form className="agent-form" onSubmit={(e) => void add(e)}>
-            <div className="agent-form-row">
-              <label className="agent-field" style={{ flex: 2 }}>
-                url
-                <input
+        <Panel title="add a repository" actions={<span className={NOTE}>clones into <code title={view.root}>{view.root}</code></span>}>
+          <form className="flex flex-col gap-2.5 p-[18px]" onSubmit={(e) => void add(e)}>
+            <div className="flex flex-wrap items-end gap-2.5">
+              <Field label="url" className="min-w-[240px] flex-[2]">
+                <TextField
                   value={url}
                   placeholder="https://github.com/org/repo.git, git@host:org/repo.git or github:org/repo"
                   onChange={(e) => setUrl(e.target.value)}
                   autoFocus
                 />
-              </label>
-              <label className="agent-field" style={{ flex: 1 }}>
-                name
-                <input value={name} placeholder="from the url" onChange={(e) => setName(e.target.value)} />
-              </label>
-              <label className="agent-field" style={{ width: 140 }}>
-                branch
-                <input value={branch} placeholder="default" onChange={(e) => setBranch(e.target.value)} />
-              </label>
-              <button className="ws-btn primary" type="submit" disabled={adding || !url.trim()}>
-                <Icon name={adding ? "progress_activity" : "download"} className="ms-sm" />
+              </Field>
+              <Field label="name" className="min-w-[140px] flex-1">
+                <TextField value={name} placeholder="from the url" onChange={(e) => setName(e.target.value)} />
+              </Field>
+              <Field label="branch" className="w-[140px]">
+                <TextField value={branch} placeholder="default" onChange={(e) => setBranch(e.target.value)} />
+              </Field>
+              <Button type="submit" variant="primary" icon="download" busy={adding} disabled={!url.trim()}>
                 {adding ? "cloning…" : "clone"}
-              </button>
+              </Button>
             </div>
-            {addError && <div className="settings-err">{addError}</div>}
-            <div className="settings-note">
+            {addError && <Notice tone="bad">{addError}</Notice>}
+            <p className={cn(NOTE, "m-0")}>
               Uses your own git credentials and never prompts: a private remote must already work from a terminal.
               Agents see every clone here and can add more with <code>kraftwerk repos add</code>.
-            </div>
+            </p>
           </form>
-        </section>
+        </Panel>
       )}
 
       {view?.enabled && (
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">cloned repositories · newest change first</span>
-          </div>
-          {repos.length === 0 && <div className="ws-empty">Nothing cloned yet.</div>}
+        <Panel title="cloned repositories · newest change first">
+          {repos.length === 0 && <p className={PANEL_EMPTY}>Nothing cloned yet.</p>}
           {repos.map((r) => {
             const verb = busy[r.slug];
             const st = stateOf(r);
             return (
-              <div key={r.slug} className={`ws-row repo-row state-${st.cls}`} data-repo={r.slug}>
-                <span className="switcher-icon ws-icon"><Icon name="folder_data" /></span>
-                <div className="ws-main">
-                  <div className="ws-title">
-                    <Link href={`/repos/${encodeURIComponent(r.slug)}`} className="ws-name" title="changes and commits">{r.slug}</Link>
-                    {r.branch && <span className="repo-branch">{r.branch}</span>}
-                    <span className={`ws-state ws-state-${st.cls}`}>{st.label}</span>
-                    {r.updatedAt && <span className="vibeable-when" title={r.updatedAt}>changed {fmtAgo(r.updatedAt)}</span>}
+              <div
+                key={r.slug}
+                className={cn(
+                  "repo-row grid grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-3.5 border-line px-[18px] py-3.5 [&+&]:border-t",
+                  st.state === "changed" && "bg-ask-soft/40"
+                )}
+                data-repo={r.slug}
+              >
+                <span className={cn("grid size-10 place-items-center rounded-full bg-surface-2 text-fg-2", st.state === "unreadable" && "opacity-45 grayscale")}>
+                  <Icon name="folder_data" className="text-[22px]" />
+                </span>
+                <div className="flex min-w-0 flex-col gap-[3px]">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Link href={`/repos/${encodeURIComponent(r.slug)}`} className="text-md font-semibold text-fg no-underline hover:underline" title="changes and commits">
+                      {r.slug}
+                    </Link>
+                    {r.branch && <span className={BRANCH}>{r.branch}</span>}
+                    <StateWord {...st} />
+                    {r.updatedAt && <span className={NOTE} title={r.updatedAt}>changed {fmtAgo(r.updatedAt)}</span>}
                   </div>
-                  {r.url && (
-                    <div className="ws-root" title={r.url}>{shortUrl(r.url)}</div>
-                  )}
-                  {expert && <div className="ws-root ws-dim" title={r.path}>{r.path}</div>}
-                  <div className="ws-meta">
+                  {r.url && <div className="font-mono text-xs [overflow-wrap:anywhere] text-fg-2" title={r.url}>{shortUrl(r.url)}</div>}
+                  {expert && <div className="text-xs [overflow-wrap:anywhere] text-fg-2 opacity-70" title={r.path}>{r.path}</div>}
+                  <div className={cn(NOTE, "flex flex-wrap gap-x-3.5 gap-y-1 [&_code]:text-[11.5px]")}>
                     {r.head && (
                       <span title={r.committedAt}>
                         <code>{r.head}</code> {r.subject}
@@ -363,38 +389,36 @@ function ReposList() {
                       </span>
                     )}
                     {!!r.behind && !!r.dirty && <span>behind by {r.behind}</span>}
-                    {r.error && <span className="settings-err">{r.error}</span>}
+                    {r.error && <span className="text-bad">{r.error}</span>}
                   </div>
-                  {errors[r.slug] && <div className="settings-err">{errors[r.slug]}</div>}
+                  {errors[r.slug] && <Notice tone="bad">{errors[r.slug]}</Notice>}
                 </div>
-                <div className="ws-actions">
-                  <Link href={`/repos/${encodeURIComponent(r.slug)}`} className="ws-btn" title="changed files with diffs, recent commits">
-                    <Icon name="difference" className="ms-sm" /> changes
-                  </Link>
-                  <button className="ws-btn" disabled={!!verb} onClick={() => void call(r.slug, "update")} title="git fetch, then fast-forward when clean">
-                    <Icon name={verb === "update" ? "progress_activity" : "sync"} className="ms-sm" />
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button size="sm" icon="difference" href={`/repos/${encodeURIComponent(r.slug)}`} title="changed files with diffs, recent commits">
+                    changes
+                  </Button>
+                  <Button size="sm" icon="sync" busy={verb === "update"} disabled={!!verb} onClick={() => void call(r.slug, "update")} title="git fetch, then fast-forward when clean">
                     {verb === "update" ? "updating…" : "update"}
-                  </button>
+                  </Button>
                   {confirmRemove !== r.slug && (
-                    <button className="ws-btn" disabled={!!verb} onClick={() => setConfirmRemove(r.slug)} title="Delete the clone">
-                      <Icon name="delete" className="ms-sm" /> remove
-                    </button>
+                    <Button size="sm" icon="delete" disabled={!!verb} onClick={() => setConfirmRemove(r.slug)} title="Move the clone to the trash">
+                      remove
+                    </Button>
                   )}
                   {confirmRemove === r.slug && (
                     <>
-                      <button className="ws-btn danger" onClick={() => void call(r.slug, "remove", needsForce(r))}>
-                        <Icon name="delete" className="ms-sm" />
+                      <Button size="sm" variant="danger" icon="delete" onClick={() => void call(r.slug, "remove", needsForce(r))}>
                         {r.dirty || r.ahead ? "delete with local changes" : needsForce(r) ? "delete anyway" : "confirm remove"}
-                      </button>
-                      <button className="ws-btn" onClick={() => setConfirmRemove(null)}>cancel</button>
+                      </Button>
+                      <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(null)}>cancel</Button>
                     </>
                   )}
                 </div>
               </div>
             );
           })}
-        </section>
+        </Panel>
       )}
-    </div>
+    </Page>
   );
 }

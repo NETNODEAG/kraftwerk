@@ -13,7 +13,7 @@ import { initContext as prepare } from "./routines.js";
  *
  *   kraftwerk vibeables                    list: name, mode, state
  *   kraftwerk vibeables create <name>      new app from the starter (index.html, vibeable.yml)
- *   kraftwerk vibeables remove <name>      delete the folder (its history stays in the workspace git)
+ *   kraftwerk vibeables remove <name>      move the folder to the trash
  */
 
 const die = (msg: string): never => {
@@ -77,13 +77,13 @@ export function registerVibeableCommands(program: Command): void {
 
   vibeables
     .command("remove")
-    .description("Delete an app folder; its history stays in the workspace git")
+    .description("Move an app folder to the trash (`kraftwerk trash` puts it back)")
     .argument("<name>", "Folder name under the root")
     .action(async (name: string) => {
       await prepare();
       try {
         await deleteVibeable(name);
-        console.log(`${chalk.green("✔")} removed ${chalk.cyan(name)}`);
+        console.log(`${chalk.green("✔")} moved ${chalk.cyan(name)} to the trash`);
       } catch (err) {
         die((err as Error).message);
       }

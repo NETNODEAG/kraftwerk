@@ -18,15 +18,15 @@ test.describe("agents landing", () => {
   test("empty workspace shows only the create button, an agent becomes the landing", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("kw-expert", "on"));
     await page.goto("/#/agents");
-    await expect(page.locator(".empty-action .run-btn")).toHaveText(/create your first agent/);
-    await expect(page.locator(".new-chat-panel")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /create your first agent/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "start chat" })).toHaveCount(0);
 
     const dir = path.join(fixture(), "agents", SLUG);
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "agent.yml"), "name: Landing Probe\nemoji: 🧭\nharness: claude\n");
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/agents/${SLUG}`));
-    await expect(page.locator(".rail .rail-row.active")).toHaveAttribute("href", `#/agents/${SLUG}`);
+    await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", `#/agents/${SLUG}`);
   });
 });
 
@@ -55,7 +55,7 @@ test.describe("general chats landing", () => {
     // Same hash as before, so a plain goto would not re-enter the route.
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
-    await expect(page.locator(".rail .rail-row.active")).toHaveAttribute("href", "#/agents/chats");
+    await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", "#/agents/chats");
 
     await page.locator("a[href='#/agents/chats/new']").click();
     await expect(page).toHaveURL(/#\/agents\/chats\/new$/);
@@ -97,14 +97,14 @@ test.describe("agent vibeables", () => {
     await row.getByRole("button", { name: "edit" }).click();
     await row.getByRole("checkbox", { name: new RegExp(APP) }).check();
     await row.getByRole("button", { name: "save" }).click();
-    await expect(row.locator(`a.chip[href='#/vibeables/${APP}']`)).toBeVisible();
+    await expect(row.locator(`a[href='#/vibeables/${APP}']`)).toBeVisible();
     expect(readFileSync(path.join(fixture(), "agents", SLUG, "agent.yml"), "utf8")).toMatch(new RegExp(`^vibeables:\\n  - ${APP}$`, "m"));
 
     await page.goto(`/#/agents/${SLUG}/chat/new`);
-    const tab = page.locator(".ctx").getByRole("tab", { name: /vibeables/ });
+    const tab = page.locator(".ctx").getByRole("tab", { name: /apps/ });
     await expect(tab).toContainText("1");
     await tab.click();
-    await expect(page.locator(`.ctx .ctx-row[href='#/vibeables/${APP}']`)).toBeVisible();
+    await expect(page.locator(`.ctx a[href='#/vibeables/${APP}']`)).toBeVisible();
 
     // Unlink in the modal over the chat: the column follows as soon as the modal closes, not on its next tick.
     await page.locator(".ctx .ctx-edit").click();
@@ -115,6 +115,7 @@ test.describe("agent vibeables", () => {
     await expect(modalRow).toContainText("none linked");
     await page.getByRole("button", { name: "close" }).click();
     await expect(page.locator(".edit-modal")).toHaveCount(0);
-    await expect(page.locator(".ctx").getByRole("tab", { name: /vibeables/ })).toHaveCount(0, { timeout: 3_000 });
+    // The tab stays (the same tabs everywhere); its count drops.
+    await expect(page.locator(".ctx").getByRole("tab", { name: /apps/ })).toContainText("0", { timeout: 3_000 });
   });
 });

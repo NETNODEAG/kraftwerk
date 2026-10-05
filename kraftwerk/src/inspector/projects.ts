@@ -9,8 +9,10 @@ import { syncWorkspaceProjects } from "./instances.js";
 import { knowledgeIndex } from "./knowledge.js";
 import { newestMtime } from "./mtime.js";
 import { listRepos } from "./repos.js";
+import { moveToTrash } from "./trash.js";
 import { listVibeables } from "./vibeables.js";
 import { listWorkflows } from "./workflows.js";
+import { filesContext } from "./files.js";
 
 /**
  * Projects: a goal with everything the agents need to reach it gathered in
@@ -514,12 +516,12 @@ export async function appendProjectLog(slug: string, entry: string, actor: strin
   return out;
 }
 
-/** Remove the folder; its history stays in the workspace git. */
+/** Move the folder to the trash. */
 export async function deleteProject(slug: string): Promise<void> {
   const root = await requireRoot();
   const dir = path.join(root, safeProjectSlug(slug));
   if (!(await fs.stat(path.join(dir, PROJECT_FILE)).catch(() => null))) throw new Error(`no project "${slug}"`);
-  await fs.rm(dir, { recursive: true, force: true });
+  await moveToTrash("projects", slug, dir);
 }
 
 /* ---------- chat context ---------- */
@@ -590,6 +592,7 @@ export async function projectContext(slug: string, actor: string, opts: { member
             `\`npx kraftwerk repos\` lists every clone, \`repos add <url>\` clones a new one into the root.`
           : `\nRepositories are switched off in this workspace's settings, so these clones are not reachable right now — tell the user.`)
       : "",
+    await filesContext(`project:${p.slug}`, "Files", "The project's files (briefings, drafts, designs, deliverables) are in"),
     vibeables
       ? `## Vibeables\nSmall apps of this project (one folder each under the vibeables root):\n` +
         linkLines("vibeables", (l) => `- ${l.slug}${l.label ? ` (${l.label})` : ""}`) +

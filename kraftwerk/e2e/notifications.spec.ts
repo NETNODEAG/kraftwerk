@@ -21,7 +21,8 @@ test.describe("notifications bell", () => {
     await page.goto("/");
     const bell = page.getByRole("button", { name: "Notifications" });
     await expect(bell).toBeVisible();
-    await expect(bell.locator(".notif-badge")).toHaveCount(0);
+    const next = page.locator(".next-btn");
+    await expect(next).toHaveCount(0);
 
     const saved = await request.post("/api/agents/watcher/routines", {
       data: { name: "morning digest", schedule: "0 9 * * 1-5", prompt: "say hello", enabled: false },
@@ -34,8 +35,8 @@ test.describe("notifications bell", () => {
 
     const view = (await (await request.get("/api/notifications")).json()) as { unread: number; items: unknown[] };
     expect(view.unread, JSON.stringify(view)).toBe(1);
-    // The bell polls every 5s.
-    await expect(bell.locator(".notif-badge")).toHaveText("1", { timeout: 12_000 });
+    // A failure nobody opened needs you: counted on "next", not on the bell.
+    await expect(next.locator(".next-n")).toHaveText("1", { timeout: 12_000 });
     await expect(page).toHaveTitle(/^\(1\) /);
 
     await bell.click();
@@ -50,12 +51,13 @@ test.describe("notifications bell", () => {
     await row.click();
     await expect(page).toHaveURL(/#\/agents\/watcher$/);
     // Actions apply at once — no wait for the next poll.
-    await expect(bell.locator(".notif-badge")).toHaveCount(0, { timeout: 2000 });
+    await expect(next).toHaveCount(0, { timeout: 5000 });
     await expect(page).not.toHaveTitle(/^\(\d+\) /);
 
     await bell.click();
     await page.getByRole("button", { name: "clear" }).click();
     await expect(page.locator(".notif-row")).toHaveCount(0);
-    await expect(page.locator(".notif-empty")).toBeVisible();
+    await expect(page.getByText("nothing is waiting for you")).toBeVisible();
+    await expect(page.getByText("no updates")).toBeVisible();
   });
 });

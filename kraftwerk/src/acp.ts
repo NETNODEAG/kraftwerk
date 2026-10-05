@@ -266,7 +266,8 @@ export async function connectAcp(
     onClose(code: number | null, stderr: string): void;
   }
 ): Promise<AcpProcess> {
-  const entry = fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
+  // KRAFTWERK_ACP_ADAPTER: a script standing in for the adapter (the tests' scripted fake agent).
+  const entry = process.env.KRAFTWERK_ACP_ADAPTER || fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
   const child = spawn(process.execPath, [entry], {
     cwd: opts.cwd,
     stdio: ["pipe", "pipe", "pipe"],

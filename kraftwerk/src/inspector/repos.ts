@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { gitignoreHas, ignoreEntryFor, reposRootFor, resolveProject, type Project } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { moveToTrash } from "./trash.js";
 import { newestMtime } from "./mtime.js";
 import { capDiff, DENY, diffAgainstHead, git, gitNet, label, literal, parseStatus, sshCommandFor, type GitDiff } from "./git.js";
 
@@ -403,7 +404,7 @@ export async function removeRepo(slug: string, force = false): Promise<{ ok: boo
     if (repo.ahead === undefined) return { ok: false, conflict: true, error: `"${slug}": cannot tell whether it has unpushed commits; remove it with --force` };
     if (repo.ahead) return { ok: false, conflict: true, error: `"${slug}" has ${repo.ahead} unpushed commit(s)` };
   }
-  await fs.rm(dir, { recursive: true, force: true });
+  await moveToTrash("repos", slug, dir);
   return { ok: true };
 }
 

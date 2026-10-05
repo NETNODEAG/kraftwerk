@@ -15,6 +15,7 @@ import {
   type ConceptInfo,
 } from "../okf.js";
 import { getProjectRoot } from "./context.js";
+import { moveToTrash } from "./trash.js";
 
 /**
  * Knowledge for the inspector: a thin API layer over the OKF
@@ -50,6 +51,12 @@ export async function knowledgeIndex(): Promise<KnowledgeIndex> {
 export async function createBundle(name: string): Promise<BundleInfo> {
   await initBundle(await root(), name);
   return { name, concepts: 0 };
+}
+
+/** Move a bundle to the trash. */
+export async function deleteBundle(name: string): Promise<void> {
+  const dir = path.join(await root(), safeBundleName(name));
+  if (!(await moveToTrash("knowledge", name, dir))) throw new Error(`no bundle "${name}"`);
 }
 
 export async function bundleDetail(name: string): Promise<BundleDetail | null> {

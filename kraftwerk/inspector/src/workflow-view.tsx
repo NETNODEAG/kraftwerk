@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
-import { Link, usePoll, fmtDuration, fmtCost, fmtWhen, Lamp, Elapsed, StatusWord } from "./shared";
+import { Link, usePoll, fmtDuration, fmtCost, fmtWhen, Elapsed } from "./shared";
 import { RunForm } from "./run-launcher";
-import { WorkflowBoard } from "./workflow-board";
+import { WorkflowBoard, StepIndex, agentColour } from "./workflow-board";
+import { DecisionTag, RunStatus, Stat, STATS, TIMELINE_ROW, runTone } from "./runs";
+import { Button, cn, Dot, EmptyState, Hint, Panel, Tabs, Tag, Title } from "./ui";
 
 export type WorkflowTab = "overview" | "details" | "runs";
 
@@ -19,15 +21,13 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
   const [liveCount, setLiveCount] = useState(0);
   const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", liveCount > 0 || Date.now() - launchedAt < 20_000);
 
-  if (!wf) return <div className="empty">loading…</div>;
+  if (!wf) return <EmptyState>loading…</EmptyState>;
   if (wf.error) {
     return (
-      <>
-        <div className="empty">
-          <span className="status-word failed">broken workflow</span>
-          <pre style={{ marginTop: 12, textAlign: "left" }}>{wf.error}</pre>
-        </div>
-      </>
+      <EmptyState>
+        <Tag tone="bad">broken workflow</Tag>
+        <pre className="mt-3 text-left">{wf.error}</pre>
+      </EmptyState>
     );
   }
 
@@ -39,48 +39,53 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
 
   return (
     <>
-      <div className="detail-head">
-        <h1>{wf.name ?? wf.slug}</h1>
-        <span className="rid mono">{wf.dir}</span>
-        <span className="spacer" />
-        <nav className="tabs" aria-label="workflow sections">
-          <Link href={base} className={tab === "overview" ? "active" : ""}>overview</Link>
-          <Link href={`${base}/details`} className={tab === "details" ? "active" : ""}>details</Link>
-          <Link href={`${base}/runs`} className={tab === "runs" ? "active" : ""}>
-            runs <span className="num">({runs.length})</span>
-          </Link>
-        </nav>
-      </div>
-      {wf.description && <p className="detail-req">{wf.description}</p>}
+      <header className="mb-1.5 flex flex-wrap items-center gap-x-4 gap-y-2.5 in-[.ctx-embed]:mb-3 in-[.ctx-embed]:gap-y-2">
+        <Title size="lg" className="in-[.ctx-embed]:text-xl">{wf.name ?? wf.slug}</Title>
+        <span className="min-w-0 font-mono text-xs [overflow-wrap:anywhere] text-fg-2 in-[.ctx-embed]:hidden">{wf.dir}</span>
+        <span className="flex-1" />
+        <Tabs
+          bare
+          label="workflow sections"
+          value={tab}
+          items={[
+            { id: "overview", href: base, label: "overview" },
+            { id: "details", href: `${base}/details`, label: "details" },
+            { id: "runs", href: `${base}/runs`, label: <>runs <span className="tabular-nums">({runs.length})</span></> },
+          ]}
+        />
+      </header>
+      {wf.description && <p className="mb-5 max-w-[90ch] text-base text-fg-2">{wf.description}</p>}
 
       {tab === "overview" && (
         <>
-          <section className="panel run-panel" style={{ marginBottom: 18 }}>
+          <Panel className="run-panel mb-[18px]">
             <RunForm
               slug={wf.slug}
               usesRequest={wf.usesRequest}
               initialRequest={runs[0]?.request}
               onLaunched={() => setLaunchedAt(Date.now())}
             />
-          </section>
+          </Panel>
 
-          <section className="panel">
-            <div className="panel-head">
-              <span className="microlabel">
+          <Panel
+            title={
+              <>
                 board{" "}
-                <span className="num">
+                <span className="tabular-nums">
                   ({runs.length} runs{live > 0 ? `, ${live} live` : ""})
                 </span>
-              </span>
-              <span className="spacer" />
-              {runs[0] && (
-                <Link href={`${base}/runs`} className="open-raw">
+              </>
+            }
+            actions={
+              runs[0] && (
+                <Button size="sm" variant="quiet" href={`${base}/runs`} className="in-[.ctx-embed]:hidden">
                   all runs ↗
-                </Link>
-              )}
-            </div>
+                </Button>
+              )
+            }
+          >
             <WorkflowBoard wf={wf} runs={runs} agentIdx={agentIdx} runsHref={`${base}/runs`} />
-          </section>
+          </Panel>
         </>
       )}
 
@@ -94,67 +99,54 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
 function Details({ wf, agentIdx }: { wf: WorkflowDetail; agentIdx: Map<string, number> }) {
   return (
     <>
-      <div className="statgrid">
-        <div className="stat">
-          <div className="microlabel">agents</div>
-          <div className="v num">{wf.agents.length}</div>
-        </div>
-        <div className="stat">
-          <div className="microlabel">steps</div>
-          <div className="v num">
-            {wf.steps.length}{" "}
-            <span style={{ color: "var(--muted)", fontWeight: 400 }}>
-              ({wf.steps.filter((s) => s.kind === "agent").length} agent ·{" "}
-              {wf.steps.filter((s) => s.kind === "script").length} script)
-            </span>
-          </div>
-        </div>
+      <div className={STATS}>
+        <Stat label="agents">{wf.agents.length}</Stat>
+        <Stat label="steps">
+          {wf.steps.length}{" "}
+          <span className="font-normal text-fg-2">
+            ({wf.steps.filter((s) => s.kind === "agent").length} agent · {wf.steps.filter((s) => s.kind === "script").length} script)
+          </span>
+        </Stat>
         {wf.workspace && (
-          <div className="stat" style={{ maxWidth: 420 }}>
-            <div className="microlabel">workspace</div>
-            <div className="wf-workspace mono">{wf.workspace}</div>
-          </div>
+          <Stat label="workspace" className="max-w-[420px]">
+            <span className="text-[11.5px] font-normal whitespace-pre-wrap text-fg-2">{wf.workspace}</span>
+          </Stat>
         )}
       </div>
 
-      <section className="panel" style={{ marginBottom: 18 }}>
-        <div className="panel-head">
-          <span className="microlabel">agents</span>
-        </div>
-        <div className="agent-grid">
+      <Panel title="agents" className="mb-[18px]">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
           {wf.agents.map((a) => (
             <AgentCard key={a.id} a={a} idx={agentIdx.get(a.id) ?? 0} />
           ))}
-          {wf.agents.length === 0 && <div className="viewer-note">no agents — script-only workflow</div>}
+          {wf.agents.length === 0 && <Hint className="px-[18px] py-3">no agents — script-only workflow</Hint>}
         </div>
-      </section>
+      </Panel>
 
-      <div className="columns">
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">pipeline</span>
-          </div>
-          <div className="pipeline">
+      <div className="grid items-start gap-[18px] grid-cols-[minmax(430px,5fr)_minmax(360px,4fr)] max-[1100px]:grid-cols-1 in-[.ctx-embed]:grid-cols-1">
+        <Panel title="pipeline">
+          <div className="pipeline py-2">
             {wf.steps.map((s, i) => (
               <StepNode key={s.name} s={s} i={i} idx={s.agent ? agentIdx.get(s.agent) ?? 0 : null} />
             ))}
           </div>
-        </section>
+        </Panel>
 
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">
-              folder <span className="num">({wf.files.length} files)</span>
-            </span>
-          </div>
-          <div className="file-list">
+        <Panel
+          title={
+            <>
+              folder <span className="tabular-nums">({wf.files.length} files)</span>
+            </>
+          }
+        >
+          <div className="max-h-[300px] overflow-auto">
             {wf.files.map((f) => (
-              <div key={f} className="file-row" style={{ cursor: "default" }}>
-                <span className="fname">{f}</span>
+              <div key={f} className="truncate border-b border-line/55 px-[18px] py-2 font-mono text-[12.5px] text-fg-2 last:border-b-0">
+                {f}
               </div>
             ))}
           </div>
-        </section>
+        </Panel>
       </div>
     </>
   );
@@ -162,28 +154,32 @@ function Details({ wf, agentIdx }: { wf: WorkflowDetail; agentIdx: Map<string, n
 
 /** Every run of the workflow, newest first — the board's cards as a flat list. */
 function RunList({ runs }: { runs: RunListItem[] }) {
-  if (runs.length === 0) return <div className="empty">no runs of this workflow yet</div>;
+  if (runs.length === 0) return <EmptyState>no runs of this workflow yet</EmptyState>;
   return (
-    <div className="run-list">
+    <div className="flex flex-col gap-2">
       {runs.map((r) => {
         const total = r.phasesTotal ?? 0;
         const pct = total > 0 ? Math.round((r.phasesDone / total) * 100) : r.status === "ok" ? 100 : 0;
         return (
-          <Link key={r.id} href={`/runs/${r.id}`} className={`run-card is-${r.status}`}>
-            <Lamp status={r.status} />
-            <span className="rid">{r.id.replace(/^run-/, "")}</span>
-            <span className="req" title={r.request}>
+          <Link
+            key={r.id}
+            href={`/runs/${r.id}`}
+            className="run-card grid grid-cols-[12px_200px_1fr_auto] items-center gap-x-4 gap-y-2 rounded-card border border-line bg-surface px-5 py-3.5 text-inherit no-underline transition-colors hover:bg-surface-2 max-[900px]:grid-cols-[12px_1fr]"
+          >
+            <Dot tone={runTone(r.status)} title={r.status} />
+            <span className="font-mono text-[12.5px] text-fg-2">{r.id.replace(/^run-/, "")}</span>
+            <span className="min-w-0 truncate text-fg" title={r.request}>
               {r.status === "running" && r.currentPhase ? r.currentPhase : (r.request ?? "")}
             </span>
-            <span className="meta">
-              {r.awaitingDecision && <span className="chip decision">decision needed</span>}
-              <StatusWord status={r.status} />
-              <span className="progress-track" title={`${r.phasesDone}${total ? ` / ${total}` : ""} steps`}>
-                <i style={{ width: `${pct}%` }} />
+            <span className="flex items-center gap-3.5 font-mono text-xs tabular-nums text-fg-2 max-[900px]:col-span-2">
+              {r.awaitingDecision && <DecisionTag />}
+              <RunStatus status={r.status} />
+              <span className="h-1 w-[90px] overflow-hidden rounded-full bg-surface-2" title={`${r.phasesDone}${total ? ` / ${total}` : ""} steps`}>
+                <i className={cn("block h-full rounded-full", r.status === "ok" ? "bg-ok" : r.status === "failed" ? "bg-bad" : "bg-accent")} style={{ width: `${pct}%` }} />
               </span>
-              <span className="num">{r.status === "running" ? <Elapsed since={r.startedAt} /> : fmtDuration(r.durationMs)}</span>
-              <span className="num">{fmtCost(r.costUsd)}</span>
-              <span className="num">{fmtWhen(r.startedAt)}</span>
+              <span>{r.status === "running" ? <Elapsed since={r.startedAt} /> : fmtDuration(r.durationMs)}</span>
+              <span>{fmtCost(r.costUsd)}</span>
+              <span>{fmtWhen(r.startedAt)}</span>
             </span>
           </Link>
         );
@@ -192,28 +188,32 @@ function RunList({ runs }: { runs: RunListItem[] }) {
   );
 }
 
+const ROW_LINE = "border-line/55";
+
 function AgentCard({ a, idx }: { a: AgentInfo; idx: number }) {
   return (
-    <div className={`agent-card aid-${idx}`}>
-      <div className="agent-head">
-        <span className="agent-dot" />
-        <b>{a.name ?? a.id}</b>
-        <code className="agent-id">[{a.id}]</code>
-        <span className="spacer" />
-        <span className="chip">
+    <div className={cn("agent-card border-r border-b px-[18px] py-3.5", ROW_LINE)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="size-2.5 rounded-full" style={{ background: agentColour(idx) }} />
+        <b className="text-base font-medium text-fg">{a.name ?? a.id}</b>
+        <code className="text-2xs text-fg-2">[{a.id}]</code>
+        <span className="flex-1" />
+        <Tag>
           {a.model ?? "default"}
           {a.effort ? ` · ${a.effort}` : ""}
           {a.protocol === "acp" ? " · acp" : ""}
-        </span>
+        </Tag>
       </div>
       {a.tools.length > 0 && (
-        <div className="agent-tools">
+        <div className="mt-2 flex flex-wrap gap-[5px]">
           {a.tools.map((t) => (
-            <span key={t} className="tool-chip">{t}</span>
+            <span key={t} className="rounded-md bg-surface-2 px-2 py-px font-mono text-2xs text-fg-2">
+              {t}
+            </span>
           ))}
         </div>
       )}
-      {a.persona && <p className="agent-persona">{a.persona}</p>}
+      {a.persona && <p className="mt-2 mb-0 text-xs leading-[1.55] whitespace-pre-wrap text-fg-2">{a.persona}</p>}
     </div>
   );
 }
@@ -221,27 +221,34 @@ function AgentCard({ a, idx }: { a: AgentInfo; idx: number }) {
 function StepNode({ s, i, idx }: { s: StepInfo; i: number; idx: number | null }) {
   const body = s.kind === "script" ? s.script : s.prompt;
   return (
-    <div className="step-node">
-      <div className={`step-index num ${idx != null ? `aid-${idx}` : "is-script"}`}>{i + 1}</div>
-      <div className="step-body">
-        <div className="phase-top">
-          <span className="phase-name">{s.name}</span>
+    <div className={cn("step-node flex gap-3.5 px-[18px] py-3 first:before:top-[18px] last:before:h-[18px] before:left-[31px]", TIMELINE_ROW)}>
+      <StepIndex colour={agentColour(idx)}>{i + 1}</StepIndex>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-2.5">
+          <span className="text-base font-medium text-fg">{s.name}</span>
           {s.kind === "agent" ? (
-            <span className={`chip agent-chip aid-${idx ?? 0}`}>agent · {s.agent}</span>
+            <span
+              className="inline-flex h-5 items-center rounded-full border px-2 text-2xs font-semibold"
+              style={{ color: agentColour(idx ?? 0), borderColor: `color-mix(in srgb, ${agentColour(idx ?? 0)} 50%, var(--line))` }}
+            >
+              agent · {s.agent}
+            </span>
           ) : (
-            <span className="chip">script{s.sourceRef ? ` · ${s.sourceRef}` : ""}</span>
+            <Tag>script{s.sourceRef ? ` · ${s.sourceRef}` : ""}</Tag>
           )}
         </div>
         {body && (
-          <details className="step-source">
-            <summary>{s.kind === "agent" ? "prompt" : "script"}</summary>
-            <pre>{body}</pre>
+          <details className="mt-1.5">
+            <summary className="cursor-pointer text-xs font-medium text-fg-2 select-none hover:text-accent">{s.kind === "agent" ? "prompt" : "script"}</summary>
+            <pre className="mt-1.5 max-h-[360px] overflow-auto rounded-xl bg-surface-2 px-3 py-2.5 text-[11.5px] leading-[1.55] break-words whitespace-pre-wrap text-fg-2">{body}</pre>
           </details>
         )}
         {s.gates.length > 0 && (
-          <div className="gate-line">
+          <div className="mt-[5px] flex flex-wrap gap-1.5">
             {s.gates.map((g) => (
-              <span key={g} className="gate neutral">⛨ {g}</span>
+              <span key={g} className="inline-flex items-center gap-[5px] rounded-lg bg-surface-2 px-2.5 py-0.5 font-mono text-2xs text-fg-2">
+                ⛨ {g}
+              </span>
             ))}
           </div>
         )}

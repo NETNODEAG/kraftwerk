@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSummary, AgentSearch, ChannelSummary, ProjectHit, WorkspaceAgents } from "./types";
 import { Icon, navigate, startWorkspace } from "./shared";
+import { cn, Kbd } from "./ui";
 
 /**
  * ⌘K palette: jump to any agent, project or channel in any workspace this
@@ -41,7 +42,11 @@ const hrefOf = (hit: Hit): string =>
       : `/channels/${encodeURIComponent(hit.channel.slug)}`;
 /** The same marks the rail uses for a project's status. */
 const PROJECT_MARK: Record<ProjectHit["status"], string> = { active: "📁", paused: "⏸️", done: "✅", archived: "🗄️" };
-const emojiOf = (hit: Hit): React.ReactNode => (hit.kind === "agent" ? hit.agent.emoji : hit.kind === "project" ? PROJECT_MARK[hit.project.status] : <Icon name="forum" />);
+const emojiOf = (hit: Hit): React.ReactNode =>
+  hit.kind === "agent" ? hit.agent.emoji : hit.kind === "project" ? PROJECT_MARK[hit.project.status] : <Icon name="forum" className="text-[18px] text-fg-2" />;
+
+/** "channel", "project", "stopped": what a hit or a workspace is, beside its name. */
+const PALETTE_TAG = "flex-none rounded-full border border-line px-1.5 py-px text-[10px] font-semibold tracking-[0.4px] uppercase";
 
 /**
  * Every whitespace-separated token has to occur somewhere in the hit's
@@ -104,9 +109,15 @@ export function SearchPalette() {
   }, []);
   return (
     <>
-      <button type="button" className="search-btn" onClick={() => setOpen(true)} title="jump to an agent, project or channel" aria-label="search">
+      <button
+        type="button"
+        className="inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-xl border-0 bg-transparent py-1 pr-2 pl-1.5 text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg active:scale-96"
+        onClick={() => setOpen(true)}
+        title="jump to an agent, project or channel"
+        aria-label="search"
+      >
         <Icon name="search" />
-        <kbd className="kbd">{isMac ? "⌘K" : "Ctrl K"}</kbd>
+        <Kbd className="max-[1100px]:hidden">{isMac ? "⌘K" : "Ctrl K"}</Kbd>
       </button>
       {open && <Palette onClose={() => setOpen(false)} />}
     </>
@@ -180,20 +191,26 @@ function Palette({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const empty = "px-4 py-7 text-center text-sm text-fg-2 [&_a]:underline";
   let body: React.ReactNode;
   if (hits.length > 0) {
     let i = -1;
     body = (
-      <ul className="palette-list" role="listbox" aria-label="agents, projects and channels" ref={listRef}>
+      <ul className="m-0 list-none overflow-y-auto overscroll-contain p-1.5" role="listbox" aria-label="agents, projects and channels" ref={listRef}>
         {groups.map((g) => (
           <Fragment key={g.ws.url || g.ws.name}>
-            <li className="palette-group" role="presentation" title={g.ws.current ? "this workspace" : g.ws.url}>
+            {/* palette-group: the tests count the workspace groups by it. */}
+            <li
+              className="palette-group flex items-center gap-1.5 px-2.5 pt-3 pb-1 text-2xs font-semibold tracking-[0.4px] text-fg-2 uppercase first:pt-1.5"
+              role="presentation"
+              title={g.ws.current ? "this workspace" : g.ws.url}
+            >
               {g.ws.icon && <span aria-hidden>{g.ws.icon}</span>}
-              <span className="palette-group-name">{g.ws.name}</span>
+              <span className="truncate">{g.ws.name}</span>
               {g.ws.current ? (
-                <span className="palette-group-note">this workspace</span>
+                <span className="font-normal tracking-normal normal-case">this workspace</span>
               ) : !g.ws.live ? (
-                <span className="palette-chip">stopped</span>
+                <span className={PALETTE_TAG}>stopped</span>
               ) : (
                 <Icon name="open_in_new" className="ms-sm" />
               )}
@@ -205,21 +222,21 @@ function Palette({ onClose }: { onClose: () => void }) {
                   key={hit.key}
                   role="option"
                   aria-selected={idx === current}
-                  className={`palette-item${idx === current ? " active" : ""}`}
+                  className={cn("flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2", idx === current && "bg-surface-2")}
                   onMouseMove={() => idx !== current && setActive(idx)}
                   onClick={() => open(hit)}
                 >
-                  <span className="palette-emoji" aria-hidden>
+                  <span className="w-6 flex-none text-center text-[18px] leading-none" aria-hidden>
                     {emojiOf(hit)}
                   </span>
-                  <span className="palette-text">
-                    <span className="palette-name">{nameOf(hit)}</span>
-                    {subOf(hit) && <span className="palette-sub">{subOf(hit)}</span>}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[13.5px] font-medium text-fg">{nameOf(hit)}</span>
+                    {subOf(hit) && <span className="truncate text-xs text-fg-2">{subOf(hit)}</span>}
                   </span>
                   {starting === hit.key ? (
                     <Icon name="progress_activity" className="ms-sm" />
                   ) : (
-                    hit.kind !== "agent" && <span className="palette-chip">{hit.kind}</span>
+                    hit.kind !== "agent" && <span className={cn(PALETTE_TAG, "text-fg-2")}>{hit.kind}</span>
                   )}
                 </li>
               );
@@ -228,23 +245,31 @@ function Palette({ onClose }: { onClose: () => void }) {
         ))}
       </ul>
     );
-  } else if (failed) body = <div className="palette-empty">could not load the agents, projects and channels</div>;
-  else if (loading) body = <div className="palette-empty">looking for agents, projects and channels…</div>;
+  } else if (failed) body = <div className={empty}>could not load the agents, projects and channels</div>;
+  else if (loading) body = <div className={empty}>looking for agents, projects and channels…</div>;
   else if (all.length === 0) {
     body = (
-      <div className="palette-empty">
+      <div className={empty}>
         no agents yet — <a href="#/agents/new" onClick={onClose}>create one</a>
       </div>
     );
-  } else body = <div className="palette-empty">no agent, project or channel matches “{query}”</div>;
+  } else body = <div className={empty}>no agent, project or channel matches “{query}”</div>;
 
   return (
-    <div className="palette-backdrop" onMouseDown={onClose}>
-      <div className="palette" role="dialog" aria-label="jump to an agent, project or channel" onMouseDown={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
-        <div className="palette-input">
+    // palette-backdrop: the edit modal leaves Escape to the palette while it is up (edit-modal.tsx).
+    <div className="palette-backdrop fixed inset-0 z-50 flex animate-fade items-start justify-center bg-black/35 px-4 pt-[12vh] pb-4" onMouseDown={onClose}>
+      <div
+        className="flex max-h-[min(70dvh,560px)] w-[min(620px,100%)] animate-modal flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-modal"
+        role="dialog"
+        aria-label="jump to an agent, project or channel"
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
+        <div className="flex items-center gap-2.5 border-b border-line px-4 py-3 text-fg-2">
           <Icon name="search" />
           <input
             autoFocus
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-sans text-[16px] text-fg outline-none"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -256,14 +281,14 @@ function Palette({ onClose }: { onClose: () => void }) {
             spellCheck={false}
           />
           {loading && data && <Icon name="progress_activity" className="ms-sm" />}
-          <kbd className="kbd">esc</kbd>
+          <Kbd>esc</Kbd>
         </div>
         {body}
-        <div className="palette-foot">
-          <span><kbd className="kbd">↑</kbd><kbd className="kbd">↓</kbd> move</span>
-          <span><kbd className="kbd">↵</kbd> open</span>
-          {starting && <span className="palette-note"><Icon name="progress_activity" className="ms-sm" /> starting the workspace…</span>}
-          {startError && <span className="palette-warn" title={startError}><Icon name="warning" className="ms-sm" /> {startError}</span>}
+        <div className="flex items-center gap-3.5 border-t border-line px-3.5 py-2 text-2xs text-fg-2 [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1">
+          <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span>
+          <span><Kbd>↵</Kbd> open</span>
+          {starting && <span className="ml-auto"><Icon name="progress_activity" className="ms-sm" /> starting the workspace…</span>}
+          {startError && <span className="ml-auto max-w-[60%] truncate text-bad" title={startError}><Icon name="warning" className="ms-sm" /> {startError}</span>}
         </div>
       </div>
     </div>

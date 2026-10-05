@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Lamp, Link, fmtAgo, Icon, navigate, useExpertMode } from "./shared";
+import { fmtAgo, Icon, navigate, useExpertMode } from "./shared";
+import { Button, cn, Dot, EmptyState, Hint, IconButton, ListRow, Notice, Select, SideHead, SideList, SideNote, SideSearch, Tag, TextField, Title, type DotTone } from "./ui";
 import type { ChatAgentId, ChatMeta, VibeableInfo, VibeablesView, VibeableStatus } from "./types";
 
 /**
@@ -143,92 +144,88 @@ export function VibePane({
   };
 
   const d = status?.dev;
-  const modeChip = d?.running
+  const modeChip: { tone: DotTone; text: string } = d?.running
     ? d.ready
-      ? { cls: "ok", text: `dev :${d.port}` }
-      : { cls: "running", text: "starting…" }
+      ? { tone: "ok", text: `dev :${d.port}` }
+      : { tone: "working", text: "starting…" }
     : d && d.exitCode !== undefined
-      ? { cls: "failed", text: `dev exited${d.exitCode == null ? "" : ` (${d.exitCode})`}` }
-      : { cls: "ok", text: "static" };
+      ? { tone: "bad", text: `dev exited${d.exitCode == null ? "" : ` (${d.exitCode})`}` }
+      : { tone: "ok", text: "static" };
 
   return (
-    <aside className="vibeable-pane" data-vibe={slug}>
-      <div className="vibeable-bar">
-        <Icon name="web" className="vibeable-bar-icon" />
-        <span className="vibeable-name" title={status?.path}>{slug}</span>
-        <span className={`vibeable-mode ${modeChip.cls}`} title={d?.command ? `dev: ${d.command}` : status?.dir}>
-          <span className={`lamp ${modeChip.cls}`} />
-          {modeChip.text}
-        </span>
-        {flash && <span className="vibeable-flash" title={flash}><Icon name="bolt" className="ms-sm" /> reloaded</span>}
-        <span className="spacer" />
+    <aside className={PANE} data-vibe={slug}>
+      <div className={BAR}>
+        <Icon name="web" className="text-fg-2" />
+        <span className="truncate text-base font-medium" title={status?.path}>{slug}</span>
+        <Mode tone={modeChip.tone} title={d?.command ? `dev: ${d.command}` : status?.dir}>{modeChip.text}</Mode>
+        {flash && (
+          <span className="inline-flex animate-vibe-flash items-center gap-1 text-2xs whitespace-nowrap text-accent" title={flash}>
+            <Icon name="bolt" className="ms-sm" /> reloaded
+          </span>
+        )}
+        <span className="flex-1" />
         {status?.config.dev &&
           (d?.running ? (
-            <button className="icon-btn" onClick={() => void dev("stop")} disabled={!!busy} title={`Stop the dev server (${status.config.dev})`} aria-label="stop dev server">
-              <Icon name={busy === "stop" ? "progress_activity" : "stop"} />
-            </button>
+            <IconButton icon={busy === "stop" ? "progress_activity" : "stop"} label="stop dev server" title={`Stop the dev server (${status.config.dev})`} onClick={() => void dev("stop")} disabled={!!busy} />
           ) : (
-            <button className="icon-btn vibeable-play" onClick={() => void dev("start")} disabled={!!busy} title={`Start the dev server: ${status.config.dev}`} aria-label="start dev server">
-              <Icon name={busy === "start" ? "progress_activity" : "play_arrow"} />
-            </button>
+            <IconButton
+              icon={busy === "start" ? "progress_activity" : "play_arrow"}
+              label="start dev server"
+              title={`Start the dev server: ${status.config.dev}`}
+              className="text-accent"
+              onClick={() => void dev("start")}
+              disabled={!!busy}
+            />
           ))}
         {d && (
-          <button className={`icon-btn${showLog ? " active" : ""}`} onClick={() => setShowLog((v) => !v)} title="Dev server output" aria-label="dev server output">
-            <Icon name="terminal" />
-          </button>
+          <IconButton
+            icon="terminal"
+            label="dev server output"
+            title="Dev server output"
+            className={showLog ? "bg-accent-soft text-on-accent-soft" : undefined}
+            aria-pressed={showLog}
+            onClick={() => setShowLog((v) => !v)}
+          />
         )}
-        <button className="icon-btn" onClick={reload} title="Reload the preview" aria-label="reload preview">
-          <Icon name="refresh" />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={() => window.open(status?.url ?? "", "_blank", "noopener")}
-          disabled={!status}
-          title="Open in a new tab"
-          aria-label="open in new tab"
-        >
-          <Icon name="open_in_new" />
-        </button>
+        <IconButton icon="refresh" label="reload preview" title="Reload the preview" onClick={reload} />
+        <IconButton icon="open_in_new" label="open in new tab" title="Open in a new tab" onClick={() => window.open(status?.url ?? "", "_blank", "noopener")} disabled={!status} />
         {chatId && onClosed && (
-          <button
-            className="icon-btn"
+          <IconButton
+            icon={busy === "close" ? "progress_activity" : "close"}
+            label="close preview"
+            title={agentBusy ? "The agent is working — close the preview when the turn is done" : "Close the preview (the agent returns to the project root)"}
             onClick={() => void close()}
             disabled={!!busy || agentBusy}
-            title={agentBusy ? "The agent is working — close the preview when the turn is done" : "Close the preview (the agent returns to the project root)"}
-            aria-label="close preview"
-          >
-            <Icon name={busy === "close" ? "progress_activity" : "close"} />
-          </button>
+          />
         )}
       </div>
       {(error || status?.configError) && (
-        <div className="vibeable-err">
-          <span>{error || status?.configError}</span>
-          {error && (
-            <button className="vibeable-err-x" onClick={() => setError("")} aria-label="dismiss">
-              <Icon name="close" className="ms-sm" />
-            </button>
-          )}
+        <div className={ERR}>
+          <span className="flex-1">{error || status?.configError}</span>
+          {error && <IconButton icon="close" label="dismiss" size="sm" className="rounded-full text-inherit hover:bg-transparent hover:text-inherit" onClick={() => setError("")} />}
         </div>
       )}
       {status?.config.dev && !d?.running && !error && (
-        <div className="vibeable-note">
+        <Hint className="flex-none border-b border-line px-3.5 py-1.5">
           This app has a dev command (<code>{status.config.dev}</code>). Showing the static folder until you start it.
-        </div>
+        </Hint>
       )}
       {src && (
         <iframe
           ref={frame}
-          className="vibeable-frame"
+          className="vibeable-frame block min-h-0 w-full flex-1 border-0 bg-white"
           src={src}
           title={`vibeable ${slug}`}
           sandbox="allow-scripts allow-forms allow-popups allow-modals allow-downloads"
           allow="clipboard-write"
         />
       )}
-      {!src && !error && <div className="empty">loading…</div>}
+      {!src && !error && <EmptyState className="m-auto">loading…</EmptyState>}
       {showLog && d && (
-        <pre className="vibeable-log" aria-label="dev server log">
+        <pre
+          className="m-0 max-h-[180px] flex-none overflow-auto border-t border-line bg-surface-2 px-3.5 py-2 font-mono text-[11.5px] leading-[1.5] break-words whitespace-pre-wrap text-fg-2"
+          aria-label="dev server log"
+        >
           {d.log.length ? d.log.join("\n") : "(no output yet)"}
         </pre>
       )}
@@ -236,24 +233,52 @@ export function VibePane({
   );
 }
 
+/**
+ * `vibeable-pane` and `data-vibe` are what the context column (`.ctx-embed-vibe`)
+ * and the tests find; the pane fills whatever column holds it.
+ */
+const PANE_BASE = "vibeable-pane flex flex-col overflow-hidden rounded-2xl bg-surface-2";
+const PANE = `${PANE_BASE} min-h-0 min-w-0 flex-1`;
+const BAR = "flex min-h-11 flex-none items-center gap-2 border-b border-line py-1.5 pr-2 pl-3.5";
+const ERR = "flex flex-none items-center gap-2.5 bg-bad-soft py-1.5 pr-2 pl-3.5 text-[12.5px] text-on-bad-soft";
+
+/** How the app is served right now: "static", "dev :5173", "starting…". `vibeable-mode` is a test hook. */
+function Mode({ tone, title, children }: { tone: DotTone; title?: string; children: React.ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "vibeable-mode inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-2xs font-medium tracking-[0.02em] whitespace-nowrap",
+        tone === "bad" ? "bg-bad-soft text-on-bad-soft" : "bg-surface text-fg-2"
+      )}
+      title={title}
+    >
+      <Dot tone={tone} />
+      {children}
+    </span>
+  );
+}
+
 /** Shown in place of the pane when the feature was switched off while a chat still had an app open. */
 export function VibeOffNote({ chatId, slug, onClosed }: { chatId: string; slug: string; onClosed: (meta: ChatMeta) => void }) {
   const [error, setError] = useState("");
   return (
-    <aside className="vibeable-pane vibeable-pane-off" data-vibe={slug}>
-      <div className="vibeable-bar">
-        <Icon name="web" className="vibeable-bar-icon" />
-        <span className="vibeable-name">{slug}</span>
-        <span className="vibeable-mode failed"><span className="lamp failed" />vibeables are off</span>
-        <span className="spacer" />
-        <button className="icon-btn" onClick={() => setVibeable(chatId, null).then(onClosed).catch((e: Error) => setError(e.message))} title="Detach the app from this chat" aria-label="close preview">
-          <Icon name="close" />
-        </button>
+    <aside className={cn(PANE_BASE, "max-w-[420px] min-w-[320px] flex-none self-start")} data-vibe={slug}>
+      <div className={BAR}>
+        <Icon name="web" className="text-fg-2" />
+        <span className="truncate text-base font-medium">{slug}</span>
+        <Mode tone="bad">vibeables are off</Mode>
+        <span className="flex-1" />
+        <IconButton
+          icon="close"
+          label="close preview"
+          title="Detach the app from this chat"
+          onClick={() => setVibeable(chatId, null).then(onClosed).catch((e: Error) => setError(e.message))}
+        />
       </div>
-      <div className="vibeable-note">
+      <Hint className="flex-none border-b border-line px-3.5 py-1.5">
         This chat has <b>{slug}</b> open, but vibeables were switched off in <a href="#/settings">settings</a>. Turn them back on to see the preview, or detach the app.
-      </div>
-      {error && <div className="vibeable-err"><span>{error}</span></div>}
+      </Hint>
+      {error && <div className={ERR}><span className="flex-1">{error}</span></div>}
     </aside>
   );
 }
@@ -307,7 +332,7 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
       setView((await r.json()) as VibeablesView);
       setLoadError("");
     } catch (err) {
-      setLoadError((err as Error).message || "could not load vibeables");
+      setLoadError((err as Error).message || "could not load the apps");
     }
   }, []);
 
@@ -410,125 +435,121 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
     } catch {}
   };
 
-  const stateOf = (a: VibeableInfo) =>
+  const stateOf = (a: VibeableInfo): { label: string; tone: DotTone } =>
     a.configError
-      ? { label: "config error", cls: "failed" }
+      ? { label: "config error", tone: "bad" }
       : a.hasIndex
-        ? { label: a.dev ? "dev" : "static", cls: "ok" }
-        : { label: "no index.html yet", cls: "pending" };
+        ? { label: a.dev ? "dev" : "static", tone: "ok" }
+        : { label: "no index.html yet", tone: "idle" };
 
   let main: React.ReactNode;
   if (view && !view.enabled)
     main = (
-      <div className="empty">
+      <EmptyState>
         {view.error && !/are off/.test(view.error) ? (
-          <span className="settings-err">{view.error}</span>
+          <Notice tone="bad">{view.error}</Notice>
         ) : (
           <>
-            Vibeables are off. Turn them on in <a href="#/settings">settings</a> or add a <code>vibeables:</code> block to kraftwerk.yml.
+            Apps are off. Turn them on in <a href="#/settings">settings</a> or add a <code>vibeables:</code> block to kraftwerk.yml.
           </>
         )}
-      </div>
+      </EmptyState>
     );
-  else if (!view) main = <div className="empty">loading…</div>;
+  else if (!view) main = <EmptyState>loading…</EmptyState>;
   else if (creating || apps.length === 0)
     main = (
-      <form className="empty empty-action" onSubmit={(e) => void create(e)}>
-        <div className="know-newbundle">
-          <input value={name} placeholder="e.g. team-dashboard" aria-label="new vibeable name" onChange={(e) => setName(e.target.value)} autoFocus />
-          <button className="run-btn" type="submit" disabled={!!busy.__new || !name.trim()}>
-            <Icon name={busy.__new ? "progress_activity" : "add"} className="ms-sm" />
-            {busy.__new ? "creating…" : "new vibeable"}
-          </button>
+      <form className="mx-auto flex w-full max-w-[560px] flex-col gap-2.5 px-4 py-10" onSubmit={(e) => void create(e)}>
+        <div className="flex gap-2.5">
+          <TextField className="flex-1 font-mono text-sm" value={name} placeholder="e.g. team-dashboard" aria-label="new app name" onChange={(e) => setName(e.target.value)} autoFocus />
+          <Button type="submit" variant="primary" icon="add" busy={!!busy.__new} disabled={!name.trim()}>
+            {busy.__new ? "creating…" : "new app"}
+          </Button>
         </div>
-        {errors.__new && <div className="settings-err">{errors.__new}</div>}
-        <div className="settings-note">
+        {errors.__new && <Notice tone="bad">{errors.__new}</Notice>}
+        <p className="m-0 text-xs text-fg-2">
           A small app built live with an agent. One folder each under <code title={view.root}>{view.root}</code>; part of the workspace, commit it from the git screen.
-        </div>
+        </p>
       </form>
     );
-  else if (slug && !current) main = <div className="empty">no vibeable named {slug}</div>;
+  else if (slug && !current) main = <EmptyState>no vibeable named {slug}</EmptyState>;
   else if (current) {
     const a = current;
     const st = stateOf(a);
     const verb = busy[a.slug];
     main = (
-      <div className="chat-main vibe-main">
-        <div className="detail-head">
-          <Lamp status={st.cls} />
-          <h1>{a.slug}</h1>
-          <span className={`status-word ${st.cls}`}>{st.label}</span>
-          {a.updatedAt && <span className="rid" title={a.updatedAt}>changed {fmtAgo(a.updatedAt)}</span>}
-          {expert && <span className="rid" title={a.path}>{a.path}</span>}
-          <span className="spacer" />
-          <label className="vibeables-agent">
-            <select value={agent} onChange={(e) => pickAgent(e.target.value as ChatAgentId)} aria-label="agent for new chats">
-              <option value="claude">claude</option>
-              <option value="codex">codex</option>
-              <option value="pi">pi</option>
-            </select>
-          </label>
-          <button className="run-btn" disabled={!!verb} onClick={() => void open(a.slug)} title={`Start a ${agent} chat with this app in the preview pane`}>
-            <Icon name={verb === "open" ? "progress_activity" : "chat"} className="ms-sm" /> open in chat
-          </button>
+      // chat-main: the column's full-height flex box, so the pane fills what is left under the head.
+      <div className="chat-main gap-3">
+        <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2.5">
+          <Dot tone={st.tone} />
+          <Title>{a.slug}</Title>
+          <Tag tone={st.tone === "bad" ? "bad" : st.tone === "ok" ? "ok" : "neutral"}>{st.label}</Tag>
+          {a.updatedAt && <span className="text-xs text-fg-2" title={a.updatedAt}>changed {fmtAgo(a.updatedAt)}</span>}
+          {expert && <span className="max-w-[40ch] truncate font-mono text-xs text-fg-2" title={a.path}>{a.path}</span>}
+          <span className="flex-1" />
+          <Select className="h-8 w-auto text-sm" value={agent} onChange={(e) => pickAgent(e.target.value as ChatAgentId)} aria-label="agent for new chats">
+            <option value="claude">claude</option>
+            <option value="codex">codex</option>
+            <option value="pi">pi</option>
+          </Select>
+          <Button variant="primary" icon="chat" busy={verb === "open"} disabled={!!verb} onClick={() => void open(a.slug)} title={`Start a ${agent} chat with this app in the preview pane`}>
+            open in chat
+          </Button>
           {!confirmRemove ? (
-            <button className="stop-btn" disabled={!!verb} onClick={() => setConfirmRemove(true)} title="Delete the folder; its history stays in the workspace git">
-              <Icon name="delete" className="ms-sm" /> remove
-            </button>
+            <Button variant="danger" icon="delete" disabled={!!verb} onClick={() => setConfirmRemove(true)} title="Move the folder to the trash">
+              remove
+            </Button>
           ) : (
             <>
-              <button className="stop-btn" onClick={() => void remove(a.slug)}>
-                <Icon name="delete" className="ms-sm" /> confirm remove
-              </button>
-              <button className="open-raw" onClick={() => setConfirmRemove(false)}>cancel</button>
+              <Button variant="danger" icon="delete" onClick={() => void remove(a.slug)}>
+                confirm remove
+              </Button>
+              <Button variant="quiet" onClick={() => setConfirmRemove(false)}>cancel</Button>
             </>
           )}
         </div>
-        {(a.configError || errors[a.slug]) && <div className="settings-err">{a.configError || errors[a.slug]}</div>}
+        {(a.configError || errors[a.slug]) && <Notice tone="bad">{a.configError || errors[a.slug]}</Notice>}
         <VibePane key={a.slug} slug={a.slug} />
       </div>
     );
-  } else main = <div className="empty">loading…</div>;
+  } else main = <EmptyState>loading…</EmptyState>;
 
   return (
     <div className="runs-screen vibeables-screen">
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">vibeables</span>
-          <span className="spacer" />
-          {view?.enabled && <span className="microlabel num">{apps.length}</span>}
-          {view?.enabled && (
-            <Link href="/vibeables/new" className="open-raw">
-              <Icon name="add" className="ms-sm" /> new
-            </Link>
-          )}
-        </div>
-        <label className="side-filter">
-          <Icon name="filter_list" className="ms-sm" />
-          <input type="search" value={filter} placeholder="search vibeables" aria-label="search vibeables" onChange={(e) => setFilter(e.target.value)} />
-        </label>
-        <div className="side-list">
+        <SideHead
+          title="apps"
+          count={view?.enabled ? apps.length : undefined}
+          action={
+            view?.enabled && (
+              <Button size="sm" variant="quiet" icon="add" href="/vibeables/new">
+                new
+              </Button>
+            )
+          }
+        />
+        <SideSearch icon="filter_list" value={filter} placeholder="search apps" aria-label="search apps" onChange={(e) => setFilter(e.target.value)} />
+        <SideList>
           {shown.map((a) => {
             const st = stateOf(a);
             return (
-              <Link key={a.slug} href={`/vibeables/${encodeURIComponent(a.slug)}`} className={`side-row vibeable-row ${a.slug === slug ? "active" : ""}`} data-vibeable={a.slug}>
-                <span className={`lamp ${st.cls}`} />
-                <div className="side-row-body">
-                  <div className="side-row-top">
-                    <span className="side-wf">{a.slug}</span>
-                    {a.updatedAt && <span className="side-when num" title={a.updatedAt}>{fmtAgo(a.updatedAt)}</span>}
-                  </div>
-                  <div className="side-row-sub">
-                    <span className="side-req">{st.label}{a.dev ? ` · ${a.dev}` : ""}</span>
-                  </div>
-                </div>
-              </Link>
+              // vibeable-row + data-vibeable: the tests' handle on one app's row.
+              <div key={a.slug} className="vibeable-row" data-vibeable={a.slug}>
+                <ListRow
+                  href={`/vibeables/${encodeURIComponent(a.slug)}`}
+                  active={a.slug === slug}
+                  size="sm"
+                  leading={<Dot tone={st.tone} />}
+                  title={a.slug}
+                  sub={`${st.label}${a.dev ? ` · ${a.dev}` : ""}`}
+                  meta={a.updatedAt && <span title={a.updatedAt}>{fmtAgo(a.updatedAt)}</span>}
+                />
+              </div>
             );
           })}
-          {view && apps.length === 0 && <div className="viewer-note">nothing built yet</div>}
-          {view && apps.length > 0 && shown.length === 0 && <div className="viewer-note">no vibeable matches</div>}
-          {loadError && <div className="viewer-note settings-err">{loadError}</div>}
-        </div>
+          {view && apps.length === 0 && <SideNote>nothing built yet</SideNote>}
+          {view && apps.length > 0 && shown.length === 0 && <SideNote>no vibeable matches</SideNote>}
+          {loadError && <Notice tone="bad">{loadError}</Notice>}
+        </SideList>
       </aside>
       <div className="runs-main">{main}</div>
     </div>

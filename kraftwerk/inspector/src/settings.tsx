@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "./shared";
+import { Button, buttonClass, Checkbox, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
 
 /**
  * Workspace settings (#/settings): edits the UI-manageable subset of
@@ -125,74 +126,80 @@ function CloudPanel() {
   }, []);
   if (!cloud) return null;
   const word = cloud.state === "connected" ? (cloud.account ? "claimed" : "unclaimed") : cloud.state;
-  const cls = cloud.state === "connected" && cloud.account ? "ok" : cloud.state === "error" ? "failed" : "";
+  const tone = cloud.state === "connected" && cloud.account ? "ok" : cloud.state === "error" ? "bad" : "neutral";
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="microlabel">cloud</span>
-        <span className={`status-word ${cls}`}>{word}</span>
-        <span className="spacer" />
-        {cloud.url && (
-          <a className="run-btn tonal" href={cloud.url} target="_blank" rel="noreferrer">
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          cloud <Tag tone={tone}>{word}</Tag>
+        </span>
+      }
+      actions={
+        cloud.url && (
+          <a className={buttonClass("secondary", "sm")} href={cloud.url} target="_blank" rel="noreferrer">
             <Icon name="cloud" className="ms-sm" /> open the cloud
           </a>
-        )}
-      </div>
-      <div className="agent-form">
+        )
+      }
+    >
+      <FormStack>
         {cloud.state === "off" && (
-          <div className="settings-note">
+          <Hint>
             Off — <code>cloud.enabled: false</code> in kraftwerk.yml or <code>KRAFTWERK_CLOUD_URL=off</code> in the environment. Every other
             <code> kraftwerk ui</code> registers with the kraftwerk cloud on start, so its owner can see it running from anywhere.
-          </div>
+          </Hint>
         )}
-        {cloud.state === "connecting" && <div className="settings-note">Registering with {cloud.url} …</div>}
+        {cloud.state === "connecting" && <Hint>Registering with {cloud.url} …</Hint>}
         {cloud.state === "error" && (
-          <div className="settings-note">
+          <Hint>
             Could not reach {cloud.url}: {cloud.error}. Retrying every {cloud.interval ?? 60}s — the UI works as before meanwhile.
-          </div>
+          </Hint>
         )}
         {cloud.state === "connected" && cloud.account && (
-          <div className="settings-note">
+          <Hint>
             This workspace is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
             Last heartbeat {cloud.lastSeen ? new Date(cloud.lastSeen).toLocaleTimeString() : "pending"}.
-          </div>
+          </Hint>
         )}
         {cloud.state === "connected" && !cloud.account && (
           <>
-            <div className="settings-note">
+            <Hint>
               Registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a>, not yet under an account. Sign in there and enter this
               code — or open the link — and the workspace shows up under <em>My instances</em>:
-            </div>
-            <div className="cloud-claim">
-              <code className="cloud-claim-code">{cloud.claimCode ?? "…"}</code>
+            </Hint>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <code className="rounded-control border border-line bg-surface-2 px-3 py-1.5 font-mono text-lg tracking-[0.12em] text-fg">{cloud.claimCode ?? "…"}</code>
               {cloud.claimCode && (
-                <button
-                  className="run-btn tonal"
+                <Button
+                  size="sm"
+                  icon="content_copy"
                   onClick={() => {
                     void navigator.clipboard.writeText(cloud.claimCode!);
                     setCopied(true);
                     setTimeout(() => setCopied(false), 1500);
                   }}
                 >
-                  <Icon name="content_copy" className="ms-sm" /> {copied ? "copied" : "copy"}
-                </button>
+                  {copied ? "copied" : "copy"}
+                </Button>
               )}
               {cloud.claimUrl && (
-                <a className="run-btn" href={cloud.claimUrl} target="_blank" rel="noreferrer">
+                <a className={buttonClass("primary", "sm")} href={cloud.claimUrl} target="_blank" rel="noreferrer">
                   <Icon name="link" className="ms-sm" /> claim in the cloud
                 </a>
               )}
             </div>
-            <div className="settings-note">
+            <Hint>
               A claim made there reaches this instance with the next heartbeat (every {cloud.interval ?? 60}s). To keep this workspace out of the
               cloud, set <code>cloud.enabled: false</code> in kraftwerk.yml.
-            </div>
+            </Hint>
           </>
         )}
-      </div>
-    </section>
+      </FormStack>
+    </Panel>
   );
 }
+
+/** A panel's form body: fields stacked, a row of fields side by side. */
 
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
@@ -290,7 +297,7 @@ export function SettingsScreen() {
     touch();
   };
 
-  if (!data) return <div className="empty">{error || "loading…"}</div>;
+  if (!data) return <EmptyState>{error || "loading…"}</EmptyState>;
 
   const paths: [string, string | undefined, string][] = [
     ["port", String(data.resolved.port), "kraftwerk ui listens here (CLI --port wins)"],
@@ -302,26 +309,30 @@ export function SettingsScreen() {
   ];
 
   return (
-    <div className="settings-screen">
-      <div className="settings-head">
-        <h1><Icon name="settings" className="ms-lg" /> Settings</h1>
-        <span className="spacer" />
-        {error && <span className="settings-err">{error}</span>}
-        {saved && !dirty && <span className="settings-saved"><Icon name="check" className="ms-sm" /> saved</span>}
-        <button className="run-btn" disabled={saving || !dirty} onClick={() => void save()}>
-          {saving ? "saving…" : "save changes"}
-        </button>
-      </div>
+    <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4">
+      <PageHeader
+        icon={<Icon name="settings" className="text-[28px] text-fg-2" />}
+        title="Settings"
+        actions={
+          <>
+            {error && <Notice tone="bad">{error}</Notice>}
+            {saved && !dirty && (
+              <span className="inline-flex items-center gap-1 text-[12.5px] text-ok">
+                <Icon name="check" className="ms-sm" /> saved
+              </span>
+            )}
+            <Button variant="primary" busy={saving} disabled={!dirty} onClick={() => void save()}>
+              {saving ? "saving…" : "save changes"}
+            </Button>
+          </>
+        }
+      />
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">workspace</span>
-        </div>
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ width: 90 }}>
-              icon
-              <input
+      <Panel title="workspace">
+        <FormStack>
+          <FieldRow>
+            <Field label="icon" className="w-[90px]">
+              <TextField
                 value={icon}
                 placeholder="🤖"
                 onChange={(e) => {
@@ -329,10 +340,9 @@ export function SettingsScreen() {
                   touch();
                 }}
               />
-            </label>
-            <label className="agent-field" style={{ flex: 1 }}>
-              name
-              <input
+            </Field>
+            <Field label="name" className="min-w-40 flex-1">
+              <TextField
                 value={name}
                 placeholder="my workspace"
                 onChange={(e) => {
@@ -340,19 +350,22 @@ export function SettingsScreen() {
                   touch();
                 }}
               />
-            </label>
-            <label className="agent-field settings-color" style={{ width: 130 }} title="Accent in the workspace switcher; empty = derived from the folder">
-              color
-              <span className="settings-color-row">
+            </Field>
+            <label className="flex w-[130px] flex-col gap-1.5" title="Accent in the workspace switcher; empty = derived from the folder">
+              <span className="text-sm font-semibold text-fg">color</span>
+              <span className="flex items-center gap-1.5">
                 <input
                   type="color"
+                  aria-label="pick a color"
+                  className="h-9 w-10 flex-none cursor-pointer rounded-control border border-line bg-surface p-0.5"
                   value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"}
                   onChange={(e) => {
                     setColor(e.target.value);
                     touch();
                   }}
                 />
-                <input
+                <TextField
+                  className="min-w-0 px-2"
                   value={color}
                   placeholder="auto"
                   onChange={(e) => {
@@ -362,87 +375,73 @@ export function SettingsScreen() {
                 />
               </span>
             </label>
-          </div>
-          <div className="settings-note">Shown in the header, browser tab and to other workspaces discovering this one.</div>
-        </div>
-      </section>
+          </FieldRow>
+          <Hint>Shown in the header, browser tab and to other workspaces discovering this one.</Hint>
+        </FormStack>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">workspace switcher</span>
-          <span className="spacer" />
-          <button
-            className="run-btn tonal"
+      <Panel
+        title="workspace switcher"
+        actions={
+          <Button
+            size="sm"
+            icon="add"
             onClick={() => {
               setSwitcher((rows) => [...rows, { name: "", url: "http://localhost:" }]);
               touch();
             }}
           >
-            <Icon name="add" className="ms-sm" /> add entry
-          </button>
-        </div>
-        <div className="agent-form">
-          {switcher.length === 0 && <div className="settings-note">No manual entries.</div>}
+            add entry
+          </Button>
+        }
+      >
+        <FormStack>
+          {switcher.length === 0 && <Hint>No manual entries.</Hint>}
           {switcher.map((row, i) => (
-            <div className="agent-form-row" key={i}>
-              <label className="agent-field" style={{ width: 70 }}>
-                icon
-                <input value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
-              </label>
-              <label className="agent-field" style={{ flex: 1 }}>
-                name
-                <input value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
-              </label>
-              <label className="agent-field" style={{ flex: 1.4 }}>
-                url
-                <input value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
-              </label>
-              <button
-                className="row-x settings-row-x"
-                title="remove entry"
+            <FieldRow key={i}>
+              <Field label="icon" className="w-[70px]">
+                <TextField value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
+              </Field>
+              <Field label="name" className="min-w-32 flex-1">
+                <TextField value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
+              </Field>
+              <Field label="url" className="min-w-40 flex-[1.4]">
+                <TextField value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
+              </Field>
+              <IconButton
+                icon="close"
+                label="remove entry"
+                className="mb-0.5"
                 onClick={() => {
                   setSwitcher((rows) => rows.filter((_, j) => j !== i));
                   touch();
                 }}
-              >
-                <Icon name="close" className="ms-sm" />
-              </button>
-            </div>
+              />
+            </FieldRow>
           ))}
-          <div className="settings-note">
+          <Hint>
             Running workspaces on this machine are discovered automatically — manual entries are for
             remote instances or extra links.
-          </div>
-        </div>
-      </section>
+          </Hint>
+        </FormStack>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">git sync</span>
-          <span className="spacer" />
-          <a className="run-btn tonal" href="#/git">
-            <Icon name="account_tree" className="ms-sm" /> open git
-          </a>
-        </div>
-        <div className="agent-form">
-          <label className="settings-check">
-            <input type="checkbox" checked={git.enabled} onChange={(e) => setGitField({ enabled: e.target.checked })} />
+      <Panel title="git sync" actions={<Button size="sm" icon="account_tree" href="/git">open git</Button>}>
+        <FormStack>
+          <Checkbox checked={git.enabled} onChange={(on) => setGitField({ enabled: on })}>
             sync workflows, knowledge, agents and skills with a git remote
-          </label>
+          </Checkbox>
           {git.enabled && (
             <>
-              <div className="agent-form-row">
-                <label className="agent-field" style={{ flex: 1 }}>
-                  remote
-                  <input value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
-                </label>
-                <label className="agent-field" style={{ flex: 1 }}>
-                  branch
-                  <input value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
-                </label>
-                <label className="agent-field" style={{ width: 120 }}>
-                  interval (s)
-                  <input
+              <FieldRow>
+                <Field label="remote" className="min-w-32 flex-1">
+                  <TextField value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
+                </Field>
+                <Field label="branch" className="min-w-32 flex-1">
+                  <TextField value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
+                </Field>
+                <Field label="interval (s)" className="w-[120px]">
+                  <TextField
                     type="number"
                     min={0}
                     step={1}
@@ -450,137 +449,103 @@ export function SettingsScreen() {
                     placeholder="300"
                     onChange={(e) => setGitField({ interval: e.target.value })}
                   />
-                </label>
-                <label className="agent-field" style={{ width: 150 }}>
-                  autosync
-                  <select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" })}>
+                </Field>
+                <Field label="autosync" className="w-[150px]">
+                  <Select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" })}>
                     <option value="pull">fetch and pull</option>
                     <option value="off">fetch only</option>
-                  </select>
-                </label>
-              </div>
-              <div className="settings-note">
+                  </Select>
+                </Field>
+              </FieldRow>
+              <Hint>
                 The interval fetches in the background (0 turns the timer off); with autosync on it also fast-forwards
                 when behind and nothing is modified locally. Commit and push stay manual on the git screen.
-              </div>
+              </Hint>
             </>
           )}
-        </div>
-      </section>
+        </FormStack>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">repositories</span>
-          <span className="spacer" />
-          <a className="run-btn tonal" href="#/repos">
-            <Icon name="source" className="ms-sm" /> open repositories
-          </a>
-        </div>
-        <div className="agent-form">
-          <label className="settings-check">
-            <input type="checkbox" checked={repos.enabled} onChange={(e) => setReposField({ enabled: e.target.checked })} />
+      <Panel title="repositories" actions={<Button size="sm" icon="source" href="/repos">open repositories</Button>}>
+        <FormStack>
+          <Checkbox checked={repos.enabled} onChange={(on) => setReposField({ enabled: on })}>
             keep git repositories the agents work on under one folder
-          </label>
+          </Checkbox>
           {repos.enabled && (
             <>
-              <div className="agent-form-row">
-                <label className="agent-field" style={{ flex: 1 }}>
-                  repos root
-                  <input value={repos.root} placeholder="repos" onChange={(e) => setReposField({ root: e.target.value })} />
-                </label>
-              </div>
-              <div className="settings-note">
+              <Field label="repos root">
+                <TextField value={repos.root} placeholder="repos" onChange={(e) => setReposField({ root: e.target.value })} />
+              </Field>
+              <Hint>
                 Relative to the project root. Saving creates the folder and adds it to .gitignore; every agent gets the
                 list of clones as context and can add more with <code>kraftwerk repos add</code>.
-              </div>
+              </Hint>
             </>
           )}
-        </div>
-      </section>
+        </FormStack>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">vibeables</span>
-          <span className="spacer" />
-          <a className="run-btn tonal" href="#/vibeables">
-            <Icon name="web" className="ms-sm" /> open vibeables
-          </a>
-        </div>
-        <div className="agent-form">
-          <label className="settings-check">
-            <input type="checkbox" checked={vibeables.enabled} onChange={(e) => setVibeablesField({ enabled: e.target.checked })} />
+      <Panel title="apps (vibeables)" actions={<Button size="sm" icon="web" href="/vibeables">open apps</Button>}>
+        <FormStack>
+          <Checkbox checked={vibeables.enabled} onChange={(on) => setVibeablesField({ enabled: on })}>
             build small apps live in a chat, with a preview pane next to the thread
-          </label>
+          </Checkbox>
           {vibeables.enabled && (
             <>
-              <div className="agent-form-row">
-                <label className="agent-field" style={{ flex: 1 }}>
-                  vibeables root
-                  <input value={vibeables.root} placeholder="kraftwerk-data/vibeables" onChange={(e) => setVibeablesField({ root: e.target.value })} />
-                </label>
-              </div>
-              <div className="settings-note">
+              <Field label="vibeables root">
+                <TextField value={vibeables.root} placeholder="kraftwerk-data/vibeables" onChange={(e) => setVibeablesField({ root: e.target.value })} />
+              </Field>
+              <Hint>
                 Relative to the project root, one folder per app. Part of the workspace: versioned with it on the git screen, not
                 git-ignored. Every chat gets a <b>vibeable</b> button; the agent then works inside the app folder.
-              </div>
+              </Hint>
             </>
           )}
-        </div>
-      </section>
+        </FormStack>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">projects</span>
-          <span className="spacer" />
-          <a className="run-btn tonal" href="#/projects">
-            <Icon name="folder_special" className="ms-sm" /> open projects
-          </a>
-        </div>
-        <div className="agent-form">
-          <label className="settings-check">
-            <input type="checkbox" checked={projects.enabled} onChange={(e) => setProjectsField({ enabled: e.target.checked })} />
+      <Panel title="projects" actions={<Button size="sm" icon="folder_special" href="/projects">open projects</Button>}>
+        <FormStack>
+          <Checkbox checked={projects.enabled} onChange={(on) => setProjectsField({ enabled: on })}>
             gather a goal, its brief, systems of record and links in one folder, and chat inside it
-          </label>
+          </Checkbox>
           {projects.enabled && (
             <>
-              <div className="agent-form-row">
-                <label className="agent-field" style={{ flex: 1 }}>
-                  projects root
-                  <input value={projects.root} placeholder="kraftwerk-data/projects" onChange={(e) => setProjectsField({ root: e.target.value })} />
-                </label>
-              </div>
-              <div className="settings-note">
+              <Field label="projects root">
+                <TextField value={projects.root} placeholder="kraftwerk-data/projects" onChange={(e) => setProjectsField({ root: e.target.value })} />
+              </Field>
+              <Hint>
                 Relative to the project root, one folder per project (project.yml, brief.md, state.md, log.md). Part of the workspace:
                 versioned with it on the git screen. A chat opened in a project starts with all of it as context.
-              </div>
+              </Hint>
             </>
           )}
-        </div>
-      </section>
+        </FormStack>
+      </Panel>
 
       <CloudPanel />
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">paths &amp; port</span>
-          <span className="spacer" />
-          <code className="settings-file" title={data.configPath}>
+      <Panel
+        title="paths & port"
+        actions={
+          <code className="max-w-[60%] truncate text-2xs text-fg-2" title={data.configPath}>
             {data.exists ? data.configPath : `${data.configPath} (not created yet)`}
           </code>
-        </div>
-        <div className="settings-kv-list">
+        }
+      >
+        <div className="flex flex-col pt-1.5 pb-2.5">
           {paths.map(([key, value, hint]) => (
-            <div className="settings-kv" key={key}>
-              <span className="microlabel">{key}</span>
-              <code>{value}</code>
-              <span className="settings-kv-hint">{hint}</span>
+            <div key={key} className="grid grid-cols-[110px_1fr] items-baseline gap-x-3.5 gap-y-px border-line/55 px-[18px] py-2 [&+&]:border-t">
+              <Eyebrow>{key}</Eyebrow>
+              <code className="text-xs break-all">{value}</code>
+              <span className="col-start-2 text-2xs text-fg-2">{hint}</span>
             </div>
           ))}
         </div>
-        <div className="settings-note" style={{ padding: "0 18px 14px" }}>
+        <Hint className="px-[18px] pb-3.5">
           Read-only here — edit <code>kraftwerk.yml</code> directly to change these.
-        </div>
-      </section>
+        </Hint>
+      </Panel>
     </div>
   );
 }

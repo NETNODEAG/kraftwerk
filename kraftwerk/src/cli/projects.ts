@@ -32,7 +32,7 @@ import { fmtAgo } from "./workspaces.js";
  *   kraftwerk projects link <slug> <kind> <name>    add a knowledge|vibeables|repos|workflows|agents link
  *   kraftwerk projects unlink <slug> <kind> <name>  remove one
  *   kraftwerk projects log <slug> "<entry>"         append a stamped line to log.md (--actor)
- *   kraftwerk projects remove <slug>                delete the folder (its history stays in the workspace git)
+ *   kraftwerk projects remove <slug>                move the folder to the trash
  *
  * The workspace registry answered to this name until 0.48; it is
  * `kraftwerk workspaces` now (workspaces.ts).
@@ -213,13 +213,13 @@ export function registerProjectCommands(program: Command): void {
 
   projects
     .command("remove")
-    .description("Delete a project folder; its history stays in the workspace git")
+    .description("Move a project folder to the trash (`kraftwerk trash` puts it back)")
     .argument("<slug>", "Folder name under the root")
     .action(async (slug: string) => {
       await prepare();
       try {
         await deleteProject(slug);
-        console.log(`${chalk.green("✔")} removed ${chalk.cyan(slug)}`);
+        console.log(`${chalk.green("✔")} moved ${chalk.cyan(slug)} to the trash`);
       } catch (err) {
         die((err as Error).message);
       }

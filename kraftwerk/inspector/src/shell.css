@@ -1,0 +1,213 @@
+/*
+ * The shell: where the screens sit, not how they look. Three columns under
+ * the top bar (rail | conversation | context), each scrolling on its own,
+ * and the screens' own grids (a sidebar beside a main pane). This is the
+ * one place layout lives as CSS rather than utilities: the columns change
+ * shape with the window and with each other (a screen inside the
+ * conversation column drops its sidebar, the divider is dragged), which
+ * reads better as a few rules than as variants spread over ten files.
+ * Everything a component looks like is in its utilities.
+ */
+
+/* ---------- a page on its own (global pages under the top bar) ---------- */
+.shell { max-width: 1240px; margin: 0 auto; padding: 32px 24px 96px; }
+.shell:has(.runs-screen) { max-width: none; padding: 0; }
+.shell-global > * { animation: var(--animate-rise); }
+
+/* ---------- three columns: rail | conversation | context ---------- */
+.shell.three {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%);
+  max-width: none;
+  height: calc(100vh - var(--topbar-h));
+  min-height: 0;
+  margin: 0;
+  padding: 24px 20px 20px;
+  row-gap: 16px;
+  background: var(--bg);
+}
+.shell.three[hidden] { display: none; }
+.shell.three > * { min-width: 0; min-height: 0; }
+
+.rail { display: flex; flex-direction: column; min-height: 0; margin-right: 16px; }
+.places { display: none; }
+
+/* The conversation and its context are one framed panel, divided by a line. */
+.col-chat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.shell.three.home .col-chat { overflow-y: auto; }
+
+.ctx {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+  background: color-mix(in srgb, var(--surface-1) 70%, var(--surface-2));
+  border: 1px solid var(--line);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+/* A stronger divider than a hairline: the line plus a shadow into the context side. */
+.ctx::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 10px;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--divider-shade), transparent);
+}
+.ctx-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 24px; }
+.ctx-embed { display: flex; flex-direction: column; padding: 4px 12px 24px; container-type: inline-size; }
+.ctx-embed-vibe { flex: 1; min-height: 0; overflow: hidden; }
+.ctx-browser { padding: 4px 12px 12px; }
+/* A hidden category stays hidden: an embed's flex display must not override the attribute. */
+.ctx-body[hidden], .ctx-embed[hidden] { display: none; }
+.ctx-body[role="tabpanel"], .ctx-embed:not(.ctx-browser) > * { animation: var(--animate-rise); }
+
+/* The divider between conversation and context is draggable (app.tsx). */
+.split-handle { position: absolute; top: 0; bottom: 0; right: 0; z-index: 2; width: 8px; cursor: col-resize; touch-action: none; }
+.split-handle::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--t-fast) ease;
+}
+.split-handle:hover::after, .split-handle.dragging::after { background: var(--accent); }
+body.kw-resizing { cursor: col-resize; user-select: none; }
+body.kw-resizing iframe { pointer-events: none; }
+
+/* ---------- a screen: its sidebar beside its main pane ---------- */
+.runs-screen { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
+.agents-screen { grid-template-columns: 240px minmax(0, 1fr); }
+.agents-screen.has-sessions { grid-template-columns: 240px 260px minmax(0, 1fr); }
+.agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr) var(--kside-w, 460px); }
+.channels-screen, .vibeables-screen { grid-template-columns: 280px minmax(0, 1fr); }
+
+.runs-side {
+  position: sticky;
+  top: var(--topbar-h);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--topbar-h));
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
+}
+.knowledge-side { border-left: 1px solid var(--line); border-right: 0; }
+.kside-reopen {
+  position: fixed;
+  top: 60px;
+  right: 14px;
+  z-index: 5;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+}
+.kside-reopen:hover { color: var(--text); }
+
+.runs-main { min-width: 0; padding: 18px 22px 40px; }
+/* The chat pane sizes itself and brings its own padding. */
+.runs-main:has(> .chat-main) { padding: 0; }
+.chat-main { display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h)); padding: 16px 20px; }
+.new-chat { width: 100%; max-width: 640px; margin: 0 auto; }
+.agent-view { display: flex; flex-direction: column; gap: 16px; }
+.ctx-embed .agent-view { gap: 10px; }
+.new-chat, .agent-view { animation: var(--animate-rise); }
+
+/* ---------- a screen inside the conversation column fills the column ---------- */
+.col-chat > .runs-screen { flex: 1; min-height: 0; overflow: hidden; }
+.col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); height: 100%; align-items: stretch; }
+.col-chat .runs-screen.has-tabs { grid-template-rows: auto minmax(0, 1fr); }
+.col-chat .agents-screen.has-sessions { grid-template-columns: 240px minmax(0, 1fr); }
+.col-chat .runs-side { position: static; height: auto; min-height: 0; align-self: stretch; background: none; }
+.col-chat .runs-main { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
+.col-chat .chat-main { flex: 1; height: auto; min-height: 0; }
+/* Room for the context's sign on the shared top edge; tabs above the chat take it instead. */
+.col-chat .chat-main, .col-chat .runs-main > .agent-view, .col-chat .runs-main > .new-chat { padding-top: 36px; }
+.col-chat .has-tabs .chat-main, .col-chat .has-tabs .runs-main > .agent-view, .col-chat .has-tabs .runs-main > .new-chat { padding-top: 16px; }
+/* The rail is the roster, the context column shows knowledge: the screens' own copies step aside. */
+.col-chat .agents-screen > aside.runs-side:first-child,
+.col-chat .channels-screen > aside.runs-side:first-child,
+.col-chat .knowledge-side,
+.col-chat .kside-reopen { display: none; }
+
+/* ---------- narrower windows ---------- */
+@media (max-width: 1199px) {
+  .shell.three { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 48%), 65%); }
+  /* The rail folds into the screens' own sidebars. */
+  .rail { display: none; }
+  .col-chat .agents-screen > aside.runs-side:first-child,
+  .col-chat .channels-screen > aside.runs-side:first-child { display: flex; }
+  .col-chat .runs-screen { grid-template-columns: 220px minmax(0, 1fr); }
+  .col-chat .agents-screen.has-sessions { grid-template-columns: 220px 220px minmax(0, 1fr); }
+}
+@media (max-width: 1099px) {
+  .knowledge-side, .kside-reopen { display: none; }
+  .agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr); }
+}
+@media (max-width: 940px) {
+  /* A page's sidebar (workflows, bundles, apps, files, runs) stacks above it instead of beside it. */
+  .runs-screen { grid-template-columns: 1fr; }
+  .runs-side { position: static; height: auto; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .chat-main { height: auto; min-height: calc(100vh - var(--topbar-h)); }
+}
+@media (max-width: 900px) {
+  .agents-screen, .agents-screen.has-sessions, .agents-screen.has-sessions.has-knowledge { grid-template-columns: 1fr; }
+}
+/* Phone: one column at a time, picked from the bar at the bottom (data-focus). */
+@media (max-width: 800px) {
+  .shell.three { grid-template-columns: minmax(0, 1fr); height: calc(100vh - var(--topbar-h) - 52px); }
+  .shell.three[data-focus="side"] > .col-chat,
+  .shell.three[data-focus="context"] > .col-chat,
+  .shell.three[data-focus="chat"] > .ctx { display: none; }
+  .col-chat, .ctx { border-right: 1px solid var(--line); border-radius: var(--radius); }
+  .ctx::before, .split-handle { display: none; }
+  .col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); }
+  .col-chat .agents-screen > aside.runs-side:first-child,
+  .col-chat .channels-screen > aside.runs-side:first-child { display: flex; }
+  .col-chat .agents-screen.has-sessions { grid-template-columns: minmax(0, 1fr); }
+  /* As specific as the rule above that shows the roster, so a chat with its tabs hides it again. */
+  .col-chat .agents-screen.has-sessions > aside.runs-side:first-child,
+  .col-chat .agents-screen.has-sessions > .runs-side,
+  /* In a chat with its tabs the chat is the screen; Home is where you pick another agent or project. */
+  .col-chat .runs-screen.has-tabs > aside.runs-side:first-child { display: none; }
+  .places {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 52px;
+    padding: 0 8px env(safe-area-inset-bottom, 0px);
+    background: var(--surface-2);
+    border-top: 1px solid var(--line);
+  }
+  .places a, .places button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .places a.active, .places button.active { color: var(--accent); }
+}

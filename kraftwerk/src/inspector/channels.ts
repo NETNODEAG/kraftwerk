@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import { getProjectRoot } from "./context.js";
+import { moveToTrash } from "./trash.js";
 import { resolveProject } from "../config.js";
 import { listAgents, safeAgentSlug, slugFromName, type Agent } from "./agents.js";
 import { syncWorkspaceChannels } from "./instances.js";
@@ -189,7 +190,7 @@ export async function saveChannel(input: SaveChannelInput): Promise<Channel> {
 }
 
 export async function deleteChannel(slug: string): Promise<void> {
-  await fs.rm(path.join(await channelsRoot(), safeChannelSlug(slug)), { recursive: true, force: true });
+  await moveToTrash("channels", slug, path.join(await channelsRoot(), safeChannelSlug(slug)));
 }
 
 /**

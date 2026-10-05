@@ -1,0 +1,158 @@
+/*
+ * The inspector's stylesheet entry.
+ *
+ * Tailwind (v4) styles everything: the components in src/ui/ and the
+ * screens built from them. Besides the utilities there are four small
+ * stylesheets, each for something utilities do not express well:
+ *   tokens.css  the design tokens (light, dark, the workspace accent)
+ *   shell.css   where the screens sit: the three columns and the screen grids
+ *   prose.css   rendered markdown (`md-body`), HTML we do not write ourselves
+ *   editor.css  the rich-text editor, loaded with it (editor.tsx)
+ * No preflight: the base layer below is the reset the interface was built on.
+ *
+ * @theme inline points Tailwind's names at the tokens, so `bg-surface` or
+ * `text-accent` follow the theme and the workspace colour at runtime.
+ */
+@layer theme, base, vendor, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "./tokens.css" layer(base);
+@import "@material-symbols/font-400/rounded.css" layer(vendor);
+@import "./shell.css" layer(components);
+@import "./prose.css" layer(components);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  /* Surfaces and lines */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  /* Text: fg for what you read, fg-2 for what explains it */
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  /* The accent: what starts something; the workspace's colour */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent-soft: var(--on-accent-soft);
+  /* Outcomes */
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-bad: var(--bad);
+  --color-on-bad: var(--on-bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-on-bad-soft: var(--on-bad-soft);
+  --color-ask: var(--ask);
+  --color-ask-soft: var(--ask-soft);
+  --color-on-ask-soft: var(--on-ask-soft);
+  --color-live: var(--live);
+
+  --font-reading: var(--reading);
+
+  --radius-card: var(--radius);
+  --radius-control: var(--radius-s);
+
+  --shadow-pop: var(--elev-pop);
+  --shadow-modal: var(--elev-modal);
+}
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { height: 100%; }
+  body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+  code, pre { font-family: var(--font-mono); }
+  /* Fields answer focus with a soft ring, not a jump. */
+  input, textarea, select { transition: border-color var(--t-fast) ease, box-shadow var(--t-fast) ease, background var(--t-fast) ease; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--line) content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Material Symbols Rounded (Icon in shared.tsx), sized to sit inline with
+   13–14px text; a utility on the icon (`text-[20px]`) wins over these. */
+@layer components {
+  .ms {
+    flex: none;
+    font-size: 18px;
+    line-height: 1;
+    vertical-align: -4px;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+    user-select: none;
+  }
+  .ms.ms-fill { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20; }
+  .ms.ms-sm { font-size: 15px; vertical-align: -3px; }
+  /* Only the progress icon spins; a disabled button must not. */
+  .ms.ms-spin { animation: kw-spin 1s linear infinite; }
+  @keyframes kw-spin { to { transform: rotate(360deg); } }
+}
+
+@theme {
+  /* One type scale for the whole interface. */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 14px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-md: 15px;
+  --text-md--line-height: 22px;
+  --text-lg: 18px;
+  --text-lg--line-height: 24px;
+  --text-xl: 22px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 26px;
+  --text-2xl--line-height: 32px;
+}
+
+@theme static {
+  /* Motion: things that appear rise in, states cross-fade; static so shell.css can use them too. */
+  --animate-rise: kw-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-tab-in: kw-tab-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-left: kw-slide-left 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade: kw-fade 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-modal: kw-modal 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-vibe-flash: vibeable-fade 2.5s ease forwards;
+  --animate-sign: kw-sign 260ms cubic-bezier(0.34, 1.35, 0.64, 1) both;
+  --animate-breathe: kw-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1), kw-breathe 1.4s ease-in-out infinite;
+  @keyframes kw-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes kw-modal { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+  @keyframes vibeable-fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes kw-sign { from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+  @keyframes kw-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes kw-tab-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes kw-slide-left { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+  @keyframes kw-breathe { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+  @keyframes focus-flash {
+    0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 55%, transparent); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+}
+
+/* Landing on a request from "next" (attention.tsx adds the class): the card lights up for a moment. */
+@utility focus-flash {
+  animation: focus-flash 1.8s ease-out;
+}

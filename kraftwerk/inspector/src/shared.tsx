@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+// cn straight from its module: ui/ imports this file, the index would be a cycle.
+import { cn } from "./ui/cn";
 
 /* ---------- icons ---------- */
 
@@ -275,7 +277,7 @@ const DARK_CARD: Rgb = [0x26, 0x25, 0x23];
  * workspace colour so every button, toggle, selected state and focus ring
  * carries it. Each text/ground pair is pushed until it reads at 4.5:1, so a
  * pastel or a near-black workspace colour still produces usable buttons.
- * Keys are the CSS custom properties globals.css reads under [data-ws-accent].
+ * Keys are the CSS custom properties tokens.css reads under [data-ws-accent].
  */
 export function wsPalette(color: string): Record<string, string> | null {
   const ws = parseColor(color);
@@ -322,6 +324,7 @@ export function WorkspaceTile({
   color,
   seed,
   ambiguous,
+  size = "md",
   className,
 }: {
   icon?: string;
@@ -329,13 +332,31 @@ export function WorkspaceTile({
   color?: string;
   seed: string;
   ambiguous?: boolean;
+  /** sm: the 32px home link in the top bar; md: the 40px list avatar. */
+  size?: "sm" | "md";
   className?: string;
 }) {
   const style = { "--ws-c": workspaceColor(color, seed) } as CSSProperties;
   return (
-    <span className={`ws-tile${icon ? "" : " ws-tile-mono"}${className ? ` ${className}` : ""}`} style={style} aria-hidden>
+    <span
+      className={cn(
+        "relative grid flex-none place-items-center rounded-full leading-none",
+        "bg-[color-mix(in_srgb,var(--ws-c,var(--text))_22%,var(--surface-2))]",
+        size === "sm" ? "size-8" : "size-10",
+        icon
+          ? size === "sm" ? "text-[18px]" : "text-[22px]"
+          : cn("font-sans font-medium tracking-[0.15px] text-[var(--ws-c,var(--text))]", size === "sm" ? "text-[13px]" : "text-base"),
+        className
+      )}
+      style={style}
+      aria-hidden
+    >
       {icon || monogram(name)}
-      {icon && ambiguous && <span className="ws-tile-badge">{monogram(name)}</span>}
+      {icon && ambiguous && (
+        <span className="absolute -right-[3px] -bottom-[3px] grid h-[18px] min-w-[18px] place-items-center rounded-full bg-[var(--ws-c,var(--text))] px-1 font-sans text-[10px] font-medium leading-none tracking-[0.4px] text-white shadow-[0_0_0_2px_var(--surface-1)]">
+          {monogram(name)}
+        </span>
+      )}
     </span>
   );
 }
@@ -358,6 +379,9 @@ export async function post<T extends object = {}>(
 }
 
 /** Poll a JSON endpoint; tightens the interval while `fast` (live run). */
+/** Fired after a project's links change in the UI, so lists that show them refetch at once. */
+export const PROJECTS_CHANGED_EVENT = "kw-projects-changed";
+
 export function usePoll<T>(url: string, fast: boolean, intervalMs = 6000): T | null {
   const [data, setData] = useState<T | null>(null);
   const urlRef = useRef(url);
@@ -442,13 +466,8 @@ export function Elapsed({ since }: { since?: string }) {
     return () => clearInterval(t);
   }, []);
   if (!since) return null;
-  return <span className="num">{fmtDuration(Date.now() - Date.parse(since))}</span>;
+  return <span className="tabular-nums">{fmtDuration(Date.now() - Date.parse(since))}</span>;
 }
 
-export function Lamp({ status }: { status: string }) {
-  return <span className={`lamp ${status}`} />;
-}
-
-export function StatusWord({ status }: { status: string }) {
-  return <span className={`status-word ${status}`}>{status}</span>;
-}
+/** Reasoning effort a project or an agent can pin; "" is the harness default. */
+export const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];

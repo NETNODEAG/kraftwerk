@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Icon, isEditPath, navigate } from "./shared";
+import { isEditPath, navigate } from "./shared";
+import { IconButton } from "./ui";
 import { NewProjectPage, ProjectPage } from "./projects";
 import { AgentEditor, AgentView } from "./agents";
 import { ChannelEditPage } from "./channels";
@@ -44,12 +45,19 @@ export function EditModal({ back, children }: { back: string; children: React.Re
     return () => window.removeEventListener("keydown", onKey);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal edit-modal" role="dialog" aria-label="edit" onMouseDown={(e) => e.stopPropagation()}>
-        <button type="button" className="modal-x" onClick={close} title="close (esc)" aria-label="close">
-          <Icon name="close" />
-        </button>
-        <div className="runs-main modal-body">{children}</div>
+    <div
+      className="fixed inset-0 z-40 flex animate-fade items-start justify-center bg-black/38 px-4 pt-[6vh] pb-4 max-[800px]:p-0"
+      onMouseDown={close}
+    >
+      <div
+        className="edit-modal relative max-h-[88dvh] w-[min(960px,100%)] animate-modal overflow-y-auto rounded-card border border-line bg-surface shadow-modal max-[800px]:max-h-dvh max-[800px]:rounded-none"
+        role="dialog"
+        aria-label="edit"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <IconButton icon="close" label="close (esc)" className="absolute top-3 right-3 z-1 rounded-full" onClick={close} />
+        {/* runs-main: the screens rendered here still lean on its descendant rules until phase 4. */}
+        <div className="runs-main min-w-0 pt-[18px] pr-12 pb-10 pl-6">{children}</div>
       </div>
     </div>
   );

@@ -23,6 +23,8 @@ writeFileSync(path.join(here, ".fixture.json"), JSON.stringify({ root: fx.root }
 
 process.env.HOME = fx.home;
 process.env.KRAFTWERK_CLOUD_URL = "off"; // never register the e2e fixture with the real cloud
+// A message in an e2e chat reaches the scripted fake agent, never a real one (it asks for one approval per prompt).
+process.env.KRAFTWERK_ACP_ADAPTER = path.join(here, "../test/helpers/fake-acp-agent.mjs");
 const { startInspector } = await import("../src/inspector/server.js");
 const port = Number(process.env.E2E_PORT || 19981);
 await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port, projectRoot: fx.root });

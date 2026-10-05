@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -21,9 +21,10 @@ import type {
   SkillInfo,
   StoredChatEvent,
 } from "./types";
-import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "./shared";
+import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures, usePoll } from "./shared";
 import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
+import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Notice, Page, Panel, Select, Tag, TextField, Title, type DotTone } from "./ui";
 
 /** The name a human posts under in channels; per browser, changeable in the composer. */
 const ME_KEY = "kw-me";
@@ -92,41 +93,37 @@ export function NewChat() {
   useEffect(() => setSessions(null), [agent]);
 
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>new chat</h1>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">agent</span>
+    <Page width="narrow">
+      <Title>new chat</Title>
+      <Panel title="agent">
+        <div className="grid grid-cols-3 gap-2.5 p-4 max-[940px]:grid-cols-1">
+          {AGENTS.map((a) => {
+            const on = agent === a.id;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                aria-pressed={on}
+                className={cn(
+                  "flex cursor-pointer flex-col gap-0.5 rounded-card border px-3.5 py-3 text-left transition-colors",
+                  on ? "border-transparent bg-accent-soft text-on-accent-soft" : "border-line bg-transparent text-fg hover:bg-surface-2"
+                )}
+                onClick={() => setAgent(a.id)}
+              >
+                <b className="text-base font-medium">{a.label}</b>
+                <span className={cn("text-xs", on ? "text-on-accent-soft" : "text-fg-2")}>{a.hint}</span>
+              </button>
+            );
+          })}
         </div>
-        <div className="agent-pick">
-          {AGENTS.map((a) => (
-            <button
-              key={a.id}
-              className={`agent-pick-btn ${agent === a.id ? "active" : ""}`}
-              onClick={() => setAgent(a.id)}
-            >
-              <b>{a.label}</b>
-              <span>{a.hint}</span>
-            </button>
-          ))}
-        </div>
-        <div className="run-opts" style={{ padding: "0 16px 14px" }}>
-          <label>
-            <input
-              type="checkbox"
-              checked={kraftwerkAware}
-              onChange={(e) => setKraftwerkAware(e.target.checked)}
-            />
-            kraftwerk-aware
-            <span className="opt-hint">— agent gets workflows + recent runs as context</span>
-          </label>
-        </div>
-        <div style={{ padding: "0 16px 16px" }}>
-          <button
-            className="run-btn"
-            disabled={creating}
+        <label className="flex cursor-pointer items-center gap-2 px-4 pb-3.5 text-sm text-fg-2">
+          <input type="checkbox" className="size-[15px] accent-accent" checked={kraftwerkAware} onChange={(e) => setKraftwerkAware(e.target.checked)} />
+          <span className="text-fg">kraftwerk-aware</span> — agent gets workflows + recent runs as context
+        </label>
+        <div className="px-4 pb-4">
+          <Button
+            variant="primary"
+            busy={creating}
             onClick={async () => {
               setCreating(true);
               await createChatAndOpen(agent, { kind: kraftwerkAware ? "kraftwerk" : "general" });
@@ -134,17 +131,18 @@ export function NewChat() {
             }}
           >
             {creating ? "starting…" : "start chat"}
-          </button>
+          </Button>
         </div>
-      </section>
+      </Panel>
       {agent !== "pi" && (
-        <section className="panel new-chat-panel">
-          <div className="panel-head">
-            <span className="microlabel">continue a session</span>
-            <span className="spacer" />
-            {sessions === null && (
-              <button
-                className="ws-btn"
+        <Panel
+          title="continue a session"
+          actions={
+            sessions === null && (
+              <Button
+                size="sm"
+                variant="quiet"
+                icon="history"
                 onClick={async () => {
                   setSessions("loading");
                   const d = await fetch(`/api/agent-sessions?agent=${agent}`)
@@ -153,35 +151,36 @@ export function NewChat() {
                   setSessions((d.sessions ?? []).slice(0, 20));
                 }}
               >
-                <Icon name="history" className="ms-sm" /> list {agent} sessions
-              </button>
-            )}
-          </div>
-          {sessions === "loading" && <div className="empty">asking {agent}…</div>}
-          {Array.isArray(sessions) && sessions.length === 0 && <div className="empty">no {agent} sessions in this project</div>}
+                list {agent} sessions
+              </Button>
+            )
+          }
+        >
+          {sessions === null && <EmptyState className="py-6">Pick up a {agent} session started outside kraftwerk.</EmptyState>}
+          {sessions === "loading" && <EmptyState className="py-6">asking {agent}…</EmptyState>}
+          {Array.isArray(sessions) && sessions.length === 0 && <EmptyState className="py-6">no {agent} sessions in this project</EmptyState>}
           {Array.isArray(sessions) && sessions.length > 0 && (
-            <div className="session-list">
+            <div className="flex flex-col p-1.5">
               {sessions.map((s) => (
-                <button
+                <ListRow
                   key={s.sessionId}
-                  className="session-row"
-                  disabled={creating}
-                  title={s.sessionId}
+                  size="sm"
+                  title={s.title || s.sessionId.slice(0, 8)}
+                  meta={s.updatedAt && new Date(s.updatedAt).toLocaleString()}
+                  innerProps={{ title: s.sessionId }}
                   onClick={async () => {
+                    if (creating) return;
                     setCreating(true);
                     await createChatAndOpen(agent, { kind: kraftwerkAware ? "kraftwerk" : "general" }, s.sessionId);
                     setCreating(false);
                   }}
-                >
-                  <span className="session-title">{s.title || s.sessionId.slice(0, 8)}</span>
-                  {s.updatedAt && <span className="session-when">{new Date(s.updatedAt).toLocaleString()}</span>}
-                </button>
+                />
               ))}
             </div>
           )}
-        </section>
+        </Panel>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -265,6 +264,34 @@ function liveState(events: StoredChatEvent[], who?: Author) {
 
 /* ---------- thread ---------- */
 
+/**
+ * Who an agent's turn is from, the way a reader says it: "🐻 Max", "🎩 Ralv".
+ * The waiting line, the approval and question cards and the composer all
+ * name the agent instead of saying "the agent".
+ */
+const SpeakerContext = createContext<(from?: Author) => string>(() => "The agent");
+const useSpeaker = () => useContext(SpeakerContext);
+
+/** Who asked the first request nobody answered yet: undefined = none, null = the chat's one agent. */
+function pendingFrom(events: StoredChatEvent[]): Author | null | undefined {
+  const open = new Map<string, Author | null>();
+  for (const e of events) {
+    if (e.type === "permission_request" || e.type === "elicitation_request") open.set(e.requestId, e.from ?? null);
+    if (e.type === "permission_resolved" || e.type === "elicitation_resolved") open.delete(e.requestId);
+  }
+  return open.size ? [...open.values()][0] : undefined;
+}
+
+/** The name a chat's single agent goes by. */
+function mainSpeaker(scope: ChatScope, agents: Agent[], agentName?: string): string {
+  if (scope.kind === "agent") {
+    const a = agents.find((x) => x.slug === scope.slug);
+    return a ? `${a.emoji ? `${a.emoji} ` : ""}${a.name}` : (agentName ?? scope.slug);
+  }
+  if (scope.kind === "general" || scope.kind === "kraftwerk") return "🎩 Ralv";
+  return "The assistant";
+}
+
 export function ChatThread({
   id,
   agentName,
@@ -291,6 +318,8 @@ export function ChatThread({
   // Channels: look at one agent's own session (its stream alone, tools included).
   const [focus, setFocus] = useState<string | null>(null);
   const features = useFeatures();
+  const expert = useExpertMode();
+  const allAgents = usePoll<{ agents: Agent[] }>(channel ? "" : "/api/agents", false, 30_000)?.agents ?? [];
   // An attached app shows in the context column: announce it, and render the
   // pane into the column's slot once it is in the DOM.
   const attachedSlug = meta?.vibeable && features.vibeables ? meta.vibeable : null;
@@ -373,110 +402,142 @@ export function ChatThread({
     return () => setPageTitle("");
   }, [meta, title, agentName, agentDescription, channel]);
 
-  if (gone) return <div className="empty">chat not found</div>;
-  if (!meta) return <div className="empty">loading…</div>;
+  if (gone) return <EmptyState icon="chat_error">chat not found</EmptyState>;
+  if (!meta) return <EmptyState>loading…</EmptyState>;
 
   const agentMap = new Map((agents ?? []).map((a) => [a.slug, a]));
 
   if (channel) {
     return (
-      <>
-        <div className="chat-thread channel-thread">
-          <div className="detail-head channel-head">
-            <span className={`lamp ${busy ? "running" : "ok"}`} />
-            <h1>#{channel.slug}</h1>
-            <span className="channel-name">{channel.name}</span>
-            <span className="spacer" />
-            {working.length > 0 && (
-              <button className="stop-btn" title="interrupt every agent working in this channel" onClick={() => stopAgent(id)}>
-                <Icon name="stop" className="ms-sm" /> stop all ({working.length})
-              </button>
-            )}
-            <Link href={`/channels/${encodeURIComponent(channel.slug)}/edit`} className="open-raw" title="members, purpose, responder">
-              <Icon name="tune" className="ms-sm" /> members
-            </Link>
-          </div>
-          <div className="channel-members">
-            {channel.purpose && <span className="channel-purpose">{channel.purpose}</span>}
-            {channel.members.map((m) => {
-              const a = agentMap.get(m);
-              const on = working.includes(m);
-              const act = agentActivity(events, m);
-              return (
-                <div key={m} className={`member-chip ${on ? "working" : ""} ${focus === m ? "focused" : ""}`} title={a?.description}>
-                  <button className="member-open" onClick={() => setFocus(focus === m ? null : m)} title={focus === m ? "back to the channel" : `look at @${m}'s session`}>
-                    <span className="agent-avatar sm">
-                      <span aria-hidden>{a?.emoji ?? "🤖"}</span>
-                      <span className={`lamp ${on ? "running" : "idle"}`} />
-                    </span>
-                    <span className="member-text">
-                      <span className="member-line">
-                        <span className="member-name">{a?.name ?? m}</span>
-                        <span className="member-handle">@{m}</span>
-                        {channel.responder === m && <span className="chip">responder</span>}
-                      </span>
-                      {(act.task || act.now) && (
-                        <span className="member-activity">
-                          {on ? (act.now ? <><span className="microlabel">now</span> {act.now}</> : <>working on: {act.task}</>) : <><span className="microlabel">last</span> {act.task}</>}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {on && (
-                    <button className="member-stop" title={`interrupt @${m}`} onClick={() => stopAgent(id, m)}>
-                      <Icon name="stop" className="ms-sm" />
-                    </button>
-                  )}
-                  <Link href={`/agents/${encodeURIComponent(m)}/info`} className="member-info" title="agent definition">
-                    <Icon name="info" className="ms-sm" />
-                  </Link>
-                </div>
-              );
-            })}
-          </div>
-          {focus && (
-            <div className="focus-bar">
-              <button className="ws-btn" onClick={() => setFocus(null)}>
-                <Icon name="arrow_back" className="ms-sm" /> channel
-              </button>
-              <span className="focus-title">
-                {agentMap.get(focus)?.emoji ?? "🤖"} @{focus}'s session — everything this agent did, tools included
-              </span>
-              <span className="spacer" />
-              {working.includes(focus) && (
-                <button className="stop-btn" onClick={() => stopAgent(id, focus)}>
-                  <Icon name="stop" className="ms-sm" /> stop @{focus}
-                </button>
-              )}
-            </div>
+      <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
+        <div className="channel-head flex flex-none flex-wrap items-center gap-x-3 gap-y-2 pb-1.5">
+          <Dot tone={busy ? "working" : "ok"} />
+          <Title>#{channel.slug}</Title>
+          <span className="text-md text-fg-2">{channel.name}</span>
+          <span className="flex-1" />
+          {working.length > 0 && (
+            <Button size="sm" variant="danger" icon="stop" title="interrupt every agent working in this channel" onClick={() => stopAgent(id)}>
+              stop all ({working.length})
+            </Button>
           )}
+          <Button size="sm" icon="tune" href={`/channels/${encodeURIComponent(channel.slug)}/edit`} title="members, purpose, responder">
+            members
+          </Button>
+        </div>
+        <div className="channel-members flex flex-none flex-wrap items-center gap-x-2.5 gap-y-2 pb-3">
+          {channel.purpose && <span className="channel-purpose w-full text-sm text-fg-2">{channel.purpose}</span>}
+          {channel.members.map((m) => {
+            const a = agentMap.get(m);
+            const on = working.includes(m);
+            const act = agentActivity(events, m);
+            return (
+              <div
+                key={m}
+                className={cn(
+                  "member-chip inline-flex items-center gap-1 rounded-full py-[3px] pr-1.5 pl-[3px] text-sm transition-colors",
+                  on ? "bg-accent-soft" : "bg-surface-2",
+                  focus === m && "outline-2 outline-accent"
+                )}
+                title={a?.description}
+              >
+                <button
+                  type="button"
+                  className="flex min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left font-[inherit] text-inherit"
+                  onClick={() => setFocus(focus === m ? null : m)}
+                  title={focus === m ? "back to the channel" : `look at @${m}'s session`}
+                >
+                  <span className="relative grid size-7 flex-none place-items-center rounded-full bg-surface text-[15px]">
+                    <span aria-hidden>{a?.emoji ?? "🤖"}</span>
+                    <span className="absolute -right-0.5 -bottom-0.5 grid rounded-full bg-surface p-px">
+                      <Dot tone={on ? "working" : "idle"} />
+                    </span>
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-px">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="font-medium text-fg">{a?.name ?? m}</span>
+                      <span className="member-handle font-mono text-2xs text-fg-2">@{m}</span>
+                      {channel.responder === m && <Tag>responder</Tag>}
+                    </span>
+                    {(act.task || act.now) && (
+                      <span className="max-w-[44ch] truncate text-2xs text-fg-2">
+                        {on ? (
+                          act.now ? (
+                            <>
+                              <Eyebrow className="mr-1">now</Eyebrow> {act.now}
+                            </>
+                          ) : (
+                            <>working on: {act.task}</>
+                          )
+                        ) : (
+                          <>
+                            <Eyebrow className="mr-1">last</Eyebrow> {act.task}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {on && <IconButton icon="stop" label={`interrupt @${m}`} variant="danger" size="sm" className="size-6" onClick={() => stopAgent(id, m)} />}
+                <IconButton icon="info" label="agent definition" size="sm" className="size-6" href={`/agents/${encodeURIComponent(m)}/info`} />
+              </div>
+            );
+          })}
+        </div>
+        {focus && (
+          <div className="flex flex-none items-center gap-2.5 border-b border-line py-1.5 text-sm">
+            <Button size="sm" variant="quiet" icon="arrow_back" onClick={() => setFocus(null)}>
+              channel
+            </Button>
+            <span className="min-w-0 truncate text-fg-2">
+              {agentMap.get(focus)?.emoji ?? "🤖"} @{focus}'s session — everything this agent did, tools included
+            </span>
+            <span className="flex-1" />
+            {working.includes(focus) && (
+              <Button size="sm" variant="danger" icon="stop" onClick={() => stopAgent(id, focus)}>
+                stop @{focus}
+              </Button>
+            )}
+          </div>
+        )}
+        <SpeakerContext.Provider
+          value={(from) => {
+            const a = from?.kind === "agent" ? agentMap.get(from.slug) : undefined;
+            return from?.kind === "agent" ? `${a?.emoji ?? "🤖"} ${a?.name ?? from.slug}` : "The agent";
+          }}
+        >
           <Thread id={id} events={events} busy={busy} channel={channel} agentMap={agentMap} working={working} focus={focus ?? undefined} />
           <Composer id={id} busy={busy} scope={meta.scope} channel={channel} agentMap={agentMap} />
-        </div>
-      </>
+        </SpeakerContext.Provider>
+      </div>
     );
   }
 
+  const waiting = busy && pendingFrom(events) !== undefined;
   return (
     <>
-    <div className="chat-thread">
-      <div className="detail-head">
-        <span className={`lamp ${busy ? "running" : "ok"}`} />
-        <h1>{title || "new chat"}</h1>
+    <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
+      <div className="flex flex-none flex-wrap items-center gap-x-2.5 gap-y-1.5 pb-1.5">
+        <Dot tone={waiting ? "bad" : busy ? "working" : "ok"} title={waiting ? "waiting for you" : busy ? "working" : undefined} />
+        <Title className="min-w-0">{title || "new chat"}</Title>
         {((meta.scope.kind === "agent" && !meta.scope.routine) || meta.scope.kind === "project") && (
-          <button
-            className="ws-btn coworker-btn"
+          <Button
+            size="sm"
+            icon="group_add"
             onClick={() => setCoworker(true)}
-            title={meta.scope.kind === "project" ? "Turn this chat into a channel of the project and invite agents" : "Turn this session into a channel and invite more agents"}
+            title={meta.scope.kind === "project" ? "Turn this chat into a channel of the project and invite agents" : "Turn this chat into a channel and invite more agents"}
             disabled={busy}
           >
-            <Icon name="group_add" className="ms-sm" /> add coworker
-          </button>
+            add coworker
+          </Button>
         )}
-        {meta.agent !== "pi" && meta.sessions?.main && (
-          <button
-            className={`ws-btn fork-btn${meta.agent === "codex" ? " muted" : ""}`}
-            disabled={busy || forking}
+        {expert && meta.agent !== "pi" && meta.sessions?.main && (
+          <Button
+            size="sm"
+            variant="quiet"
+            icon="call_split"
+            busy={forking}
+            className={meta.agent === "codex" ? "opacity-50" : undefined}
+            disabled={busy}
             aria-disabled={meta.agent === "codex"}
             title={meta.agent === "codex" ? "not supported: codex has no session fork" : "Branch this conversation: a new chat with the same history, the original stays as it is"}
             onClick={async () => {
@@ -489,38 +550,31 @@ export function ChatThread({
               navigate(body.scope?.kind === "agent" ? `/agents/${encodeURIComponent(body.scope.slug)}/chat/${body.id}` : `/agents/chats/${body.id}`);
             }}
           >
-            <Icon name="call_split" className="ms-sm" /> {forking ? "forking…" : "fork"}
-          </button>
+            {forking ? "forking…" : "fork"}
+          </Button>
         )}
-        {forkNote && <span className="fork-note">{forkNote}</span>}
-        <span className="chip agent">{meta.agent}</span>
+        {expert && forkNote && <span className="text-2xs text-fg-2">{forkNote}</span>}
+        {expert && <Tag>{meta.agent}</Tag>}
         <AgentStatus id={id} live={live} />
-        {meta.scope.kind === "run" && (
-          <Link href={`/runs/${meta.scope.runId}`} className="chip">
-            {meta.scope.runId}
-          </Link>
-        )}
-        {meta.scope.kind === "kraftwerk" && <span className="chip">kraftwerk-aware</span>}
-        {meta.scope.kind === "knowledge" && (
-          <Link
-            href={meta.scope.bundle ? `/knowledge/${encodeURIComponent(meta.scope.bundle)}` : "/knowledge"}
-            className="chip"
-          >
+        {expert && meta.scope.kind === "run" && <TagLink href={`/runs/${meta.scope.runId}`}>{meta.scope.runId}</TagLink>}
+        {expert && meta.scope.kind === "kraftwerk" && <Tag>kraftwerk-aware</Tag>}
+        {expert && meta.scope.kind === "knowledge" && (
+          <TagLink href={meta.scope.bundle ? `/knowledge/${encodeURIComponent(meta.scope.bundle)}` : "/knowledge"}>
             knowledge{meta.scope.bundle ? `:${meta.scope.bundle}` : ""}
-          </Link>
+          </TagLink>
         )}
-        {meta.scope.kind === "agent" && (
-          <Link href={`/agents/${encodeURIComponent(meta.scope.slug)}/info`} className="chip">
-            agent:{meta.scope.slug}
-          </Link>
+        {expert && meta.scope.kind === "agent" && <TagLink href={`/agents/${encodeURIComponent(meta.scope.slug)}/info`}>agent:{meta.scope.slug}</TagLink>}
+        {expert && (
+          <span className="rid max-w-[34ch] min-w-0 truncate font-mono text-xs text-fg-2" title={meta.cwd}>
+            {meta.cwd}
+          </span>
         )}
-        <span className="rid" title={meta.cwd}>
-          {meta.cwd}
-        </span>
       </div>
       {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
-      <Thread id={id} events={events} busy={busy} />
-      <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} />
+      <SpeakerContext.Provider value={() => mainSpeaker(meta.scope, allAgents, agentName)}>
+        <Thread id={id} events={events} busy={busy} />
+        <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} />
+      </SpeakerContext.Provider>
     </div>
     {attachedSlug && vibeSlot && createPortal(<VibePane key={attachedSlug} chatId={id} slug={attachedSlug} agentBusy={busy} onClosed={setMeta} />, vibeSlot)}
     {coworker && meta.scope.kind === "agent" && (
@@ -530,6 +584,15 @@ export function ChatThread({
       <AddCoworkerDialog chatId={id} project={meta.scope.slug} title={title || agentName || ""} onClose={() => setCoworker(false)} onCreated={onConverted} />
     )}
     </>
+  );
+}
+
+/** A status tag that links somewhere: the run, the bundle, the agent a chat is about. */
+function TagLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="no-underline hover:opacity-80">
+      <Tag>{children}</Tag>
+    </Link>
   );
 }
 
@@ -779,6 +842,8 @@ function Thread({
     // agent's session is the opposite: the activity is the point.
     return expert || focus ? all : all.filter((b) => !ACTIVITY_KINDS.has(b.kind));
   }, [events, expert, focus]);
+  const speaker = useSpeaker();
+  const waitingFrom = useMemo(() => pendingFrom(events), [events]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
@@ -789,7 +854,7 @@ function Thread({
 
   return (
     <div
-      className="chat-scroll"
+      className="-mx-5 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[22px] pt-3.5 pb-5 [&>:nth-last-child(-n+3)]:animate-rise"
       ref={scrollRef}
       onClick={onBrowseClick}
       onScroll={(e) => {
@@ -798,29 +863,35 @@ function Thread({
       }}
     >
       {blocks.length === 0 && (
-        <div className="empty">
+        <EmptyState className="m-auto">
           {channel
             ? `say something — @mention an agent to wake it${channel.responder ? `, or just write: @${channel.responder} answers` : ""}`
             : "say something — the agent starts on your first message"}
-        </div>
+        </EmptyState>
       )}
       {blocks.map((b, i) => {
         // Channels: a byline whenever the author changes.
         const prev = blocks[i - 1];
         const byline = channel && b.kind !== "error" && (!prev || !sameAuthor(prev.from, b.from) || prev.kind === "error") ? b.from : undefined;
         return (
-          <div key={b.key} className={`turn ${b.from?.kind === "human" ? "human" : b.from?.kind === "agent" ? "agent" : ""}`}>
+          <div key={b.key} className="contents">
             {byline && <Byline from={byline} agentMap={agentMap} />}
             <BlockView b={b} chatId={id} />
           </div>
         );
       })}
-      {busy && (
-        <div className="chat-working">
-          <span className="lamp running" />{" "}
+      {busy && waitingFrom !== undefined && (
+        // A turn that stopped for an approval or a question is not working: it waits for you.
+        <div className="chat-working waiting flex animate-breathe items-center gap-2 text-xs font-semibold text-bad">
+          <Dot tone="bad" /> {speaker(waitingFrom ?? undefined)} is waiting for you
+        </div>
+      )}
+      {busy && waitingFrom === undefined && (
+        <div className="chat-working flex animate-breathe items-center gap-2 text-xs text-fg-2">
+          <Dot tone="working" />{" "}
           {channel && working?.length
             ? working.map((w) => `${agentMap?.get(w)?.emoji ?? ""} @${w}`).join(", ") + (working.length === 1 ? " is working…" : " are working…")
-            : "working…"}
+            : `${speaker()} is working…`}
         </div>
       )}
     </div>
@@ -829,48 +900,81 @@ function Thread({
 
 /** Channel byline: who says the next message(s). */
 function Byline({ from, agentMap }: { from: Author; agentMap?: Map<string, Agent> }) {
+  const line = "mt-2.5 -mb-0.5 inline-flex items-center gap-2 text-sm text-fg-2 no-underline";
+  const avatar = "grid size-[22px] place-items-center rounded-full text-xs font-semibold";
   if (from.kind === "human") {
     return (
-      <div className="byline human">
-        <span className="byline-avatar">{from.name.slice(0, 1).toUpperCase()}</span>
-        <span className="byline-name">{from.name}</span>
+      <div className={cn("byline human self-end", line)}>
+        <span className={cn(avatar, "bg-accent text-on-accent")}>{from.name.slice(0, 1).toUpperCase()}</span>
+        <span className="byline-name font-semibold text-fg">{from.name}</span>
       </div>
     );
   }
   const a = agentMap?.get(from.slug);
   return (
-    <Link href={`/agents/${encodeURIComponent(from.slug)}/info`} className="byline agent">
-      <span className="byline-avatar">{a?.emoji ?? "🤖"}</span>
-      <span className="byline-name">{a?.name ?? from.slug}</span>
-      <span className="byline-handle">@{from.slug}</span>
+    <Link href={`/agents/${encodeURIComponent(from.slug)}/info`} className={cn("byline agent self-start", line)}>
+      <span className={cn(avatar, "bg-accent-soft text-on-accent-soft")}>{a?.emoji ?? "🤖"}</span>
+      <span className="byline-name font-semibold text-fg">{a?.name ?? from.slug}</span>
+      <span className="font-mono text-2xs">@{from.slug}</span>
     </Link>
   );
 }
 
 /** Agent replies are markdown — render them (sanitized; images/links included). */
-function AgentMessage({ text }: { text: string }) {
+function AgentMessage({ text, small }: { text: string; small?: boolean }) {
   // Every external link gets a small icon that opens it in the context column's browser.
   const html = useMemo(() => withBrowseIcons(DOMPurify.sanitize(marked.parse(text, { async: false }))), [text]);
-  return <div className="msg agent md-body chat-md" dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      className={cn(
+        "md-body h-auto self-stretch overflow-visible p-0 break-words text-fg",
+        small ? "font-sans text-[12.5px] leading-[1.6]" : "font-reading text-[17px] leading-[1.62]",
+        "[&_img]:my-1 [&_img]:block [&_img]:rounded-xl [&_pre]:max-w-full"
+      )}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
-function BlockView({ b, chatId }: { b: Block; chatId: string }) {
+/** What the agent did, one line each: a dot for how it went, the kind, then the command or title. */
+function Activity({ tone, kind, kindTone, children, extra }: { tone: DotTone; kind?: string; kindTone?: "ask"; children: React.ReactNode; extra?: React.ReactNode }) {
+  return (
+    <div className="flex max-w-[90ch] items-start gap-2 self-start px-0.5 font-mono text-2xs text-fg-2">
+      <span className="mt-[3px] grid">
+        <Dot tone={tone} />
+      </span>
+      <span className={cn("min-w-16 shrink-0 text-[10px] tracking-[0.5px] uppercase", kindTone === "ask" && "text-ask")}>{kind}</span>
+      <span className="min-w-0 leading-[1.5] break-words whitespace-pre-wrap">{children}</span>
+      {extra}
+    </div>
+  );
+}
+
+const stateTone = (state?: string, running: DotTone = "working"): DotTone =>
+  state === "completed" ? "ok" : state === "failed" ? "bad" : state === "running" || state === undefined ? running : "idle";
+
+function BlockView({ b, chatId, nested }: { b: Block; chatId: string; nested?: boolean }) {
   switch (b.kind) {
     case "user":
       return (
-        <div className={`msg user${b.steered ? " steered" : ""}`}>
-          {b.steered && <span className="microlabel steer-label">steered in</span>}
+        <div
+          className={cn(
+            "msg user -mx-[22px] my-1.5 self-stretch bg-[color-mix(in_srgb,var(--accent)_14%,var(--surface-1))] px-[22px] py-4 text-md leading-[1.55] break-words whitespace-pre-wrap text-fg",
+            b.steered && "border-l-[3px] border-ask"
+          )}
+        >
+          {b.steered && <Eyebrow className="mb-0.5 block text-[10px] opacity-70">steered in</Eyebrow>}
           {b.text}
           {b.attachments && b.attachments.length > 0 && (
-            <div className="attachments">
+            <div className="mt-2 flex flex-wrap gap-2">
               {b.attachments.map((a) => {
                 const href = `/api/chats/${chatId}/attachments/${encodeURIComponent(a.name)}`;
                 return a.mimeType.startsWith("image/") ? (
                   <a key={a.name} href={href} target="_blank" rel="noreferrer" title={a.name}>
-                    <img src={href} alt={a.name} />
+                    <img src={href} alt={a.name} className="block max-h-60 max-w-full rounded-lg" />
                   </a>
                 ) : (
-                  <a key={a.name} className="file-link" href={href} target="_blank" rel="noreferrer">
+                  <a key={a.name} className="inline-flex items-center gap-1 text-xs text-inherit underline" href={href} target="_blank" rel="noreferrer">
                     <Icon name="attach_file" className="ms-sm" /> {a.name}
                   </a>
                 );
@@ -880,86 +984,90 @@ function BlockView({ b, chatId }: { b: Block; chatId: string }) {
         </div>
       );
     case "agent":
-      return <AgentMessage text={b.text} />;
+      return <AgentMessage text={b.text} small={nested} />;
     case "thought":
       return (
-        <details className="msg thought">
-          <summary>thinking</summary>
-          <div>{b.text}</div>
+        <details className="self-stretch">
+          <summary className="cursor-pointer text-xs font-medium text-fg-2 select-none">thinking</summary>
+          <div className="mt-1 border-l-2 border-line px-3 py-2 text-xs break-words whitespace-pre-wrap text-fg-2">{b.text}</div>
         </details>
       );
     case "tool":
       return (
-        <div className={`tool-card ${b.status ?? ""}${b.compaction ? " compaction" : ""}`}>
-          <span
-            className={`lamp ${
-              b.status === "completed" ? "ok" : b.status === "failed" ? "failed" : "running"
-            }`}
-          />
-          <span className="chip tool-kind">{b.compaction ? "compact" : b.toolKind}</span>
-          <span className="tool-title">
-            {b.compaction ? compactionLabel(b.compaction, b.status) : b.title}
-          </span>
-        </div>
+        <Activity tone={b.status === "completed" ? "ok" : b.status === "failed" ? "bad" : "working"} kind={b.compaction ? "compact" : b.toolKind} kindTone={b.compaction ? "ask" : undefined}>
+          {b.compaction ? compactionLabel(b.compaction, b.status) : b.title}
+        </Activity>
       );
     case "subagent":
       return (
-        <details className={`subagent-card ${b.state ?? "running"}`} open={!b.state}>
-          <summary>
-            <span className={`lamp ${b.state === "completed" ? "ok" : b.state === "failed" ? "failed" : b.state ? "idle" : "running"}`} />
-            <span className="chip tool-kind">subagent</span>
-            <span className="tool-title">
+        <details className="max-w-[90ch] self-stretch" open={!b.state}>
+          <summary className="cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden">
+            <Activity tone={stateTone(b.state)} kind="subagent">
               <b>{b.name}</b> — {b.task}
-              {b.state && b.state !== "completed" && <span className="subagent-state"> · {b.state}</span>}
-            </span>
+              {b.state && b.state !== "completed" && <span className="opacity-70"> · {b.state}</span>}
+            </Activity>
           </summary>
-          <div className="subagent-body">
-            {b.children.length === 0 && <div className="subagent-empty">working…</div>}
+          <div className="mt-1.5 mb-1 ml-[3px] flex flex-col gap-2.5 border-l-2 border-line py-1.5 pl-3.5">
+            {b.children.length === 0 && <div className="font-mono text-2xs text-fg-2 opacity-70">working…</div>}
             {b.children.map((c) => (
-              <BlockView key={c.key} b={c} chatId={chatId} />
+              <BlockView key={c.key} b={c} chatId={chatId} nested />
             ))}
           </div>
         </details>
       );
     case "task":
       return (
-        <div className={`tool-card task-card ${b.state ?? ""}`}>
-          <span className={`lamp ${b.state === "completed" ? "ok" : b.state === "failed" ? "failed" : b.state === "running" ? "running" : "idle"}`} />
-          <span className="chip tool-kind">{b.taskType}</span>
-          <span className="tool-title">
-            <b>{b.name}</b> — {b.summary ?? b.description}
-            {b.state && b.state !== "running" && b.state !== "completed" && <span className="subagent-state"> · {b.state}</span>}
-          </span>
-          {b.canStop && (b.state === "running" || b.state === "paused") && (
-            <button
-              className="task-stop"
-              title="stop this background task (the turn goes on)"
-              onClick={() =>
-                fetch(`/api/chats/${chatId}/task-stop`, {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ taskId: b.taskId }),
-                }).catch(() => {})
-              }
-            >
-              <Icon name="stop" className="ms-sm" /> stop
-            </button>
-          )}
-        </div>
+        <Activity
+          tone={stateTone(b.state, "working")}
+          kind={b.taskType}
+          kindTone="ask"
+          extra={
+            b.canStop &&
+            (b.state === "running" || b.state === "paused") && (
+              <button
+                type="button"
+                className="ml-2 cursor-pointer rounded-lg border border-line bg-transparent px-1.5 py-px font-[inherit] text-[10px] tracking-[0.5px] text-inherit uppercase hover:border-bad hover:text-bad"
+                title="stop this background task (the turn goes on)"
+                onClick={() =>
+                  fetch(`/api/chats/${chatId}/task-stop`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ taskId: b.taskId }),
+                  }).catch(() => {})
+                }
+              >
+                stop
+              </button>
+            )
+          }
+        >
+          <b>{b.name}</b> — {b.summary ?? b.description}
+          {b.state && b.state !== "running" && b.state !== "completed" && <span className="opacity-70"> · {b.state}</span>}
+        </Activity>
       );
     case "plan":
       return (
-        <div className={`plan-card${b.removed ? " removed" : ""}`}>
-          <div className="plan-head">
-            <span className="microlabel">plan</span>
-            <span className="plan-count">
+        <div className={cn("max-w-[76ch] self-start rounded-xl bg-surface-2 px-3.5 py-2.5 text-[12.5px] text-fg-2", b.removed && "opacity-55")}>
+          <div className="mb-1 flex items-baseline gap-2">
+            <Eyebrow>plan</Eyebrow>
+            <span className="font-mono text-2xs">
               {b.entries.filter((e) => e.status === "completed").length}/{b.entries.length}
             </span>
           </div>
-          <ul>
+          <ul className="m-0 flex list-none flex-col gap-[3px] p-0">
             {b.entries.map((e, i) => (
-              <li key={i} className={`plan-${e.status} prio-${e.priority}`}>
-                <Icon name={e.status === "completed" ? "check_circle" : e.status === "in_progress" ? "play_circle" : "radio_button_unchecked"} className="ms-sm" />
+              <li
+                key={i}
+                className={cn(
+                  "flex items-start gap-1.5 leading-[1.45]",
+                  e.status === "completed" && "line-through opacity-60",
+                  e.status === "in_progress" && "font-semibold text-fg"
+                )}
+              >
+                <Icon
+                  name={e.status === "completed" ? "check_circle" : e.status === "in_progress" ? "play_circle" : "radio_button_unchecked"}
+                  className={cn("ms-sm mt-0.5 shrink-0", e.status === "in_progress" && "text-accent")}
+                />
                 <span>{e.content}</span>
               </li>
             ))}
@@ -968,21 +1076,21 @@ function BlockView({ b, chatId }: { b: Block; chatId: string }) {
       );
     case "files":
       return (
-        <div className="tool-card files-card">
-          <span className="lamp ok" />
-          <span className="chip tool-kind">changed</span>
-          <span className="tool-title">
-            {b.paths.join("\n")}
-            {(!b.complete || b.note) && <span className="subagent-state"> · {b.note ?? "list may be incomplete"}</span>}
-          </span>
-        </div>
+        <Activity tone="ok" kind="changed">
+          {b.paths.join("\n")}
+          {(!b.complete || b.note) && <span className="opacity-70"> · {b.note ?? "list may be incomplete"}</span>}
+        </Activity>
       );
     case "question":
       return <QuestionCard b={b} chatId={chatId} />;
     case "permission":
       return <PermissionCard b={b} chatId={chatId} />;
     case "error":
-      return <div className="msg error"><Icon name="error" className="ms-sm" /> {b.text}</div>;
+      return (
+        <div className="flex items-center gap-1 self-start text-[12.5px] text-bad">
+          <Icon name="error" className="ms-sm" /> {b.text}
+        </div>
+      );
     case "failure":
       return <FailureCard b={b} chatId={chatId} />;
   }
@@ -1031,19 +1139,25 @@ function FailureCard({ b, chatId }: { b: Extract<Block, { kind: "failure" }>; ch
   }
 
   return (
-    <div className={`failure-card ${f.severity} ${live ? "live" : "settled"}`}>
-      <div className="failure-title">
+    <div
+      className={cn(
+        "max-w-[76ch] self-start rounded-2xl px-4 py-3",
+        f.severity === "warning" ? "bg-ask-soft text-on-ask-soft" : "bg-bad-soft text-on-bad-soft",
+        !live && "opacity-70"
+      )}
+    >
+      <div className="flex items-center gap-1.5 text-[13.5px]">
         <Icon name={f.severity === "warning" ? "warning" : "error"} className="ms-sm" />
-        <span className="microlabel">{f.category}</span> {f.title}
+        <Eyebrow className="mr-1 font-bold text-inherit">{f.category}</Eyebrow> {f.title}
       </div>
-      {f.details && <div className="failure-details">{f.details}</div>}
-      {note && <div className="failure-details">{note}</div>}
+      {f.details && <div className="mt-1.5 text-xs break-words whitespace-pre-wrap">{f.details}</div>}
+      {note && <div className="mt-1.5 text-xs break-words whitespace-pre-wrap">{note}</div>}
       {live && f.actions.length > 0 && (
-        <div className="failure-actions">
+        <div className="mt-2.5 flex flex-wrap gap-2">
           {f.actions.map((a) => (
-            <button key={a} className="ws-btn" disabled={sending} onClick={() => act(a)}>
+            <Button key={a} size="sm" disabled={sending} className="border-current text-inherit" onClick={() => act(a)}>
               {FAILURE_ACTION_LABEL[a]}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -1080,25 +1194,30 @@ function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof liveSta
   return (
     <>
       {live.auth && (
-        <span className={`chip auth ${live.auth.kind}`} title={[live.auth.detail, live.auth.email, live.auth.organization, live.auth.plan].filter(Boolean).join(" · ")}>
-          <Icon name={live.auth.kind === "none" ? "person_off" : "person"} className="ms-sm" /> {live.auth.email ?? live.auth.label}
+        <span title={[live.auth.detail, live.auth.email, live.auth.organization, live.auth.plan].filter(Boolean).join(" · ")}>
+          <Tag tone={live.auth.kind === "none" ? "bad" : "neutral"}>
+            <Icon name={live.auth.kind === "none" ? "person_off" : "person"} className="ms-sm mr-1" /> {live.auth.email ?? live.auth.label}
+          </Tag>
         </span>
       )}
       {expert && live.usage && live.usage.size > 0 && (
-        <span className="chip usage" title={`${live.usage.used.toLocaleString()} of ${live.usage.size.toLocaleString()} context tokens${live.usage.costUsd != null ? ` · $${live.usage.costUsd.toFixed(2)} so far` : ""}`}>
-          {Math.round((100 * live.usage.used) / live.usage.size)}% ctx
-          {live.usage.costUsd != null && ` · $${live.usage.costUsd.toFixed(2)}`}
+        <span className="font-mono" title={`${live.usage.used.toLocaleString()} of ${live.usage.size.toLocaleString()} context tokens${live.usage.costUsd != null ? ` · $${live.usage.costUsd.toFixed(2)} so far` : ""}`}>
+          <Tag>
+            {Math.round((100 * live.usage.used) / live.usage.size)}% ctx
+            {live.usage.costUsd != null && ` · $${live.usage.costUsd.toFixed(2)}`}
+          </Tag>
         </span>
       )}
       {expert &&
         shown.map((o) =>
           o.type === "select" ? (
-            <select
+            <Select
               key={o.id}
-              className="config-select"
+              className="h-7 w-auto max-w-[22ch] px-2 pr-6 text-xs text-fg-2"
               value={o.value}
               disabled={busyId === o.id}
               title={o.description ?? o.name}
+              aria-label={o.name}
               onChange={(e) => change(o, e.target.value)}
             >
               {o.choices.map((c) => (
@@ -1106,10 +1225,10 @@ function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof liveSta
                   {c.group ? `${c.group} · ` : ""}{c.name}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : (
-            <label key={o.id} className="chip config-bool" title={o.description ?? o.name}>
-              <input type="checkbox" checked={o.value} disabled={busyId === o.id} onChange={(e) => change(o, e.target.checked)} /> {o.name}
+            <label key={o.id} className="inline-flex cursor-pointer items-center gap-1 text-xs text-fg-2" title={o.description ?? o.name}>
+              <input type="checkbox" className="accent-accent" checked={o.value} disabled={busyId === o.id} onChange={(e) => change(o, e.target.checked)} /> {o.name}
             </label>
           )
         )}
@@ -1121,6 +1240,7 @@ function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof liveSta
 function QuestionCard({ b, chatId }: { b: Extract<Block, { kind: "question" }>; chatId: string }) {
   const [values, setValues] = useState<Record<string, string | number | boolean | string[]>>({});
   const [sending, setSending] = useState(false);
+  const speaker = useSpeaker();
   const [gone, setGone] = useState<string | null>(null);
   const pending = b.resolved === undefined && !gone;
 
@@ -1142,76 +1262,73 @@ function QuestionCard({ b, chatId }: { b: Extract<Block, { kind: "question" }>; 
   const missing = b.fields.some((f) => f.required && (values[f.key] === undefined || values[f.key] === ""));
 
   return (
-    <div className={`perm-card question-card ${pending ? "pending" : ""}`}>
-      <div className="perm-title">
-        <span className="microlabel">question</span> {b.message}
-      </div>
+    <Ask className={cn("question-card", pending && "pending")} requestId={b.requestId} who={`${speaker(b.from)} asks`} what={b.message}>
       {pending ? (
-        <div className="question-fields">
+        <div className="mt-2.5 flex flex-col gap-2.5">
           {b.fields.map((f) => (
-            <label key={f.key} className={`question-field ${f.kind}${f.custom ? " custom" : ""}`}>
+            <label key={f.key} className={cn("flex flex-col gap-1.5 text-sm", f.custom && "-mt-1")}>
               {(f.title || f.description) && !f.custom && (
-                <span className="question-label">
+                <span>
                   {f.title && <b>{f.title}</b>}
-                  {f.description && <span> {f.description}</span>}
+                  {f.description && <span className="opacity-85"> {f.description}</span>}
                 </span>
               )}
               {f.kind === "select" && (
-                <div className="question-options">
+                <div className="flex flex-wrap gap-1.5">
                   {f.options?.map((o) => (
-                    <button
-                      key={o.value}
-                      className={`perm-btn ${values[f.key] === o.value ? "allow" : ""}`}
-                      title={o.description}
-                      onClick={() => set(f.key, o.value)}
-                    >
+                    <Button key={o.value} size="sm" variant={values[f.key] === o.value ? "primary" : "secondary"} title={o.description} onClick={() => set(f.key, o.value)}>
                       {o.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               )}
               {f.kind === "multiselect" && (
-                <div className="question-options">
+                <div className="flex flex-wrap gap-1.5">
                   {f.options?.map((o) => {
                     const cur = (values[f.key] as string[] | undefined) ?? [];
                     const on = cur.includes(o.value);
                     return (
-                      <button key={o.value} className={`perm-btn ${on ? "allow" : ""}`} title={o.description} onClick={() => set(f.key, on ? cur.filter((v) => v !== o.value) : [...cur, o.value])}>
+                      <Button key={o.value} size="sm" variant={on ? "primary" : "secondary"} title={o.description} onClick={() => set(f.key, on ? cur.filter((v) => v !== o.value) : [...cur, o.value])}>
                         {o.label}
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
               )}
               {f.kind === "text" && (
-                <input
-                  type="text"
+                <TextField
+                  className="max-w-[60ch]"
                   placeholder={f.custom ? "or type your own answer" : (f.title ?? f.key)}
                   value={(values[f.key] as string | undefined) ?? ""}
                   onChange={(e) => set(f.key, e.target.value)}
                 />
               )}
               {f.kind === "number" && (
-                <input type="number" value={(values[f.key] as number | undefined) ?? ""} onChange={(e) => set(f.key, e.target.value === "" ? "" : Number(e.target.value))} />
+                <TextField
+                  type="number"
+                  className="max-w-[60ch]"
+                  value={(values[f.key] as number | undefined) ?? ""}
+                  onChange={(e) => set(f.key, e.target.value === "" ? "" : Number(e.target.value))}
+                />
               )}
               {f.kind === "boolean" && (
                 <span>
-                  <input type="checkbox" checked={values[f.key] === true} onChange={(e) => set(f.key, e.target.checked)} /> {f.title ?? f.key}
+                  <input type="checkbox" className="accent-accent" checked={values[f.key] === true} onChange={(e) => set(f.key, e.target.checked)} /> {f.title ?? f.key}
                 </span>
               )}
             </label>
           ))}
-          <div className="perm-actions">
-            <button className="perm-btn allow" disabled={sending || missing} onClick={() => answer("accept")}>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" disabled={sending || missing} onClick={() => answer("accept")}>
               answer
-            </button>
-            <button className="perm-btn deny" disabled={sending} onClick={() => answer("decline")}>
+            </Button>
+            <Button disabled={sending} onClick={() => answer("decline")}>
               skip
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
-        <div className="perm-resolved">
+        <Resolved>
           {gone
             ? `→ ${gone}`
             : b.resolved?.action === "accept"
@@ -1222,10 +1339,31 @@ function QuestionCard({ b, chatId }: { b: Extract<Block, { kind: "question" }>; 
               : b.resolved?.action === "decline"
                 ? "→ skipped"
                 : "→ dismissed"}
-        </div>
+        </Resolved>
       )}
+    </Ask>
+  );
+}
+
+/**
+ * The agent stopped for you: an approval or a question, read as a sentence
+ * (who asks, then what). `perm-card`, `pending` and `data-request` are what
+ * "next" finds and lights up (attention.tsx).
+ */
+function Ask({ className, requestId, who, what, children }: { className?: string; requestId: string; who: string; what: string; children: React.ReactNode }) {
+  return (
+    <div className={cn("perm-card max-w-[76ch] self-start rounded-2xl bg-ask-soft px-4 py-3 text-on-ask-soft", className)} data-request={requestId}>
+      <div className="flex flex-col gap-[3px]">
+        <span className="perm-who text-[12.5px] font-semibold text-fg-2">{who}</span>
+        <span className="text-base font-semibold [overflow-wrap:anywhere] text-fg">{what}</span>
+      </div>
+      {children}
     </div>
   );
+}
+
+function Resolved({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1.5 font-mono text-xs text-fg-2">{children}</div>;
 }
 
 function PermissionCard({
@@ -1236,6 +1374,7 @@ function PermissionCard({
   chatId: string;
 }) {
   const [sending, setSending] = useState(false);
+  const speaker = useSpeaker();
   // The server no longer holds this request (answered elsewhere, or the
   // agent is gone): say so instead of leaving buttons that do nothing.
   const [gone, setGone] = useState<string | null>(null);
@@ -1260,34 +1399,38 @@ function PermissionCard({
   }
 
   return (
-    <div className={`perm-card ${pending ? "pending" : ""}`}>
-      <div className="perm-title">
-        <span className="microlabel">permission</span> {b.title}
-      </div>
+    <Ask className={cn(pending && "pending")} requestId={b.requestId} who={`${speaker(b.from)} asks for your OK`} what={b.title}>
       {pending ? (
-        <div className="perm-actions">
+        <div className="mt-2.5 flex flex-wrap gap-2">
           {b.options.map((o) => (
-            <button
-              key={o.optionId}
-              className={`perm-btn ${o.kind?.startsWith("allow") ? "allow" : "deny"}`}
-              disabled={sending}
-              onClick={() => answer(o.optionId)}
-            >
-              {o.name}
-            </button>
+            <Button key={o.optionId} variant={o.kind?.startsWith("allow") ? "primary" : "secondary"} disabled={sending} title={o.name} onClick={() => answer(o.optionId)}>
+              {optionLabel(o)}
+            </Button>
           ))}
         </div>
       ) : (
-        <div className="perm-resolved">
+        <Resolved>
           {b.resolved
-            ? `→ ${b.options.find((o) => o.optionId === b.resolved)?.name ?? b.resolved}`
+            ? `→ ${(() => {
+                const o = b.options.find((x) => x.optionId === b.resolved);
+                return o ? optionLabel(o) : b.resolved;
+              })()}`
             : gone
               ? `→ ${gone}`
               : "→ dismissed"}
-        </div>
+        </Resolved>
       )}
-    </div>
+    </Ask>
   );
+}
+
+/** A permission option in plain words, by its kind; the adapter's own name stays as the tooltip. */
+function optionLabel(o: { name: string; kind?: string }): string {
+  if (o.kind === "allow_once") return "Allow";
+  if (o.kind === "allow_always") return "Always allow";
+  if (o.kind === "reject_once") return "Don't allow";
+  if (o.kind === "reject_always") return "Never allow";
+  return o.name;
 }
 
 function Composer({
@@ -1311,6 +1454,8 @@ function Composer({
 }) {
   const [text, setText] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
+  // "Max", "Ralv", "the assistant": the name without its emoji, for the placeholder.
+  const name = useSpeaker()().replace(/^\S+\s(?=\S)/u, (m) => (/\p{Extended_Pictographic}/u.test(m) ? "" : m)).replace(/^The /, "the ");
   // Files dropped or pasted into the composer: uploaded right away (so a
   // screenshot shows while you type), sent with the next message.
   const [files, setFiles] = useState<Array<Attachment & { preview?: string }>>([]);
@@ -1465,7 +1610,7 @@ function Composer({
 
   return (
     <div
-      className={`composer${dragging ? " dragging" : ""}`}
+      className="composer relative flex flex-none flex-wrap items-end border-t border-line pt-2.5 pb-1"
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -1481,27 +1626,35 @@ function Composer({
       }}
     >
       {files.length > 0 && (
-        <div className="composer-files">
+        <div className="flex basis-full flex-wrap gap-1.5 px-1 pb-1.5">
           {files.map((f) => (
-            <span key={f.name} className="file-chip" title={`${f.name} · ${Math.round(f.size / 1024)} KB`}>
-              {f.preview ? <img src={f.preview} alt={f.name} /> : <Icon name="attach_file" className="ms-sm" />}
+            <span key={f.name} className={FILE_CHIP} title={`${f.name} · ${Math.round(f.size / 1024)} KB`}>
+              {f.preview ? <img src={f.preview} alt={f.name} className="h-7 rounded" /> : <Icon name="attach_file" className="ms-sm" />}
               {f.name.replace(/^\d{8}-\d{6}-/, "")}
-              <button title="remove" onClick={() => setFiles((prev) => prev.filter((x) => x.name !== f.name))}>
+              <button
+                type="button"
+                className="inline-flex cursor-pointer border-0 bg-transparent p-0 text-inherit hover:text-fg"
+                title="remove"
+                aria-label={`remove ${f.name}`}
+                onClick={() => setFiles((prev) => prev.filter((x) => x.name !== f.name))}
+              >
                 <Icon name="close" className="ms-sm" />
               </button>
             </span>
           ))}
-          {uploading > 0 && <span className="file-chip">uploading…</span>}
+          {uploading > 0 && <span className={FILE_CHIP}>uploading…</span>}
         </div>
       )}
       {channel && (
-        <div className="composer-me">
+        <div className="composer-me flex basis-full items-center gap-1.5 px-1 pb-1 text-xs text-fg-2">
           posting as{" "}
           {editingMe ? (
-            <input
+            <TextField
               autoFocus
+              className="h-7 w-48 text-xs"
               value={me}
               placeholder="your name"
+              aria-label="your name"
               onChange={(e) => setMe(e.target.value)}
               onBlur={() => {
                 setMyName(me.trim());
@@ -1512,114 +1665,138 @@ function Composer({
               }}
             />
           ) : (
-            <button className="me-name" onClick={() => setEditingMe(true)} title="change your name">
+            <button
+              type="button"
+              className="me-name inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-[inherit] font-semibold text-fg"
+              onClick={() => setEditingMe(true)}
+              title="change your name"
+            >
               {me || "you"} <Icon name="edit" className="ms-sm" />
             </button>
           )}
         </div>
       )}
       {menuOpen && (
-        <div className="skill-menu">
+        <div className="skill-menu absolute inset-x-0 bottom-full z-5 mb-1.5 flex max-h-[46vh] flex-col overflow-y-auto rounded-card border border-line bg-surface py-1 shadow-pop">
           {matches.map((s, i) => (
             <button
               key={s.id}
-              className={i === selIdx ? "active" : ""}
+              type="button"
+              className={cn(
+                "flex cursor-pointer items-center gap-1.5 border-0 px-3.5 py-2 text-left text-sm whitespace-nowrap text-fg",
+                i === selIdx ? "bg-surface-2" : "bg-transparent hover:bg-surface-2"
+              )}
               onMouseDown={(e) => {
                 e.preventDefault();
                 s.pick();
               }}
             >
-              <b>{s.label}</b>
-              {s.hint && <span> — {s.hint}</span>}
-              {s.src && <span className="skill-src">{s.src}</span>}
+              <b className="max-w-[42%] flex-none truncate font-mono text-[12.5px] font-medium">{s.label}</b>
+              {s.hint && <span className="min-w-0 flex-1 truncate text-xs text-fg-2">— {s.hint}</span>}
+              {s.src && <span className="ml-auto flex-none text-[10.5px] tracking-[0.04em] text-fg-2 uppercase">{s.src}</span>}
             </button>
           ))}
         </div>
       )}
-      {problem && <div className="composer-problem">{problem}</div>}
-      <div className="composer-box">
-      <textarea
-        ref={taRef}
-        value={text}
-        placeholder={locked ? "agent is working…" : steering ? "steer the agent mid-turn…" : channel ? "message the channel" : "message"}
-        title={channel ? "Enter to send · Shift+Enter for a newline · @ mentions an agent · / for skills · drop or paste files" : "Enter to send · Shift+Enter for a newline · / for skills · drop or paste files"}
-        rows={Math.min(6, Math.max(1, text.split("\n").length))}
-        onChange={(e) => {
-          setText(e.target.value);
-          setSel(0);
-          setDismissed(false);
-        }}
-        onPaste={(e) => {
-          // A screenshot from the clipboard arrives as a file item.
-          const pasted = Array.from(e.clipboardData.items)
-            .filter((it) => it.kind === "file")
-            .map((it) => it.getAsFile())
-            .filter((f): f is File => !!f);
-          if (pasted.length) {
-            e.preventDefault();
-            void addFiles(pasted);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (menuOpen) {
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              return setSel((selIdx + 1) % matches.length);
-            }
-            if (e.key === "ArrowUp") {
-              e.preventDefault();
-              return setSel((selIdx - 1 + matches.length) % matches.length);
-            }
-            if (e.key === "Tab" || e.key === "Enter") {
-              e.preventDefault();
-              return matches[selIdx].pick();
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              return setDismissed(true);
-            }
-          }
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            void send();
-          }
-        }}
-      />
-      {busy && (
-        <button
-          className="stop-btn"
-          onClick={() => fetch(`/api/chats/${id}/cancel`, { method: "POST" }).catch(() => {})}
-        >
-          <Icon name="stop" className="ms-sm" /> stop
-        </button>
+      {problem && (
+        <div className="basis-full">
+          <Notice tone="bad">{problem}</Notice>
+        </div>
       )}
-      {!locked && (
-        <button className="ws-btn attach-btn" title="attach files (or drop / paste them)" onClick={() => fileRef.current?.click()}>
-          <Icon name="attach_file" className="ms-sm" />
-        </button>
-      )}
-      <input
-        ref={fileRef}
-        type="file"
-        multiple
-        hidden
-        onChange={(e) => {
-          if (e.target.files?.length) void addFiles(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      {!locked && (
-        <button
-          className="send-btn"
-          disabled={(!text.trim() && files.length === 0) || uploading > 0}
-          onClick={send}
-          aria-label={steering ? "steer" : "send"}
-          title={steering ? "steer: hand this into the running turn (Enter)" : "send (Enter)"}
-        >
-          <Icon name={steering ? "alt_route" : "send"} />
-        </button>
-      )}
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 items-end gap-0.5 rounded-[24px] border bg-surface py-[5px] pr-[5px] pl-3.5 transition-[border-color,box-shadow]",
+          "focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]",
+          dragging ? "border-dashed border-accent" : "border-line"
+        )}
+      >
+        <textarea
+          ref={taRef}
+          value={text}
+          className="max-h-[40vh] min-w-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-1.5 py-2 font-sans text-md leading-[1.5] text-fg shadow-none outline-none [field-sizing:content] placeholder:text-fg-2"
+          placeholder={
+            channel
+              ? locked ? "the agents are working…" : "Message the channel…"
+              : locked
+                ? `${name} is working…`
+                : steering
+                  ? `Add to what ${name} is doing…`
+                  : `Message ${name}…`
+          }
+          title={channel ? "Enter to send · Shift+Enter for a newline · @ mentions an agent · / for skills · drop or paste files" : "Enter to send · Shift+Enter for a newline · / for skills · drop or paste files"}
+          rows={Math.min(6, Math.max(1, text.split("\n").length))}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSel(0);
+            setDismissed(false);
+          }}
+          onPaste={(e) => {
+            // A screenshot from the clipboard arrives as a file item.
+            const pasted = Array.from(e.clipboardData.items)
+              .filter((it) => it.kind === "file")
+              .map((it) => it.getAsFile())
+              .filter((f): f is File => !!f);
+            if (pasted.length) {
+              e.preventDefault();
+              void addFiles(pasted);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (menuOpen) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                return setSel((selIdx + 1) % matches.length);
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                return setSel((selIdx - 1 + matches.length) % matches.length);
+              }
+              if (e.key === "Tab" || e.key === "Enter") {
+                e.preventDefault();
+                return matches[selIdx].pick();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                return setDismissed(true);
+              }
+            }
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+        />
+        {busy && (
+          <Button size="sm" variant="danger" icon="stop" className="mr-1 self-center" onClick={() => fetch(`/api/chats/${id}/cancel`, { method: "POST" }).catch(() => {})}>
+            stop
+          </Button>
+        )}
+        {!locked && <IconButton icon="attach_file" label="attach files (or drop / paste them)" className="size-9 rounded-full [&_.ms]:text-[20px]" onClick={() => fileRef.current?.click()} />}
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) void addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        {!locked && (
+          <button
+            type="button"
+            className="inline-grid size-9 flex-none cursor-pointer place-items-center rounded-full border-0 bg-accent p-0 text-on-accent transition-[filter,opacity] hover:enabled:brightness-110 active:enabled:scale-95 disabled:cursor-default disabled:opacity-30"
+            disabled={(!text.trim() && files.length === 0) || uploading > 0}
+            onClick={send}
+            aria-label={steering ? "steer" : "send"}
+            title={steering ? "steer: hand this into the running turn (Enter)" : "send (Enter)"}
+          >
+            <Icon name={steering ? "alt_route" : "send"} className="text-[19px]" />
+          </button>
+        )}
       </div>
     </div>
   );
 }
+
+const FILE_CHIP = "inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-2xs text-fg-2";

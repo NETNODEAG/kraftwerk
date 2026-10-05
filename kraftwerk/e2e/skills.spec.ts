@@ -14,13 +14,12 @@ test.describe("skills landing", () => {
   test("empty workspace shows only the hint, a skill becomes the landing", async ({ page }) => {
     await page.goto("/#/skills");
     await expect(page.locator(".empty-action")).toContainText("SKILL.md");
-    await expect(page.locator(".know-intro")).toHaveCount(0);
 
     const dir = path.join(fixture(), "skills", NAME);
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "SKILL.md"), "---\nname: landing-probe\ndescription: probes the landing\n---\n# Landing probe\n");
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/skills/${NAME}`));
-    await expect(page.locator(".shell-global .side-row.active .side-wf")).toHaveText(`/${NAME}`);
+    await expect(page.locator(".shell-global .runs-side a[aria-current=page]")).toContainText(`/${NAME}`);
   });
 });

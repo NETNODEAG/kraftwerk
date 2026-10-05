@@ -17,6 +17,9 @@ import type { BackendTuning, ChatBackend } from "./backend.js";
 import type { Attachment, Author, ChatAgentId, ChatEvent, ChatMeta, ChatScope, ElicitationAnswer, ElicitationField, StoredChatEvent } from "./types.js";
 import type { PromptFile } from "./backend.js";
 import { getChannel, mentionTargets, type Channel } from "../channels.js";
+import { moveToTrash } from "../trash.js";
+import { JOURNAL_FILE, journalExcerpt, readJournal } from "../journal.js";
+import { filesSummary } from "../files.js";
 import {
   appendEvent,
   attachmentPath,
@@ -25,6 +28,7 @@ import {
   newChatId,
   readEvents,
   readMeta,
+  readMetaAt,
   safeChatDir,
   writeMeta,
 } from "./store.js";
@@ -47,6 +51,8 @@ interface Seat {
   harness: ChatAgentId;
   backend: ChatBackend | null;
   busy: boolean;
+  /** When the running turn started (ISO); meaningful while busy. */
+  busySince?: string;
   /** True right after a backend spawn: the next prompt must carry scope context. */
   needsContext: boolean;
   /** Channels: last transcript seq this agent has been shown. */
@@ -65,6 +71,8 @@ interface ChatState {
   pendingElicitations: Map<string, (answer: ElicitationAnswer) => void>;
   /** Which seat raised a pending permission/question, by request id (channels: to cancel one agent). */
   pendingSeat: Map<string, string>;
+  /** What each pending request asks and since when, by request id: the attention list (waitingRequests). */
+  pendingInfo: Map<string, { kind: "approval" | "question"; title: string; since: string }>;
   /** Serializes appendEvent calls so events.jsonl stays ordered. */
   writeChain: Promise<void>;
 }
@@ -112,6 +120,27 @@ function chatLabel(meta: ChatMeta): string {
   if (meta.scope.kind === "channel") return `#${meta.scope.slug}`;
   if (meta.title) return meta.title;
   return meta.scope.kind === "agent" ? meta.scope.slug : "chat";
+}
+
+/**
+ * Whose a chat is, owner first, for a notification: "📁 Relaunch · 🦊 Lisa",
+ * "🦊 Lisa", "#launch · 🐻 Max", "Ralv · <chat title>". The project or
+ * agent comes before the chat because that is where you go.
+ */
+async function ownerLabel(meta: ChatMeta, seatKey: string): Promise<string> {
+  const agentName = async (slug: string) => {
+    const a = await getAgent(slug).catch(() => null);
+    return a ? `${a.emoji ? `${a.emoji} ` : ""}${a.name}` : slug;
+  };
+  const projectName = async (slug: string) => `📁 ${(await getProject(slug).catch(() => null))?.title ?? slug}`;
+  const { scope } = meta;
+  if (scope.kind === "agent") return agentName(scope.slug);
+  if (scope.kind === "project") return projectName(scope.slug);
+  if (scope.kind === "channel") {
+    const parts = [meta.project ? await projectName(meta.project) : `#${scope.slug}`, await agentName(seatKey)];
+    return parts.join(" · ");
+  }
+  return `Ralv${meta.title ? ` · ${meta.title}` : ""}`;
 }
 
 /** Text of the agent's final message (or last error) after `afterSeq`, for a notification body. */
@@ -187,6 +216,7 @@ async function loadState(id: string): Promise<ChatState | null> {
     pendingPermissions: new Map(),
     pendingElicitations: new Map(),
     pendingSeat: new Map(),
+    pendingInfo: new Map(),
     writeChain: Promise.resolve(),
   };
   // Two racing loads: keep whichever registered first.
@@ -355,6 +385,55 @@ async function agentKnowledgeContext(def: {
 }
 
 /**
+ * "## Your journal" block: the recent part of agents/<slug>/journal.md and
+ * how to add to it. This is what makes the agent the same colleague from
+ * one session to the next.
+ */
+export async function agentJournalContext(def: { slug: string; harness: ChatAgentId }): Promise<string> {
+  const { text, truncated } = journalExcerpt(await readJournal(def.slug).catch(() => ""));
+  return (
+    `## Your journal
+Your own notes from earlier sessions, newest first (agents/${def.slug}/${JOURNAL_FILE}). ` +
+    `They are your memory between sessions: build on them, keep what you promised, and check facts that may have changed since.
+
+` +
+    (text ? `${text}
+` : `(empty: nothing recorded yet)
+`) +
+    (truncated ? `(older days are in the file; read it when you need them)
+` : "") +
+    `
+Add to it when something should outlive this session, one line each:
+` +
+    `  npx kraftwerk journal ${def.slug} "<one line>" --kind learned|decided|promised|done
+` +
+    `learned: a durable fact about the user, the work or the workspace. decided: a decision and its reason. ` +
+    `promised: something you said you would do. done: a promise kept or a piece of work finished. ` +
+    `Write a few lines at the end of a session that changed something, not a transcript; no secrets. ` +
+    `Never edit ${JOURNAL_FILE} by hand.
+
+`
+  );
+}
+
+/**
+ * "## Files" block for an agent: the workspace's files and the folders in
+ * it linked to the agent. An agent owns no files; in a project it works
+ * with the project's (the project block says where).
+ */
+export async function agentFilesContext(def: { files?: string[] }): Promise<string> {
+  const ws = await filesSummary("workspace").catch(() => null);
+  if (!ws) return "";
+  const linked = (def.files ?? []).map((f) => `- ${ws.root}/${f}/`).join("\n");
+  return (
+    `## Files\nThe workspace's shared files (any format: brand assets, templates, contracts, …) are in ${ws.root}/ (${ws.count} file${ws.count === 1 ? "" : "s"}). ` +
+    (linked ? `The folders that are part of your job:\n${linked}\n` : "") +
+    `Work you do for a project belongs in that project's files folder, not here. What you produce in a direct session goes to ${ws.root}/inbox/. ` +
+    `Delete nothing there unless asked.\n\n`
+  );
+}
+
+/**
  * "## Your vibeables" block: the apps an agent builds and maintains, linked
  * in agent.yml like knowledge. Empty when nothing is linked. When the
  * feature is off the agent hears that its apps are unreachable instead of
@@ -499,6 +578,8 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
         : "") +
       (await agentKnowledgeContext(def)) +
       (await agentVibeablesContext(def)) +
+      (await agentJournalContext(def)) +
+      (await agentFilesContext(def)) +
       `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
       `say so and suggest which agent or tool fits better.` +
       (scope.routine
@@ -586,6 +667,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `## Agents\n${agentLines || "(none)"}\n` +
       `These are persistent agents (defined under agents/); the user talks to them on the ` +
       `Agents screen. Point the user there when a request clearly belongs to one of them.\n\n` +
+      (await agentFilesContext({})) +
       `Answer questions about workflows and runs by reading the files above. Do not modify run outputs unless asked.`
     );
   }
@@ -726,22 +808,29 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
         const notifyKey = `approval:${state.meta.id}:${requestId}`;
         let deadline: NodeJS.Timeout | undefined;
         state.pendingSeat.set(requestId, seat.key);
+        state.pendingInfo.set(requestId, { kind: "approval", title, since: new Date().toISOString() });
         state.pendingPermissions.set(requestId, (optionId) => {
           if (deadline) clearTimeout(deadline);
           state.pendingPermissions.delete(requestId);
           state.pendingSeat.delete(requestId);
+          state.pendingInfo.delete(requestId);
           emit(state, { type: "permission_resolved", requestId, optionId }, me);
           void dismissKey(notifyKey);
           resolve(optionId);
         });
         emit(state, { type: "permission_request", requestId, title, options }, me);
         // The bell: a question is waiting. Answered -> the item goes away again.
-        void pushNotification({
-          kind: "approval",
-          key: notifyKey,
-          title: `${chatLabel(state.meta)}${me?.kind === "agent" ? ` · @${me.slug}` : ""} needs approval`,
-          body: title,
-          href: chatHref(state.meta),
+        // The owner lookup is async: answered meanwhile, there is nothing to notify about (and a late item is taken back).
+        void ownerLabel(state.meta, seat.key).then(async (who) => {
+          if (!state.pendingInfo.has(requestId)) return;
+          await pushNotification({
+            kind: "approval",
+            key: notifyKey,
+            title: `${who} needs approval`,
+            body: title,
+            href: `${chatHref(state.meta)}?focus=${encodeURIComponent(requestId)}`,
+          });
+          if (!state.pendingInfo.has(requestId)) await dismissKey(notifyKey);
         });
         if (isUnattended(state.meta.scope)) {
           deadline = setTimeout(() => {
@@ -767,21 +856,28 @@ async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatBackend>
         const notifyKey = `question:${state.meta.id}:${requestId}`;
         let deadline: NodeJS.Timeout | undefined;
         state.pendingSeat.set(requestId, seat.key);
+        state.pendingInfo.set(requestId, { kind: "question", title: message, since: new Date().toISOString() });
         state.pendingElicitations.set(requestId, (answer) => {
           if (deadline) clearTimeout(deadline);
           state.pendingElicitations.delete(requestId);
           state.pendingSeat.delete(requestId);
+          state.pendingInfo.delete(requestId);
           emit(state, { type: "elicitation_resolved", requestId, ...answer }, me);
           void dismissKey(notifyKey);
           resolve(answer);
         });
         emit(state, { type: "elicitation_request", requestId, message, fields }, me);
-        void pushNotification({
-          kind: "approval",
-          key: notifyKey,
-          title: `${chatLabel(state.meta)}${me?.kind === "agent" ? ` · @${me.slug}` : ""} has a question`,
-          body: message,
-          href: chatHref(state.meta),
+        // The owner lookup is async: answered meanwhile, there is nothing to notify about (and a late item is taken back).
+        void ownerLabel(state.meta, seat.key).then(async (who) => {
+          if (!state.pendingInfo.has(requestId)) return;
+          await pushNotification({
+            kind: "approval",
+            key: notifyKey,
+            title: `${who} has a question`,
+            body: message,
+            href: `${chatHref(state.meta)}?focus=${encodeURIComponent(requestId)}`,
+          });
+          if (!state.pendingInfo.has(requestId)) await dismissKey(notifyKey);
         });
         if (isUnattended(state.meta.scope)) {
           deadline = setTimeout(() => {
@@ -862,6 +958,7 @@ export async function createChat(opts: {
     pendingPermissions: new Map(),
     pendingElicitations: new Map(),
     pendingSeat: new Map(),
+    pendingInfo: new Map(),
     writeChain: Promise.resolve(),
   });
   return meta;
@@ -869,7 +966,58 @@ export async function createChat(opts: {
 
 /** A permission request is waiting for a human in this chat (live state only — a restart drops it with the backend). */
 export function chatAwaitingApproval(id: string): boolean {
-  return (states.get(id)?.pendingPermissions.size ?? 0) > 0;
+  return (states.get(id)?.pendingInfo.size ?? 0) > 0;
+}
+
+/** A request in a chat that waits for a human: an approval or a question, with the seat (agent) that raised it. */
+export interface WaitingRequest {
+  requestId: string;
+  kind: "approval" | "question";
+  title: string;
+  since: string;
+  meta: ChatMeta;
+  /** The seat that asked: MAIN in an ordinary chat, the agent slug in a channel. */
+  seat: string;
+}
+
+/** Every request waiting for a human, across the chats in memory. */
+export function waitingRequests(): WaitingRequest[] {
+  const out: WaitingRequest[] = [];
+  for (const state of states.values()) {
+    for (const [requestId, info] of state.pendingInfo) {
+      out.push({ requestId, ...info, meta: state.meta, seat: state.pendingSeat.get(requestId) ?? MAIN });
+    }
+  }
+  return out;
+}
+
+/** One chat an agent is in right now: mid-turn, or waiting on a human. */
+export interface AgentActivity {
+  chatId: string;
+  title: string;
+  since?: string;
+}
+
+/**
+ * Live work per agent slug, from the chats in memory: where its seat is
+ * mid-turn (working) and where it raised a permission request or a
+ * question nobody answered yet (waiting). Agent sessions and channel seats
+ * alike; plain and project chats have no agent and are left out.
+ */
+export function agentActivity(): Map<string, { working: AgentActivity[]; waiting: AgentActivity[] }> {
+  const out = new Map<string, { working: AgentActivity[]; waiting: AgentActivity[] }>();
+  const of = (slug: string) => out.get(slug) ?? out.set(slug, { working: [], waiting: [] }).get(slug)!;
+  for (const state of states.values()) {
+    const { meta } = state;
+    for (const seat of state.seats.values()) {
+      const slug = meta.scope.kind === "agent" ? meta.scope.slug : meta.scope.kind === "channel" ? seat.key : undefined;
+      if (!slug) continue;
+      const item = { chatId: meta.id, title: meta.title };
+      if (seat.busy) of(slug).working.push({ ...item, ...(seat.busySince ? { since: seat.busySince } : {}) });
+      if ([...state.pendingSeat.values()].includes(seat.key)) of(slug).waiting.push(item);
+    }
+  }
+  return out;
 }
 
 export async function listChats(): Promise<Array<ChatMeta & { busy: boolean; awaitingApproval: boolean }>> {
@@ -906,6 +1054,7 @@ export async function postMessage(
   if (seat.busy) return { error: "agent is still working — wait for the turn to finish" };
 
   seat.busy = true;
+  seat.busySince = new Date().toISOString();
   const isFirst = !state.events.some((e) => e.type === "user_message");
   if (isFirst && !state.meta.title) {
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
@@ -939,7 +1088,7 @@ export async function postMessage(
         );
         void pushNotification({
           kind: failed ? "routine_failed" : "routine_done",
-          title: `${chatLabel(state.meta)} ${failed ? "ended with an error" : "finished"}`,
+          title: `${await ownerLabel(state.meta, MAIN)} · ${chatLabel(state.meta)} ${failed ? "ended with an error" : "finished"}`,
           body: failed ? lastEventText(state, turnStart, "error") : lastEventText(state, turnStart, "text"),
           href: chatHref(state.meta),
           ...(failed ? { diagnose: routineRef(state.meta) } : {}),
@@ -950,7 +1099,7 @@ export async function postMessage(
       if (isUnattended(state.meta.scope)) {
         void pushNotification({
           kind: "routine_failed",
-          title: `${chatLabel(state.meta)} failed`,
+          title: `${await ownerLabel(state.meta, MAIN)} · ${chatLabel(state.meta)} failed`,
           body: (err as Error).message,
           href: chatHref(state.meta),
           diagnose: routineRef(state.meta),
@@ -1045,6 +1194,7 @@ function seatTextSince(state: ChatState, afterSeq: number, slug: string): string
 
 async function runSeatTurn(state: ChatState, channel: Channel, seat: Seat, hops: number): Promise<void> {
   seat.busy = true;
+  seat.busySince = new Date().toISOString();
   const me: Author = { kind: "agent", slug: seat.key };
   const start = emit(state, { type: "turn_start" }, me).seq;
   try {
@@ -1340,7 +1490,11 @@ export async function resolvePermission(
   return {};
 }
 
-/** Delete a chat: kill its backend, drop the live state, remove its folder. */
+/**
+ * Delete a chat: kill its backend, drop the live state, move its folder to
+ * the trash. The agents' own transcripts stay until it is deleted from the
+ * trash (purgeChatTranscripts), so a restored chat can resume.
+ */
 export async function deleteChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
@@ -1348,16 +1502,18 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   for (const resolve of state.pendingElicitations.values()) resolve({ action: "cancel" });
   dropBackend(state);
   states.delete(id);
-  await fs.rm(safeChatDir(id), { recursive: true, force: true });
-  // The agent's own transcripts go with the chat (best effort, in the background).
-  const cwd = await effectiveCwd(state.meta);
-  for (const [seatKey, sessionId] of Object.entries(state.meta.sessions ?? {})) {
-    void (async () => {
-      const harness = seatKey === MAIN ? state.meta.agent : (await getAgent(seatKey).catch(() => null))?.harness;
-      if (harness && harness !== "pi") await deleteAgentSession(harness, cwd, sessionId);
-    })().catch(() => {});
-  }
+  await moveToTrash("chats", id, safeChatDir(id));
   return {};
+}
+
+/** The agents' own transcripts of a chat folder (one in the trash), deleted for good. Best effort. */
+export async function purgeChatTranscripts(dir: string): Promise<void> {
+  const meta = await readMetaAt(dir);
+  const cwd = await effectiveCwd(meta);
+  for (const [seatKey, sessionId] of Object.entries(meta.sessions ?? {})) {
+    const harness = seatKey === MAIN ? meta.agent : (await getAgent(seatKey).catch(() => null))?.harness;
+    if (harness && harness !== "pi") await deleteAgentSession(harness, cwd, sessionId).catch(() => {});
+  }
 }
 
 /**

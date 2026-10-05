@@ -1,10 +1,9 @@
-import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import type { BundleDetail, BundleInfo, ConceptDetail, KnowledgeIndex } from "./types";
+import { Fragment, Suspense, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { BundleDetail, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
-import { navigate, Icon, Link, usePoll } from "./shared";
-import { exportBundlePdf, wikilinks } from "./export";
+import { navigate, Icon, Link, LocalNav, usePoll } from "./shared";
+import { Button, cn, Dot, EmptyState, Fact, Facts, Hint, ListRow, Notice, Panel, SideHead, SideList, SideNote, Tabs, Tag, TextField, Title } from "./ui";
+import { exportBundlePdf } from "./export";
 // The rich-text editor (MDXEditor + CodeMirror) is heavy: loaded the first time a page is edited as a document.
 const DocEditor = lazy(() => import("./editor").then((m) => ({ default: m.DocEditor })));
 const editorHelpers = () => import("./editor");
@@ -19,7 +18,12 @@ const editorHelpers = () => import("./editor");
 
 export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; conceptId?: string }) {
   const data = usePoll<KnowledgeIndex>("/api/knowledge", false);
-  const bundles = data?.bundles ?? [];
+  // Bundles just moved to the trash, hidden until the poll stops listing them (else the landing would pick one again).
+  const [gone, setGone] = useState<string[]>([]);
+  useEffect(() => {
+    if (data) setGone((g) => g.filter((n) => data.bundles.some((b) => b.name === n)));
+  }, [data]);
+  const bundles = (data?.bundles ?? []).filter((b) => !gone.includes(b.name));
   // #/knowledge/new is the create form; a bare #/knowledge lands on the bundle
   // touched last (like #/channels lands on the latest channel).
   const creating = bundle === "new";
@@ -34,50 +38,44 @@ export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; concep
   return (
     <div className="runs-screen">
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">bundles</span>
-          <span className="spacer" />
-          <Link href="/knowledge/new" className="open-raw">
-            <Icon name="add" className="ms-sm" /> new
-          </Link>
-        </div>
-        <div className="side-list">
+        <SideHead title="bundles" action={<Button size="sm" variant="quiet" icon="add" href="/knowledge/new">new</Button>} />
+        <SideList>
           {bundles.map((b) => (
-            <Link
+            <ListRow
               key={b.name}
               href={`/knowledge/${encodeURIComponent(b.name)}`}
-              className={`side-row ${b.name === bundle ? "active" : ""}`}
-            >
-              <span className="lamp ok" />
-              <div className="side-row-body">
-                <div className="side-row-top">
-                  <span className="side-wf">{b.name}</span>
-                  <span className="side-when num">{b.concepts}</span>
-                </div>
-                <div className="side-row-sub">
-                  <span className="side-req">
-                    {b.okfVersion ? `okf ${b.okfVersion}` : "okf"}
-                    {b.updatedAt ? ` · ${b.updatedAt.slice(0, 10)}` : ""}
-                  </span>
-                </div>
-              </div>
-            </Link>
+              active={b.name === bundle}
+              size="sm"
+              leading={<Dot tone="ok" />}
+              title={b.name}
+              meta={b.concepts}
+              sub={`${b.okfVersion ? `okf ${b.okfVersion}` : "okf"}${b.updatedAt ? ` · ${b.updatedAt.slice(0, 10)}` : ""}`}
+            />
           ))}
-          {data && bundles.length === 0 && <div className="viewer-note">no bundles yet</div>}
-        </div>
+          {data && bundles.length === 0 && <SideNote>no bundles yet</SideNote>}
+        </SideList>
       </aside>
       <div className="runs-main">
         {bundle && !creating ? (
-          <BundleView key={bundle} name={bundle} conceptId={conceptId} />
+          <BundleView
+            key={bundle}
+            name={bundle}
+            conceptId={conceptId}
+            onRemoved={() => {
+              setGone((g) => [...g, bundle]);
+              navigate("/knowledge", { replace: true });
+            }}
+          />
         ) : creating || (data && !latest) ? (
           <KnowledgeHome />
         ) : (
-          <div className="empty">loading…</div>
+          <EmptyState>loading…</EmptyState>
         )}
       </div>
     </div>
   );
 }
+
 
 /* ---------- home / new bundle ---------- */
 
@@ -104,20 +102,23 @@ function KnowledgeHome() {
   }
 
   return (
-    <div className="empty empty-action">
-      <div className="know-newbundle">
-        <input
+    // empty-action: the hook the landing test looks for.
+    <div className="empty-action flex flex-col items-center gap-3 px-4 py-16">
+      <div className="flex w-full max-w-[520px] gap-2.5">
+        <TextField
+          className="flex-1 font-mono text-sm"
           value={name}
           placeholder="bundle name, e.g. customer-support"
+          aria-label="bundle name"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void create()}
           autoFocus
         />
-        <button className="run-btn" disabled={!name.trim() || creating} onClick={create}>
-          {creating ? "creating…" : <><Icon name="add" className="ms-sm" /> new bundle</>}
-        </button>
+        <Button variant="primary" icon="add" busy={creating} disabled={!name.trim()} onClick={create}>
+          {creating ? "creating…" : "new bundle"}
+        </Button>
       </div>
-      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
+      {error && <Notice tone="bad">{error}</Notice>}
     </div>
   );
 }
@@ -125,8 +126,22 @@ function KnowledgeHome() {
 /* ---------- bundle ---------- */
 
 function TrustBadge({ tier }: { tier: string }) {
-  return <span className={`chip trust ${tier}`}>{tier}</span>;
+  return <Tag tone={tier === "human-reviewed" ? "ok" : tier === "machine-confirmed" ? "accent" : "neutral"}>{tier}</Tag>;
 }
+
+/** A concept's lifecycle status as a tag: deprecated and stale read as trouble, a draft as work in progress. */
+const statusTone = (status: string) => (status === "deprecated" || status === "stale" ? "bad" : status === "draft" ? "accent" : "neutral");
+
+/**
+ * Embedded in the context column (its links stay in the column): the page
+ * goes compact — smaller heads, one column, the page-level actions left to
+ * the full screen.
+ */
+const useEmbedded = (): boolean => useContext(LocalNav) !== null;
+
+/** A small note under a panel's content: what the view is, where it saves. */
+/** Raw text (a log, a source file) in a panel. */
+const PRE = "m-0 max-h-[560px] overflow-auto px-[18px] py-3.5 font-mono text-xs leading-[1.55] break-words whitespace-pre-wrap text-fg-2";
 
 /** Route segment that selects the activity tab (#/knowledge/<bundle>/@activity). */
 const ACTIVITY_ID = "@activity";
@@ -137,13 +152,27 @@ const ACTIVITY_ID = "@activity";
  * the OKF update log. The selected page lives in the URL so links stay
  * shareable.
  */
-export function BundleView({ name, conceptId }: { name: string; conceptId?: string }) {
+export function BundleView({ name, conceptId, onRemoved }: { name: string; conceptId?: string; onRemoved?: () => void }) {
   const data = usePoll<BundleDetail | { error: string }>(
     `/api/knowledge/${encodeURIComponent(name)}`,
     false
   );
-  if (!data) return <div className="empty">loading…</div>;
-  if ("error" in data) return <div className="empty">bundle not found</div>;
+  const embedded = useEmbedded();
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  async function remove() {
+    const r = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
+    const body = await r?.json().catch(() => ({}));
+    if (!r?.ok) {
+      setRemoveError(body?.error ?? "delete failed");
+      setConfirmRemove(false);
+      return;
+    }
+    if (onRemoved) onRemoved();
+    else navigate("/knowledge", { replace: true });
+  }
+  if (!data) return <EmptyState>loading…</EmptyState>;
+  if ("error" in data) return <EmptyState icon="menu_book">bundle not found</EmptyState>;
 
   const tab = conceptId === ACTIVITY_ID ? "activity" : "pages";
   const concepts = data.concepts;
@@ -154,51 +183,79 @@ export function BundleView({ name, conceptId }: { name: string; conceptId?: stri
   const base = `/knowledge/${encodeURIComponent(name)}`;
 
   return (
-    <div className="agent-view">
-      <div className="page-head">
-        <h1>{name}</h1>
-        <span className="count">{concepts.length} pages</span>
-        <div className="tabs">
-          <Link href={base} className={tab === "pages" ? "active" : ""}>
-            pages
-          </Link>
-          <Link href={`${base}/${ACTIVITY_ID}`} className={tab === "activity" ? "active" : ""}>
-            activity
-          </Link>
-        </div>
-        <span className="spacer" />
-        <button className="open-raw" onClick={() => void exportBundlePdf(name)}>
-          <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
-        </button>
-        <button
-          className="run-btn"
-          onClick={() => void createChatAndOpen("claude", { kind: "knowledge", bundle: name })}
-        >
-          curate in chat
-        </button>
+    <div className={cn("agent-view @container flex flex-col", embedded ? "gap-2.5" : "gap-4")}>
+      <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-2", embedded ? "mb-0.5" : "mx-0.5 mt-1 mb-2")}>
+        <Title size={embedded ? "md" : "lg"}>{name}</Title>
+        <span className={cn("text-fg-2", embedded ? "text-[12.5px]" : "text-base")}>{concepts.length} pages</span>
+        <Tabs
+          bare
+          className="self-end"
+          label="bundle views"
+          value={tab}
+          items={[
+            { id: "pages", href: base, label: "pages" },
+            { id: "activity", href: `${base}/${ACTIVITY_ID}`, label: "activity" },
+          ]}
+        />
+        <span className="flex-1" />
+        {!embedded && (
+          <>
+            <Button size="sm" variant="quiet" icon="picture_as_pdf" onClick={() => void exportBundlePdf(name)}>
+              export PDF
+            </Button>
+            {!confirmRemove ? (
+              <Button size="sm" variant="quiet" icon="delete" onClick={() => setConfirmRemove(true)} title="Move the bundle to the trash">
+                delete
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="danger" icon="delete" onClick={() => void remove()}>
+                  move to trash
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>cancel</Button>
+              </>
+            )}
+            <Button variant="primary" onClick={() => void createChatAndOpen("claude", { kind: "knowledge", bundle: name })}>
+              curate in chat
+            </Button>
+          </>
+        )}
       </div>
+      {removeError && <Notice tone="bad">{removeError}</Notice>}
 
       {tab === "activity" ? (
         data.log ? (
           <ActivityPanel name={name} log={data.log} />
         ) : (
-          <section className="panel">
-            <div className="viewer-note">no activity yet</div>
-          </section>
+          <Panel>
+            <p className="m-0 px-[18px] py-3 text-sm text-fg-2">no activity yet</p>
+          </Panel>
         )
       ) : concepts.length === 0 ? (
-        <section className="panel">
-          <div className="viewer-note">
+        <Panel>
+          <p className="m-0 px-[18px] py-3 text-sm text-fg-2">
             No pages yet — start a chat to author some, or write one with{" "}
             <code>kraftwerk knowledge put {name}/&lt;path&gt;</code>.
-          </div>
-        </section>
+          </p>
+        </Panel>
       ) : (
-        <div className="wiki">
-          <aside className="wiki-side">
+        <div
+          className={cn(
+            "grid items-start",
+            embedded ? "grid-cols-[170px_minmax(0,1fr)] gap-3.5 @max-[560px]:grid-cols-1" : "grid-cols-[260px_minmax(0,1fr)] gap-6 max-[1100px]:grid-cols-1"
+          )}
+        >
+          <aside
+            className={cn(
+              "flex flex-col gap-0.5 overflow-y-auto border-r border-line",
+              embedded
+                ? "sticky top-0 max-h-[calc(100vh-var(--topbar-h)-160px)] pr-2 pb-1.5 @max-[560px]:static @max-[560px]:max-h-[200px] @max-[560px]:border-r-0 @max-[560px]:pr-0"
+                : "sticky top-[calc(var(--topbar-h)+18px)] max-h-[calc(100vh-var(--topbar-h)-36px)] py-1.5 pr-3 max-[1100px]:static max-[1100px]:max-h-none max-[1100px]:border-r-0 max-[1100px]:pr-0"
+            )}
+          >
             <PageTree concepts={concepts} base={base} selected={selected} />
           </aside>
-          <div className="wiki-main">
+          <div className="min-w-0">
             {selected && <ConceptView key={selected} bundle={name} conceptId={selected} />}
           </div>
         </div>
@@ -255,34 +312,32 @@ function ActivityPanel({ name, log }: { name: string; log: string }) {
   const [raw, setRaw] = useState(false);
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="microlabel">activity</span>
-        <span className="spacer" />
-        <button className="open-raw" onClick={() => setRaw(!raw)}>
+    <Panel
+      title="activity"
+      actions={
+        <Button size="sm" variant="quiet" onClick={() => setRaw(!raw)}>
           {raw ? "timeline" : "raw log"}
-        </button>
-      </div>
+        </Button>
+      }
+    >
       {raw || days.length === 0 ? (
-        <div className="viewer-body">
-          <pre>{log}</pre>
-        </div>
+        <pre className={PRE}>{log}</pre>
       ) : (
-        <div className="know-log">
-          {days.map((d) => (
+        <div className="pt-0.5 pb-2.5">
+          {days.map((d, n) => (
             <Fragment key={d.date}>
-              <div className="m3-subhead num">{d.date}</div>
+              <div className={cn("px-[18px] pt-3.5 pb-1 font-mono text-2xs tracking-[0.05em] text-fg-2 tabular-nums", n > 0 && "mt-1 border-t border-line")}>{d.date}</div>
               {d.entries.map((e, i) => (
-                <div key={i} className="know-log-row">
-                  <span className={`chip log-kind log-${e.kind}`}>{e.kind}</span>
-                  <span className="know-log-text">{logText(name, e.text)}</span>
+                <div key={i} className="flex items-baseline gap-2.5 px-[18px] py-1">
+                  <Tag tone={e.kind === "verification" ? "ok" : e.kind === "creation" || e.kind === "initialization" ? "accent" : "neutral"}>{e.kind}</Tag>
+                  <span className="min-w-0 text-[12.5px] leading-[1.55] break-words text-fg-2 [&_a]:text-accent">{logText(name, e.text)}</span>
                 </div>
               ))}
             </Fragment>
           ))}
         </div>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -346,47 +401,63 @@ function PageTree({ concepts, base, selected }: { concepts: Concept[]; base: str
       else next.add(path);
       return next;
     });
-  return <TreeLevel folder={tree} base={base} selected={selected} closed={closed} toggle={toggle} />;
+  const embedded = useEmbedded();
+  return <TreeLevel folder={tree} base={base} selected={selected} closed={closed} toggle={toggle} embedded={embedded} />;
 }
 
 function TreeLevel({
-  folder, base, selected, closed, toggle,
+  folder, base, selected, closed, toggle, embedded,
 }: {
   folder: Folder; base: string; selected?: string;
-  closed: Set<string>; toggle: (path: string) => void;
+  closed: Set<string>; toggle: (path: string) => void; embedded: boolean;
 }) {
   return (
     <>
-      {folder.pages.map((c) => (
-        <Link
-          key={c.id}
-          href={`${base}/${c.id}`}
-          className={`wiki-page ${c.id === selected ? "active" : ""}`}
-          title={`${c.id}.md`}
-        >
-          <span className="wiki-page-title">{c.title}</span>
-          {(c.stale || c.error) && <span className="wiki-dot" title={c.error ?? "stale"} />}
-        </Link>
-      ))}
+      {folder.pages.map((c) => {
+        const on = c.id === selected;
+        return (
+          // wiki-page / active / wiki-folder / open / holds / wiki-branch: what the page-tree test reads.
+          <Link
+            key={c.id}
+            href={`${base}/${c.id}`}
+            aria-current={on ? "page" : undefined}
+            className={cn(
+              "wiki-page flex items-center gap-2 rounded-control px-2.5 py-1.5 leading-[1.35] no-underline transition-colors",
+              embedded ? "text-[12.5px]" : "text-sm",
+              on ? "active bg-accent-soft font-medium text-on-accent-soft" : "text-fg hover:bg-surface-2"
+            )}
+            title={`${c.id}.md`}
+          >
+            <span className="min-w-0 flex-1 truncate">{c.title}</span>
+            {(c.stale || c.error) && <span className="size-1.5 flex-none rounded-full bg-bad" title={c.error ?? "stale"} />}
+          </Link>
+        );
+      })}
       {folder.folders.map((f) => {
         const open = !closed.has(f.path);
         const holdsSelected = !!selected && selected.startsWith(`${f.path}/`);
+        const holds = holdsSelected && !open;
         return (
           <Fragment key={f.path}>
             <button
               type="button"
-              className={`wiki-folder ${open ? "open" : ""} ${holdsSelected && !open ? "holds" : ""}`}
-                  onClick={() => toggle(f.path)}
+              className={cn(
+                "wiki-folder mt-2.5 mb-0.5 flex w-full cursor-pointer items-center gap-1 rounded-control border-0 bg-transparent py-1 pr-2 pl-0.5 text-left",
+                "font-[inherit] text-2xs leading-[1.3] font-semibold tracking-[0.06em] uppercase transition-colors",
+                open && "open",
+                holds ? "holds text-accent" : "text-fg-2 hover:text-fg"
+              )}
+              onClick={() => toggle(f.path)}
               aria-expanded={open}
               title={`${f.path}/`}
             >
-              <Icon name="chevron_right" className="ms-sm wiki-folder-chev" />
-              <span className="wiki-folder-name">{f.name}</span>
-              <span className="wiki-folder-count num">{f.total}</span>
+              <Icon name="chevron_right" className={cn("ms-sm flex-none text-[16px] transition-transform", open && "rotate-90", !holds && "text-fg-2")} />
+              <span className="min-w-0 flex-1 truncate">{f.name}</span>
+              <span className="text-[10.5px] font-medium tracking-normal text-fg-2 tabular-nums opacity-70">{f.total}</span>
             </button>
             {open && (
-              <div className="wiki-branch">
-                <TreeLevel folder={f} base={base} selected={selected} closed={closed} toggle={toggle} />
+              <div className="wiki-branch ml-[9px] flex flex-col gap-0.5 border-l border-line pl-1">
+                <TreeLevel folder={f} base={base} selected={selected} closed={closed} toggle={toggle} embedded={embedded} />
               </div>
             )}
           </Fragment>
@@ -402,6 +473,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const [concept, setConcept] = useState<ConceptDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const embedded = useEmbedded();
   /** The page is its editor: "document" (rich text, autosaved) is the view; "markdown" edits the whole file as text with an explicit save. */
   const [mode, setMode] = useState<"document" | "markdown">("document");
   const [draft, setDraft] = useState("");
@@ -572,172 +644,152 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
     }
   }
 
-  if (gone) return <div className="empty">concept not found</div>;
-  if (!concept) return <div className="empty">loading…</div>;
+  if (gone) return <EmptyState icon="description">concept not found</EmptyState>;
+  if (!concept) return <EmptyState>loading…</EmptyState>;
 
   const status =
     state === "saving" ? "saving…" : state === "unsaved" ? "unsaved changes" : state === "error" ? `not saved — ${error}` : "all changes saved";
 
   return (
-    <div className="agent-view">
-      <div className="detail-head">
-        <h1>{concept.title}</h1>
-        {concept.type && <span className="chip agent">{concept.type}</span>}
+    <div className={cn("agent-view flex flex-col", embedded ? "gap-2.5" : "gap-4")}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Title size={embedded ? "md" : "lg"}>{concept.title}</Title>
+        {concept.type && <Tag>{concept.type}</Tag>}
         <TrustBadge tier={concept.trustTier} />
-        {concept.status !== "stable" && (
-          <span className={`chip ${concept.status}`}>{concept.status}</span>
+        {concept.status !== "stable" && <Tag tone={statusTone(concept.status)}>{concept.status}</Tag>}
+        {concept.stale && <Tag tone="bad">stale since {concept.staleAfter?.slice(0, 10)}</Tag>}
+        <span className="flex-1" />
+        {!embedded && (
+          <Button size="sm" variant="quiet" icon="picture_as_pdf" onClick={() => void exportBundlePdf(bundle, concept.id)}>
+            export PDF
+          </Button>
         )}
-        {concept.stale && <span className="chip stale">stale since {concept.staleAfter?.slice(0, 10)}</span>}
-        <span className="spacer" />
-        <button className="open-raw" onClick={() => void exportBundlePdf(bundle, concept.id)}>
-          <Icon name="picture_as_pdf" className="ms-sm" /> export PDF
-        </button>
-        <button className="run-btn" disabled={verifying} onClick={verify}>
-          {verifying ? "verifying…" : <><Icon name="check" className="ms-sm" /> verify (human)</>}
-        </button>
+        <Button variant="primary" size={embedded ? "sm" : "md"} icon="check" busy={verifying} onClick={verify}>
+          {verifying ? "verifying…" : "verify (human)"}
+        </Button>
       </div>
-      {concept.error && <div className="msg error"><Icon name="error" className="ms-sm" /> {concept.error}</div>}
+      {concept.error && <Notice tone="bad">{concept.error}</Notice>}
 
-      <div className="detail-cols">
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">content</span>
-            <span className="spacer" />
-            <span className="side-meta">
-              {bundle}/{concept.id}.md
-            </span>
-            {mode === "markdown" ? (
-              <>
-                <button
-                  className="open-raw"
-                  onClick={() => {
-                    setMode("document");
-                    setSaveError("");
-                  }}
-                >
-                  cancel
-                </button>
-                <button className="open-raw" disabled={saving} onClick={() => void saveMarkdown()}>
-                  {saving ? "saving…" : <><Icon name="check" className="ms-sm" /> save</>}
-                </button>
-              </>
-            ) : (
-              <>
-                <span className={`concept-status ${state}`}>{status}</span>
-                <button className="open-raw" title="The whole file as text, frontmatter included" onClick={editMarkdown}>
-                  <Icon name="code" className="ms-sm" /> edit markdown
-                </button>
-              </>
-            )}
-          </div>
+      <div className={cn("grid items-start", embedded ? "grid-cols-1 gap-3" : "grid-cols-[minmax(0,1fr)_320px] gap-4 max-[1020px]:grid-cols-1")}>
+        <Panel
+          className="min-w-0"
+          title="content"
+          actions={
+            <>
+              <span className="min-w-0 truncate font-mono text-[10.5px] text-fg-2">
+                {bundle}/{concept.id}.md
+              </span>
+              {mode === "markdown" ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => {
+                      setMode("document");
+                      setSaveError("");
+                    }}
+                  >
+                    cancel
+                  </Button>
+                  <Button size="sm" icon="check" busy={saving} onClick={() => void saveMarkdown()}>
+                    {saving ? "saving…" : "save"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className={cn("text-xs whitespace-nowrap", state === "error" ? "text-bad" : state === "unsaved" || state === "saving" ? "text-ask" : "text-fg-2")}>
+                    {status}
+                  </span>
+                  <Button size="sm" variant="quiet" icon="code" title="The whole file as text, frontmatter included" onClick={editMarkdown}>
+                    edit markdown
+                  </Button>
+                </>
+              )}
+            </>
+          }
+        >
           {mode === "markdown" ? (
             <>
               <textarea
-                className="concept-edit"
+                // concept-edit: the hook the editor test reads.
+                className="concept-edit block w-full resize-y border-0 border-b border-line bg-surface px-[18px] py-3.5 font-mono text-[12.5px] leading-[1.65] text-fg outline-none"
                 value={draft}
                 rows={Math.min(40, Math.max(18, draft.split("\n").length + 2))}
                 onChange={(e) => setDraft(e.target.value)}
                 spellCheck={false}
               />
-              <div className="viewer-note">
-                full file (frontmatter + markdown body) — saving stamps provenance as{" "}
-                <code>human:user</code> and logs an update.
-              </div>
+              <Hint className="border-b border-line px-[18px] py-1.5">
+                full file (frontmatter + markdown body) — saving stamps provenance as <code>human:user</code> and logs an update.
+              </Hint>
             </>
           ) : (
             <div
-              className="concept-doc"
+              // concept-doc: the hook the editor test reads; the editor's own box takes the height.
+              className={cn("concept-doc", embedded ? "[&_.editor-content]:min-h-[220px]" : "[&_.editor-content]:min-h-[280px]")}
               onPointerDownCapture={() => (touchedRef.current = true)}
               onKeyDownCapture={() => (touchedRef.current = true)}
               onPasteCapture={() => (touchedRef.current = true)}
               onDropCapture={() => (touchedRef.current = true)}
             >
               {doc ? (
-                <Suspense fallback={<div className="viewer-note">loading the editor…</div>}>
-                  <DocEditor
-                    key={doc.key}
-                    markdown={doc.body}
-                    autoFocus={false}
-                    onChange={schedule}
-                    onError={editMarkdown}
-                  />
+                <Suspense fallback={<Hint className="border-b border-line px-[18px] py-1.5">loading the editor…</Hint>}>
+                  <DocEditor key={doc.key} markdown={doc.body} autoFocus={false} onChange={schedule} onError={editMarkdown} />
                 </Suspense>
               ) : (
-                <div className="viewer-note">loading…</div>
+                <Hint className="border-b border-line px-[18px] py-1.5">loading…</Hint>
               )}
-              <div className="viewer-note">
+              <Hint className="border-b border-line px-[18px] py-1.5">
                 the page as a document, saved as you type; every save stamps provenance as <code>human:user</code> and logs an update.
-              </div>
+              </Hint>
             </div>
           )}
-          {saveError && <div className="msg error"><Icon name="error" className="ms-sm" /> {saveError}</div>}
-        </section>
-
-        <aside className="detail-rail">
-          <section className="panel">
-            <div className="panel-head">
-              <span className="microlabel">about</span>
+          {saveError && (
+            <div className="px-3 py-1">
+              <Notice tone="bad">{saveError}</Notice>
             </div>
-            <div className="rail-list">
-              <div className="rail-kv">
-                <span className="microlabel">trust</span>
-                <span className="v">
-                  <TrustBadge tier={concept.trustTier} />
-                </span>
-              </div>
-              <div className="rail-kv">
-                <span className="microlabel">generated</span>
-                <span className={`v ${concept.generated ? "" : "dim"}`}>
-                  {concept.generated
-                    ? `${concept.generated.by ?? "?"} · ${(concept.generated.at ?? "?").slice(0, 10)}`
-                    : "not stamped"}
-                </span>
-              </div>
-              <div className="rail-kv">
-                <span className="microlabel">verified</span>
-                {concept.verified.length === 0 ? (
-                  <span className="v dim">never</span>
-                ) : (
-                  concept.verified.map((v, i) => (
-                    <span key={i} className="v">
-                      {v.by ?? "?"} · {(v.at ?? "?").slice(0, 10)}
-                    </span>
-                  ))
-                )}
-              </div>
-              {concept.staleAfter && (
-                <div className="rail-kv">
-                  <span className="microlabel">stale after</span>
-                  <span className={`v ${concept.stale ? "" : "dim"}`}>
-                    {concept.staleAfter.slice(0, 10)}
-                    {concept.stale && <span className="chip stale">stale</span>}
-                  </span>
-                </div>
-              )}
-              {concept.tags.length > 0 && (
-                <div className="rail-kv">
-                  <span className="microlabel">tags</span>
-                  <span className="m3-chips">
-                    {concept.tags.map((t) => (
-                      <span key={t} className="chip">
-                        {t}
+          )}
+        </Panel>
+
+        <aside className={cn("flex min-w-0 flex-col", embedded ? "gap-2.5" : "gap-4")}>
+          <Panel title="about">
+            <Facts compact={embedded}>
+              <Fact label="trust">
+                <TrustBadge tier={concept.trustTier} />
+              </Fact>
+              <Fact label="generated" dim={!concept.generated}>
+                {concept.generated ? `${concept.generated.by ?? "?"} · ${(concept.generated.at ?? "?").slice(0, 10)}` : "not stamped"}
+              </Fact>
+              <Fact label="verified" dim={concept.verified.length === 0}>
+                {concept.verified.length === 0
+                  ? "never"
+                  : concept.verified.map((v, i) => (
+                      <span key={i} className="block">
+                        {v.by ?? "?"} · {(v.at ?? "?").slice(0, 10)}
                       </span>
                     ))}
-                  </span>
-                </div>
+              </Fact>
+              {concept.staleAfter && (
+                <Fact label="stale after" dim={!concept.stale}>
+                  {concept.staleAfter.slice(0, 10)}
+                  {concept.stale && <Tag tone="bad">stale</Tag>}
+                </Fact>
               )}
-            </div>
-          </section>
+              {concept.tags.length > 0 && (
+                <Fact label="tags">
+                  {concept.tags.map((t) => (
+                    <Tag key={t}>{t}</Tag>
+                  ))}
+                </Fact>
+              )}
+            </Facts>
+          </Panel>
 
           {concept.sources.length > 0 && (
-            <section className="panel">
-              <div className="panel-head">
-                <span className="microlabel">sources</span>
-              </div>
-              <div className="rail-list">
+            <Panel title="sources">
+              <Facts compact={embedded}>
                 {concept.sources.map((s, i) => (
-                  <div key={i} className="rail-kv">
-                    <span className="v">
+                  <div key={i} className={cn("flex flex-col gap-[3px] break-words", embedded ? "px-3.5 py-1.5 text-xs" : "px-[18px] py-2.5 text-[12.5px]")}>
+                    <span className="text-fg [&_a]:text-accent">
                       {s.resource?.startsWith("http") ? (
                         <a href={s.resource} target="_blank" rel="noreferrer">
                           {s.title ?? s.resource}
@@ -745,24 +797,23 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
                       ) : (
                         (s.title ?? s.resource ?? "?")
                       )}
-                      {s.id && <span className="know-id">[^{s.id}]</span>}
+                      {s.id && <span className="ml-2 font-mono text-2xs text-fg-2">[^{s.id}]</span>}
                     </span>
-                    <span className="v dim">
-                      {[
-                        s.author,
-                        s.usage_count != null ? `${s.usage_count} uses` : null,
-                        s.last_modified ? `mod ${s.last_modified.slice(0, 10)}` : null,
-                      ]
+                    <span className="text-fg-2">
+                      {[s.author, s.usage_count != null ? `${s.usage_count} uses` : null, s.last_modified ? `mod ${s.last_modified.slice(0, 10)}` : null]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
                   </div>
                 ))}
-              </div>
-            </section>
+              </Facts>
+            </Panel>
           )}
         </aside>
       </div>
     </div>
   );
 }
+
+/* ---------- facts: label and value, one per line ---------- */
+

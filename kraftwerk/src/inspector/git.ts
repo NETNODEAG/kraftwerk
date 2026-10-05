@@ -283,7 +283,7 @@ interface Scope {
 
 /**
  * The roots that may be committed, as repo-relative paths: the workflows,
- * knowledge, agents, skills, channels, vibeables and projects roots this project
+ * knowledge, agents, skills, channels, vibeables, projects and files roots this project
  * declares, plus kraftwerk.yml and the project README. The output directory
  * is excluded even when it lives inside one of them.
  */
@@ -314,6 +314,8 @@ function scopeFor({ project, repoRoot }: Repo): Scope {
     vibeablesRootFor(project),
     // Projects too: briefs, state and logs are the workspace's own record.
     projectsRootFor(project),
+    // Workspace files: shared material, versioned (files over 25 MB ignore themselves, see files.ts).
+    path.resolve(project.root, "kraftwerk-data/files"),
     project.configPath,
     path.resolve(project.root, "README.md"),
   ];

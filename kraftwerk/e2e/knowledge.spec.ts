@@ -13,18 +13,17 @@ test.describe("knowledge landing", () => {
 
   test("empty workspace shows only the create form, a bundle becomes the landing", async ({ page, request }) => {
     await page.goto("/#/knowledge");
-    await expect(page.locator(".empty-action .know-newbundle input")).toBeVisible();
-    await expect(page.locator(".know-intro")).toHaveCount(0);
+    await expect(page.locator(".empty-action").getByPlaceholder("bundle name, e.g. customer-support")).toBeVisible();
 
     const created = await request.post("/api/knowledge", { data: { name: NAME } });
     expect(created.ok()).toBeTruthy();
     await page.reload();
     await expect(page).toHaveURL(new RegExp(`#/knowledge/${NAME}`));
-    await expect(page.locator(".shell-global .side-row.active .side-wf")).toHaveText(NAME);
+    await expect(page.locator(".shell-global .runs-side a[aria-current=page]")).toContainText(NAME);
 
     // The explicit "new" route keeps the form reachable.
     await page.goto("/#/knowledge/new");
-    await expect(page.locator(".know-newbundle input")).toBeVisible();
+    await expect(page.getByPlaceholder("bundle name, e.g. customer-support")).toBeVisible();
   });
 });
 

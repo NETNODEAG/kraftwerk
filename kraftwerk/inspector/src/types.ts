@@ -62,6 +62,9 @@ export type { LinkState, ProjectDetail, ProjectHit, ProjectLinks, ProjectStatus,
 export type { Notification, NotificationKind, NotificationsView } from "../../src/inspector/notifications";
 export type { Channel, ChannelSummary } from "../../src/inspector/channels";
 export type { Author } from "../../src/inspector/chat/types";
+export type { AgentStatus } from "../../src/inspector/agent-status";
+export type { AttentionItem, AttentionOwner, AttentionView } from "../../src/inspector/attention";
+export type { FileEntry, FilesListing, FilesScopeInfo } from "../../src/inspector/files";
 
 /** A channel as /api/channels returns it: the definition plus its transcript's chat id and live state. */
 export type ChannelView = import("../../src/inspector/channels").Channel & { chatId: string; busy: boolean; awaitingApproval: boolean; updatedAt: string };

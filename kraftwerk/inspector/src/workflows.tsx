@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RunListItem, WorkflowSummary } from "./types";
-import { Icon, Lamp, Link, StatusWord, fmtAgo, navigate, usePoll } from "./shared";
+import { fmtAgo, navigate, usePoll } from "./shared";
 import { WorkflowView, type WorkflowTab } from "./workflow-view";
+import { RunStatus, runTone } from "./runs";
+import { Button, Dot, EmptyState, ListRow, SideHead, SideList, SideNote, SideSearch, Tag } from "./ui";
 
 /**
  * Workflows, laid out like the knowledge page: the workflows in a sidebar
@@ -59,70 +61,62 @@ export function WorkflowsScreen({ slug, tab }: { slug?: string; tab: WorkflowTab
   return (
     <div className="runs-screen workflows-screen">
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">workflows</span>
-          {data && <span className="microlabel num">{wfs.length}</span>}
-          <span className="spacer" />
-          <Link href="/runs" className="open-raw" title="every run of every workflow, newest first">
-            <Icon name="history" className="ms-sm" /> runs <span className="num">{runs.length}</span>
-          </Link>
-        </div>
-        {wfs.length > 0 && (
-          <label className="side-filter">
-            <Icon name="search" className="ms-sm" />
-            <input type="search" value={q} placeholder="search workflows" aria-label="search workflows" onChange={(e) => setQ(e.target.value)} />
-          </label>
-        )}
-        <div className="side-list">
+        <SideHead
+          title="workflows"
+          count={data ? wfs.length : undefined}
+          action={
+            <Button size="sm" variant="quiet" icon="history" href="/runs" title="every run of every workflow, newest first">
+              runs <span className="tabular-nums">{runs.length}</span>
+            </Button>
+          }
+        />
+        {wfs.length > 0 && <SideSearch icon="search" value={q} placeholder="search workflows" aria-label="search workflows" onChange={(e) => setQ(e.target.value)} />}
+        <SideList>
           {shown.map((w) => {
             const st = runStats(runs, w);
             return (
-              <Link key={w.slug} href={`/workflows/${encodeURIComponent(w.slug)}`} className={`side-row wf-row${w.slug === slug ? " active" : ""}`}>
-                <Lamp status={st.last?.status ?? "idle"} />
-                <div className="side-row-body">
-                  <div className="side-row-top">
-                    <span className="side-wf">{w.name ?? w.slug}</span>
-                    {w.error && <span className="status-word failed">broken</span>}
-                    {st.last && <span className="side-when num">{fmtAgo(st.last.updatedAt)}</span>}
-                  </div>
-                  <div className="side-row-sub">
-                    <span className="side-req" title={w.error ?? w.description ?? ""}>
-                      {w.error ?? w.description ?? `${w.agents} agents · ${w.steps} steps`}
-                    </span>
-                    {st.last ? (
-                      <button
-                        type="button"
-                        className="wf-runs num"
-                        title="show the runs of this workflow"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          navigate(runsHref(st.last!, w));
-                        }}
-                      >
-                        {st.count} {st.count === 1 ? "run" : "runs"} · <StatusWord status={st.last.status} />
-                      </button>
-                    ) : (
-                      <span className="wf-runs none num">no runs yet</span>
-                    )}
-                  </div>
-                </div>
-              </Link>
+              <ListRow
+                key={w.slug}
+                className="wf-row"
+                href={`/workflows/${encodeURIComponent(w.slug)}`}
+                active={w.slug === slug}
+                leading={<Dot tone={runTone(st.last?.status)} title={st.last?.status ?? "no runs yet"} />}
+                title={w.name ?? w.slug}
+                titleExtra={w.error && <Tag tone="bad">broken</Tag>}
+                meta={st.last && fmtAgo(st.last.updatedAt)}
+                sub={<span title={w.error ?? w.description ?? ""}>{w.error ?? w.description ?? `${w.agents} agents · ${w.steps} steps`}</span>}
+                subTone={w.error ? "bad" : "plain"}
+                actionsAlways
+                actions={
+                  st.last ? (
+                    <button
+                      type="button"
+                      className="wf-runs inline-flex cursor-pointer items-center gap-1 rounded-control border-0 bg-transparent px-1.5 py-0.5 text-2xs tabular-nums text-fg-2 transition-colors hover:bg-surface-2 hover:text-fg"
+                      title="show the runs of this workflow"
+                      onClick={() => navigate(runsHref(st.last!, w))}
+                    >
+                      {st.count} {st.count === 1 ? "run" : "runs"} · <RunStatus status={st.last.status} />
+                    </button>
+                  ) : (
+                    <span className="wf-runs px-1.5 text-2xs text-fg-2 opacity-80">no runs yet</span>
+                  )
+                }
+              />
             );
           })}
-          {data && wfs.length > 0 && shown.length === 0 && <div className="viewer-note wf-nomatch">no workflow matches “{q}”</div>}
-          {data && wfs.length === 0 && <div className="viewer-note">no workflows yet</div>}
-        </div>
+          {data && wfs.length > 0 && shown.length === 0 && <SideNote className="wf-nomatch">no workflow matches “{q}”</SideNote>}
+          {data && wfs.length === 0 && <SideNote>no workflows yet</SideNote>}
+        </SideList>
       </aside>
       <div className="runs-main">
         {slug ? (
           <WorkflowView key={slug} slug={slug} tab={tab} />
         ) : data && wfs.length === 0 ? (
-          <div className="empty">
+          <EmptyState icon="account_tree">
             No workflows found — expected <code>src/workflows/</code> or <code>workflows/</code> next to the output folder.
-          </div>
+          </EmptyState>
         ) : (
-          <div className="empty">loading…</div>
+          <EmptyState>loading…</EmptyState>
         )}
       </div>
     </div>

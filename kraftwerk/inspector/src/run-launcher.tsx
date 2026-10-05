@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Icon, navigate, usePoll } from "./shared";
+import { navigate, usePoll } from "./shared";
+import { Button, Notice, SwitchRow, TextField } from "./ui";
 
 /**
  * Triggering a workflow run from the browser — shared by the ▶ button on
@@ -92,10 +93,9 @@ export function useRunLauncher(
 }
 
 /**
- * Inline launcher on the workflow page. The same M3 parts as the dialog —
- * filled text field, filled button, switch list items — laid out on one
- * line so the page needs no heading over it: the field says what to type,
- * the switches say where it runs.
+ * Inline launcher on the workflow page: the request field and Run on one
+ * line so the page needs no heading over it — the field says what to type,
+ * the switches under it say where it runs.
  */
 export function RunForm({
   slug,
@@ -110,57 +110,30 @@ export function RunForm({
 }) {
   const l = useRunLauncher(slug, usesRequest, initialRequest, onLaunched);
   return (
-    <div className="run-launcher">
-      <div className="run-launcher-main">
+    <div className="flex flex-col gap-1 px-5 pt-4 pb-2">
+      <div className="flex items-center gap-4 max-[700px]:flex-wrap">
         {usesRequest ? (
-          <label className="m3-field">
-            <input
-              type="text"
-              value={l.request}
-              placeholder=" "
-              aria-label="request"
-              onChange={(e) => l.setRequest(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && l.launch()}
-            />
-            <span className="m3-field-label">Request</span>
-          </label>
+          <TextField
+            className="h-11 min-w-0 flex-1 text-md"
+            value={l.request}
+            placeholder="Request"
+            aria-label="request"
+            onChange={(e) => l.setRequest(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && l.launch()}
+          />
         ) : (
-          <span className="run-norequest">This workflow takes no request.</span>
+          <span className="flex-1 text-base text-fg-2">This workflow takes no request.</span>
         )}
-        <button className="m3-filled-btn run-go" onClick={l.launch} disabled={!l.canRun}>
-          <Icon name="play_arrow" /> {l.busy ? "Starting…" : "Run"}
-        </button>
+        <Button variant="primary" icon="play_arrow" className="h-11 px-5 max-[700px]:w-full" busy={l.busy} onClick={l.launch} disabled={!l.canRun}>
+          {l.busy ? "Starting…" : "Run"}
+        </Button>
       </div>
-      <div className="m3-switches run-switches">
+      <div className="-mx-2 mt-1 flex flex-wrap gap-x-2">
         <SwitchRow label="Docker sandbox" hint={sandboxHint(l.docker)} checked={l.sandbox} onChange={l.setSandbox} />
         {l.sandbox && <SwitchRow label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
       </div>
-      {l.error && <div className="m3-error">{l.error}</div>}
+      {l.error && <Notice tone="bad">{l.error}</Notice>}
     </div>
   );
 }
 
-/** M3 switch: a list-item row with headline, optional supporting text, and the toggle. */
-export function SwitchRow({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  checked: boolean;
-  onChange: (on: boolean) => void;
-}) {
-  return (
-    <button type="button" className="m3-switch-row" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}>
-      <span className="m3-switch-text">
-        <span className="m3-switch-label">{label}</span>
-        {hint && <span className="m3-switch-hint">{hint}</span>}
-      </span>
-      <span className={`m3-switch ${checked ? "on" : ""}`} aria-hidden>
-        <span className="m3-switch-knob" />
-      </span>
-    </button>
-  );
-}

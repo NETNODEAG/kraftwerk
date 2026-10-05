@@ -1,0 +1,121 @@
+/*
+ * The design tokens: a warm paper ground, white panels with hairlines, one
+ * accent for what starts something (the workspace colour), colour otherwise
+ * only for outcomes; the system sans for the interface and a reading serif
+ * for what an agent says. Dark is the default of :root, light is
+ * [data-theme="light"] (index.html sets it before the first paint).
+ *
+ * styles.css maps these onto Tailwind's names (`bg-surface`, `text-fg-2`,
+ * `bg-ok-soft` …); components use those, not the variables.
+ */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --reading: ui-serif, "New York", "Iowan Old Style", Charter, "Bitstream Charter", Georgia, serif;
+  --radius: 14px;
+  --radius-s: 9px;
+  /* The top bar's height: the columns and sticky sidebars subtract it from the viewport. */
+  --topbar-h: 64px;
+
+  /* Grounds and lines */
+  --bg: #151514;
+  --surface-1: #1e1e1c;
+  --surface-2: #272725;
+  --surface-3: #2f2f2c;
+  --line: #33322f;
+  --line-strong: #5a5851;
+  /* Text */
+  --text: #ecebe7;
+  --text-2: #a3a099;
+  /* The accent, its tinted container and its soft wash */
+  --accent: #a996ff;
+  --accent-hover: #bcadff;
+  --on-accent: #151514;
+  --accent-container: #3b2a8a;
+  --on-accent-container: #e6e0ff;
+  --accent-soft: #2b2740;
+  --on-accent-soft: #d9d0ff;
+  /* Outcomes: done, failed, waiting for you, live */
+  --ok: #5fc48f;
+  --ok-soft: #0f3d25;
+  --bad: #f2867e;
+  --on-bad: #151514;
+  --bad-soft: #5c1a15;
+  --on-bad-soft: #ffdad6;
+  --ask: #e5ac52;
+  --ask-soft: #4a3410;
+  --on-ask-soft: #ffe0b0;
+  --live: #86a8f5;
+
+  --elev-pop: 0 12px 32px rgb(0 0 0 / 0.35);
+  --elev-modal: 0 24px 64px rgb(0 0 0 / 0.45);
+  /* The divider shadow cast into the context column */
+  --divider-shade: rgb(0 0 0 / 0.08);
+
+  /* Motion: short, eased, transform and opacity only. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --t-fast: 120ms;
+  --t-base: 180ms;
+  --t-slow: 260ms;
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f5f2;
+  --surface-1: #ffffff;
+  --surface-2: #f1efea;
+  --surface-3: #e9e6df;
+  --line: #e3e0d9;
+  --line-strong: #b5b1a8;
+  --text: #1d1c1a;
+  --text-2: #64615a;
+  --accent: #5b3fd6;
+  --accent-hover: #4a30bd;
+  --on-accent: #ffffff;
+  --accent-container: #e6e0ff;
+  --on-accent-container: #241466;
+  --accent-soft: #ebe6ff;
+  --on-accent-soft: #2c1a7a;
+  --ok: #1f7a4d;
+  --ok-soft: #d5f0e0;
+  --bad: #b3261e;
+  --on-bad: #ffffff;
+  --bad-soft: #f9dedc;
+  --on-bad-soft: #410e0b;
+  --ask: #9a5b00;
+  --ask-soft: #ffe7c2;
+  --on-ask-soft: #4a2c00;
+  --live: #2457c5;
+  --elev-pop: 0 12px 32px rgb(0 0 0 / 0.14);
+  --elev-modal: 0 24px 64px rgb(0 0 0 / 0.25);
+  --divider-shade: rgb(0 0 0 / 0.05);
+
+  color-scheme: light;
+}
+
+/*
+ * The accent is the workspace colour (kraftwerk.yml `color`, else derived
+ * from the root): app.tsx derives the --wsp-* roles with wsPalette() in
+ * shared.tsx, sets them inline on <html> together with data-ws-accent, and
+ * they win over the fallback violet above.
+ */
+:root[data-ws-accent] {
+  --accent: var(--wsp-d-primary);
+  --on-accent: var(--wsp-d-on-primary);
+  --accent-hover: color-mix(in srgb, var(--wsp-d-primary) 85%, white);
+  --accent-container: var(--wsp-d-primary-container);
+  --on-accent-container: var(--wsp-d-on-primary-container);
+  --accent-soft: var(--wsp-d-secondary-container);
+  --on-accent-soft: var(--wsp-d-on-secondary-container);
+}
+:root[data-ws-accent][data-theme="light"] {
+  --accent: var(--wsp-l-primary);
+  --on-accent: var(--wsp-l-on-primary);
+  --accent-hover: color-mix(in srgb, var(--wsp-l-primary) 85%, black);
+  --accent-container: var(--wsp-l-primary-container);
+  --on-accent-container: var(--wsp-l-on-primary-container);
+  --accent-soft: var(--wsp-l-secondary-container);
+  --on-accent-soft: var(--wsp-l-on-secondary-container);
+}

@@ -17,8 +17,9 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, createChatAndOpen } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
-import { SessionsPane, useSessionsList, type Session } from "./sessions";
+import { EFFORTS, Icon, Link, navigate, usePoll, fmtAgo, useExpertMode, PROJECTS_CHANGED_EVENT } from "./shared";
+import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
+import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
 /**
  * Projects: a goal with everything the agents need to reach it in one
@@ -36,7 +37,8 @@ import { SessionsPane, useSessionsList, type Session } from "./sessions";
  */
 
 const STATUSES: ProjectStatus[] = ["active", "paused", "done", "archived"];
-const STATUS_CLS: Record<ProjectStatus, string> = { active: "running", paused: "aborted", done: "ok", archived: "aborted" };
+const STATUS_DOT: Record<ProjectStatus, DotTone> = { active: "working", paused: "idle", done: "ok", archived: "idle" };
+const STATUS_TAG: Record<ProjectStatus, "accent" | "ok" | "neutral"> = { active: "accent", paused: "neutral", done: "ok", archived: "neutral" };
 
 const RECORD_KINDS: Record<string, string> = {
   "my-netnode": "my.netnode.ch",
@@ -54,7 +56,6 @@ const HARNESSES: Array<{ id: ChatAgentId; label: string; hint: string }> = [
   { id: "codex", label: "codex", hint: "Codex (ChatGPT) via ACP" },
   { id: "pi", label: "pi", hint: "pi coding agent" },
 ];
-const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 
 /** "claude · sonnet · effort high" — what a project's chats run on. */
 const runsOn = (p: { harness: ChatAgentId; model?: string; effort?: string }): string =>
@@ -131,20 +132,20 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   let main: React.ReactNode;
   if (view && !view.enabled)
     main = (
-      <div className="empty">
+      <EmptyState icon="folder_off">
         {view.error && !/are off/.test(view.error) ? (
-          <span className="settings-err">{view.error}</span>
+          <span className="text-bad">{view.error}</span>
         ) : (
           <>
             Projects are off. Turn them on in <a href="#/settings">settings</a> or add a <code>projects:</code> block to kraftwerk.yml.
           </>
         )}
-      </div>
+      </EmptyState>
     );
-  else if (!view) main = <div className="empty">loading…</div>;
+  else if (!view) main = <EmptyState>loading…</EmptyState>;
   else if (mode === "new" || (mode === "home" && projects.length === 0)) main = <NewProject root={view.root} onCreated={reload} />;
-  else if (mode === "home") main = <div className="empty">loading…</div>;
-  else if (slug && !current) main = <div className="empty">no project named {slug}</div>;
+  else if (mode === "home") main = <EmptyState>loading…</EmptyState>;
+  else if (slug && !current) main = <EmptyState icon="folder_off">no project named {slug}</EmptyState>;
   else if (mode === "chat" && slug && chatId === "new") main = <NewProjectChat key={slug} slug={slug} title={current?.title ?? slug} />;
   else if (mode === "chat" && slug && chatId)
     main = (
@@ -154,44 +155,41 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
     );
   else if (mode === "info" && slug) main = <ProjectPage key={slug} slug={slug} onChanged={reload} />;
   else if (slug) main = <ProjectLanding key={slug} slug={slug} title={current?.title ?? slug} />;
-  else main = <div className="empty">loading…</div>;
+  else main = <EmptyState>loading…</EmptyState>;
 
   return (
     <div className={`runs-screen agents-screen projects-screen ${slug && current ? "has-tabs" : ""} ${slug && current && listOpen ? "has-sessions" : ""}`}>
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">projects</span>
-          <span className="spacer" />
-          {view?.enabled && <span className="microlabel num">{projects.length}</span>}
-          {view?.enabled && (expert || projects.length === 0) && (
-            <Link href="/projects/new" className="open-raw">
-              <Icon name="add" className="ms-sm" /> new
-            </Link>
-          )}
-        </div>
-        <div className="side-list">
+        <SideHead
+          title="projects"
+          count={view?.enabled ? projects.length : undefined}
+          action={
+            view?.enabled &&
+            (expert || projects.length === 0) && (
+              <Button size="sm" variant="quiet" icon="add" href="/projects/new">
+                new
+              </Button>
+            )
+          }
+        />
+        <SideList>
           {projects.map((p) => (
-            <Link
+            <ListRow
               key={p.slug}
               href={`/projects/${encodeURIComponent(p.slug)}`}
-              className={`side-row ${p.slug === slug ? "active" : ""}`}
-              data-project={p.slug}
-            >
-              <span className={`lamp ${p.configError ? "failed" : STATUS_CLS[p.status]}`} title={p.status} />
-              <div className="side-row-body">
-                <div className="side-row-top">
-                  <span className="side-wf">{p.title}</span>
-                  {p.updatedAt && <span className="side-when num" title={p.updatedAt}>{fmtAgo(p.updatedAt)}</span>}
-                </div>
-                <div className="side-row-sub">
-                  <span className="side-req">{p.configError ? p.configError : p.goal || p.status}</span>
-                </div>
-              </div>
-            </Link>
+              active={p.slug === slug}
+              size="sm"
+              innerProps={{ "data-project": p.slug }}
+              leading={<Dot tone={p.configError ? "bad" : STATUS_DOT[p.status]} title={p.status} />}
+              title={p.title}
+              sub={p.configError ? p.configError : p.goal || p.status}
+              subTone={p.configError ? "bad" : "plain"}
+              meta={p.updatedAt && <span title={p.updatedAt}>{fmtAgo(p.updatedAt)}</span>}
+            />
           ))}
-          {view && view.enabled && projects.length === 0 && <div className="viewer-note">no projects yet</div>}
-          {loadError && <div className="viewer-note settings-err">{loadError}</div>}
-        </div>
+          {view && view.enabled && projects.length === 0 && <SideNote>no projects yet</SideNote>}
+          {loadError && <Notice tone="bad">{loadError}</Notice>}
+        </SideList>
       </aside>
       {slug && current && <ProjectSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
       <div className="runs-main">{main}</div>
@@ -204,7 +202,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
 /** The create form on its own (the modal over a conversation): reads the root it will write to. */
 export function NewProjectPage() {
   const view = usePoll<ProjectsView>("/api/projects", false, 60_000);
-  if (view && !view.enabled) return <div className="empty">Projects are off. Turn them on in <a href="#/settings">settings</a>.</div>;
+  if (view && !view.enabled) return <EmptyState icon="folder_off">Projects are off. Turn them on in <a href="#/settings">settings</a>.</EmptyState>;
   return <NewProject root={view?.root} onCreated={async () => {}} />;
 }
 
@@ -240,33 +238,28 @@ function NewProject({ root, onCreated }: { root?: string; onCreated: () => Promi
   };
 
   return (
-    <form className="new-chat" onSubmit={(e) => void create(e)}>
-      <div className="page-head">
-        <h1>new project</h1>
-      </div>
-      <section className="panel">
-        <div className="agent-form">
-          <label className="agent-field">
-            title
-            <input value={title} placeholder="e.g. Relaunch netnode.ch" aria-label="project title" autoFocus onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          <label className="agent-field">
-            goal (one line)
-            <input value={goal} placeholder="e.g. Ship the new site on NodeHive by November" aria-label="project goal" onChange={(e) => setGoal(e.target.value)} />
-          </label>
-          <div className="agent-form-row">
-            <button className="run-btn" type="submit" disabled={busy || !title.trim()}>
-              <Icon name={busy ? "progress_activity" : "add"} className="ms-sm" />
+    <form className="new-chat mx-auto flex w-full max-w-[640px] animate-rise flex-col gap-4" onSubmit={(e) => void create(e)}>
+      <Title size="lg">new project</Title>
+      <Panel>
+        <FormStack className="max-w-[680px]">
+          <Field label="title">
+            <TextField value={title} placeholder="e.g. Relaunch netnode.ch" aria-label="project title" autoFocus onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="goal (one line)">
+            <TextField value={goal} placeholder="e.g. Ship the new site on NodeHive by November" aria-label="project goal" onChange={(e) => setGoal(e.target.value)} />
+          </Field>
+          <div>
+            <Button variant="primary" type="submit" icon="add" busy={busy} disabled={!title.trim()}>
               {busy ? "creating…" : "create project"}
-            </button>
+            </Button>
           </div>
-          {error && <div className="settings-err">{error}</div>}
-          <div className="settings-note">
+          {error && <Notice tone="bad">{error}</Notice>}
+          <Hint>
             One folder each under <code title={root}>{root}</code> with project.yml, brief.md, state.md and log.md; part of the workspace, commit it from
             the git screen. Chats opened in the project carry all of it as context.
-          </div>
-        </div>
-      </section>
+          </Hint>
+        </FormStack>
+      </Panel>
     </form>
   );
 }
@@ -296,7 +289,7 @@ function ProjectLanding({ slug, title }: { slug: string; title: string }) {
       alive = false;
     };
   }, [slug]);
-  if (!none) return <div className="empty">loading…</div>;
+  if (!none) return <EmptyState>loading…</EmptyState>;
   return <NewProjectChat slug={slug} title={title} />;
 }
 
@@ -315,17 +308,13 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
   }, [slug]);
   const harness = HARNESSES.find((h) => h.id === project?.harness) ?? HARNESSES[0];
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>new chat in {title}</h1>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="panel-head">
-          <span className="microlabel">runs on</span>
-        </div>
-        <div className="agent-pick">
+    <Page width="narrow">
+      <Title size="lg">new chat in {title}</Title>
+      <Panel title="runs on">
+        <div className="p-4">
           <button
-            className="agent-pick-btn active"
+            type="button"
+            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-card border border-transparent bg-accent-soft px-3.5 py-3 text-left text-on-accent-soft transition-[filter] hover:enabled:brightness-[0.97] disabled:cursor-default disabled:opacity-60"
             disabled={creating || !project}
             onClick={async () => {
               setCreating(true);
@@ -333,16 +322,16 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
               setCreating(false);
             }}
           >
-            <b>{creating ? "starting…" : "start chat"}</b>
-            <span>{project ? `${runsOn(project)} — ${harness.hint}` : "…"}</span>
+            <b className="text-base font-medium">{creating ? "starting…" : "start chat"}</b>
+            <span className="text-xs">{project ? `${runsOn(project)} — ${harness.hint}` : "…"}</span>
           </button>
         </div>
-        <div className="settings-note" style={{ padding: "0 18px 14px" }}>
+        <Hint className="px-[18px] pb-3.5">
           The chat starts with the project's brief, state, systems of record and links as context. Harness, model and effort are set on
           the <Link href={`/projects/${encodeURIComponent(slug)}/info`}>project page</Link>, like an agent's.
-        </div>
-      </section>
-    </div>
+        </Hint>
+      </Panel>
+    </Page>
   );
 }
 
@@ -369,12 +358,12 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
   const channelSlug = scope?.kind === "channel" ? scope.slug : undefined;
   const channels = usePoll<{ channels: ChannelView[] }>(channelSlug ? "/api/channels" : "", false, 4000);
   const agents = usePoll<{ agents: Agent[] }>(channelSlug ? "/api/agents" : "", false, 8000);
-  if (gone) return <div className="empty">chat not found</div>;
-  if (!scope) return <div className="empty">loading…</div>;
+  if (gone) return <EmptyState icon="chat_error">chat not found</EmptyState>;
+  if (!scope) return <EmptyState>loading…</EmptyState>;
   if (channelSlug) {
     const channel = channels?.channels.find((c) => c.slug === channelSlug);
-    if (!channels) return <div className="empty">loading…</div>;
-    if (!channel) return <div className="empty">channel #{channelSlug} is gone — its definition under channels/ was removed</div>;
+    if (!channels) return <EmptyState>loading…</EmptyState>;
+    if (!channel) return <EmptyState icon="forum">channel #{channelSlug} is gone — its definition under channels/ was removed</EmptyState>;
     return <ChatThread key={`${chatId}:channel`} id={chatId} channel={channel} agents={agents?.agents ?? []} />;
   }
   return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={title} agentDescription={goal} onConverted={() => setGen((g) => g + 1)} />;
@@ -394,22 +383,16 @@ function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
       filter={filter}
       hrefOf={hrefOf}
       closeHref={`/projects/${encodeURIComponent(slug)}/chat/new`}
-      subOf={(c) => (c.scope.kind === "channel" ? `channel session · #${c.scope.slug}` : c.agent)}
+      subOf={(c) => (c.scope.kind === "channel" ? `with coworkers · #${c.scope.slug}` : c.agent)}
       actions={
-        <button
-          type="button"
-          className="tab-new"
-          disabled={creating}
-          title="new chat"
-          aria-label="new chat"
+        <NewTabButton
+          busy={creating}
           onClick={async () => {
             setCreating(true);
             await createChatAndOpen("claude", { kind: "project", slug });
             setCreating(false);
           }}
-        >
-          <Icon name={creating ? "progress_activity" : "add"} className="ms-sm" />
-        </button>
+        />
       }
     />
   );
@@ -417,10 +400,11 @@ function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
 
 /* ---------- project page ---------- */
 
+
 type LinkKind = "knowledge" | "vibeables" | "repos" | "workflows" | "agents";
 const LINKS: Array<{ kind: LinkKind; label: string; icon: string; href?: (slug: string) => string }> = [
   { kind: "knowledge", label: "knowledge", icon: "menu_book", href: (s) => `/knowledge/${encodeURIComponent(s)}` },
-  { kind: "vibeables", label: "vibeables", icon: "web", href: (s) => `/vibeables/${encodeURIComponent(s)}` },
+  { kind: "vibeables", label: "apps", icon: "web", href: (s) => `/vibeables/${encodeURIComponent(s)}` },
   { kind: "repos", label: "repositories", icon: "source" },
   { kind: "workflows", label: "workflows", icon: "account_tree", href: (s) => `/workflows/${encodeURIComponent(s)}` },
   { kind: "agents", label: "agents", icon: "groups", href: (s) => `/agents/${encodeURIComponent(s)}` },
@@ -531,94 +515,87 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
     }
   };
 
-  if (gone) return <div className="empty">project not found</div>;
-  if (!project) return <div className="empty">loading…</div>;
+  if (gone) return <EmptyState icon="folder_off">project not found</EmptyState>;
+  if (!project) return <EmptyState>loading…</EmptyState>;
 
   return (
-    <div className="chat-main project-page">
-      <div className="detail-head">
-        <span className="agent-avatar lg">
+    <div className="chat-main project-page flex flex-col gap-3">
+      <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2">
+        <Avatar>
           <span aria-hidden>📁</span>
-        </span>
-        <h1>{project.title}</h1>
-        <span className={`chip status ${STATUS_CLS[project.status]}`}>{project.status}</span>
-        <span className="chip" title="harness · model · effort every chat in this project runs on">{runsOn(project)}</span>
-        {expert && <span className="rid" title={project.path}>{project.path}</span>}
-        <span className="spacer" />
+        </Avatar>
+        <Title size="lg">{project.title}</Title>
+        <Tag tone={STATUS_TAG[project.status]}>{project.status}</Tag>
+        <Tag title="harness · model · effort every chat in this project runs on">{runsOn(project)}</Tag>
+        {expert && (
+          <span className="min-w-0 truncate font-mono text-xs text-fg-2" title={project.path}>
+            {project.path}
+          </span>
+        )}
       </div>
-      {project.configError && <div className="settings-err">project.yml: {project.configError}</div>}
+      {project.configError && <Notice tone="bad">project.yml: {project.configError}</Notice>}
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">project</span>
-          <span className="spacer" />
-          {saved && !dirty && <span className="settings-note">saved</span>}
-          <button className="run-btn" disabled={saving || !dirty} onClick={() => void save({ title, goal, status, harness, model, effort, brief, state })}>
-            {saving ? "saving…" : "save changes"}
-          </button>
-        </div>
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              title
-              <input value={title} aria-label="title" onChange={(e) => { setTitle(e.target.value); touch(); }} />
-            </label>
-            <label className="agent-field">
-              status
-              <select value={status} aria-label="status" onChange={(e) => { setStatus(e.target.value as ProjectStatus); touch(); }}>
+      <Panel
+        title="project"
+        className="flex-none"
+        actions={
+          <>
+            {saved && !dirty && <span className="text-xs text-fg-2">saved</span>}
+            <Button variant="primary" size="sm" busy={saving} disabled={!dirty} onClick={() => void save({ title, goal, status, harness, model, effort, brief, state })}>
+              {saving ? "saving…" : "save changes"}
+            </Button>
+          </>
+        }
+      >
+        <FormStack className="max-w-[680px]">
+          <FieldRow>
+            <Field label="title" className="flex-1">
+              <TextField value={title} aria-label="title" onChange={(e) => { setTitle(e.target.value); touch(); }} />
+            </Field>
+            <Field label="status">
+              <Select value={status} aria-label="status" onChange={(e) => { setStatus(e.target.value as ProjectStatus); touch(); }}>
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
-              </select>
-            </label>
-          </div>
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ width: 140 }}>
-              harness
-              <select value={harness} aria-label="harness" onChange={(e) => { setHarness(e.target.value as ChatAgentId); touch(); }}>
+              </Select>
+            </Field>
+          </FieldRow>
+          <FieldRow>
+            <Field label="harness" className="w-[140px] max-[940px]:w-auto">
+              <Select value={harness} aria-label="harness" onChange={(e) => { setHarness(e.target.value as ChatAgentId); touch(); }}>
                 {HARNESSES.map((h) => (
                   <option key={h.id} value={h.id}>{h.label}</option>
                 ))}
-              </select>
-            </label>
-            <label className="agent-field" style={{ flex: 1 }}>
-              model
-              <input value={model} aria-label="model" placeholder="harness default — e.g. sonnet, gpt-5.6-sol" onChange={(e) => { setModel(e.target.value); touch(); }} />
-            </label>
-            <label className="agent-field" style={{ width: 140 }}>
-              effort
-              <select value={effort} aria-label="effort" onChange={(e) => { setEffort(e.target.value); touch(); }}>
+              </Select>
+            </Field>
+            <Field label="model" className="flex-1">
+              <TextField value={model} aria-label="model" placeholder="harness default — e.g. sonnet, gpt-5.6-sol" onChange={(e) => { setModel(e.target.value); touch(); }} />
+            </Field>
+            <Field label="effort" className="w-[140px] max-[940px]:w-auto">
+              <Select value={effort} aria-label="effort" onChange={(e) => { setEffort(e.target.value); touch(); }}>
                 {EFFORTS.map((ef) => (
                   <option key={ef} value={ef}>{ef || "default"}</option>
                 ))}
-              </select>
-            </label>
-          </div>
-          <label className="agent-field">
-            goal (one line)
-            <input value={goal} aria-label="goal" placeholder="what the project is for" onChange={(e) => { setGoal(e.target.value); touch(); }} />
-          </label>
-          <label className="agent-field">
-            brief.md — what done looks like, constraints, stakeholders
-            <textarea rows={10} value={brief} aria-label="brief" onChange={(e) => { setBrief(e.target.value); touch(); }} />
-          </label>
-          <label className="agent-field">
-            state.md — current state, rewritten at the end of a session
-            <textarea rows={6} value={state} aria-label="state" onChange={(e) => { setState(e.target.value); touch(); }} />
-          </label>
-          {error && <div className="settings-err">{error}</div>}
-        </div>
-      </section>
+              </Select>
+            </Field>
+          </FieldRow>
+          <Field label="goal (one line)">
+            <TextField value={goal} aria-label="goal" placeholder="what the project is for" onChange={(e) => { setGoal(e.target.value); touch(); }} />
+          </Field>
+          <Field label="brief.md — what done looks like, constraints, stakeholders">
+            <TextArea rows={10} className="resize-y font-mono text-sm" value={brief} aria-label="brief" onChange={(e) => { setBrief(e.target.value); touch(); }} />
+          </Field>
+          <Field label="state.md — current state, rewritten at the end of a session">
+            <TextArea rows={6} className="resize-y font-mono text-sm" value={state} aria-label="state" onChange={(e) => { setState(e.target.value); touch(); }} />
+          </Field>
+          {error && <Notice tone="bad">{error}</Notice>}
+        </FormStack>
+      </Panel>
 
       <RecordsPanel records={project.records} saving={saving} onSave={(records) => save({ records }, { keepEdits: true })} />
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">links</span>
-          <span className="spacer" />
-          <span className="settings-note">by name; a target that is missing in this workspace is marked</span>
-        </div>
-        <div className="m3-list">
+      <Panel title="links" className="flex-none" actions={<span className="text-xs text-fg-2">by name; a target that is missing in this workspace is marked</span>}>
+        <PanelRows>
           {LINKS.map((l) => (
             <LinkRow
               key={l.kind}
@@ -631,19 +608,14 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
               onChange={(target, remove) => void linkChange(slug, l.kind, target, remove, (p) => { setProject(p); void onChanged(); }, setError)}
             />
           ))}
-        </div>
-      </section>
+        </PanelRows>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">log</span>
-          <span className="spacer" />
-        </div>
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              new entry — a decision, a milestone
-              <input
+      <Panel title="log" className="flex-none">
+        <FormStack className="max-w-[680px]">
+          <FieldRow>
+            <Field label="new entry — a decision, a milestone" className="flex-1">
+              <TextField
                 value={logEntry}
                 aria-label="log entry"
                 placeholder="e.g. Decided on NodeHive as the CMS"
@@ -655,37 +627,41 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
                   }
                 }}
               />
-            </label>
-            <button className="run-btn tonal" disabled={saving || !logEntry.trim()} onClick={() => void addLog()}>
-              <Icon name="add" className="ms-sm" /> log
-            </button>
-          </div>
-        </div>
+            </Field>
+            <Button icon="add" disabled={saving || !logEntry.trim()} onClick={() => void addLog()}>
+              log
+            </Button>
+          </FieldRow>
+        </FormStack>
         <div
-          className="md-body project-log"
+          className="md-body h-auto overflow-visible px-[18px] pt-1 pb-4 text-sm [&_h1]:hidden [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-xs [&_ul]:m-0 [&_ul]:pl-[18px]"
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(project.log || "_no entries yet_", { async: false }) as string) }}
         />
-      </section>
+      </Panel>
 
       {expert && (
-        <section className="panel">
-          <div className="panel-head">
-            <span className="microlabel">danger zone</span>
-            <span className="spacer" />
-            {!confirmRemove ? (
-              <button className="stop-btn" disabled={saving} onClick={() => setConfirmRemove(true)} title="Delete the folder; its history stays in the workspace git">
-                <Icon name="delete" className="ms-sm" /> remove project
-              </button>
+        <Panel
+          title="danger zone"
+          className="flex-none [&>div]:border-b-0"
+          actions={
+            !confirmRemove ? (
+              <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => setConfirmRemove(true)} title="Move the folder to the trash">
+                remove project
+              </Button>
             ) : (
               <>
-                <button className="stop-btn" disabled={saving} onClick={() => void remove()}>
-                  <Icon name="delete" className="ms-sm" /> confirm remove
-                </button>
-                <button className="open-raw" onClick={() => setConfirmRemove(false)}>cancel</button>
+                <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => void remove()}>
+                  confirm remove
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>
+                  cancel
+                </Button>
               </>
-            )}
-          </div>
-        </section>
+            )
+          }
+        >
+          {null}
+        </Panel>
       )}
     </div>
   );
@@ -708,6 +684,7 @@ async function linkChange(
     const d = (await r.json()) as ProjectDetail & { error?: string };
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     onOk(d);
+    window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
   } catch (err) {
     onError((err as Error).message);
   }
@@ -775,46 +752,59 @@ function LinkRow({
   const free = (options ?? []).filter((o) => !linked.has(o.slug));
 
   return (
-    <div className="m3-row" data-link-kind={kind}>
-      <span className="m3-ico"><Icon name={icon} /></span>
-      <span className="m3-body">
-        <span className="m3-head">{label}</span>
-        {links.length === 0 && !adding && <span className="m3-sub">none linked</span>}
+    <PanelRow
+      icon={icon}
+      title={label}
+      data-link-kind={kind}
+      action={
+        !adding && (
+          <Button size="sm" icon="add" onClick={() => setAdding(true)}>
+            link
+          </Button>
+        )
+      }
+    >
+        {links.length === 0 && !adding && <span className="text-xs text-fg-2">none linked</span>}
         {links.length > 0 && (
-          <span className="m3-chips">
+          <span className="flex flex-wrap gap-1.5">
             {links.map((l) => (
-              <span key={l.slug} className={`chip ${l.found ? "" : "attention"}`} title={l.found ? l.label : "configured but not found in this workspace"}>
-                {href && l.found ? <Link href={href(l.slug)}>{l.slug}</Link> : l.slug}
+              <Tag key={l.slug} tone={l.found ? "neutral" : "bad"} title={l.found ? l.label : "configured but not found in this workspace"}>
+                {href && l.found ? (
+                  <Link href={href(l.slug)} className="text-inherit no-underline hover:underline">
+                    {l.slug}
+                  </Link>
+                ) : (
+                  l.slug
+                )}
                 {!l.found && " · not found"}
                 <button
                   type="button"
-                  className="chip-x"
+                  className="-mr-1 ml-1 inline-grid size-4 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-inherit opacity-70 hover:bg-surface hover:opacity-100 disabled:cursor-default [&_.ms]:text-[13px]"
                   aria-label={`unlink ${l.slug}`}
                   disabled={saving}
                   onClick={() => onChange(l.slug, true)}
                 >
-                  <Icon name="close" className="ms-sm" />
+                  <Icon name="close" />
                 </button>
-              </span>
+              </Tag>
             ))}
           </span>
         )}
         {adding && (
-          <span className="agent-form-row" style={{ marginTop: 6 }}>
+          <span className="mt-1.5 flex flex-wrap items-center gap-2">
             {options === null ? (
-              <span className="m3-sub">loading…</span>
+              <span className="text-xs text-fg-2">loading…</span>
             ) : (
               <>
-                <select aria-label={`link ${label}`} value={pick} onChange={(e) => setPick(e.target.value)}>
+                <Select className="w-auto max-w-full min-w-48 flex-1" aria-label={`link ${label}`} value={pick} onChange={(e) => setPick(e.target.value)}>
                   <option value="">{free.length ? `pick ${label}…` : `nothing to link`}</option>
                   {free.map((o) => (
                     <option key={o.slug} value={o.slug}>
                       {o.slug}{o.hint ? ` — ${o.hint}` : ""}
                     </option>
                   ))}
-                </select>
-                <button
-                  className="run-btn tonal"
+                </Select>
+                <Button
                   disabled={saving || !pick}
                   onClick={() => {
                     onChange(pick, false);
@@ -823,19 +813,15 @@ function LinkRow({
                   }}
                 >
                   link
-                </button>
-                <button className="open-raw" onClick={() => setAdding(false)}>cancel</button>
+                </Button>
+                <Button variant="quiet" onClick={() => setAdding(false)}>
+                  cancel
+                </Button>
               </>
             )}
           </span>
         )}
-      </span>
-      {!adding && (
-        <button className="open-raw" onClick={() => setAdding(true)}>
-          <Icon name="add" className="ms-sm" /> link
-        </button>
-      )}
-    </div>
+    </PanelRow>
   );
 }
 
@@ -858,50 +844,53 @@ function RecordsPanel({ records, saving, onSave }: { records: SystemOfRecord[]; 
   };
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="microlabel">systems of record</span>
-        <span className="spacer" />
-        <span className="settings-note">where the truth is managed outside kraftwerk — context for the agent, not a credential</span>
-        {!draft && (
-          <button className="open-raw" onClick={() => setDraft({ ...EMPTY_RECORD })}>
-            <Icon name="add" className="ms-sm" /> add
-          </button>
-        )}
-      </div>
-      <div className="m3-list">
+    <Panel
+      title="systems of record"
+      className="flex-none"
+      actions={
+        <>
+          <span className="text-xs text-fg-2">where the truth is managed outside kraftwerk — context for the agent, not a credential</span>
+          {!draft && (
+            <Button size="sm" icon="add" onClick={() => setDraft({ ...EMPTY_RECORD })}>
+              add
+            </Button>
+          )}
+        </>
+      }
+    >
+      <PanelRows>
         {records.map((r, i) => (
-          <div className="m3-row" key={i} data-record-kind={r.kind}>
-            <span className="m3-ico"><Icon name="database" /></span>
-            <span className="m3-body">
-              <span className="m3-head">
+          <PanelRow
+            key={i}
+            data-record-kind={r.kind}
+            icon="database"
+            title={
+              <>
                 {kindLabel(r.kind)}
-                {r.title && <span className="m3-sub">{r.title}</span>}
-                {r.workspace && <span className="chip">workspace {r.workspace}</span>}
-              </span>
+                {r.title && <span className="text-xs font-normal text-fg-2">{r.title}</span>}
+                {r.workspace && <Tag>workspace {r.workspace}</Tag>}
+              </>
+            }
+            action={<IconButton icon="close" size="sm" label={`remove record ${r.title ?? r.kind}`} disabled={saving} onClick={() => void onSave(records.filter((_, j) => j !== i))} />}
+          >
               {(r.url || r.note) && (
-                <span className="m3-sub">
+                <span className="text-xs leading-normal text-fg-2">
                   {r.url && <a href={r.url} target="_blank" rel="noreferrer">{r.url}</a>}
                   {r.url && r.note && " — "}
                   {r.note}
                 </span>
               )}
-            </span>
-            <button className="open-raw" aria-label={`remove record ${r.title ?? r.kind}`} disabled={saving} onClick={() => void onSave(records.filter((_, j) => j !== i))}>
-              <Icon name="close" className="ms-sm" />
-            </button>
-          </div>
+          </PanelRow>
         ))}
-        {records.length === 0 && !draft && <div className="viewer-note">none yet — e.g. a my.netnode.ch workspace, a Google Drive folder, a board</div>}
+        {records.length === 0 && !draft && <Hint className="px-[18px] py-3">none yet — e.g. a my.netnode.ch workspace, a Google Drive folder, a board</Hint>}
         {draft && (
-          <div className="agent-form">
-            <div className="agent-form-row">
-              <label className="agent-field">
-                kind
+          <FormStack className="max-w-[680px]">
+            <FieldRow>
+              <Field label="kind">
                 {customKind ? (
-                  <input value={draft.kind} aria-label="record kind" placeholder="e.g. jira" onChange={(e) => set({ kind: e.target.value })} />
+                  <TextField value={draft.kind} aria-label="record kind" placeholder="e.g. jira" onChange={(e) => set({ kind: e.target.value })} />
                 ) : (
-                  <select
+                  <Select
                     value={draft.kind}
                     aria-label="record kind"
                     onChange={(e) => {
@@ -915,31 +904,24 @@ function RecordsPanel({ records, saving, onSave }: { records: SystemOfRecord[]; 
                       <option key={k} value={k}>{l}</option>
                     ))}
                     <option value="__other">other…</option>
-                  </select>
+                  </Select>
                 )}
-              </label>
-              <label className="agent-field" style={{ flex: 1 }}>
-                title
-                <input value={draft.title ?? ""} aria-label="record title" placeholder="e.g. Contracts folder" onChange={(e) => set({ title: e.target.value })} />
-              </label>
-              <label className="agent-field">
-                workspace / id
-                <input value={draft.workspace ?? ""} aria-label="record workspace" placeholder="e.g. 22" onChange={(e) => set({ workspace: e.target.value })} />
-              </label>
-            </div>
-            <div className="agent-form-row">
-              <label className="agent-field" style={{ flex: 1 }}>
-                url
-                <input value={draft.url ?? ""} aria-label="record url" placeholder="https://…" onChange={(e) => set({ url: e.target.value })} />
-              </label>
-            </div>
-            <div className="agent-form-row">
-              <label className="agent-field" style={{ flex: 1 }}>
-                note — what lives there and how it is usually reached
-                <input value={draft.note ?? ""} aria-label="record note" placeholder="e.g. tickets and roadmap; the my CLI" onChange={(e) => set({ note: e.target.value })} />
-              </label>
-              <button
-                className="run-btn tonal"
+              </Field>
+              <Field label="title" className="flex-1">
+                <TextField value={draft.title ?? ""} aria-label="record title" placeholder="e.g. Contracts folder" onChange={(e) => set({ title: e.target.value })} />
+              </Field>
+              <Field label="workspace / id">
+                <TextField value={draft.workspace ?? ""} aria-label="record workspace" placeholder="e.g. 22" onChange={(e) => set({ workspace: e.target.value })} />
+              </Field>
+            </FieldRow>
+            <Field label="url">
+              <TextField value={draft.url ?? ""} aria-label="record url" placeholder="https://…" onChange={(e) => set({ url: e.target.value })} />
+            </Field>
+            <FieldRow>
+              <Field label="note — what lives there and how it is usually reached" className="flex-1">
+                <TextField value={draft.note ?? ""} aria-label="record note" placeholder="e.g. tickets and roadmap; the my CLI" onChange={(e) => set({ note: e.target.value })} />
+              </Field>
+              <Button
                 disabled={saving || !draft.kind.trim()}
                 onClick={async () => {
                   await onSave([...records, clean(draft)]);
@@ -948,13 +930,15 @@ function RecordsPanel({ records, saving, onSave }: { records: SystemOfRecord[]; 
                 }}
               >
                 add record
-              </button>
-              <button className="open-raw" onClick={() => { setDraft(null); setCustomKind(false); }}>cancel</button>
-            </div>
-          </div>
+              </Button>
+              <Button variant="quiet" onClick={() => { setDraft(null); setCustomKind(false); }}>
+                cancel
+              </Button>
+            </FieldRow>
+          </FormStack>
         )}
-      </div>
-    </section>
+      </PanelRows>
+    </Panel>
   );
 }
 

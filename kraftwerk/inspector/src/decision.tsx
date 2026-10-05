@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DecisionView } from "./types";
 import { fmtWhen } from "./shared";
+import { Button, cn, Dot, Notice, Tag, TextField } from "./ui";
 
 /**
  * The form for a decision a step asked for (decision-request.json in the
@@ -19,13 +20,13 @@ export function DecisionPanel({ runId, decision }: { runId: string; decision: De
 
   if (answer) {
     return (
-      <section className="panel decision-panel is-decided" aria-label="decision">
-        <div className="decision-body">
-          <div className="decision-title">{request.title ?? "Decision"}</div>
-          <div className="decision-answer">
-            <span className="chip status ok">{labelOf(answer.decision)}</span>
-            {answer.note && <span className="decision-note">“{answer.note}”</span>}
-            {answer.decidedAt && <span className="decision-when num">{fmtWhen(answer.decidedAt)}</span>}
+      <section className={cn(PANEL, "decision-panel is-decided")} aria-label="decision">
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <div className={TITLE}>{request.title ?? "Decision"}</div>
+          <div className="flex flex-wrap items-center gap-3 text-base">
+            <Tag tone="ok">{labelOf(answer.decision)}</Tag>
+            {answer.note && <span className="text-fg-2">“{answer.note}”</span>}
+            {answer.decidedAt && <span className="text-xs tabular-nums text-fg-2">{fmtWhen(answer.decidedAt)}</span>}
           </div>
         </div>
       </section>
@@ -50,47 +51,46 @@ export function DecisionPanel({ runId, decision }: { runId: string; decision: De
   }
 
   return (
-    <section className="panel decision-panel" aria-label="decision needed">
-      <div className="decision-body">
-        <div className="decision-head">
-          <span className="lamp running" />
-          <div className="decision-title">{request.title ?? "This run needs your decision"}</div>
+    <section className={cn(PANEL, "decision-panel")} aria-label="decision needed">
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <Dot tone="working" />
+          <div className={TITLE}>{request.title ?? "This run needs your decision"}</div>
         </div>
-        {request.prompt && <p className="decision-prompt">{request.prompt}</p>}
-        <div className="tabs decision-options" role="radiogroup" aria-label="options">
+        {request.prompt && <p className="m-0 max-w-[80ch] text-base text-fg-2">{request.prompt}</p>}
+        <div className="flex flex-wrap gap-2 self-start" role="radiogroup" aria-label="options">
           {request.options.map((o) => (
-            <button
+            <Button
               key={o.value}
-              type="button"
               role="radio"
               aria-checked={choice === o.value}
-              className={choice === o.value ? "active" : ""}
+              variant={choice === o.value ? "primary" : "secondary"}
               onClick={() => setChoice(o.value)}
             >
               {o.label ?? o.value}
-            </button>
+            </Button>
           ))}
         </div>
         {request.note !== false && (
-          <label className="m3-field">
-            <input
-              type="text"
-              value={note}
-              placeholder=" "
-              aria-label="note"
-              onChange={(e) => setNote(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
-            <span className="m3-field-label">{request.note === "required" ? "Note (required)" : "Note"}</span>
-          </label>
+          <TextField
+            value={note}
+            placeholder={request.note === "required" ? "Note (required)" : "Note"}
+            aria-label="note"
+            className="max-w-[60ch]"
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
         )}
-        {error && <div className="m3-error">{error}</div>}
-        <div className="m3-actions">
-          <button className="m3-filled-btn" onClick={submit} disabled={!canSubmit}>
+        {error && <Notice tone="bad">{error}</Notice>}
+        <div className="flex gap-2">
+          <Button variant="primary" onClick={submit} disabled={!canSubmit} busy={busy}>
             {busy ? "Saving…" : "Submit decision"}
-          </button>
+          </Button>
         </div>
       </div>
     </section>
   );
 }
+
+const PANEL = "mb-[18px] overflow-hidden rounded-card border border-line bg-surface";
+const TITLE = "text-[16px] font-medium text-fg";

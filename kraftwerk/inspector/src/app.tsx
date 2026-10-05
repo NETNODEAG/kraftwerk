@@ -1,16 +1,20 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import type { Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import { NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
+import { Button, cn, Dot, EmptyState, Eyebrow, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
 import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
-import { WorkflowView } from "./workflow-view";
 import { DashboardScreen } from "./dashboard";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { AgentsScreen } from "./agents";
 import { ChannelsScreen } from "./channels";
 import { SettingsScreen } from "./settings";
+import { TrashScreen } from "./trash";
+import { FilesScreen } from "./files";
+import { UiGallery } from "./ui-gallery";
 import { WorkspacesScreen } from "./workspaces";
 import { GitScreen } from "./git";
 import { ReposScreen } from "./repos";
@@ -99,6 +103,7 @@ const remember = (key: string, value: string): void => {
  */
 export function App() {
   const hash = useHashPath();
+  useFocusRequest();
   // "#/runs/<id>?workflow=x": the query rides along the hash path.
   const [path] = hash.split("?");
   const seg = path.split("/").filter(Boolean);
@@ -116,7 +121,6 @@ export function App() {
   const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "");
   // Home (#/) is today's dashboard, in the middle column with the rail beside it.
   const isHome = seg.length === 0;
-  const isGlobalRoute = !isChatRoute && !isHome;
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
   // Editing the thing you talk to (its /info or /edit route) is a modal over the conversation.
   const editScreen = isChatRoute ? editScreenOf(path) : null;
@@ -236,12 +240,22 @@ export function App() {
   }
   else if (seg[0] === "skills") globalScreen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "settings") globalScreen = <SettingsScreen />;
+  else if (seg[0] === "trash") globalScreen = <TrashScreen />;
+  else if (seg[0] === "ui") globalScreen = <UiGallery />;
+  else if (seg[0] === "files")
+    globalScreen = (
+      <FilesScreen
+        scope={seg[1] ? decodeURIComponent(seg[1]) : "workspace"}
+        dir={seg.slice(2).map(decodeURIComponent).join("/")}
+        file={new URLSearchParams(hash.split("?")[1] ?? "").get("file") ?? undefined}
+      />
+    );
   else if (seg[0] === "workspaces") globalScreen = <WorkspacesScreen />;
   else if (seg[0] === "git") globalScreen = <GitScreen />;
   else if (seg[0] === "repos") globalScreen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
 
   // The workspace colour is the accent: derive the primary roles from it and
-  // hand them to the stylesheet ([data-ws-accent] in globals.css). Set only
+  // hand them to the stylesheet ([data-ws-accent] in tokens.css). Set only
   // once the project is known, so the default accent shows until then instead
   // of a colour derived from an empty seed.
   useEffect(() => {
@@ -258,11 +272,19 @@ export function App() {
 
   return (
     <>
-      <header className="topbar" style={{ "--ws-c": workspaceColor(projectColor, projectRootAbs || projectName) } as CSSProperties}>
-        <span className="wordmark">
-          <a href="#/" className="home-link" title="Dashboard">
+      {/* topbar: the global nav and the search button still style through it (workspace-tabs.tsx, search.tsx). */}
+      <header
+        className="topbar sticky top-0 z-10 flex h-[var(--topbar-h)] items-center gap-3.5 bg-bg px-5 shadow-[inset_0_-1px_0_var(--line)] max-[1520px]:gap-2.5 max-[800px]:gap-1.5 max-[800px]:px-3"
+        style={{ "--ws-c": workspaceColor(projectColor, projectRootAbs || projectName) } as CSSProperties}
+      >
+        <span className="flex min-w-0 flex-none items-center gap-2.5 max-[800px]:flex-[0_1_auto] max-[800px]:gap-1">
+          <a
+            href="#/"
+            className="grid size-8 place-items-center rounded-full text-[15px] leading-none transition-shadow hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--ws-c,var(--text))_16%,transparent)]"
+            title="Dashboard"
+          >
             {projectName ? (
-              <WorkspaceTile className="home-tile" icon={projectIcon} name={projectName} color={projectColor} seed={projectRootAbs || projectName} />
+              <WorkspaceTile size="sm" icon={projectIcon} name={projectName} color={projectColor} seed={projectRootAbs || projectName} />
             ) : (
               <Icon name="home" />
             )}
@@ -280,12 +302,11 @@ export function App() {
           )}
         </span>
         <GlobalNav path={path} />
-        <span className="spacer" />
+        <span className="flex-[1_1_8px]" />
         <SearchPalette />
+        <NextButton />
         <NotificationBell />
         <RelaunchNote />
-        <ExpertToggle />
-        <ProjectInfo />
       </header>
       {globalScreen && <main className="shell shell-global">{globalScreen}</main>}
       <main
@@ -342,12 +363,18 @@ function shortHost(url: string): string {
   }
 }
 
+/** A switcher row's second line. */
+const SUB = "truncate text-sm text-fg-2 group-aria-[current=true]/ws:text-on-accent-soft group-aria-[current=true]/ws:opacity-80";
+/** One row of the switcher: the tile, name and path, then what is on the right. */
+const ROW = "group/ws relative flex min-h-[60px] items-center gap-3.5 px-4 py-2.5 text-fg no-underline transition-colors";
+
 /** Path line under a workspace name, left-truncated so the tail stays readable. */
 function RootLine({ label }: { label?: string }) {
   if (!label) return null;
   return (
-    <span className="switcher-root" title={label}>
-      <span dir="ltr">{label}</span>
+    // Truncated from the left, so the distinguishing tail of the path stays visible.
+    <span className={cn(SUB, "[direction:rtl] text-left")} title={label}>
+      <span dir="ltr" className="[unicode-bidi:isolate]">{label}</span>
     </span>
   );
 }
@@ -357,7 +384,7 @@ function NameLine({ name, named }: { name: string; named?: boolean }) {
   const unnamed = named === false;
   return (
     <span
-      className={`switcher-name${unnamed ? " unnamed" : ""}`}
+      className={cn("truncate text-md tracking-[0.2px]", unnamed && "italic text-fg-2", "group-data-[missing]/ws:line-through group-data-[stopped]/ws:text-fg-2")}
       title={unnamed ? `${name} — folder name; set name: in kraftwerk.yml` : name}
     >
       {name}
@@ -388,36 +415,51 @@ function StoppedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguou
 
   return (
     <span
-      className={`switcher-item stopped ${missing ? "missing" : ""}`}
+      className={cn(ROW, "cursor-default")}
       role="menuitem"
+      data-stopped=""
+      data-missing={missing ? "" : undefined}
       style={{ "--ws-c": workspaceColor(entry.color, entry.root ?? entry.url) } as CSSProperties}
     >
-      <WorkspaceTile icon={entry.icon} name={entry.name} color={entry.color} seed={entry.root ?? entry.url} ambiguous={ambiguous} />
-      <span className="switcher-text">
+      <WorkspaceTile className="opacity-60 grayscale-50" icon={entry.icon} name={entry.name} color={entry.color} seed={entry.root ?? entry.url} ambiguous={ambiguous} />
+      <span className="flex min-w-0 flex-1 flex-col">
         <NameLine name={entry.name} named={entry.named} />
         {state === "error" ? (
-          <span className="switcher-sub switcher-err" title={error}>{error}</span>
+          <span className={cn(SUB, "text-bad")} title={error}>{error}</span>
         ) : missing ? (
-          <span className="switcher-sub">folder missing</span>
+          <span className={SUB}>folder missing</span>
         ) : (
           <RootLine label={entry.rootLabel} />
         )}
       </span>
-      <span className="switcher-side">
-        <span className="switcher-port">{shortHost(entry.url)}</span>
-        <button
-          className="switcher-start"
-          disabled={missing || state === "starting"}
+      <span className="ml-auto inline-flex flex-none items-center gap-3">
+        <Port url={entry.url} />
+        <Button
+          variant="quiet"
+          size="sm"
+          icon="play_arrow"
+          busy={state === "starting"}
+          className="text-accent hover:text-accent"
+          disabled={missing}
           title={missing ? "The project folder no longer exists" : "Start the UI for this project"}
           onClick={(e) => {
             e.stopPropagation();
             void start();
           }}
         >
-          {state === "starting" ? <Icon name="progress_activity" /> : <Icon name="play_arrow" />}
           {state === "starting" ? "starting" : "start"}
-        </button>
+        </Button>
       </span>
+    </span>
+  );
+}
+
+/** Where a workspace answers (":2027"), with a green light when it is running. */
+function Port({ url, live }: { url: string; live?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-2xs font-medium tracking-[0.5px] text-fg-2">
+      {live && <Dot tone="ok" title="running" />}
+      {shortHost(url)}
     </span>
   );
 }
@@ -427,21 +469,18 @@ function LinkedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous
   const seed = entry.root ?? entry.url;
   return (
     <a
-      className={`switcher-item${entry.live ? " live" : ""}`}
+      className={cn(ROW, "hover:bg-surface-2 active:bg-surface-2")}
       role="menuitem"
       href={entry.url}
       style={{ "--ws-c": workspaceColor(entry.color, seed) } as CSSProperties}
     >
       <WorkspaceTile icon={entry.icon} name={entry.name} color={entry.color} seed={seed} ambiguous={ambiguous} />
-      <span className="switcher-text">
+      <span className="flex min-w-0 flex-1 flex-col">
         <NameLine name={entry.name} named={entry.named} />
         <RootLine label={entry.rootLabel ?? (entry.root ? undefined : entry.url.replace(/^https?:\/\//, ""))} />
       </span>
-      <span className="switcher-side">
-        <span className="switcher-port">
-          {entry.live && <span className="live-dot" title="running" />}
-          {shortHost(entry.url)}
-        </span>
+      <span className="ml-auto inline-flex flex-none items-center gap-3">
+        <Port url={entry.url} live={entry.live} />
       </span>
     </a>
   );
@@ -481,15 +520,11 @@ function WorkspaceSwitcher({
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest(".switcher-wrap")) setOpen(false);
+      if (!(e.target as HTMLElement).closest("[data-switcher]")) setOpen(false);
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
-
-  if (entries.length === 0) {
-    return <span className="env-name" title={root || "Project (kraftwerk.yml: name)"}>{name}</span>;
-  }
 
   // An emoji shared by two listed workspaces (this one included) is no
   // identifier — those tiles get the monogram badge.
@@ -505,37 +540,42 @@ function WorkspaceSwitcher({
   const selfSeed = seed || name;
 
   return (
-    <span className="switcher-wrap">
+    <span className="relative inline-flex min-w-0" data-switcher="">
       <button
-        className="env-name env-switch"
-        title={root ? `${root} — switch workspace` : "Switch workspace"}
+        type="button"
+        // env-switch: the tests open the workspace menu by it.
+        className="env-switch inline-flex max-w-[220px] min-w-0 cursor-pointer items-center gap-[5px] rounded-xl border-0 bg-transparent px-2 py-1 font-[inherit] text-[15px] font-bold tracking-[0.02em] whitespace-nowrap text-fg transition-colors hover:bg-surface-2 max-[1520px]:max-w-[250px]"
+        title={root ? `${root} — workspace menu` : "Workspace menu"}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        {name}
-        <Icon name="expand_more" />
+        <span className="min-w-0 truncate">{name}</span>
+        <Icon name="expand_more" className="flex-none opacity-55" />
       </button>
       {open && (
-        <div className="switcher-pop" role="menu">
-          <div className="switcher-head">Workspaces</div>
+        <div
+          className="absolute top-[calc(100%+8px)] left-0 z-20 max-h-[calc(100dvh-120px)] max-w-[min(480px,92vw)] min-w-[360px] max-[800px]:fixed max-[800px]:inset-x-2 max-[800px]:top-[calc(var(--topbar-h)-4px)] max-[800px]:max-w-none max-[800px]:min-w-0 overflow-y-auto overscroll-contain rounded-card border border-line bg-surface py-2 shadow-pop"
+          role="menu"
+        >
+          {entries.length > 0 && <Eyebrow className="block px-4 pt-1 pb-2">workspaces</Eyebrow>}
           <span
-            className="switcher-item current"
+            className={cn(ROW, "cursor-default bg-accent-soft text-on-accent-soft")}
             aria-current="true"
             style={{ "--ws-c": workspaceColor(color, selfSeed) } as CSSProperties}
           >
             <WorkspaceTile icon={icon} name={name} color={color} seed={selfSeed} ambiguous={ambiguous(icon)} />
-            <span className="switcher-text">
+            <span className="flex min-w-0 flex-1 flex-col">
               <NameLine name={name} named={named} />
-              {root ? <RootLine label={root} /> : <span className="switcher-sub">this workspace</span>}
+              {root ? <RootLine label={root} /> : <span className={SUB}>this workspace</span>}
             </span>
-            <span className="switcher-side">
-              <Icon name="check" className="switcher-check" />
+            <span className="ml-auto inline-flex flex-none items-center gap-3">
+              <Icon name="check" className="text-[24px] text-on-accent-soft" />
             </span>
           </span>
           {groups.map((g) => (
-            <div key={g.key} className={`switcher-group switcher-group-${g.key}`} role="group" aria-label={g.label}>
-              <div className="switcher-group-head">{g.label}</div>
+            <div key={g.key} className="mt-2 border-t border-line pt-1" role="group" aria-label={g.label}>
+              <Eyebrow className="block px-4 pt-2 pb-1">{g.label}</Eyebrow>
               {g.items.map((e) =>
                 e.live === false && e.root ? (
                   <StoppedWorkspace key={e.root} entry={e} ambiguous={ambiguous(e.icon)} />
@@ -545,11 +585,17 @@ function WorkspaceSwitcher({
               )}
             </div>
           ))}
-          {expert && (
-            <a className="switcher-foot" href="#/workspaces" role="menuitem" onClick={() => setOpen(false)}>
-              <Icon name="hub" /> manage workspaces
+          {expert && entries.length > 0 && (
+            <a
+              className="mt-2 flex min-h-12 items-center gap-4 border-t border-line px-4 text-md text-fg no-underline transition-colors hover:bg-surface-2"
+              href="#/workspaces"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+            >
+              <Icon name="hub" className="text-[22px] text-fg-2" /> manage workspaces
             </a>
           )}
+          <WorkspaceMenu onClose={() => setOpen(false)} />
         </div>
       )}
     </span>
@@ -573,12 +619,12 @@ function LatestRun() {
       alive = false;
     };
   }, []);
-  if (!empty) return <div className="empty">loading…</div>;
+  if (!empty) return <EmptyState>loading…</EmptyState>;
   return (
-    <div className="empty">
+    <EmptyState icon="play_circle">
       No runs found in <code>{empty.outputDir}</code>. Start one from the{" "}
-      <a href="#/workflows">workflows</a> list or with <code>kraftwerk run &lt;workflow&gt; [request]</code>.
-    </div>
+      <a href="#/workflows" className="text-accent">workflows</a> list or with <code>kraftwerk run &lt;workflow&gt; [request]</code>.
+    </EmptyState>
   );
 }
 
@@ -648,7 +694,8 @@ function RelaunchNote() {
   if (!target && !restarting) return null;
   return (
     <button
-      className="relaunch-note"
+      type="button"
+      className="mr-2.5 inline-flex flex-none cursor-pointer items-center gap-1 rounded-full border border-accent bg-accent/10 px-3 py-1 font-[inherit] text-xs text-accent hover:bg-accent/18 disabled:cursor-default disabled:opacity-70"
       disabled={restarting}
       title={`v${target} is installed on disk, the server still runs v${meta?.version}. Click to relaunch with the new version.`}
       onClick={() => void relaunch()}
@@ -666,13 +713,18 @@ function ExpertToggle() {
   const on = useExpertMode();
   return (
     <button
-      className={`expert-toggle ${on ? "on" : ""}`}
+      type="button"
+      // expert-toggle: the tests flip the mode by it.
+      className={cn(
+        "expert-toggle inline-flex cursor-pointer items-center gap-[7px] rounded-full border-0 bg-transparent px-2 py-1 font-mono text-2xs tracking-[0.5px] transition-colors hover:text-fg",
+        on ? "text-fg" : "text-fg-2"
+      )}
       title={on ? "Expert mode on — full detail" : "Expert mode off — simplified view"}
       aria-pressed={on}
       onClick={() => setExpertMode(!on)}
     >
-      <span className="expert-track">
-        <span className="expert-knob" />
+      <span className={cn("relative h-[15px] w-[26px] rounded-full transition-colors", on ? "bg-accent" : "bg-fg/14")}>
+        <span className={cn("absolute top-0.5 size-[11px] rounded-full transition-[left,background-color]", on ? "left-[13px] bg-on-accent" : "left-0.5 bg-surface")} />
       </span>
       expert
     </button>
@@ -716,9 +768,15 @@ function NotificationBell() {
   useEffect(() => setFresh(null), [data]);
   const view = fresh ?? data;
   const items = view?.items ?? [];
-  const unread = view?.unread ?? 0;
+  // Needs you: what blocks an agent (live requests) and failures nobody opened yet. The count and the title follow it.
+  const needs = useAttention() ?? [];
+  const needIds = new Set(needs.map((i) => i.notificationId).filter(Boolean));
+  // Updates: everything else the bell keeps — finished runs and routines, failures already seen. Approvals live in "needs you".
+  const updates = items.filter((n) => n.kind !== "approval" && !needIds.has(n.id));
+  const unreadUpdates = updates.filter((n) => !n.readAt).length;
+  const unread = needs.length;
 
-  useEffect(() => setAttentionCount(unread), [unread]);
+  useEffect(() => setAttentionCount(needs.length), [needs.length]);
 
   // Browser notifications: the first poll seeds "seen" silently (no toast
   // storm for history); afterwards every new unread item that is not the
@@ -749,7 +807,7 @@ function NotificationBell() {
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest(".notif-wrap")) setOpen(false);
+      if (!(e.target as HTMLElement).closest("[data-bell]")) setOpen(false);
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
@@ -804,157 +862,184 @@ function NotificationBell() {
 
   const showToastHint = perm === "default" && !toastDismissed;
   return (
-    <span className="notif-wrap">
+    <span className="relative inline-flex" data-bell="">
       <button
-        className={`info-btn notif-btn ${unread ? "has-unread" : ""}`}
-        title={unread ? `${unread} item${unread === 1 ? "" : "s"} need your attention` : "Notifications"}
+        type="button"
+        className={cn(
+          "relative grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-transparent transition-colors hover:bg-surface-2 hover:text-fg",
+          unread ? "text-fg" : "text-fg-2"
+        )}
+        title={unread ? `${unread} thing${unread === 1 ? "" : "s"} waiting for you` : unreadUpdates ? `${unreadUpdates} update${unreadUpdates === 1 ? "" : "s"}` : "Notifications"}
         aria-label="Notifications"
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name={unread ? "notifications_active" : "notifications"} />
-        {unread > 0 && <span className="notif-badge">{unread > 99 ? "99+" : unread}</span>}
+        {/* What waits is counted on "next"; the bell only marks unread updates. */}
+        {unreadUpdates > 0 && <span className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-accent" />}
       </button>
       {open && (
-        <div className="info-pop notif-pop" role="menu">
-          <div className="notif-head">
-            <span className="microlabel">notifications</span>
-            <span className="spacer" />
-            {unread > 0 && (
-              <button className="open-raw" onClick={() => void post("/api/notifications/read")}>
-                mark all read
-              </button>
+        <div className="notif-pop absolute right-0 top-[calc(100%+8px)] z-50 flex max-h-[min(80dvh,640px)] w-[min(460px,92vw)] flex-col overflow-hidden rounded-card border border-line bg-surface shadow-pop" role="menu">
+          <div className="flex items-center gap-1 border-b border-line px-4 py-2">
+            <Eyebrow className="text-fg">notifications</Eyebrow>
+            <span className="flex-1" />
+            {unreadUpdates > 0 && (
+              <Button variant="quiet" size="sm" onClick={() => void post("/api/notifications/read", { ids: updates.filter((n) => !n.readAt).map((n) => n.id) })}>
+                mark updates read
+              </Button>
             )}
             {items.length > 0 && (
-              <button className="open-raw" onClick={() => void post("/api/notifications")}>
+              <Button variant="quiet" size="sm" onClick={() => void post("/api/notifications")}>
                 clear
-              </button>
+              </Button>
             )}
           </div>
-          {showToastHint && (
-            <div className="notif-hint">
-              <span>Get a system notification when something needs you, even with this tab in the background.</span>
-              <span className="notif-hint-actions">
-                <button className="ws-btn primary" onClick={() => void enableToasts()}>enable</button>
-                <button className="ws-btn" onClick={dismissToastHint}>not now</button>
-              </span>
-            </div>
-          )}
-          {perm === "denied" && (
-            <div className="notif-hint muted">Browser notifications are blocked for this site — allow them in the address bar to get system alerts.</div>
-          )}
-          {items.length === 0 ? (
-            <div className="notif-empty">nothing needs you right now</div>
-          ) : (
-            <div className="notif-list">
-              {items.slice(0, 50).map((n) => (
-                <div
-                  key={n.id}
-                  className={`notif-row ${n.readAt ? "" : "unread"} ${n.kind}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openItem(n)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") openItem(n);
-                  }}
-                >
-                  <span className="notif-ico"><Icon name={NOTIF_ICON[n.kind]} /></span>
-                  <span className="notif-body">
-                    <span className="notif-title">{n.title}</span>
-                    {n.body && <span className="notif-sub">{n.body}</span>}
-                    {n.diagnose && (
-                      <span className="notif-actions">
-                        <button
-                          className="ws-btn notif-diagnose"
-                          disabled={diagnosing === n.id}
-                          title="Open a chat that finds the cause and proposes the fix"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void diagnose(n);
+          <div className="min-h-0 overflow-y-auto overscroll-contain pb-1.5">
+            {showToastHint && (
+              <div className="m-2 flex flex-col gap-2 rounded-control bg-surface-2 p-3 text-sm">
+                <span>Get a system notification when something needs you, even with this tab in the background.</span>
+                <span className="flex gap-2">
+                  <Button variant="primary" size="sm" onClick={() => void enableToasts()}>enable</Button>
+                  <Button variant="quiet" size="sm" onClick={dismissToastHint}>not now</Button>
+                </span>
+              </div>
+            )}
+            {perm === "denied" && (
+              <p className="m-0 px-4 pt-2 text-xs text-fg-2">Browser notifications are blocked for this site — allow them in the address bar to get system alerts.</p>
+            )}
+            <Section title="needs you" count={needs.length || undefined} className="px-1.5 pt-1.5">
+              {needs.length === 0 ? (
+                <p className="m-0 px-2.5 py-2 text-sm text-fg-2">nothing is waiting for you</p>
+              ) : (
+                groupByOwner(needs).map(([owner, group]) => (
+                  <div key={owner}>
+                    <div className="notif-owner px-2.5 pb-0.5 pt-2 text-xs font-semibold text-fg">{owner}</div>
+                    {group.map((i) => {
+                      const n = i.notificationId ? items.find((x) => x.id === i.notificationId) : undefined;
+                      return (
+                        <ListRow
+                          key={i.id}
+                          className="notif-row need"
+                          onClick={() => {
+                            setOpen(false);
+                            openAttention(i);
                           }}
-                        >
-                          <Icon name={diagnosing === n.id ? "progress_activity" : "troubleshoot"} className="ms-sm" />
-                          {diagnosing === n.id ? "starting…" : "diagnose"}
-                        </button>
-                      </span>
-                    )}
-                  </span>
-                  <span className="notif-when num">{fmtAgo(n.at)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+                          leading={<Icon name={i.kind === "approval" ? "front_hand" : i.kind === "question" ? "help" : "error"} className="ms-sm text-bad" />}
+                          title={i.title}
+                          sub={`${i.kind === "approval" ? "needs approval" : i.kind === "question" ? "asks you" : "failed"}${i.chatTitle ? ` · in ${i.chatTitle}` : ""}`}
+                          meta={fmtAgo(i.since)}
+                          actionsAlways
+                          actions={n?.diagnose ? <DiagnoseButton busy={diagnosing === n.id} onClick={() => void diagnose(n)} /> : undefined}
+                        />
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </Section>
+            <Section title="updates" className="px-1.5 pt-1.5">
+              {updates.length === 0 ? (
+                <p className="m-0 px-2.5 py-2 text-sm text-fg-2">no updates</p>
+              ) : (
+                updates.slice(0, 50).map((n) => (
+                  <ListRow
+                    key={n.id}
+                    className={cn("notif-row", !n.readAt && "bg-accent/5")}
+                    onClick={() => openItem(n)}
+                    leading={<Icon name={NOTIF_ICON[n.kind]} className={cn("ms-sm", n.kind.endsWith("failed") ? "text-bad" : n.kind.endsWith("done") ? "text-ok" : "")} />}
+                    title={n.title}
+                    sub={n.body}
+                    meta={fmtAgo(n.at)}
+                    actionsAlways
+                    actions={n.diagnose ? <DiagnoseButton busy={diagnosing === n.id} onClick={() => void diagnose(n)} /> : undefined}
+                  />
+                ))
+              )}
+            </Section>
+          </div>
         </div>
       )}
     </span>
   );
 }
 
+/** A failure's way out: a chat that finds the cause and proposes the fix. */
+function DiagnoseButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      icon="troubleshoot"
+      busy={busy}
+      title="Open a chat that finds the cause and proposes the fix"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      {busy ? "starting…" : "diagnose"}
+    </Button>
+  );
+}
+
+/** "Needs you" items grouped by whose they are, the group waiting longest first. */
+function groupByOwner(xs: AttentionItem[]): Array<[string, AttentionItem[]]> {
+  const groups = new Map<string, AttentionItem[]>();
+  for (const i of xs) {
+    const k = ownerText(i.owner);
+    groups.set(k, [...(groups.get(k) ?? []), i]);
+  }
+  return [...groups.entries()];
+}
+
 /** Project facts behind an ⓘ icon: dirs, workflow + run counts. */
-function ProjectInfo() {
-  const [open, setOpen] = useState(false);
+/**
+ * The workspace menu's own part (under the workspace switcher): the view
+ * (expert detail, theme), where the workspace is configured, the trash,
+ * and which kraftwerk runs it. What sat in the top bar as the expert
+ * switch and the ⓘ popover.
+ */
+function WorkspaceMenu({ onClose }: { onClose: () => void }) {
+  const expert = useExpertMode();
   const [runs, setRuns] = useState<{ outputDir: string; runs: RunListItem[] } | null>(null);
   const [wfs, setWfs] = useState<{ root: string; workflows: unknown[] } | null>(null);
   const [version, setVersion] = useState("");
-
   useEffect(() => {
-    if (!open) return;
-    fetch("/api/runs").then((r) => r.json()).then(setRuns).catch(() => {});
-    fetch("/api/workflows").then((r) => r.json()).then(setWfs).catch(() => {});
     fetch("/api/meta")
       .then((r) => r.json())
       .then((d: { version: string }) => setVersion(d.version))
       .catch(() => {});
-    const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest(".info-wrap")) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
-
-  const latest = runs?.runs[0];
+    if (!expert) return;
+    fetch("/api/runs").then((r) => r.json()).then(setRuns).catch(() => {});
+    fetch("/api/workflows").then((r) => r.json()).then(setWfs).catch(() => {});
+  }, [expert]);
   return (
-    <span className="info-wrap">
-      <button
-        className="info-btn"
-        title="Project info"
-        aria-label="Project info"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Icon name="info" />
-      </button>
-      {open && (
-        <div className="info-pop">
-          <div className="info-row">
-            <span className="microlabel">Workflows</span>
-            <span className="info-v">{wfs ? `${wfs.workflows.length} discovered` : "…"}</span>
-            <code className="info-path" title={wfs?.root}>{wfs?.root ?? ""}</code>
-          </div>
-          <div className="info-row">
-            <span className="microlabel">Runs</span>
-            <span className="info-v">
-              {runs ? `${runs.runs.length} total` : "…"}
-              {latest ? ` · latest ${latest.status}` : ""}
-            </span>
-            <code className="info-path" title={runs?.outputDir}>{runs?.outputDir ?? ""}</code>
-          </div>
-          <div className="info-row info-actions">
-            <span className="microlabel">Workspace</span>
-            <a className="update-btn" href="#/settings" onClick={() => setOpen(false)}>
-              <Icon name="settings" className="ms-sm" /> settings
-            </a>
-          </div>
-          <div className="info-row info-actions">
-            <span className="microlabel">Theme</span>
-            <ThemeToggle />
-          </div>
-          <div className="info-row info-actions">
-            <span className="microlabel">Version</span>
-            <span className="info-v mono">{version ? `kraftwerk ${version}` : "…"}</span>
-            <UpdateCheck />
-          </div>
+    <div className="ws-menu mt-1.5 flex flex-col gap-0.5 border-t border-line px-1.5 pb-1 pt-2">
+      <MenuLine label="Detail"><ExpertToggle /></MenuLine>
+      <MenuLine label="Theme"><ThemeToggle /></MenuLine>
+      <div className="flex gap-1 px-1">
+        <Button variant="quiet" size="sm" icon="settings" href="/settings" onClick={onClose}>settings</Button>
+        <Button variant="quiet" size="sm" icon="delete" href="/trash" onClick={onClose}>trash</Button>
+      </div>
+      {expert && (
+        <div className="flex flex-col gap-1 px-2.5 py-1.5 text-xs">
+          <div><Eyebrow>Workflows</Eyebrow> {wfs ? `${wfs.workflows.length} discovered` : "…"} <code className="block break-all text-2xs text-fg-2" title={wfs?.root}>{wfs?.root ?? ""}</code></div>
+          <div><Eyebrow>Runs</Eyebrow> {runs ? `${runs.runs.length} total` : "…"} <code className="block break-all text-2xs text-fg-2" title={runs?.outputDir}>{runs?.outputDir ?? ""}</code></div>
         </div>
       )}
-    </span>
+      <MenuLine label={<span className="font-mono">{version ? `kraftwerk ${version}` : "…"}</span>}>
+        <UpdateCheck />
+      </MenuLine>
+    </div>
+  );
+}
+
+/** One line of the workspace menu: what it is on the left, its control on the right. */
+function MenuLine({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+      <span className="text-sm text-fg-2">{label}</span>
+      {children}
+    </div>
   );
 }
 
@@ -1030,26 +1115,26 @@ function UpdateCheck() {
     const last = job.log[job.log.length - 1] ?? "";
     if (job.state === "running")
       return (
-        <span className="update-result update-progress">
-          <Icon name="progress_activity" className="ms-sm ms-spin" /> installing v{info.latest}…
-          {last && <code className="update-log" title={job.log.join("\n")}>{last}</code>}
+        <span className={cn(RESULT, "basis-full flex-wrap")}>
+          <Icon name="progress_activity" className="ms-sm" /> installing v{info.latest}…
+          {last && <code className="max-w-full truncate text-2xs text-fg-2" title={job.log.join("\n")}>{last}</code>}
         </span>
       );
     if (job.state === "done")
       return (
-        <span className="update-result newer">
+        <span className={cn(RESULT, NEWER)}>
           v{info.latest} installed —{" "}
           {job.restartable ? (
-            <button className="update-btn" disabled={relaunching} onClick={() => { setRelaunching(true); void relaunchTo(info.latest); }}>
-              <Icon name="restart_alt" className="ms-sm" /> {relaunching ? "relaunching…" : "relaunch"}
-            </button>
+            <Button size="sm" icon="restart_alt" busy={relaunching} onClick={() => { setRelaunching(true); void relaunchTo(info.latest); }}>
+              {relaunching ? "relaunching…" : "relaunch"}
+            </Button>
           ) : (
             <>restart <code>kraftwerk ui</code> to use it</>
           )}
         </span>
       );
     return (
-      <span className="update-result update-failed" title={job.log.join("\n")}>
+      <span className={cn(RESULT, "basis-full flex-wrap text-bad")} title={job.log.join("\n")}>
         <Icon name="error" className="ms-sm" /> install failed{last ? ` — ${last}` : ""} · <code>npm i -g {info.name}@latest</code>
       </span>
     );
@@ -1058,36 +1143,34 @@ function UpdateCheck() {
   if (state === "done" && info) {
     const newer = semverLt(info.current, info.latest);
     return newer ? (
-      <span className="update-result newer">
+      <span className={cn(RESULT, NEWER)}>
         v{info.latest} available —{" "}
         {refused ? (
           <>
-            <span className="update-refused" title={refused}>{refused}</span> · <code>npm i -g {info.name}@latest</code>
+            <span className="font-normal text-fg-2" title={refused}>{refused}</span> · <code className="text-2xs">npm i -g {info.name}@latest</code>
           </>
         ) : (
-          <button className="update-btn" onClick={() => void install()}>
-            <Icon name="download" className="ms-sm" /> update now
-          </button>
+          <Button size="sm" icon="download" onClick={() => void install()}>
+            update now
+          </Button>
         )}
       </span>
     ) : (
-      <span className="update-result">
-        <Icon name="check" className="ms-sm" /> up to date
+      <span className={RESULT}>
+        <Icon name="check" className="ms-sm text-ok" /> up to date
       </span>
     );
   }
   return (
-    <button className="update-btn" disabled={state === "busy"} onClick={() => void check()}>
-      {state === "busy" ? (
-        "checking…"
-      ) : state === "err" ? (
-        "npm unreachable — retry"
-      ) : (
-        <><Icon name="sync" className="ms-sm" /> check for updates</>
-      )}
-    </button>
+    <Button size="sm" icon={state === "busy" || state === "err" ? undefined : "sync"} disabled={state === "busy"} onClick={() => void check()}>
+      {state === "busy" ? "checking…" : state === "err" ? "npm unreachable — retry" : "check for updates"}
+    </Button>
   );
 }
+
+/** How the update check reads: a small line; a newer version takes the whole row in the accent. */
+const RESULT = "inline-flex items-center gap-[5px] text-xs text-fg-2";
+const NEWER = "basis-full flex-wrap font-medium text-accent";
 
 interface UpdateJob {
   state: "idle" | "running" | "done" | "failed";
@@ -1099,8 +1182,9 @@ interface UpdateJob {
 
 function ThemeToggle() {
   return (
-    <button
-      className="theme-btn"
+    <Button
+      size="sm"
+      icon="contrast"
       onClick={() => {
         const el = document.documentElement;
         const next = el.dataset.theme === "light" ? "dark" : "light";
@@ -1111,6 +1195,6 @@ function ThemeToggle() {
       }}
     >
       day / night
-    </button>
+    </Button>
   );
 }

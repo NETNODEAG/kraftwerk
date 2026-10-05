@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ChatMeta } from "./types";
 import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
+import { cn, Dot, IconButton, ListRow, SideHead, SideList, SideNote } from "./ui";
 
 /**
  * The sessions of one conversation context (a project, an agent, Ralv):
@@ -30,6 +31,11 @@ export function setSessionsList(open: boolean): void {
   } catch {}
   listeners.forEach((fn) => fn());
 }
+/** The "+" after the last tab: a new chat in this context. */
+export function NewTabButton({ busy, onClick, href }: { busy?: boolean; onClick?: () => void; href?: string }) {
+  return <IconButton icon={busy ? "progress_activity" : "add"} label="new chat" size="sm" className="mb-1 ml-1 rounded-full" disabled={busy} onClick={onClick} href={href} />;
+}
+
 /** Whether the sessions list is shown beside the chat (default: hidden). */
 export function useSessionsList(): boolean {
   return useSyncExternalStore(
@@ -131,32 +137,50 @@ export function SessionsPane({
 
   return (
     <>
-      <nav className="session-tabs" aria-label="open sessions">
+      <nav
+        className="order-first col-span-full flex min-w-0 items-end gap-1 border-b border-line bg-surface-2 pt-1.5 pr-2 pl-1.5"
+        aria-label="open chats"
+      >
         <button
           type="button"
-          className={`tab-toggle${open ? " on" : ""}`}
+          className={cn(
+            "mb-1 inline-flex flex-none cursor-pointer items-center gap-1 self-center rounded-control px-2 py-1 text-2xs transition-colors",
+            open ? "bg-accent-soft text-on-accent-soft" : "text-fg-2 hover:bg-surface hover:text-fg"
+          )}
           onClick={() => setSessionsList(!open)}
           title={open ? `hide the ${label} list` : `show all ${label}`}
           aria-label={`${label} list`}
           aria-pressed={open}
         >
           <Icon name="view_list" className="ms-sm" />
-          {data && <span className="num">{sessions.length}</span>}
+          {data && <span className="tabular-nums">{sessions.length}</span>}
         </button>
-        <div className="session-tab-list" role="tablist">
+        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]" role="tablist">
           {shown.map((id) => {
             const c = byId.get(id)!;
             const active = id === chatId;
             return (
-              <Link key={id} href={hrefOf(c)} className={`session-tab${active ? " active" : ""}`} role="tab" aria-selected={active} title={titleOf(c)}>
-                {(c.busy || c.awaitingApproval) && (
-                  <span className={`lamp ${c.awaitingApproval ? "blocked" : "running"}`} title={c.awaitingApproval ? "waiting for your approval" : "working"} />
+              <Link
+                key={id}
+                href={hrefOf(c)}
+                className={cn(
+                  "session-tab group/tab -mb-px inline-flex max-w-[220px] min-w-0 flex-none animate-tab-in items-center gap-1.5 self-end",
+                  "rounded-t-[10px] border border-b-0 py-[7px] pr-1.5 pl-3 text-sm font-medium no-underline transition-colors",
+                  active ? "border-line bg-surface text-fg" : "border-transparent text-fg-2 hover:bg-surface"
                 )}
-                {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm" />}
-                <span className="session-tab-title">{titleOf(c)}</span>
+                role="tab"
+                aria-selected={active}
+                title={titleOf(c)}
+              >
+                {(c.busy || c.awaitingApproval) && <Dot tone={c.awaitingApproval ? "bad" : "working"} title={c.awaitingApproval ? "waiting for your approval" : "working"} />}
+                {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm text-fg-2" />}
+                <span className="truncate">{titleOf(c)}</span>
                 <button
                   type="button"
-                  className="tab-x"
+                  className={cn(
+                    "inline-flex flex-none cursor-pointer rounded-md p-0.5 text-fg-2 transition-opacity hover:bg-surface-2 hover:text-fg focus-visible:opacity-100",
+                    active ? "opacity-100" : "opacity-0 group-hover/tab:opacity-100"
+                  )}
                   aria-label={`close ${titleOf(c)}`}
                   title="close tab"
                   onClick={(e) => {
@@ -174,48 +198,44 @@ export function SessionsPane({
         </div>
       </nav>
       {open && (
-        <aside className="runs-side sessions-side">
-          <div className="side-head">
-            <span className="microlabel">{label}</span>
-            <span className="spacer" />
-            <button type="button" className="side-back" onClick={() => setSessionsList(false)} title="hide the list" aria-label="hide the list">
-              <Icon name="close" className="ms-sm" />
-            </button>
-          </div>
-          <div className="side-list">
+        <aside className="runs-side sessions-side animate-slide-left">
+          <SideHead title={label} action={<IconButton icon="close" label="hide the list" size="sm" onClick={() => setSessionsList(false)} />} />
+          <SideList>
             {sessions.map((c) => (
-              <Link key={c.id} href={hrefOf(c)} className={`side-row ${c.id === chatId ? "active" : ""}`}>
-                <span className={`lamp ${c.awaitingApproval ? "blocked" : c.busy ? "running" : "pending"}`} title={c.awaitingApproval ? "waiting for your approval" : undefined} />
-                <div className="side-row-body">
-                  <div className="side-row-top">
-                    <span className="side-wf">
-                      {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm" />}
-                      {titleOf(c)}
-                    </span>
-                  </div>
-                  <div className="side-row-sub">
-                    {subOf && <span className="side-req">{subOf(c)}</span>}
-                    <span className="side-when num">{fmtWhen(c.updatedAt)}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="row-x"
-                  title={label === "chats" ? "delete chat" : "delete session"}
-                  disabled={deleting}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDeleting(true);
-                    void remove(c).finally(() => setDeleting(false));
-                  }}
-                >
-                  <Icon name="close" className="ms-sm" />
-                </button>
-              </Link>
+              <ListRow
+                key={c.id}
+                href={hrefOf(c)}
+                active={c.id === chatId}
+                size="sm"
+                leading={<Dot tone={c.awaitingApproval ? "bad" : c.busy ? "working" : "idle"} title={c.awaitingApproval ? "waiting for your approval" : undefined} />}
+                title={
+                  <>
+                    {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm mr-1 align-[-3px]" />}
+                    {titleOf(c)}
+                  </>
+                }
+                sub={
+                  <>
+                    {subOf && <>{subOf(c)} · </>}
+                    <span className="tabular-nums">{fmtWhen(c.updatedAt)}</span>
+                  </>
+                }
+                actions={
+                  <IconButton
+                    icon="close"
+                    size="sm"
+                    label={label === "chats" ? "delete chat" : "delete session"}
+                    disabled={deleting}
+                    onClick={() => {
+                      setDeleting(true);
+                      void remove(c).finally(() => setDeleting(false));
+                    }}
+                  />
+                }
+              />
             ))}
-            {data && sessions.length === 0 && <div className="viewer-note">no {label} yet</div>}
-          </div>
+            {data && sessions.length === 0 && <SideNote>no {label} yet</SideNote>}
+          </SideList>
         </aside>
       )}
     </>

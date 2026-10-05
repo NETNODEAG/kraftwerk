@@ -33,10 +33,15 @@ export async function writeMeta(meta: ChatMeta): Promise<void> {
 
 export async function readMeta(id: string): Promise<ChatMeta | null> {
   try {
-    return upgradeMeta(JSON.parse(await fs.readFile(path.join(safeChatDir(id), "meta.json"), "utf8")));
+    return await readMetaAt(safeChatDir(id));
   } catch {
     return null;
   }
+}
+
+/** meta.json of a chat folder wherever it is (also one in the trash); throws when unreadable. */
+export async function readMetaAt(dir: string): Promise<ChatMeta> {
+  return upgradeMeta(JSON.parse(await fs.readFile(path.join(dir, "meta.json"), "utf8")));
 }
 
 /**

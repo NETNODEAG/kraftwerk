@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
+  AgentStatus,
   BundleInfo,
   ChatMeta,
   KnowledgeIndex,
+  ProjectsView,
   RunListItem,
   SkillInfo,
   Agent,
   WorkflowSummary,
 } from "./types";
-import { createChatAndOpen } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtAgo, useExpertMode } from "./shared";
+import { Icon, Link, usePoll, fmtAgo, useExpertMode, useHashPath } from "./shared";
+import { nextItem, openAttention, ownerText, useAttention } from "./attention";
+import { Button, cn, Dot, Eyebrow, ListRow, Panel, Tag } from "./ui";
 
 /**
  * Dashboard (#/): the work surface, not an admin panel. Quick actions to
@@ -37,15 +40,19 @@ function chatHref(c: ChatMeta): string {
   return c.scope.kind === "agent" ? `/agents/${c.scope.slug}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
-function chatScopeLabel(c: ChatMeta): string {
+/** Whose a chat is, the way a person says it: "🐻 Max", "📁 Relaunch netnode.ch", "#launch", "🎩 Ralv". */
+function chatOwner(c: ChatMeta, agents: Agent[], projectTitle: (slug: string) => string): string {
   switch (c.scope.kind) {
-    case "agent": return c.scope.slug;
-    case "channel": return `#${c.scope.slug}`;
-    case "run": return c.scope.runId;
-    case "knowledge": return c.scope.bundle ? `knowledge:${c.scope.bundle}` : "knowledge";
-    case "kraftwerk": return "kraftwerk-aware";
-    case "project": return `project:${c.scope.slug}`;
-    default: return "general";
+    case "agent": {
+      const slug = c.scope.slug;
+      const a = agents.find((m) => m.slug === slug);
+      return a ? `${a.emoji || "🤖"} ${a.name}` : slug;
+    }
+    case "project": return `📁 ${projectTitle(c.scope.slug)}`;
+    case "channel": return c.project ? `📁 ${projectTitle(c.project)} · #${c.scope.slug}` : `#${c.scope.slug}`;
+    case "run": return `⚙️ run ${c.scope.runId}`;
+    case "knowledge": return c.scope.bundle ? `📚 ${c.scope.bundle}` : "📚 knowledge";
+    default: return "🎩 Ralv";
   }
 }
 
@@ -62,6 +69,9 @@ export function DashboardScreen() {
   const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
   const skillsData = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
   const [filter, setFilter] = useState<FeedFilter>("all");
+  const expert = useExpertMode();
+  const projectsData = usePoll<ProjectsView>("/api/projects", false, 30_000);
+  const projectTitle = (slug: string) => projectsData?.projects.find((p) => p.slug === slug)?.title ?? slug;
 
   const runs = runsData?.runs ?? [];
   const chats = chatsData?.chats ?? [];
@@ -81,26 +91,31 @@ export function DashboardScreen() {
   );
 
   return (
-    <div className="dash">
-      {/* The workspace's name is the sign on the panel; the head keeps only the inventory (expert mode). */}
-      <div className="page-head dash-head">
-        <span className="spacer" />
-        <span className="dash-mini">
+    <div className="w-full px-7 pt-6 pb-10">
+      <Today runs={runs} chats={chats} bundles={bundles} agents={agentsData?.agents ?? []} workflows={wfData?.workflows ?? []} projectTitle={projectTitle} loaded={!!runsData && !!chatsData} />
+      {/* Expert mode: the inventory and the whole activity, filterable, below today. */}
+      {expert && (
+        <div className="mx-0.5 mt-3.5 mb-3 flex flex-wrap justify-end gap-[18px] text-xs text-fg-2">
           {mini.map(([count, label, href]) => (
-            <Link key={label} href={href}>
-              <b className="num">{count ?? "…"}</b> {label}
+            <Link key={label} href={href} className="group/mini text-inherit no-underline hover:text-accent hover:underline">
+              <b className="font-semibold tabular-nums text-fg group-hover/mini:text-accent">{count ?? "…"}</b> {label}
             </Link>
           ))}
-        </span>
-      </div>
+        </div>
+      )}
 
-      {failed.length > 0 && filter !== "failed" && (
-        <button className="dash-alert" onClick={() => setFilter("failed")}>
+      {expert && failed.length > 0 && filter !== "failed" && (
+        <button
+          type="button"
+          className="mb-3.5 flex w-full cursor-pointer items-center gap-2 rounded-xl border border-bad/40 bg-bad-soft px-3.5 py-[9px] text-left text-[12.5px] text-on-bad-soft hover:brightness-104"
+          onClick={() => setFilter("failed")}
+        >
           ⚠ {failed.length} run{failed.length === 1 ? "" : "s"} failed in the last 24 h — review
         </button>
       )}
 
-      <ActivityFeed
+      {expert && <ActivityFeed
+        projectTitle={projectTitle}
         runs={runs}
         chats={chats}
         bundles={bundles}
@@ -108,7 +123,7 @@ export function DashboardScreen() {
         workflows={wfData?.workflows ?? []}
         filter={filter}
         setFilter={setFilter}
-      />
+      />}
     </div>
   );
 }
@@ -150,6 +165,7 @@ const FILTERS: Array<[FeedFilter, string]> = [
 ];
 
 function ActivityFeed({
+  projectTitle,
   runs,
   chats,
   bundles,
@@ -158,6 +174,7 @@ function ActivityFeed({
   filter,
   setFilter,
 }: {
+  projectTitle: (slug: string) => string;
   runs: RunListItem[];
   chats: BusyChat[];
   bundles: BundleInfo[];
@@ -202,8 +219,8 @@ function ActivityFeed({
         sub: agent
           ? `${c.title || "new chat"}${expert ? ` · ${c.agent}` : ""}`
           : expert
-            ? `${c.agent} · ${chatScopeLabel(c)}`
-            : chatScopeLabel(c),
+            ? `${c.agent} · ${chatOwner(c, agents, projectTitle)}`
+            : chatOwner(c, agents, projectTitle),
         href: chatHref(c),
         lamp: c.awaitingApproval ? "blocked" : c.busy ? "running" : "ok",
         status: c.awaitingApproval ? "needs approval" : c.busy ? "working" : undefined,
@@ -238,68 +255,251 @@ function ActivityFeed({
 
   // Thin day separators; emitted whenever the bucket changes down the list.
   let lastBucket = "";
+  const chip = (on: boolean, bad?: boolean) =>
+    cn(
+      "inline-flex cursor-pointer items-center gap-0.5 rounded-lg border px-2.5 py-0.5 text-2xs transition-colors",
+      on
+        ? cn("border-transparent", bad ? "bg-bad-soft text-on-bad-soft" : "bg-accent-soft text-on-accent-soft")
+        : "border-line bg-transparent text-fg-2 hover:text-fg"
+    );
 
   return (
-    <section className="panel dash-feed">
-      <div className="panel-head">
-        <span className="microlabel">activity</span>
-        <span className="spacer" />
-        <span className="dash-feed-filter">
+    <Panel
+      className="animate-rise"
+      title="all activity"
+      actions={
+        <span className="flex gap-1.5">
           {FILTERS.map(([k, label]) => (
-            <button
-              key={k}
-              className={`feed-chip ${filter === k ? "on" : ""}`}
-              onClick={() => setFilter(k)}
-            >
+            <button key={k} type="button" className={chip(filter === k)} aria-pressed={filter === k} onClick={() => setFilter(k)}>
               {label}
             </button>
           ))}
           {filter === "failed" && (
-            <button className="feed-chip on failed" onClick={() => setFilter("all")}>
+            <button type="button" className={chip(true, true)} onClick={() => setFilter("all")}>
               failed <Icon name="close" className="ms-sm" />
             </button>
           )}
         </span>
-      </div>
+      }
+    >
       {feed.length === 0 ? (
-        <div className="viewer-note">
+        <div className="px-[18px] py-4 text-sm text-fg-2">
           {filter === "all"
-            ? "nothing yet — run a workflow or start a session"
+            ? "nothing yet — run a workflow or start a chat"
             : "nothing here for this filter"}
         </div>
       ) : (
-        <div className="m3-list">
+        <div className="flex flex-col p-1.5">
           {feed.map((f) => {
             const bucket = dayBucket(f);
             const sep = bucket !== lastBucket ? bucket : null;
             lastBucket = bucket;
             return (
-              <div key={`${f.kind}:${f.href}:${f.at}`} className="feed-group">
-                {sep && <div className="feed-day microlabel">{sep}</div>}
-                <Link href={f.href} className="m3-row m3-link">
-                  {/* Avatar with a presence dot: pulses only while actually working. */}
-                  <span className="agent-avatar">
-                    <span aria-hidden>{f.emoji}</span>
-                    {f.lamp === "running" && <span className="lamp running" />}
-                  </span>
-                  <span className={`chip dash-kind ${f.kind}`}>
-                    {f.kind === "session" ? "chat" : f.kind}
-                  </span>
-                  <span className="m3-body">
-                    <span className="m3-head">{trimTitle(f.title)}</span>
-                    {f.sub && <span className="m3-sub">{trimTitle(f.sub)}</span>}
-                  </span>
-                  {f.status && <span className={`chip status ${f.lamp}`}>{f.status}</span>}
-                  <span className="side-when num" title={new Date(f.at).toLocaleString()}>
-                    {fmtAgo(f.at)}
-                  </span>
-                  <span className="m3-chev"><Icon name="chevron_right" /></span>
-                </Link>
+              <div key={`${f.kind}:${f.href}:${f.at}`}>
+                {sep && <Eyebrow className="block px-2.5 pt-3 pb-1">{sep}</Eyebrow>}
+                <ListRow
+                  href={f.href}
+                  leading={
+                    // The face, with a presence dot that shows only while actually working.
+                    <span className="relative text-[18px] leading-none">
+                      <span aria-hidden>{f.emoji}</span>
+                      {f.lamp === "running" && (
+                        <span className="absolute -right-1 -bottom-1 grid rounded-full bg-surface p-px">
+                          <Dot tone="working" />
+                        </span>
+                      )}
+                    </span>
+                  }
+                  title={trimTitle(f.title)}
+                  titleExtra={<Tag tone={KIND_TONE[f.kind]}>{f.kind === "session" ? "chat" : f.kind}</Tag>}
+                  sub={f.sub && trimTitle(f.sub)}
+                  meta={
+                    <span className="flex items-center gap-2">
+                      {f.status && <Tag tone={STATUS_TONE[f.lamp] ?? "neutral"}>{f.status}</Tag>}
+                      <span title={new Date(f.at).toLocaleString()}>{fmtAgo(f.at)}</span>
+                      <Icon name="chevron_right" className="ms-sm" />
+                    </span>
+                  }
+                />
               </div>
             );
           })}
         </div>
       )}
-    </section>
+    </Panel>
+  );
+}
+
+const KIND_TONE: Record<FeedItem["kind"], "accent" | "ask" | "ok"> = { run: "accent", session: "ask", knowledge: "ok" };
+const STATUS_TONE: Record<string, "ok" | "bad" | "accent" | "neutral"> = { ok: "ok", failed: "bad", blocked: "bad", running: "accent", aborted: "neutral" };
+
+/* ---------- today ---------- */
+
+/** "4 min", "1 h 20 min" — how long something has been going. */
+function since(iso?: string): string {
+  if (!iso) return "";
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (m < 1) return "just started";
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+
+interface TodayRow {
+  key: string;
+  owner: string;
+  title: string;
+  meta: string;
+  href: string;
+  tone?: "waiting" | "working";
+}
+
+/**
+ * Home, in three plain sections: what needs you (the attention list, with
+ * "next"), what is in progress (agents mid-turn, running workflows), and
+ * what got done today (chats with new answers, finished runs, knowledge
+ * that changed). Every row says whose it is first.
+ */
+function Today({
+  runs,
+  chats,
+  bundles,
+  agents,
+  workflows,
+  projectTitle,
+  loaded,
+}: {
+  runs: RunListItem[];
+  chats: BusyChat[];
+  bundles: BundleInfo[];
+  agents: Agent[];
+  workflows: WorkflowSummary[];
+  projectTitle: (slug: string) => string;
+  loaded: boolean;
+}) {
+  const waiting = useAttention() ?? [];
+  const hash = useHashPath();
+  const status = usePoll<Record<string, AgentStatus>>("/api/agent-status", false, 5000);
+  const wfName = (slug?: string) => (slug ? (workflows.find((w) => w.slug === slug)?.name ?? slug) : "workflow");
+  // When a chat's turn started, from the agents' status (the chat list does not carry it).
+  const startedAt = new Map<string, string>();
+  for (const st of Object.values(status ?? {})) for (const w of st.working) if (w.since) startedAt.set(w.chatId, w.since);
+
+  const progress: TodayRow[] = [
+    ...chats
+      .filter((c) => c.busy && !c.awaitingApproval)
+      .map((c) => ({
+        key: `c:${c.id}`,
+        owner: chatOwner(c, agents, projectTitle),
+        title: trimTitle(c.title || "new chat"),
+        meta: `working${startedAt.get(c.id) ? ` · ${since(startedAt.get(c.id))}` : ""}`,
+        href: chatHref(c),
+        tone: "working" as const,
+      })),
+    ...runs
+      .filter((r) => r.status === "running")
+      .map((r) => ({
+        key: `r:${r.id}`,
+        owner: `⚙️ ${wfName(r.workflow)}`,
+        title: trimTitle(r.request ?? ""),
+        meta: "running",
+        href: `/runs/${r.id}`,
+        tone: "working" as const,
+      })),
+  ];
+
+  const done: TodayRow[] = [
+    ...chats
+      .filter((c) => !c.busy && !c.awaitingApproval && isToday(c.updatedAt) && c.title)
+      .map((c) => ({ key: `c:${c.id}`, at: c.updatedAt, owner: chatOwner(c, agents, projectTitle), title: trimTitle(c.title), meta: fmtAgo(c.updatedAt), href: chatHref(c) })),
+    ...runs
+      .filter((r) => r.status !== "running" && isToday(r.updatedAt))
+      .map((r) => ({
+        key: `r:${r.id}`,
+        at: r.updatedAt,
+        owner: `⚙️ ${wfName(r.workflow)}`,
+        title: trimTitle(r.request ?? ""),
+        meta: `${r.status === "ok" ? "done" : r.status === "aborted" ? "stopped" : "failed"} · ${fmtAgo(r.updatedAt)}`,
+        href: `/runs/${r.id}`,
+      })),
+    ...bundles
+      .filter((b) => b.updatedAt && isToday(b.updatedAt))
+      .map((b) => ({ key: `k:${b.name}`, at: b.updatedAt!, owner: `📚 ${b.name}`, title: "knowledge updated", meta: fmtAgo(b.updatedAt!), href: `/knowledge/${encodeURIComponent(b.name)}` })),
+  ]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 12);
+
+  const next = nextItem(waiting, hash);
+  const quiet = loaded && waiting.length === 0 && progress.length === 0;
+
+  return (
+    <div className="today flex flex-col gap-3.5">
+      <Panel
+        className="today-section"
+        title="needs you"
+        count={waiting.length}
+        actions={
+          next && (
+            <Button variant="primary" size="sm" onClick={() => openAttention(next)} className="bg-bad text-on-bad hover:bg-bad">
+              start <Icon name="arrow_forward" className="ms-sm" />
+            </Button>
+          )
+        }
+      >
+        {waiting.length === 0 ? (
+          <p className="m-0 px-[18px] py-4 text-sm text-fg-2">{quiet ? "Nothing waiting, nothing running." : "Nothing is waiting for you."}</p>
+        ) : (
+          <div className="p-1.5">
+            {waiting.map((i) => (
+              <ListRow
+                key={i.id}
+                className="today-row waiting"
+                onClick={() => openAttention(i)}
+                over={ownerText(i.owner)}
+                title={i.title}
+                meta={<span className="font-semibold text-bad">{i.kind === "approval" ? "needs approval" : i.kind === "question" ? "asks you" : "failed"} · {fmtAgo(i.since)}</span>}
+              />
+            ))}
+          </div>
+        )}
+        {quiet && (
+          <div className="px-[18px] pb-4">
+            <Button variant="primary" icon="chat" href="/agents/chats">chat with Ralv</Button>
+          </div>
+        )}
+      </Panel>
+
+      {progress.length > 0 && (
+        <Panel className="today-section" title="in progress">
+          <div className="p-1.5">{progress.map((r) => <Row key={r.key} r={r} />)}</div>
+        </Panel>
+      )}
+
+      <Panel className="today-section" title="done today">
+        {done.length === 0 ? (
+          <p className="m-0 px-[18px] py-4 text-sm text-fg-2">Nothing finished yet today.</p>
+        ) : (
+          <div className="p-1.5">{done.map((r) => <Row key={r.key} r={r} />)}</div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function Row({ r }: { r: TodayRow }) {
+  return (
+    <ListRow
+      className="today-row"
+      href={r.href}
+      over={r.owner}
+      title={r.title}
+      meta={
+        <span className="inline-flex items-center gap-1.5">
+          {r.tone === "working" && <Dot tone="working" />}
+          {r.meta}
+        </span>
+      }
+    />
   );
 }

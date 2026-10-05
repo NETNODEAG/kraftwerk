@@ -112,6 +112,6 @@ export function registerRepoCommands(program: Command): void {
       await prepare();
       const r = await removeRepo(name, !!opts.force).catch((err: Error) => ({ ok: false, error: err.message }));
       if (!r.ok) die(r.error ?? "remove failed");
-      console.log(`${chalk.green("✔")} removed ${chalk.cyan(name)}`);
+      console.log(`${chalk.green("✔")} moved ${chalk.cyan(name)} to the trash`);
     });
 }

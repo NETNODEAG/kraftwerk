@@ -92,8 +92,8 @@ test.describe("workflows screen", () => {
 
   test("a launch that never wrote a trace shows as failed and can be removed", async ({ page }) => {
     await page.goto("/#/runs/2026-01-01-0900-00-boom");
-    const head = page.locator(".shell-global .detail-head");
-    await expect(head.locator(".status-word")).toHaveText("failed");
+    const head = page.locator(".shell-global .runs-main header");
+    await expect(head.locator("[data-ui=status]")).toHaveText("failed");
     await expect(head.getByRole("button", { name: /stop/ })).toBeHidden();
     page.once("dialog", (d) => void d.accept());
     await head.getByRole("button", { name: /remove/ }).click();
@@ -114,7 +114,9 @@ test.describe("workflows screen", () => {
     // Simple mode has no top navigation at all; expert mode brings every page.
     await expect(page.locator(".global-nav")).toHaveCount(0);
 
-    await page.locator(".expert-toggle").click();
+    // The switch lives in the workspace menu, behind the workspace's name.
+    await page.locator(".env-switch").click();
+    await page.locator(".ws-menu .expert-toggle").click();
     const nav = page.locator(".global-nav");
     await expect(nav.locator("a", { hasText: "workflows" })).toBeVisible();
     await expect(nav.locator("a", { hasText: "knowledge" })).toBeVisible();
@@ -135,11 +137,11 @@ test.describe("workflows screen", () => {
     await expect(ask.locator(".wf-runs")).toContainText("1 run");
     await ask.click();
     await expect(page).toHaveURL(/#\/workflows\/ask$/);
-    await expect(ask).toHaveClass(/active/);
+    await expect(ask.getByRole("link").first()).toHaveAttribute("aria-current", "page");
     const tick = rows.filter({ hasText: "writes a stamp" });
     await expect(tick.locator(".wf-runs")).toContainText("no runs yet");
     // The page beside it is the workflow's own view, with the request box.
-    await expect(page.locator(".shell-global .runs-main .detail-head h1")).toHaveText("ask");
+    await expect(page.locator(".shell-global .runs-main h1")).toHaveText("ask");
     await expect(page.locator(".run-panel").getByLabel("request")).toHaveValue("why is the sky blue");
 
     await page.getByLabel("search workflows").fill("stamp");
@@ -154,14 +156,14 @@ test.describe("workflows screen", () => {
     await ask.locator(".wf-runs").click();
     await expect(page).toHaveURL(/#\/runs\/2026-01-01-1000-00-ask\?workflow=ask/);
     await expect(page.getByLabel("filter runs")).toHaveValue("ask");
-    await expect(page.locator(".shell-global .side-row")).toHaveCount(1);
+    await expect(page.locator(".shell-global").getByRole("navigation", { name: "runs list" }).getByRole("link")).toHaveCount(1);
     await page.getByLabel("filter runs").fill("nothing-like-this");
     await expect(page.locator(".shell-global .runs-side")).toContainText("no run matches");
-    await page.locator(".shell-global .side-back").click();
+    await page.locator(".shell-global").getByRole("link", { name: "back to workflows" }).click();
     await expect(page).toHaveURL(/#\/workflows\/[a-z]+$/);
 
     // The side head reaches the runs screen too.
-    await page.locator(".shell-global .runs-side .side-head a", { hasText: "runs" }).click();
+    await page.locator(".shell-global .runs-side").getByRole("link", { name: /^runs/ }).click();
     await expect(page).toHaveURL(/#\/runs\/2026-01-01-1000-00-ask$/);
   });
 
@@ -178,11 +180,11 @@ test.describe("workflows screen", () => {
     const failed = col("draft").locator(".board-card");
     await expect(failed).toHaveCount(1);
     await expect(failed).toContainText("tuesday batch");
-    await expect(failed.locator(".chip.status")).toHaveText("failed");
+    await expect(failed.locator("[data-ui=status]")).toHaveText("failed");
     // The live run is on its last step, the finished one is done.
     const live = col("publish").locator(".board-card");
     await expect(live).toContainText("wednesday batch");
-    await expect(live.locator(".lamp")).toHaveClass(/running/);
+    await expect(live.locator("[data-ui=dot]")).toHaveAttribute("data-tone", "working");
     await expect(col("done").locator(".board-card")).toContainText("monday batch");
     await expect(col("done").locator(".board-col-count")).toHaveText("1");
     // A card opens its run.
@@ -207,9 +209,9 @@ test.describe("workflows screen", () => {
 
   test("the workflow page has overview, details and runs tabs on their own routes", async ({ page }) => {
     await page.goto("/#/workflows/triage");
-    const tabs = page.locator(".shell-global .detail-head .tabs a");
+    const tabs = page.locator(".shell-global").getByRole("tablist", { name: "workflow sections" }).getByRole("tab");
     await expect(tabs).toHaveText(["overview", "details", "runs (3)"]);
-    await expect(tabs.nth(0)).toHaveClass(/active/);
+    await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
     // Overview: what to act on — the trigger and the board, nothing about how it is built.
     await expect(page.locator(".run-panel")).toBeVisible();
     await expect(page.locator(".board")).toBeVisible();
@@ -217,7 +219,7 @@ test.describe("workflows screen", () => {
 
     await tabs.nth(1).click();
     await expect(page).toHaveURL(/#\/workflows\/triage\/details$/);
-    await expect(tabs.nth(1)).toHaveClass(/active/);
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".pipeline .step-node")).toHaveCount(3);
     await expect(page.locator(".agent-card")).toContainText("Writer");
     await expect(page.locator(".board")).toHaveCount(0);
@@ -228,16 +230,16 @@ test.describe("workflows screen", () => {
     await expect(cards).toHaveCount(3);
     // Newest first; the live run shows its current step where the others show their request.
     await expect(cards.nth(0)).toContainText("publish");
-    await expect(cards.nth(0).locator(".status-word")).toHaveText("running");
+    await expect(cards.nth(0).locator("[data-ui=status]")).toHaveText("running");
     await expect(cards.nth(1)).toContainText("tuesday batch");
-    await expect(cards.nth(1).locator(".status-word")).toHaveText("failed");
+    await expect(cards.nth(1).locator("[data-ui=status]")).toHaveText("failed");
     await expect(cards.nth(2)).toContainText("monday batch");
     await cards.nth(2).click();
     await expect(page).toHaveURL(/#\/runs\/2025-12-30-1000-00-triage/);
 
     // A direct link lands on the tab.
     await page.goto("/#/workflows/tick/runs");
-    await expect(page.locator(".shell-global .empty")).toContainText("no runs of this workflow yet");
+    await expect(page.locator(".shell-global .runs-main")).toContainText("no runs of this workflow yet");
   });
 
   test("running from the overview stays on the overview and the new run appears on the board", async ({ page }) => {
@@ -265,15 +267,15 @@ test.describe("workflows screen", () => {
     await expect(page).toHaveURL(/#\/workflows\/triage$/);
     const col = page.locator('.board-col[data-step="check"]');
     await expect(col.locator(".board-card")).toContainText("thursday batch");
-    await expect(col.locator(".board-card .lamp")).toHaveClass(/running/);
+    await expect(col.locator(".board-card [data-ui=dot]")).toHaveAttribute("data-tone", "working");
     await expect(page.locator(".run-panel").getByRole("button", { name: /Run/ })).toBeEnabled();
-    await expect(page.locator(".shell-global .detail-head .tabs a").nth(2)).toHaveText("runs (4)");
+    await expect(page.locator(".shell-global").getByRole("tablist", { name: "workflow sections" }).getByRole("tab").nth(2)).toHaveText("runs (4)");
   });
 
   test("a run that asks for a decision gets a form on its page and a chip on the board; the answer lands as a file", async ({ page }) => {
     await page.goto("/#/workflows/triage");
     const card = page.locator('.board-col[data-step="publish"] .board-card');
-    await expect(card.locator(".chip.decision")).toHaveText("decision needed");
+    await expect(card.locator("[data-ui=decision]")).toHaveText("decision needed");
     await card.click();
     const panel = page.locator(".decision-panel");
     await expect(panel).toContainText("Publish this batch?");
@@ -297,7 +299,7 @@ test.describe("workflows screen", () => {
     // The board no longer flags it.
     await page.goto("/#/workflows/triage");
     await expect(card).toContainText("wednesday batch");
-    await expect(card.locator(".chip.decision")).toHaveCount(0);
+    await expect(card.locator("[data-ui=decision]")).toHaveCount(0);
   });
 
 });

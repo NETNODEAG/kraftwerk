@@ -6,6 +6,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { resolveProject, vibeablesRootFor, type Project } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { moveToTrash } from "./trash.js";
 import { newestMtime } from "./mtime.js";
 
 /**
@@ -269,12 +270,12 @@ export async function createVibeable(name: string): Promise<VibeableInfo> {
   return describe(opened.root, slug);
 }
 
-/** Delete a vibeable folder. Its history stays in the workspace git. */
+/** Stop a vibeable and move its folder to the trash. */
 export async function deleteVibeable(slug: string): Promise<void> {
   const r = await resolveVibeable(slug);
   await stopDev(slug).catch(() => {});
   dropChannel(slug);
-  await fs.rm(r.dir, { recursive: true, force: true });
+  await moveToTrash("vibeables", slug, r.dir);
 }
 
 export async function vibeableStatus(slug: string): Promise<VibeableStatus> {

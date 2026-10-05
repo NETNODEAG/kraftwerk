@@ -16,6 +16,8 @@ import { registerProjectCommands } from "./projects.js";
 import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
+import { registerTrashCommands } from "./trash.js";
+import { registerJournalCommands } from "./journal.js";
 import { registerTunnelCommands } from "./tunnel.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveProject } from "../config.js";
@@ -37,6 +39,8 @@ import { runUi } from "./ui.js";
  *   kraftwerk projects ...            goal-scoped project folders (list/create/show/link/log/remove)
  *   kraftwerk vibeables ...           small apps built live in a chat (list/create/remove)
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
+ *   kraftwerk journal <agent> [entry] an agent's memory across sessions: print it, add a line
+ *   kraftwerk trash ...               what was deleted: list, restore, purge, empty
  *   kraftwerk tunnel [setup <host>]   Cloudflare Tunnel to the inspector: run it alone, or set one up
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
@@ -321,6 +325,8 @@ registerWorkspaceCommands(program);
 registerProjectCommands(program);
 registerRepoCommands(program);
 registerVibeableCommands(program);
+registerTrashCommands(program);
+registerJournalCommands(program);
 registerTunnelCommands(program);
 
 program

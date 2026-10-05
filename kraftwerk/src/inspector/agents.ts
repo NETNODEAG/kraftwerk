@@ -5,6 +5,7 @@ import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
 import type { ChatAgentId } from "./chat/types.js";
 import { syncWorkspaceAgents } from "./instances.js";
+import { moveToTrash } from "./trash.js";
 
 /**
  * Agents: persistent agents, defined on the filesystem. Each one
@@ -36,6 +37,8 @@ export interface Agent {
   knowledge: string[];
   /** Vibeables (folder names under the vibeables root) this member builds and maintains. */
   vibeables: string[];
+  /** Workspace file folders (paths under kraftwerk-data/files) this agent works with; agents own no files. */
+  files?: string[];
   /**
    * Skill allowlist (names from .claude/skills, project or user level).
    * Absent = all discovered skills; empty list = no skills.
@@ -103,6 +106,7 @@ interface AgentYaml {
   workflows?: unknown;
   knowledge?: unknown;
   vibeables?: unknown;
+  files?: unknown;
   skills?: unknown;
   archived?: unknown;
 }
@@ -121,6 +125,7 @@ function normalize(slug: string, raw: AgentYaml): Agent {
     workflows: Array.isArray(raw.workflows) ? raw.workflows.map(String) : [],
     knowledge: Array.isArray(raw.knowledge) ? raw.knowledge.map(String) : [],
     vibeables: Array.isArray(raw.vibeables) ? raw.vibeables.map(String) : [],
+    ...(Array.isArray(raw.files) && raw.files.length ? { files: raw.files.map(String) } : {}),
     ...(Array.isArray(raw.skills) ? { skills: raw.skills.map(String) } : {}),
     ...(raw.archived === true ? { archived: true } : {}),
   };
@@ -181,6 +186,8 @@ export interface SaveAgentInput {
   workflows?: string[];
   knowledge?: string[];
   vibeables?: string[];
+  /** Linked workspace file folders; omitted = keep what agent.yml has. */
+  files?: string[];
   /** Omit for "all skills"; a list (possibly empty) restricts to those names. */
   skills?: string[];
   system?: string;
@@ -217,6 +224,12 @@ export async function saveAgent(input: SaveAgentInput): Promise<AgentDetail> {
     knowledge: (input.knowledge ?? []).map(String),
     // Empty list left out: most agents build nothing, and agent.yml stays as short as before.
     ...(input.vibeables?.length ? { vibeables: [...new Set(input.vibeables.map((v) => String(v).trim()).filter(Boolean))] } : {}),
+    ...(() => {
+      // Linked folders survive an edit from a form that does not know them.
+      const files = input.files ?? (Array.isArray(existing?.files) ? existing.files.map(String) : []);
+      const clean = [...new Set(files.map((f) => String(f).trim().replace(/^\/+|\/+$/g, "")).filter(Boolean))];
+      return clean.length ? { files: clean } : {};
+    })(),
     ...(input.skills ? { skills: input.skills.map(String) } : {}),
     ...(existing?.archived === true ? { archived: true } : {}),
   };
@@ -241,7 +254,8 @@ export async function setAgentArchived(slug: string, archived: boolean): Promise
   return (await getAgent(slug))!;
 }
 
+/** Move the agent's folder to the trash. */
 export async function deleteAgent(slug: string): Promise<void> {
   const dir = path.join(await agentsRoot(), safeAgentSlug(slug));
-  await fs.rm(dir, { recursive: true, force: true });
+  await moveToTrash("agents", slug, dir);
 }

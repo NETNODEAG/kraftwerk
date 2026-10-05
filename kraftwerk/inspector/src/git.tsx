@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useRef, useEffect, useState } from "react";
 import { fmtAgo, Icon, post } from "./shared";
+import { Button, cn, EmptyState, Notice, Page, PageHeader, Panel, TextField } from "./ui";
 import type { GitDiff, GitStatus } from "./types";
 
 /**
@@ -21,10 +22,10 @@ function fmtInterval(seconds: number): string {
 
 /** Class for one diff line. Order matters: "+++" is meta before it is an addition. */
 const LINE_CLASSES: [RegExp, string][] = [
-  [/^(\+\+\+|---|diff |index )/, "d-meta"],
-  [/^@@/, "d-hunk"],
-  [/^\+/, "d-add"],
-  [/^-/, "d-del"],
+  [/^(\+\+\+|---|diff |index )/, "text-fg-2 opacity-80"],
+  [/^@@/, "text-accent"],
+  [/^\+/, "text-ok"],
+  [/^-/, "text-bad"],
 ];
 const lineClass = (line: string): string => LINE_CLASSES.find(([re]) => re.test(line))?.[1] ?? "";
 
@@ -57,22 +58,53 @@ export function DiffView({ url }: { url: string }) {
     };
   }, [url]);
 
-  if (error) return <div className="git-diff git-diff-error">{error}</div>;
-  if (text === null) return <div className="git-diff">loading…</div>;
-  if (!text.trim()) return <div className="git-diff">no textual diff (binary or empty)</div>;
+  if (error) return <div className={cn(DIFF, "text-bad")}>{error}</div>;
+  if (text === null) return <div className={DIFF}>loading…</div>;
+  if (!text.trim()) return <div className={DIFF}>no textual diff (binary or empty)</div>;
 
   return (
-    <pre className="git-diff">
+    <pre className={DIFF}>
       {text.split("\n").map((line, i) => (
         <span key={i} className={lineClass(line)}>
           {line || " "}
           {"\n"}
         </span>
       ))}
-      {truncated && <span className="d-meta">… diff truncated, see the rest in a terminal{"\n"}</span>}
+      {truncated && <span className="text-fg-2 opacity-80">… diff truncated, see the rest in a terminal{"\n"}</span>}
     </pre>
   );
 }
+
+/** `git-diff`: what the tests look for inside a file or commit row. */
+const DIFF =
+  "git-diff mt-1.5 mb-0.5 max-h-[420px] basis-full overflow-auto rounded-xl bg-surface-2 px-3 py-2.5 font-mono text-[11.5px] leading-[1.5] whitespace-pre";
+
+const STATUS_TONE: Record<string, string> = {
+  modified: "text-accent",
+  added: "text-ok",
+  untracked: "text-ok",
+  deleted: "text-bad",
+  conflicted: "text-bad",
+};
+
+/** A changed file's git status as a small outlined label ("modified", "untracked"). */
+export function FileStatus({ status, muted }: { status: string; muted?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex-none rounded-full border border-line px-2 py-0.5 text-[10.5px] font-semibold tracking-[0.4px] uppercase",
+        muted ? "text-fg-2" : (STATUS_TONE[status] ?? "text-fg-2")
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
+/** A short line that explains, beside a control or under a panel. */
+export const NOTE = "text-xs text-fg-2";
+/** What an empty panel says. */
+export const PANEL_EMPTY = "m-0 p-[18px] text-sm text-fg-2";
 
 export function GitScreen() {
   const [st, setSt] = useState<GitStatus | null>(null);
@@ -83,9 +115,13 @@ export function GitScreen() {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
 
+  // The first read on opening the screen bypasses the server's short status
+  // cache: what the nav badge cached a moment ago may predate the last change.
+  const first = useRef(true);
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/git", { cache: "no-store" });
+      const r = await fetch(first.current ? "/api/git?fresh=1" : "/api/git", { cache: "no-store" });
+      first.current = false;
       if (r.ok) setSt((await r.json()) as GitStatus);
     } catch {}
   }, []);
@@ -151,20 +187,18 @@ export function GitScreen() {
     void reload();
   };
 
-  if (!st) return <div className="settings-screen"><div className="ws-empty">loading…</div></div>;
+  if (!st) return <EmptyState>loading…</EmptyState>;
 
   if (!st.enabled) {
     return (
-      <div className="settings-screen">
-        <div className="settings-head">
-          <h1><Icon name="cloud_sync" className="ms-lg" /> Git sync</h1>
-        </div>
-        <section className="panel">
-          <div className="ws-empty">
+      <Page>
+        <PageHeader icon="cloud_sync" title="Git sync" />
+        <Panel>
+          <p className={PANEL_EMPTY}>
             Git sync is off. Turn it on in <a href="#/settings">settings</a>, or add a <code>git:</code> block to kraftwerk.yml.
-          </div>
-        </section>
-      </div>
+          </p>
+        </Panel>
+      </Page>
     );
   }
 
@@ -179,95 +213,97 @@ export function GitScreen() {
     });
 
   return (
-    <div className="settings-screen ws-screen">
-      <div className="settings-head">
-        <h1><Icon name="cloud_sync" className="ms-lg" /> Git sync</h1>
-        <span className="spacer" />
-        {note && <span className="settings-saved"><Icon name="check" className="ms-sm" /> {note}</span>}
-        {error && <span className="settings-err">{error}</span>}
-      </div>
+    <Page>
+      <PageHeader
+        icon="cloud_sync"
+        title="Git sync"
+        actions={
+          <>
+            {note && <span className="inline-flex items-center gap-1 text-sm text-ok"><Icon name="check" className="ms-sm" /> {note}</span>}
+            {error && <Notice tone="bad">{error}</Notice>}
+          </>
+        }
+      />
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">branch</span>
-          <span className="spacer" />
-          {st.lastFetch && (
-            <span className="settings-note" title={st.lastFetch}>fetched {fmtAgo(st.lastFetch)}</span>
-          )}
-          {st.lastError && (
-            <span className="settings-err git-sync-err" title={st.lastError}>
-              <Icon name="cloud_off" className="ms-sm" /> {st.lastError.split("\n")[0]}
-            </span>
-          )}
-        </div>
+      <Panel
+        title="branch"
+        actions={
+          <>
+            {st.lastFetch && (
+              <span className={NOTE} title={st.lastFetch}>fetched {fmtAgo(st.lastFetch)}</span>
+            )}
+            {st.lastError && (
+              // A fetch error is one line of git stderr; never let it push the head around.
+              <span className="inline-flex max-w-[46ch] items-center gap-1 truncate text-xs text-bad" title={st.lastError}>
+                <Icon name="cloud_off" className="ms-sm" /> {st.lastError.split("\n")[0]}
+              </span>
+            )}
+          </>
+        }
+      >
         {st.error ? (
-          <div className="ws-empty ws-load-error"><Icon name="error" className="ms-sm" /> {st.error}</div>
+          <div className="flex items-center gap-2 p-[18px] text-sm text-bad"><Icon name="error" className="ms-sm" /> {st.error}</div>
         ) : (
-          <div className="git-head">
-            <div className="git-branch">
+          <div className="flex flex-wrap items-center gap-4 px-[18px] py-3.5">
+            <div className="flex items-center gap-2 text-base">
               <Icon name="account_tree" className="ms-sm" />
-              <strong>{st.branch}</strong>
-              {st.upstream ? (
-                <span className="settings-note">tracking {st.upstream}</span>
-              ) : (
-                <span className="settings-note">no upstream yet, push sets one</span>
-              )}
+              <strong className="font-mono">{st.branch}</strong>
+              <span className={NOTE}>{st.upstream ? `tracking ${st.upstream}` : "no upstream yet, push sets one"}</span>
             </div>
-            <div className="git-counts">
-              {st.diverged && <span className="git-diverged">diverged, resolve in a terminal</span>}
-              {!!st.behind && <span className="git-behind">{st.behind} behind</span>}
-              {!!st.ahead && <span className="git-ahead">{st.ahead} ahead</span>}
-              {!st.ahead && !st.behind && <span className="settings-note">up to date</span>}
+            <div className="flex items-center gap-2.5 text-[12.5px] font-semibold">
+              {st.diverged && <span className="text-bad">diverged, resolve in a terminal</span>}
+              {!!st.behind && <span className="text-accent">{st.behind} behind</span>}
+              {!!st.ahead && <span className="text-ok">{st.ahead} ahead</span>}
+              {!st.ahead && !st.behind && <span className={cn(NOTE, "font-normal")}>up to date</span>}
             </div>
-            <div className="ws-actions">
-              <button className="ws-btn" disabled={!!busy} onClick={() => void act("fetch")}>
-                <Icon name={busy === "fetch" ? "progress_activity" : "refresh"} className="ms-sm" /> fetch
-              </button>
-              <button
-                className="ws-btn"
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button size="sm" icon="refresh" busy={busy === "fetch"} disabled={!!busy} onClick={() => void act("fetch")}>
+                fetch
+              </Button>
+              <Button
+                size="sm"
+                icon="download"
+                busy={busy === "pull"}
                 disabled={!!busy || !st.behind || st.diverged}
                 title={st.diverged ? "Diverged. Resolve in a terminal." : "Fast-forward to the remote"}
                 onClick={() => void act("pull")}
               >
-                <Icon name={busy === "pull" ? "progress_activity" : "download"} className="ms-sm" /> pull
-              </button>
-              <button
-                className="ws-btn primary"
+                pull
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                icon="upload"
+                busy={busy === "push"}
                 disabled={!!busy || (!st.ahead && !!st.upstream)}
                 title={st.upstream ? "Push to the upstream" : "Push and set the upstream"}
                 onClick={() => void act("push")}
               >
-                <Icon name={busy === "push" ? "progress_activity" : "upload"} className="ms-sm" /> push
-              </button>
+                push
+              </Button>
             </div>
           </div>
         )}
-      </section>
+      </Panel>
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">changes</span>
-          <span className="spacer" />
-          <span className="settings-note">
-            {syncable.length === 0 ? "workspace clean" : `${selected.size} of ${syncable.length} selected`}
-          </span>
-        </div>
-
-        {syncable.length === 0 && blocked.length === 0 && (
-          <div className="ws-empty">Nothing changed under the workspace paths.</div>
-        )}
+      <Panel
+        title="changes"
+        actions={<span className={NOTE}>{syncable.length === 0 ? "workspace clean" : `${selected.size} of ${syncable.length} selected`}</span>}
+      >
+        {syncable.length === 0 && blocked.length === 0 && <p className={PANEL_EMPTY}>Nothing changed under the workspace paths.</p>}
 
         {syncable.map((f) => (
-          <div key={f.path} className="git-row">
-            <label className="git-pick">
-              <input
-                type="checkbox"
-                checked={selected.has(f.path)}
-                onChange={(e) => toggle(f.path, e.target.checked)}
-              />
-            </label>
+          <div key={f.path} className={cn("git-row px-[18px]", ROW)}>
+            <input
+              type="checkbox"
+              className="accent-accent"
+              aria-label={`select ${f.path}`}
+              checked={selected.has(f.path)}
+              onChange={(e) => toggle(f.path, e.target.checked)}
+            />
             <button
-              className="git-file"
+              type="button"
+              className="group/file flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-0.5 text-left font-[inherit] text-fg"
               onClick={() =>
                 setOpen((prev) => {
                   const next = new Set(prev);
@@ -278,66 +314,58 @@ export function GitScreen() {
               }
             >
               <Icon name={open.has(f.path) ? "expand_more" : "chevron_right"} className="ms-sm" />
-              <span className={`git-status s-${f.status}`}>{f.status}</span>
-              <span className="git-path">{f.path}</span>
+              <FileStatus status={f.status} />
+              <span className={cn(PATH, "group-hover/file:underline")}>{f.path}</span>
             </button>
             {open.has(f.path) && <Diff file={f.path} />}
           </div>
         ))}
 
         {syncable.length > 0 && (
-          <div className="git-commit">
-            <input
-              className="git-message"
+          <div className="flex flex-wrap items-center gap-2.5 border-t border-line bg-surface-2 px-[18px] py-3">
+            <TextField
+              className="min-w-[220px] flex-1 text-sm"
               placeholder="Commit message"
+              aria-label="commit message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !busy && message.trim() && selected.size > 0) void commit();
               }}
             />
-            <button
-              className="ws-btn"
-              disabled={selected.size === syncable.length}
-              onClick={() => setSelected(new Set(syncable.map((f) => f.path)))}
-            >
+            <Button size="sm" disabled={selected.size === syncable.length} onClick={() => setSelected(new Set(syncable.map((f) => f.path)))}>
               select all
-            </button>
-            <button
-              className="ws-btn primary"
-              disabled={!!busy || selected.size === 0 || !message.trim()}
-              onClick={() => void commit()}
-            >
-              <Icon name={busy === "commit" ? "progress_activity" : "check"} className="ms-sm" />
+            </Button>
+            <Button size="sm" variant="primary" icon="check" busy={busy === "commit"} disabled={!!busy || selected.size === 0 || !message.trim()} onClick={() => void commit()}>
               commit {selected.size || ""}
-            </button>
+            </Button>
           </div>
         )}
 
         {blocked.length > 0 && (
-          <details className="git-blocked">
-            <summary>
+          <details className="border-t border-line px-[18px] py-2.5">
+            <summary className="cursor-pointer text-[12.5px] text-fg-2">
               {blocked.length}
               {st.blockedHidden ? "+" : ""} change{blocked.length === 1 && !st.blockedHidden ? "" : "s"} outside
               the workspace paths
             </summary>
             {blocked.map((f) => (
-              <div key={f.path} className="git-row blocked">
-                <span className="git-status s-blocked">{f.status}</span>
-                <span className="git-path">{f.path}</span>
-                <span className="settings-note">{f.reason}</span>
+              <div key={f.path} className={cn("git-row blocked opacity-60", ROW)}>
+                <FileStatus status={f.status} muted />
+                <span className={PATH}>{f.path}</span>
+                <span className={NOTE}>{f.reason}</span>
               </div>
             ))}
             {!!st.blockedHidden && (
-              <div className="git-row blocked">
-                <span className="settings-note">and {st.blockedHidden} more, not listed</span>
+              <div className={cn("git-row blocked opacity-60", ROW)}>
+                <span className={NOTE}>and {st.blockedHidden} more, not listed</span>
               </div>
             )}
           </details>
         )}
-      </section>
+      </Panel>
 
-      <p className="settings-note">
+      <p className={cn(NOTE, "m-0")}>
         Synced paths: {(st.scope ?? []).map((s, i) => (
           <span key={s}>{i > 0 && ", "}<code>{s}</code></span>
         ))}. Run artifacts and files like <code>.env</code> are never staged.{" "}
@@ -348,6 +376,10 @@ export function GitScreen() {
           : "Background fetching is off. "}
         Commit and push are always manual.
       </p>
-    </div>
+    </Page>
   );
 }
+
+/** One file line in a panel; hairlines between them. */
+const ROW = "flex flex-wrap items-center gap-2.5 py-2 [&+&]:border-t [&+&]:border-line";
+const PATH = "truncate font-mono text-[12.5px]";

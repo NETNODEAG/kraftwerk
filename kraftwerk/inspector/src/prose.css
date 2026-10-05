@@ -1,0 +1,47 @@
+/*
+ * Rendered markdown (`md-body`): agent replies, knowledge pages, files,
+ * a run's artifacts. Typography for HTML we do not write ourselves, so it is
+ * styled by element here; the container's size and font come from the
+ * utilities on it (`p-0 font-reading text-[17px]` in the chat, …).
+ */
+.md-body {
+  height: 100%;
+  overflow: auto;
+  padding: 16px 22px;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.md-body > :first-child { margin-top: 0; }
+.md-body :is(h1, h2, h3, h4) { margin: 1.4em 0 0.5em; font-weight: 600; line-height: 1.25; }
+.md-body h1 { font-size: 20px; }
+.md-body h2 { padding-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 16px; }
+.md-body h3 { font-size: 14px; }
+.md-body :is(p, ul, ol) { margin: 0.6em 0; }
+.md-body :is(ul, ol) { padding-left: 1.6em; }
+.md-body ul { list-style: disc; }
+.md-body ol { list-style: decimal; }
+.md-body li + li { margin-top: 0.2em; }
+.md-body a { color: var(--accent); }
+.md-body code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.md-body pre {
+  margin: 0.8em 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.md-body pre code { padding: 0; background: none; }
+.md-body blockquote { margin: 0.8em 0; padding: 2px 14px; border-left: 3px solid var(--line-strong); color: var(--text-2); }
+.md-body table { margin: 0.8em 0; border-collapse: collapse; font-size: 12.5px; }
+.md-body :is(th, td) { padding: 5px 10px; border: 1px solid var(--line); text-align: left; }
+.md-body th { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.md-body hr { margin: 1.2em 0; border: 0; border-top: 1px solid var(--line); }
+.md-body img { max-width: 100%; }

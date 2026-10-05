@@ -4,6 +4,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { resolveProject } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { moveToTrash } from "./trash.js";
 import { safeAgentSlug, agentsRoot } from "./agents.js";
 
 /**
@@ -165,13 +166,13 @@ export async function saveAgentSkill(
   };
 }
 
-/** Delete one agent skill (removes its folder). */
+/** Delete one agent skill: its folder goes to the trash. */
 export async function deleteAgentSkill(slug: string, name: string): Promise<void> {
   const skill = (await listAgentSkills(slug)).find(
     (s) => s.name.toLowerCase() === name.toLowerCase()
   );
   if (!skill) throw new Error(`skill "${name}" not found`);
-  await fs.rm(skill.dir, { recursive: true, force: true });
+  await moveToTrash("agent-skills", `${slug}/${path.basename(skill.dir)}`, skill.dir);
 }
 
 /** Read a skill's SKILL.md contents (empty string when unreadable). */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type {
@@ -15,9 +15,10 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
-import { Icon, Link, navigate, usePoll, fmtWhen, useExpertMode, useFeatures } from "./shared";
-import { SessionsPane, useSessionsList, type Session } from "./sessions";
+import { EFFORTS, Icon, Link, navigate, usePoll, fmtWhen, useExpertMode, useFeatures } from "./shared";
+import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
 import { exportBundlePdf } from "./export";
+import { Avatar, Button, Checkbox, cn, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, RowIcon, Select, SideHead, SideList, Switch, Tag, TextArea, TextField, Title } from "./ui";
 
 /**
  * Agents: persistent agents ("employees"), each defined in
@@ -28,8 +29,29 @@ import { exportBundlePdf } from "./export";
  * thread view is reused from the chat screen.
  */
 
-const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 const EMOJI_PRESETS = ["🤖", "🧑‍💻", "🎧", "🛠️", "📊", "✍️", "🔍", "🧹", "📦", "🚀"];
+
+/* ---------- building blocks of these screens ---------- */
+
+/** The line under a profile row's title. */
+const SUB = "text-xs leading-[1.5] text-fg-2 [&_a]:text-inherit [&_code]:text-2xs";
+
+
+function Chips({ children }: { children: ReactNode }) {
+  return <span className="mt-[3px] flex flex-wrap gap-1.5">{children}</span>;
+}
+
+/** A checklist of things to connect: workflows, bundles, apps, skills. */
+function Checks({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-[7px] py-1">{children}</div>;
+}
+
+/** Markdown and prompts are edited as code. */
+const CODE_AREA = "resize-y font-mono text-[12.5px] leading-[1.65]";
+
+/** A group the dragged agent hovers over. */
+const DROP_OVER = "bg-accent/7 outline-[1.5px] -outline-offset-[1.5px] outline-accent outline-dashed";
+const GROUP_EMPTY = "px-2.5 pt-1.5 pb-2 text-2xs text-fg-2";
 
 export function AgentsScreen({ seg }: { seg: string[] }) {
   // seg (after /agents): [] | [new] | [chats] | [chats, new] | [chats, chatId] |
@@ -178,12 +200,11 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
       : {};
 
   const memberRow = (m: Agent) => (
-    <Link
+    <div
       key={m.slug}
-      href={`/agents/${encodeURIComponent(m.slug)}`}
-      className={`side-row ${m.slug === slug ? "active" : ""} ${dragSlug === m.slug ? "dragging" : ""}`}
-      draggable={expert}
+      className={dragSlug === m.slug ? "opacity-40" : undefined}
       onDragStart={(e) => {
+        if (!expert) return e.preventDefault();
         e.dataTransfer.setData("text/plain", m.slug);
         e.dataTransfer.effectAllowed = "move";
         setDragSlug(m.slug);
@@ -193,39 +214,27 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
         setDropGroup(null);
       }}
     >
-      <span className="agent-avatar sm">
-        <span aria-hidden>{m.emoji}</span>
-      </span>
-      <div className="side-row-body">
-        <div className="side-row-top">
-          <span className="side-wf">{m.name}</span>
-        </div>
-        <div className="side-row-sub">
-          <span className="side-req">{m.description || m.harness}</span>
-        </div>
-      </div>
-    </Link>
+      <ListRow
+        href={`/agents/${encodeURIComponent(m.slug)}`}
+        active={m.slug === slug}
+        leading={<span aria-hidden>{m.emoji}</span>}
+        title={m.name}
+        sub={m.description || m.harness}
+      />
+    </div>
   );
 
   // Archived rows: no dragging, land on the profile (where unarchive lives).
   const archivedRow = (m: Agent) => (
-    <Link
+    <ListRow
       key={m.slug}
       href={`/agents/${encodeURIComponent(m.slug)}/info`}
-      className={`side-row archived-row ${m.slug === slug ? "active" : ""}`}
-    >
-      <span className="agent-avatar sm">
-        <span aria-hidden>{m.emoji}</span>
-      </span>
-      <div className="side-row-body">
-        <div className="side-row-top">
-          <span className="side-wf">{m.name}</span>
-        </div>
-        <div className="side-row-sub">
-          <span className="side-req">{m.description || m.harness}</span>
-        </div>
-      </div>
-    </Link>
+      active={m.slug === slug}
+      dim={m.slug !== slug}
+      leading={<span aria-hidden>{m.emoji}</span>}
+      title={m.name}
+      sub={m.description || m.harness}
+    />
   );
 
   let main: React.ReactNode;
@@ -255,7 +264,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
     );
   else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
   else if (slug) main = <AgentLanding key={slug} slug={slug} name={agents.find((m) => m.slug === slug)?.name} />;
-  else if (!data) main = <div className="empty">loading…</div>;
+  else if (!data) main = <EmptyState>loading…</EmptyState>;
   else if (active.length) main = <AgentsLanding agents={active} />;
   else main = <AgentsHome />;
 
@@ -283,54 +292,34 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
       style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
     >
       <aside className="runs-side">
-        <div className="side-head">
-          <span className="microlabel">agents</span>
-          <span className="spacer" />
-          {expert && (
-            <Link href="/agents/new" className="open-raw">
-              <Icon name="add" className="ms-sm" /> new
-            </Link>
-          )}
-        </div>
-        <div className="side-list">
-          <Link
-            href="/agents/chats"
-            className={`side-row side-general ${mode === "chats" ? "active" : ""}`}
-          >
-            <span className="agent-avatar sm">
-              <span aria-hidden>🎩</span>
-            </span>
-            <div className="side-row-body">
-              <div className="side-row-top">
-                <span className="side-wf">Ralv</span>
-              </div>
-              <div className="side-row-sub">
-                <span className="side-req">chief of staff of the workspace</span>
-              </div>
-            </div>
-          </Link>
-          <div
-            className={`side-group ${dragSlug && dropGroup === "" ? "drop-over" : ""}`}
-            {...dropProps("")}
-          >
+        <SideHead
+          title="agents"
+          action={
+            expert && (
+              <Button size="sm" variant="quiet" icon="add" href="/agents/new">
+                new
+              </Button>
+            )
+          }
+        />
+        <SideList>
+          <div className="mb-1.5 border-b border-line pb-1.5">
+            <ListRow href="/agents/chats" active={mode === "chats"} leading={<span aria-hidden>🎩</span>} title="Ralv" sub="chief of staff of the workspace" />
+          </div>
+          <div className={cn("rounded-xl", dragSlug && dropGroup === "" && DROP_OVER)} {...dropProps("")}>
             {ungrouped.map(memberRow)}
-            {dragSlug != null && ungrouped.length === 0 && (
-              <div className="side-group-empty">no group — drop here</div>
-            )}
+            {dragSlug != null && ungrouped.length === 0 && <div className={GROUP_EMPTY}>no group — drop here</div>}
           </div>
           {groups.map((g) => {
             const its = active.filter((m) => m.group === g);
             return (
-              <div
-                key={g}
-                className={`side-group ${dragSlug && dropGroup === g ? "drop-over" : ""}`}
-                {...dropProps(g)}
-              >
-                <div className="side-group-head">
+              <div key={g} className={cn("group/grp mt-3 rounded-xl", dragSlug && dropGroup === g && DROP_OVER)} {...dropProps(g)}>
+                <div className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-0.5">
                   {renaming === g ? (
-                    <input
-                      className="side-group-rename"
+                    <TextField
+                      className="h-7 min-w-0 flex-1 text-2xs"
                       autoFocus
+                      aria-label="group name"
                       value={renameDraft}
                       onChange={(e) => setRenameDraft(e.target.value)}
                       onKeyDown={(e) => {
@@ -340,62 +329,61 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
                       onBlur={() => renameGroup(g, renameDraft)}
                     />
                   ) : (
-                    <span className="microlabel">{g}</span>
+                    <Eyebrow>{g}</Eyebrow>
                   )}
-                  <span className="side-group-count num">{its.length}</span>
-                  <span className="spacer" />
+                  <span className="text-[10px] tabular-nums text-fg-2">{its.length}</span>
+                  <span className="flex-1" />
                   {expert && renaming !== g && (
-                    <button
-                      className="side-group-x"
-                      title="Rename group"
+                    <IconButton
+                      icon="edit"
+                      label="Rename group"
+                      size="sm"
+                      className="size-6 opacity-0 group-hover/grp:opacity-100 focus-visible:opacity-100"
                       onClick={() => {
                         setRenaming(g);
                         setRenameDraft(g);
                       }}
-                    >
-                      <Icon name="edit" className="ms-sm" />
-                    </button>
+                    />
                   )}
                   {expert && its.length === 0 && extraGroups.includes(g) && (
-                    <button
-                      className="side-group-x"
-                      title="Remove empty group"
+                    <IconButton
+                      icon="close"
+                      label="Remove empty group"
+                      size="sm"
+                      className="size-6 opacity-0 group-hover/grp:opacity-100 focus-visible:opacity-100"
                       onClick={() => saveExtraGroups(extraGroups.filter((x) => x !== g))}
-                    >
-                      <Icon name="close" className="ms-sm" />
-                    </button>
+                    />
                   )}
                 </div>
                 {its.map(memberRow)}
-                {its.length === 0 && (
-                  <div className="side-group-empty">
-                    {expert ? "drag agents here" : "no agents"}
-                  </div>
-                )}
+                {its.length === 0 && <div className={GROUP_EMPTY}>{expert ? "drag agents here" : "no agents"}</div>}
               </div>
             );
           })}
           {archivedMembers.length > 0 && (
-            <div className="side-group side-archived">
+            <div className="mt-2.5 border-t border-line pt-1">
               <button
-                className="side-archived-toggle"
+                type="button"
+                className="group/arch flex w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent px-2.5 pt-1.5 pb-0.5 text-left text-fg-2"
                 aria-expanded={showArchived}
                 onClick={() => setShowArchived((v) => !v)}
               >
-                <span className="microlabel">archived</span>
-                <span className="side-group-count num">{archivedMembers.length}</span>
-                <span className="spacer" />
+                <Eyebrow className="group-hover/arch:text-fg">archived</Eyebrow>
+                <span className="text-[10px] tabular-nums">{archivedMembers.length}</span>
+                <span className="flex-1" />
                 <Icon name={showArchived ? "expand_less" : "expand_more"} className="ms-sm" />
               </button>
               {showArchived && archivedMembers.map(archivedRow)}
             </div>
           )}
-          {data && agents.length === 0 && <div className="viewer-note">no agents yet</div>}
+          {data && agents.length === 0 && <Hint className="py-1.5 px-2.5">no agents yet</Hint>}
           {expert &&
             (addingGroup ? (
-              <div className="side-group-new">
-                <input
+              <div className="px-2.5 pt-2.5 pb-1">
+                <TextField
+                  className="h-8 text-sm"
                   autoFocus
+                  aria-label="new group"
                   value={groupDraft}
                   placeholder="group name, e.g. Team Content"
                   onChange={(e) => setGroupDraft(e.target.value)}
@@ -410,11 +398,15 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
                 />
               </div>
             ) : (
-              <button className="side-group-add" onClick={() => setAddingGroup(true)}>
+              <button
+                type="button"
+                className="mx-2.5 mt-3 mb-1 flex cursor-pointer items-center gap-1 rounded-lg border border-dashed border-line bg-transparent px-2.5 py-1 text-2xs text-fg-2 hover:text-accent"
+                onClick={() => setAddingGroup(true)}
+              >
                 <Icon name="add" className="ms-sm" /> group
               </button>
             ))}
-        </div>
+        </SideList>
       </aside>
       {slug && <AgentSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
       {mode === "chats" && <GeneralSessions chatId={chatId} />}
@@ -423,7 +415,12 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
         <KnowledgeSide bundles={kBundles} onHide={() => toggleKnowledge(false)} onResize={resizeKnowledge} />
       )}
       {kBundles.length > 0 && !kOpen && (
-        <button className="kside-reopen" onClick={() => toggleKnowledge(true)} title="Show knowledge sidebar">
+        <button
+          type="button"
+          className="kside-reopen fixed top-[60px] right-3.5 z-5 inline-flex cursor-pointer items-center gap-1 rounded-full border border-line bg-surface-2 px-3 py-1 text-2xs text-fg-2 hover:text-fg"
+          onClick={() => toggleKnowledge(true)}
+          title="Show knowledge sidebar"
+        >
           <Icon name="menu_book" className="ms-sm" /> knowledge
         </button>
       )}
@@ -549,7 +546,7 @@ function KnowledgeSide({
   return (
     <aside className="runs-side knowledge-side">
       <div
-        className="kside-resizer"
+        className="absolute inset-y-0 -left-[3px] z-4 w-[7px] cursor-col-resize hover:bg-accent/25"
         title="Drag to resize"
         onMouseDown={(e) => {
           e.preventDefault();
@@ -565,50 +562,37 @@ function KnowledgeSide({
           window.addEventListener("mouseup", up);
         }}
       />
-      <div className="side-head">
-        <span className="kside-headline">
-          <span className="microlabel">knowledge</span>
-          <span className="kside-hint">read &amp; kept current by this agent</span>
+      <div className="flex items-center gap-2.5 border-b border-line px-4 py-3.5">
+        <span className="flex min-w-0 flex-col gap-px">
+          <Eyebrow>knowledge</Eyebrow>
+          <span className="truncate text-[10.5px] text-fg-2">read &amp; kept current by this agent</span>
         </span>
-        <span className="spacer" />
-        <button className="open-raw" onClick={onHide} title="Hide knowledge sidebar">
+        <span className="flex-1" />
+        <Button size="sm" variant="quiet" onClick={onHide} title="Hide knowledge sidebar">
           hide <Icon name="close" className="ms-sm" />
-        </button>
+        </Button>
       </div>
-      <div className="side-list">
+      <div className="flex-1 divide-y divide-line overflow-y-auto p-1.5">
         {bundles.map((b) => {
           const detail = details[b];
           const shut = collapsed[b] === true;
           return (
-            <div key={b} className="kside-bundle">
-              <div className="kside-bundle-head">
+            <div key={b} className="px-2 pt-1.5 pb-2.5">
+              <div className="flex items-center gap-0.5 py-0.5">
                 <button
-                  className="kside-bundle-toggle"
+                  type="button"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] rounded-xl border-0 bg-transparent px-2 py-1.5 text-left hover:bg-surface-2"
                   aria-expanded={!shut}
                   onClick={() => setCollapsed({ ...collapsed, [b]: !shut })}
                 >
-                  <span className={`kside-chev ${shut ? "" : "open"}`} aria-hidden>
-                    <Icon name="chevron_right" className="ms-sm" />
-                  </span>
-                  <span className="kside-bundle-name">{b}</span>
-                  {detail && <span className="kside-count num">{detail.concepts.length}</span>}
+                  <Chevron open={!shut} />
+                  <span className="truncate text-xs font-semibold text-fg">{b}</span>
+                  {detail && <span className="flex-none rounded-full bg-surface-2 px-[7px] text-[10.5px] leading-[17px] tabular-nums text-fg-2">{detail.concepts.length}</span>}
                 </button>
-                <button
-                  className="kside-open"
-                  title="Export this bundle as PDF"
-                  onClick={() => void exportBundlePdf(b)}
-                >
-                  <Icon name="picture_as_pdf" className="ms-sm" />
-                </button>
-                <Link
-                  href={`/knowledge/${encodeURIComponent(b)}`}
-                  className="kside-open"
-                  title="Open this bundle on the knowledge screen"
-                >
-                  ↗
-                </Link>
+                <IconButton icon="picture_as_pdf" label="Export this bundle as PDF" size="sm" onClick={() => void exportBundlePdf(b)} />
+                <IconButton icon="arrow_outward" label="Open this bundle on the knowledge screen" size="sm" href={`/knowledge/${encodeURIComponent(b)}`} />
               </div>
-              {!shut && detail === null && <div className="viewer-note">bundle not found</div>}
+              {!shut && detail === null && <Hint className="px-[18px] py-1.5">bundle not found</Hint>}
               {!shut &&
                 detail?.concepts.map((c) => {
                   const key = `${b}::${c.id}`;
@@ -618,95 +602,85 @@ function KnowledgeSide({
                     .map(encodeURIComponent)
                     .join("/")}`;
                   return (
-                    <div key={c.id} className={`kside-concept ${open ? "open" : ""}`}>
+                    <div key={c.id}>
                       <button
-                        className="kside-row"
+                        type="button"
+                        className={cn(
+                          "flex w-full cursor-pointer items-center gap-[7px] rounded-xl border-0 py-1.5 pr-2 pl-[18px] text-left text-xs",
+                          open ? "bg-accent-soft font-medium text-on-accent-soft" : "bg-transparent text-fg-2 hover:bg-surface-2 hover:text-fg"
+                        )}
                         aria-expanded={open}
                         title={c.description || undefined}
                         onClick={() => toggle(b, c.id)}
                       >
-                        <span className={`kside-chev ${open ? "open" : ""}`} aria-hidden>
-                          <Icon name="chevron_right" className="ms-sm" />
-                        </span>
-                        <span className="kside-title">{c.title || c.id}</span>
+                        <Chevron open={open} />
+                        <span className="min-w-0 flex-1 truncate">{c.title || c.id}</span>
                         {c.stale && (
-                          <span
-                            className="kside-stale"
-                            title="Past its stale-after date — ask the agent to re-verify it"
-                          >
-                            stale
+                          <span className="cursor-help" title="Past its stale-after date — ask the agent to re-verify it">
+                            <Tag tone="bad">stale</Tag>
                           </span>
                         )}
                       </button>
                       {open && (
                         <div
-                          className="kside-card"
+                          className="mt-1 mb-2.5 ml-[18px] overflow-hidden rounded-xl border border-line bg-surface-2"
                           ref={(el) => el?.scrollIntoView({ block: "nearest" })}
                         >
                           {concepts[key] === undefined ? (
-                            <div className="viewer-note">loading…</div>
+                            <Hint className="px-[18px] py-3">loading…</Hint>
                           ) : concepts[key] === null ? (
-                            <div className="viewer-note">could not load concept</div>
+                            <Hint className="px-[18px] py-3">could not load concept</Hint>
                           ) : editKey === key ? (
-                            <div className="kside-edit">
-                              <textarea
-                                className="concept-edit"
+                            <div className="flex flex-col gap-2 px-3 py-2.5">
+                              <TextArea
+                                className={CODE_AREA}
+                                aria-label="concept"
                                 value={draft}
                                 rows={Math.min(28, Math.max(10, draft.split("\n").length + 2))}
                                 onChange={(e) => setDraft(e.target.value)}
                                 spellCheck={false}
                               />
-                              <div className="kside-actions">
-                                <button
-                                  className="open-raw"
-                                  disabled={saving}
-                                  onClick={() => setEditKey(null)}
-                                >
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" variant="quiet" disabled={saving} onClick={() => setEditKey(null)}>
                                   cancel
-                                </button>
-                                <button
-                                  className="open-raw"
-                                  disabled={saving}
-                                  onClick={() => save(b, c.id)}
-                                >
-                                  {saving ? "saving…" : <><Icon name="check" className="ms-sm" /> save</>}
-                                </button>
+                                </Button>
+                                <Button size="sm" variant="primary" icon="check" busy={saving} onClick={() => save(b, c.id)}>
+                                  {saving ? "saving…" : "save"}
+                                </Button>
                               </div>
-                              {saveError && <div className="msg error"><Icon name="error" className="ms-sm" /> {saveError}</div>}
+                              {saveError && <Notice tone="bad">{saveError}</Notice>}
                             </div>
                           ) : (
                             <>
-                              <div className="kside-card-bar">
-                                {c.type && <span className="kside-type">{c.type}</span>}
+                              <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-[7px]">
+                                {c.type && <Tag>{c.type}</Tag>}
                                 {conceptUpdatedAt(c) && (
-                                  <span className="kside-updated num">
+                                  <span className="text-[10.5px] tabular-nums text-fg-2">
                                     updated {fmtWhen(conceptUpdatedAt(c)!)}
                                   </span>
                                 )}
-                                <span className="spacer" />
-                                <button
-                                  className="open-raw"
+                                <span className="flex-1" />
+                                <Button
+                                  size="sm"
+                                  variant="quiet"
+                                  icon="edit"
                                   onClick={() => {
                                     setDraft(concepts[key]!.raw);
                                     setEditKey(key);
                                     setSaveError("");
                                   }}
                                 >
-                                  <Icon name="edit" className="ms-sm" /> edit
-                                </button>
-                                <Link
-                                  href={`/knowledge/${encodeURIComponent(b)}/${c.id}`}
-                                  className="open-raw"
-                                  title="The page in the knowledge section"
-                                >
-                                  <Icon name="open_in_new" className="ms-sm" /> page
-                                </Link>
-                                <Link href={conceptHref} className="open-raw">
+                                  edit
+                                </Button>
+                                <Button size="sm" variant="quiet" icon="open_in_new" href={`/knowledge/${encodeURIComponent(b)}/${c.id}`} title="The page in the knowledge section">
+                                  page
+                                </Button>
+                                <Button size="sm" variant="quiet" href={conceptHref}>
                                   open ↗
-                                </Link>
+                                </Button>
                               </div>
                               <div
-                                className="kside-md md-body"
+                                className="md-body h-auto overflow-visible px-3.5 pt-3 pb-3.5 text-xs"
                                 dangerouslySetInnerHTML={{
                                   __html: DOMPurify.sanitize(
                                     marked.parse(concepts[key]!.body ?? "", { async: false })
@@ -720,14 +694,21 @@ function KnowledgeSide({
                     </div>
                   );
                 })}
-              {!shut && detail && detail.concepts.length === 0 && (
-                <div className="viewer-note">no concepts yet</div>
-              )}
+              {!shut && detail && detail.concepts.length === 0 && <Hint className="px-[18px] py-1.5">no concepts yet</Hint>}
             </div>
           );
         })}
       </div>
     </aside>
+  );
+}
+
+/** The chevron of a fold: points right, turns down when open. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span className={cn("inline-grid w-[15px] flex-none text-fg-2 transition-transform", open && "rotate-90")} aria-hidden>
+      <Icon name="chevron_right" className="text-[15px]" />
+    </span>
   );
 }
 
@@ -766,7 +747,7 @@ function AgentLanding({ slug, name }: { slug: string; name?: string }) {
       alive = false;
     };
   }, [slug]);
-  if (!noSessions) return <div className="empty">loading…</div>;
+  if (!noSessions) return <EmptyState>loading…</EmptyState>;
   return <NewAgentSession slug={slug} name={name} />;
 }
 
@@ -774,14 +755,13 @@ function AgentLanding({ slug, name }: { slug: string; name?: string }) {
 function NewAgentSession({ slug, name }: { slug: string; name?: string }) {
   const [creating, setCreating] = useState(false);
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>new session with {name ?? slug}</h1>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="agent-pick">
+    <Page width="narrow">
+      <Title>new session with {name ?? slug}</Title>
+      <Panel>
+        <div className="p-4">
           <button
-            className="agent-pick-btn active"
+            type="button"
+            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-card border border-transparent bg-accent-soft px-3.5 py-3 text-left text-on-accent-soft transition-colors hover:brightness-[0.98] disabled:cursor-default disabled:opacity-60"
             disabled={creating}
             onClick={async () => {
               setCreating(true);
@@ -789,12 +769,12 @@ function NewAgentSession({ slug, name }: { slug: string; name?: string }) {
               setCreating(false);
             }}
           >
-            <b>{creating ? "starting…" : "start session"}</b>
-            <span>on the agent's harness, with its role, knowledge and skills</span>
+            <b className="text-base font-medium">{creating ? "starting…" : "start chat"}</b>
+            <span className="text-xs">on the agent's harness, with its role, knowledge and skills</span>
           </button>
         </div>
-      </section>
-    </div>
+      </Panel>
+    </Page>
   );
 }
 
@@ -821,7 +801,7 @@ function GeneralChatsLanding() {
       alive = false;
     };
   }, []);
-  if (!none) return <div className="empty">loading…</div>;
+  if (!none) return <EmptyState>loading…</EmptyState>;
   return <NewChat />;
 }
 
@@ -834,27 +814,21 @@ function AgentSessions({ slug, chatId }: { slug: string; chatId?: string }) {
   return (
     <SessionsPane
       storeKey={`agent:${slug}`}
-      label="sessions"
-      fallbackTitle="new session"
+      label="chats"
+      fallbackTitle="new chat"
       chatId={chatId}
       filter={filter}
       hrefOf={hrefOf}
       closeHref={`/agents/${encodeURIComponent(slug)}/chat/new`}
       actions={
-        <button
-          type="button"
-          className="tab-new"
-          disabled={creating}
-          title="new session"
-          aria-label="new session"
+        <NewTabButton
+          busy={creating}
           onClick={async () => {
             setCreating(true);
             await createChatAndOpen("claude", { kind: "agent", slug: slug });
             setCreating(false);
           }}
-        >
-          <Icon name={creating ? "progress_activity" : "add"} className="ms-sm" />
-        </button>
+        />
       }
     />
   );
@@ -887,9 +861,7 @@ function GeneralSessions({ chatId }: { chatId?: string }) {
         </>
       )}
       actions={
-        <Link href="/agents/chats/new" className="tab-new" title="new chat" aria-label="new chat">
-          <Icon name="add" className="ms-sm" />
-        </Link>
+        <NewTabButton href="/agents/chats/new" />
       }
     />
   );
@@ -922,18 +894,19 @@ function AgentsLanding({ agents }: { agents: Agent[] }) {
       alive = false;
     };
   }, [agents.map((a) => a.slug).join(",")]);
-  return <div className="empty">loading…</div>;
+  return <EmptyState>loading…</EmptyState>;
 }
 
 /** No agents yet: nothing to explain, one thing to do (which needs expert mode). */
 function AgentsHome() {
   const expert = useExpertMode();
   return (
-    <div className="empty empty-action">
+    <div className="empty-action flex justify-center py-16 text-center text-sm text-fg-2">
       {expert ? (
-        <button className="run-btn" onClick={() => navigate("/agents/new")}>
-          <Icon name="add" className="ms-sm" /> create your first agent
-        </button>
+        // run-btn: the hook e2e/agents.spec.ts finds the one action by.
+        <Button variant="primary" icon="add" onClick={() => navigate("/agents/new")}>
+          create your first agent
+        </Button>
       ) : (
         <span>Creating agents needs expert mode — flip the switch in the top bar.</span>
       )}
@@ -1041,333 +1014,268 @@ export function AgentView({ slug }: { slug: string }) {
     setSaving(false);
   }
 
-  if (gone) return <div className="empty">agent not found</div>;
-  if (!agent) return <div className="empty">loading…</div>;
+  if (gone) return <EmptyState icon="person_off">agent not found</EmptyState>;
+  if (!agent) return <EmptyState>loading…</EmptyState>;
 
   const editActions = (patch: Parameters<typeof save>[0]) => (
-    <div className="agent-form-row" style={{ marginTop: 8 }}>
-      <button className="run-btn" disabled={saving} onClick={() => void save(patch)}>
+    <div className="mt-2 flex items-center gap-2.5">
+      <Button variant="primary" busy={saving} onClick={() => void save(patch)}>
         {saving ? "saving…" : "save"}
-      </button>
-      <button className="open-raw" disabled={saving} onClick={() => (setEditing(""), setError(""))}>
+      </Button>
+      <Button variant="quiet" disabled={saving} onClick={() => (setEditing(""), setError(""))}>
         cancel
-      </button>
+      </Button>
     </div>
+  );
+  const editButton = (open: () => void) => (
+    <Button
+      size="sm"
+      onClick={() => {
+        open();
+        setError("");
+      }}
+    >
+      edit
+    </Button>
   );
 
   return (
-    <div className="agent-view">
-      <div className="detail-head">
-        <span className="agent-avatar lg">
+    <div className="agent-view flex animate-rise flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+        <Avatar>
           <span aria-hidden>{agent.emoji}</span>
-        </span>
-        <h1>{agent.name}</h1>
-        <span className="chip agent">{agent.harness}</span>
-        {agent.model && <span className="chip">{agent.model}</span>}
-        {agent.effort && <span className="chip">effort: {agent.effort}</span>}
-        {agent.archived && <span className="chip archived-chip"><Icon name="inventory_2" className="ms-sm" /> archived</span>}
-        <span className="spacer" />
-        <Link href={`/agents/${encodeURIComponent(slug)}/edit`} className="open-raw">
-          edit
-        </Link>
+        </Avatar>
+        <Title size="lg">{agent.name}</Title>
+        <Tag>{agent.harness}</Tag>
+        {agent.model && <Tag>{agent.model}</Tag>}
+        {agent.effort && <Tag>effort: {agent.effort}</Tag>}
+        {agent.archived && (
+          <Tag>
+            <Icon name="inventory_2" className="ms-sm mr-1" /> archived
+          </Tag>
+        )}
+        <span className="flex-1" />
+        <Button href={`/agents/${encodeURIComponent(slug)}/edit`}>edit</Button>
         {agent.archived ? (
-          <button className="run-btn tonal" disabled={saving} onClick={() => void setArchived(false)}>
-            <Icon name="unarchive" className="ms-sm" /> {saving ? "…" : "unarchive"}
-          </button>
+          <Button variant="primary" icon="unarchive" busy={saving} onClick={() => void setArchived(false)}>
+            {saving ? "…" : "unarchive"}
+          </Button>
         ) : (
-          <>
-            <button
-              className="open-raw"
-              disabled={saving}
-              title="Hide this agent from the roster — restorable any time"
-              onClick={() => void setArchived(true)}
-            >
-              <Icon name="archive" className="ms-sm" /> archive
-            </button>
-          </>
+          <Button
+            variant="quiet"
+            icon="archive"
+            disabled={saving}
+            title="Hide this agent from the roster — restorable any time"
+            onClick={() => void setArchived(true)}
+          >
+            archive
+          </Button>
         )}
       </div>
-      <section className="panel">
-        <div className="m3-list">
-          <button type="button" className="m3-row m3-toggle" onClick={() => setRoleOpen(!roleOpen)}>
-            <span className="m3-ico"><Icon name="badge" /></span>
-            <span className="m3-body">
-              <span className="m3-head">role</span>
-              {!roleOpen && (
-                <span className="m3-sub m3-ellipsis">
-                  {(agent.system || "").trim().split("\n")[0] ||
-                    "empty — expand to give this agent a role"}
-                </span>
-              )}
-            </span>
-            <span className={`m3-chev ${roleOpen ? "open" : ""}`}><Icon name="expand_more" className="ms-sm" /></span>
-          </button>
-          {roleOpen && editing !== "role" && (
-            <div className="m3-expand">
-              <pre>{agent.system || "(empty — click edit to give this agent a role)"}</pre>
-              <div className="agent-form-row" style={{ marginTop: 10 }}>
-                <button
-                  className="open-raw"
-                  onClick={() => {
-                    setRoleDraft(agent.system);
-                    setEditing("role");
-                    setError("");
-                  }}
-                >
-                  <Icon name="edit" className="ms-sm" /> edit role
-                </button>
-                <span className="spacer" />
-                <span className="m3-sub">agents/{agent.slug}/system.md</span>
-              </div>
-            </div>
-          )}
-          {roleOpen && editing === "role" && (
-            <div className="m3-expand">
-              <textarea
-                className="concept-edit"
-                rows={Math.min(24, Math.max(8, roleDraft.split("\n").length + 2))}
-                value={roleDraft}
-                placeholder={"You are the ... for this project. Your job is ..."}
-                onChange={(e) => setRoleDraft(e.target.value)}
-                spellCheck={false}
-              />
-              {editActions({ system: roleDraft })}
-            </div>
-          )}
-          <div className="m3-row">
-            <span className="m3-ico"><Icon name="account_tree" /></span>
-            <span className="m3-body">
-              <span className="m3-head">workflows</span>
-              {editing === "workflows" ? (
-                <>
-                  <div className="wf-checks">
-                    {(wfData?.workflows ?? []).map((w) => (
-                      <label key={w.slug}>
-                        <input
-                          type="checkbox"
-                          checked={listDraft.includes(w.slug)}
-                          onChange={(e) => toggleDraft(w.slug, e.target.checked)}
-                        />
-                        <b>{w.slug}</b>
-                        {w.description && <span className="opt-hint"> — {w.description}</span>}
-                      </label>
-                    ))}
-                    {(wfData?.workflows ?? []).length === 0 && (
-                      <div className="viewer-note">no workflows in this project</div>
-                    )}
-                  </div>
-                  {editActions({ workflows: listDraft })}
-                </>
-              ) : agent.workflows.length === 0 ? (
-                <span className="m3-sub">none connected — the agent can run any workflow you connect</span>
-              ) : (
-                <span className="m3-chips">
-                  {agent.workflows.map((w) => (
-                    <Link key={w} href={`/workflows/${encodeURIComponent(w)}`} className="chip">
-                      {w}
-                    </Link>
-                  ))}
-                </span>
-              )}
-            </span>
-            {editing !== "workflows" && (
-              <button
-                className="open-raw"
-                onClick={() => {
-                  setListDraft(agent.workflows);
-                  setEditing("workflows");
-                  setError("");
-                }}
-              >
-                edit
-              </button>
-            )}
-          </div>
-          <div className="m3-row">
-            <span className="m3-ico"><Icon name="menu_book" /></span>
-            <span className="m3-body">
-              <span className="m3-head">knowledge</span>
-              {editing === "knowledge" ? (
-                <>
-                  <div className="wf-checks">
-                    {(kData?.bundles ?? []).map((b) => (
-                      <label key={b.name}>
-                        <input
-                          type="checkbox"
-                          checked={listDraft.includes(b.name)}
-                          onChange={(e) => toggleDraft(b.name, e.target.checked)}
-                        />
-                        <b>{b.name}</b>
-                        <span className="opt-hint"> — {b.concepts} concepts</span>
-                      </label>
-                    ))}
-                    {(kData?.bundles ?? []).length === 0 && (
-                      <div className="viewer-note">no knowledge bundles in this project</div>
-                    )}
-                  </div>
-                  {editActions({ knowledge: listDraft })}
-                </>
-              ) : agent.knowledge.length === 0 ? (
-                <span className="m3-sub">none connected — connected bundles are read and kept current by the agent</span>
-              ) : (
-                <span className="m3-chips">
-                  {agent.knowledge.map((b) => (
-                    <Link key={b} href={`/knowledge/${encodeURIComponent(b)}`} className="chip">
-                      {b}
-                    </Link>
-                  ))}
-                </span>
-              )}
-            </span>
-            {editing !== "knowledge" && (
-              <button
-                className="open-raw"
-                onClick={() => {
-                  setListDraft(agent.knowledge);
-                  setEditing("knowledge");
-                  setError("");
-                }}
-              >
-                edit
-              </button>
-            )}
-          </div>
-          {(features.vibeables || (agent.vibeables ?? []).length > 0) && (
-            <div className="m3-row" data-link-kind="vibeables">
-              <span className="m3-ico"><Icon name="web" /></span>
-              <span className="m3-body">
-                <span className="m3-head">vibeables</span>
-                {editing === "vibeables" ? (
-                  <>
-                    <div className="wf-checks">
-                      {(vData?.vibeables ?? []).map((v) => (
-                        <label key={v.slug}>
-                          <input
-                            type="checkbox"
-                            checked={listDraft.includes(v.slug)}
-                            onChange={(e) => toggleDraft(v.slug, e.target.checked)}
-                          />
-                          <b>{v.slug}</b>
-                          <span className="opt-hint"> — {v.dev ? "dev" : "static"}</span>
-                        </label>
-                      ))}
-                      {/* A linked app that is gone stays in the draft so unticking removes it; it just has no folder to show. */}
-                      {listDraft
-                        .filter((slug) => !(vData?.vibeables ?? []).some((v) => v.slug === slug))
-                        .map((slug) => (
-                          <label key={slug}>
-                            <input type="checkbox" checked onChange={(e) => toggleDraft(slug, e.target.checked)} />
-                            <b>{slug}</b>
-                            <span className="opt-hint"> — not found in this workspace</span>
-                          </label>
-                        ))}
-                      {!features.vibeables && <div className="viewer-note">vibeables are off in this workspace's settings</div>}
-                      {features.vibeables && (vData?.vibeables ?? []).length === 0 && (
-                        <div className="viewer-note">no vibeables in this workspace yet — create one on the vibeables screen</div>
-                      )}
-                    </div>
-                    {editActions({ vibeables: listDraft })}
-                  </>
-                ) : (agent.vibeables ?? []).length === 0 ? (
-                  <span className="m3-sub">none linked — linked apps are the agent's to build and maintain; it knows them from the first message</span>
-                ) : (
-                  <span className="m3-chips">
-                    {(agent.vibeables ?? []).map((v) => {
-                      const found = !features.vibeables || !vData || vData.vibeables.some((x) => x.slug === v);
-                      return (
-                        <Link
-                          key={v}
-                          href={`/vibeables/${encodeURIComponent(v)}`}
-                          className={`chip ${found ? "" : "attention"}`}
-                          title={found ? undefined : "configured but not found in this workspace"}
-                        >
-                          {v}
-                          {!found && " · not found"}
-                        </Link>
-                      );
-                    })}
+      <Panel>
+        <PanelRows>
+          <div>
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-3.5 border-0 bg-transparent px-[18px] py-3 text-left font-[inherit] text-inherit hover:bg-surface-2"
+              aria-expanded={roleOpen}
+              onClick={() => setRoleOpen(!roleOpen)}
+            >
+              <RowIcon name="badge" />
+              <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                <span className="text-[13.5px] font-medium text-fg">role</span>
+                {!roleOpen && (
+                  <span className={cn(SUB, "truncate")}>
+                    {(agent.system || "").trim().split("\n")[0] || "empty — expand to give this agent a role"}
                   </span>
                 )}
               </span>
-              {editing !== "vibeables" && (
-                <button
-                  className="open-raw"
-                  onClick={() => {
-                    setListDraft(agent.vibeables ?? []);
-                    setEditing("vibeables");
-                    setError("");
-                  }}
-                >
-                  edit
-                </button>
-              )}
-            </div>
-          )}
-          <div className="m3-row">
-            <span className="m3-ico"><Icon name="extension" /></span>
-            <span className="m3-body">
-              <span className="m3-head">shared skills</span>
-              {editing === "skills" ? (
-                <>
-                  <div className="wf-checks">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={allSkillsDraft}
-                        onChange={(e) => setAllSkillsDraft(e.target.checked)}
-                      />
-                      <b>all skills</b>
-                      <span className="opt-hint"> — every discovered skill, including future ones</span>
-                    </label>
-                    {!allSkillsDraft &&
-                      (sData?.skills ?? []).map((s) => (
-                        <label key={s.name}>
-                          <input
-                            type="checkbox"
-                            checked={listDraft.includes(s.name)}
-                            onChange={(e) => toggleDraft(s.name, e.target.checked)}
-                          />
-                          <b>/{s.name}</b>
-                          {s.description && <span className="opt-hint"> — {s.description}</span>}
-                        </label>
-                      ))}
-                    {!allSkillsDraft && (sData?.skills ?? []).length === 0 && (
-                      <div className="viewer-note">no skills found (.claude/skills, project or user)</div>
-                    )}
-                  </div>
-                  {editActions({ skills: allSkillsDraft ? undefined : listDraft })}
-                </>
-              ) : agent.skills === undefined ? (
-                <span className="m3-sub">all discovered skills (default) — invoke with /name in a session</span>
-              ) : agent.skills.length === 0 ? (
-                <span className="m3-sub">none — this agent runs without skills</span>
-              ) : (
-                <span className="m3-chips">
-                  {agent.skills.map((s) => (
-                    <span key={s} className="chip">
-                      /{s}
-                    </span>
-                  ))}
-                </span>
-              )}
-            </span>
-            {editing !== "skills" && (
-              <button
-                className="open-raw"
-                onClick={() => {
-                  setAllSkillsDraft(agent.skills === undefined);
-                  setListDraft(agent.skills ?? []);
-                  setEditing("skills");
-                  setError("");
-                }}
-              >
-                edit
-              </button>
+              <Icon name="expand_more" className={cn("ms-sm flex-none text-fg-2 transition-transform", roleOpen && "rotate-180")} />
+            </button>
+            {roleOpen && editing !== "role" && (
+              <div className="pr-[18px] pb-4 pl-16">
+                <pre className="m-0 font-mono text-[12.5px] leading-[1.65] whitespace-pre-wrap">
+                  {agent.system || "(empty — click edit to give this agent a role)"}
+                </pre>
+                <div className="mt-2.5 flex items-center gap-2.5">
+                  <Button
+                    size="sm"
+                    icon="edit"
+                    onClick={() => {
+                      setRoleDraft(agent.system);
+                      setEditing("role");
+                      setError("");
+                    }}
+                  >
+                    edit role
+                  </Button>
+                  <span className="flex-1" />
+                  <span className={SUB}>agents/{agent.slug}/system.md</span>
+                </div>
+              </div>
+            )}
+            {roleOpen && editing === "role" && (
+              <div className="pr-[18px] pb-4 pl-16">
+                <TextArea
+                  className={CODE_AREA}
+                  aria-label="role"
+                  rows={Math.min(24, Math.max(8, roleDraft.split("\n").length + 2))}
+                  value={roleDraft}
+                  placeholder={"You are the ... for this project. Your job is ..."}
+                  onChange={(e) => setRoleDraft(e.target.value)}
+                  spellCheck={false}
+                />
+                {editActions({ system: roleDraft })}
+              </div>
             )}
           </div>
-        </div>
-        {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-      </section>
+          <PanelRow
+            icon="account_tree"
+            title="workflows"
+            action={editing !== "workflows" && editButton(() => (setListDraft(agent.workflows), setEditing("workflows")))}
+          >
+            {editing === "workflows" ? (
+              <>
+                <Checks>
+                  {(wfData?.workflows ?? []).map((w) => (
+                    <Checkbox key={w.slug} checked={listDraft.includes(w.slug)} onChange={(on) => toggleDraft(w.slug, on)} hint={w.description} mono>{w.slug}</Checkbox>
+                  ))}
+                  {(wfData?.workflows ?? []).length === 0 && <Hint className="py-1.5 px-0">no workflows in this project</Hint>}
+                </Checks>
+                {editActions({ workflows: listDraft })}
+              </>
+            ) : agent.workflows.length === 0 ? (
+              <span className={SUB}>none connected — the agent can run any workflow you connect</span>
+            ) : (
+              <Chips>
+                {agent.workflows.map((w) => (
+                  <Tag key={w} href={`/workflows/${encodeURIComponent(w)}`}>
+                    {w}
+                  </Tag>
+                ))}
+              </Chips>
+            )}
+          </PanelRow>
+          <PanelRow
+            icon="menu_book"
+            title="knowledge"
+            action={editing !== "knowledge" && editButton(() => (setListDraft(agent.knowledge), setEditing("knowledge")))}
+          >
+            {editing === "knowledge" ? (
+              <>
+                <Checks>
+                  {(kData?.bundles ?? []).map((b) => (
+                    <Checkbox key={b.name} checked={listDraft.includes(b.name)} onChange={(on) => toggleDraft(b.name, on)} hint={`${b.concepts} concepts`} mono>{b.name}</Checkbox>
+                  ))}
+                  {(kData?.bundles ?? []).length === 0 && <Hint className="py-1.5 px-0">no knowledge bundles in this project</Hint>}
+                </Checks>
+                {editActions({ knowledge: listDraft })}
+              </>
+            ) : agent.knowledge.length === 0 ? (
+              <span className={SUB}>none connected — connected bundles are read and kept current by the agent</span>
+            ) : (
+              <Chips>
+                {agent.knowledge.map((b) => (
+                  <Tag key={b} href={`/knowledge/${encodeURIComponent(b)}`}>
+                    {b}
+                  </Tag>
+                ))}
+              </Chips>
+            )}
+          </PanelRow>
+          {(features.vibeables || (agent.vibeables ?? []).length > 0) && (
+            <PanelRow
+              icon="web"
+              title="apps"
+              data-link-kind="vibeables"
+              action={editing !== "vibeables" && editButton(() => (setListDraft(agent.vibeables ?? []), setEditing("vibeables")))}
+            >
+              {editing === "vibeables" ? (
+                <>
+                  <Checks>
+                    {(vData?.vibeables ?? []).map((v) => (
+                      <Checkbox key={v.slug} checked={listDraft.includes(v.slug)} onChange={(on) => toggleDraft(v.slug, on)} hint={v.dev ? "dev" : "static"} mono>{v.slug}</Checkbox>
+                    ))}
+                    {/* A linked app that is gone stays in the draft so unticking removes it; it just has no folder to show. */}
+                    {listDraft
+                      .filter((slug) => !(vData?.vibeables ?? []).some((v) => v.slug === slug))
+                      .map((slug) => (
+                        <Checkbox key={slug} checked onChange={(on) => toggleDraft(slug, on)} hint="not found in this workspace" mono>{slug}</Checkbox>
+                      ))}
+                    {!features.vibeables && <Hint className="py-1.5 px-0">vibeables are off in this workspace's settings</Hint>}
+                    {features.vibeables && (vData?.vibeables ?? []).length === 0 && (
+                      <Hint className="py-1.5 px-0">no apps in this workspace yet — create one on the apps page</Hint>
+                    )}
+                  </Checks>
+                  {editActions({ vibeables: listDraft })}
+                </>
+              ) : (agent.vibeables ?? []).length === 0 ? (
+                <span className={SUB}>none linked — linked apps are the agent's to build and maintain; it knows them from the first message</span>
+              ) : (
+                <Chips>
+                  {(agent.vibeables ?? []).map((v) => {
+                    const found = !features.vibeables || !vData || vData.vibeables.some((x) => x.slug === v);
+                    return (
+                      <Tag
+                        key={v}
+                        href={`/vibeables/${encodeURIComponent(v)}`}
+                        tone={found ? "neutral" : "bad"}
+                        title={found ? undefined : "configured but not found in this workspace"}
+                      >
+                        {v}
+                        {!found && " · not found"}
+                      </Tag>
+                    );
+                  })}
+                </Chips>
+              )}
+            </PanelRow>
+          )}
+          <PanelRow
+            icon="extension"
+            title="shared skills"
+            action={
+              editing !== "skills" &&
+              editButton(() => {
+                setAllSkillsDraft(agent.skills === undefined);
+                setListDraft(agent.skills ?? []);
+                setEditing("skills");
+              })
+            }
+          >
+            {editing === "skills" ? (
+              <>
+                <Checks>
+                  <Checkbox checked={allSkillsDraft} onChange={setAllSkillsDraft} hint="every discovered skill, including future ones" mono>all skills</Checkbox>
+                  {!allSkillsDraft &&
+                    (sData?.skills ?? []).map((s) => (
+                      <Checkbox key={s.name} checked={listDraft.includes(s.name)} onChange={(on) => toggleDraft(s.name, on)} hint={s.description} mono>{`/${s.name}`}</Checkbox>
+                    ))}
+                  {!allSkillsDraft && (sData?.skills ?? []).length === 0 && (
+                    <Hint className="py-1.5 px-0">no skills found (.claude/skills, project or user)</Hint>
+                  )}
+                </Checks>
+                {editActions({ skills: allSkillsDraft ? undefined : listDraft })}
+              </>
+            ) : agent.skills === undefined ? (
+              <span className={SUB}>all discovered skills (default) — invoke with /name in a session</span>
+            ) : agent.skills.length === 0 ? (
+              <span className={SUB}>none — this agent runs without skills</span>
+            ) : (
+              <Chips>
+                {agent.skills.map((s) => (
+                  <Tag key={s}>/{s}</Tag>
+                ))}
+              </Chips>
+            )}
+          </PanelRow>
+        </PanelRows>
+        {error && (
+          <div className="px-[18px] pb-3">
+            <Notice tone="bad">{error}</Notice>
+          </div>
+        )}
+      </Panel>
 
       <AgentSkillsPanel slug={slug} />
       <RoutinesPanel slug={slug} />
@@ -1422,7 +1330,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
   }
 
   async function remove(name: string): Promise<void> {
-    if (!window.confirm(`Delete skill "/${name}" of this agent (its folder is removed)?`)) return;
+    if (!window.confirm(`Move skill "/${name}" of this agent to the trash?`)) return;
     await fetch(`/api/agents/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }).catch(() => {});
@@ -1430,86 +1338,86 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
   }
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="microlabel">own skills — only this agent</span>
-        <span className="spacer" />
-        {!form && (
-          <button
-            className="open-raw"
+    <Panel
+      title="own skills — only this agent"
+      actions={
+        !form && (
+          <Button
+            size="sm"
+            icon="add"
             onClick={() => {
               setForm({ name: "", content: AGENT_SKILL_TEMPLATE, isNew: true });
               setError("");
             }}
           >
-            <Icon name="add" className="ms-sm" /> new skill
-          </button>
-        )}
-      </div>
+            new skill
+          </Button>
+        )
+      }
+    >
       {skills.length === 0 && !form && (
-        <div className="viewer-note">
+        <Hint className="px-[18px] py-3 text-xs">
           none — skills in <code>agents/{slug}/skills/</code> are private to this agent; skills for
           every agent live in the workspace skills folder.
-        </div>
+        </Hint>
       )}
       {skills.length > 0 && !form && (
-        <div className="m3-list">
+        <PanelRows>
           {skills.map((s) => (
-            <div key={s.name} className="m3-row">
-              <span className="m3-ico"><Icon name="extension" /></span>
-              <span className="m3-body">
-                <span className="m3-head">/{s.name}</span>
-                <span className="m3-sub">{s.description || <code>SKILL.md</code>}</span>
-              </span>
-              <button className="open-raw" onClick={() => void edit(s.name)}>
-                <Icon name="edit" className="ms-sm" /> edit
-              </button>
-              <button className="open-raw" onClick={() => void remove(s.name)}>
-                <Icon name="close" className="ms-sm" />
-              </button>
-            </div>
+            <PanelRow
+              key={s.name}
+              icon="extension"
+              title={`/${s.name}`}
+              action={
+                <>
+                  <Button size="sm" icon="edit" onClick={() => void edit(s.name)}>
+                    edit
+                  </Button>
+                  <IconButton icon="delete" label={`delete /${s.name}`} variant="danger" size="sm" onClick={() => void remove(s.name)} />
+                </>
+              }
+            >
+              <span className={SUB}>{s.description || <code>SKILL.md</code>}</span>
+            </PanelRow>
           ))}
-        </div>
+        </PanelRows>
       )}
       {form && (
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              name — invoked as /&lt;name&gt;
-              <input
-                value={form.name}
-                placeholder="e.g. report-html"
-                disabled={!form.isNew}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </label>
-          </div>
-          <label className="agent-field">
-            SKILL.md — frontmatter (description) + the instructions
-            <textarea
-              className="concept-edit"
+        <FormStack className="max-w-[680px]">
+          <Field label="name — invoked as /<name>">
+            <TextField
+              className="font-mono"
+              value={form.name}
+              placeholder="e.g. report-html"
+              disabled={!form.isNew}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+          <Field label="SKILL.md — frontmatter (description) + the instructions">
+            <TextArea
+              className={CODE_AREA}
               rows={Math.min(28, Math.max(12, form.content.split("\n").length + 2))}
               value={form.content}
               spellCheck={false}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
             />
-          </label>
-          <div className="agent-form-row">
-            <button
-              className="run-btn"
-              disabled={saving || !form.name.trim()}
-              onClick={() => void save()}
-            >
+          </Field>
+          <div className="flex items-center gap-2.5">
+            <Button variant="primary" busy={saving} disabled={!form.name.trim()} onClick={() => void save()}>
               {saving ? "saving…" : "save"}
-            </button>
-            <button className="open-raw" disabled={saving} onClick={() => setForm(null)}>
+            </Button>
+            <Button variant="quiet" disabled={saving} onClick={() => setForm(null)}>
               cancel
-            </button>
+            </Button>
           </div>
+        </FormStack>
+      )}
+      {error && (
+        <div className="px-[18px] pb-3">
+          <Notice tone="bad">{error}</Notice>
         </div>
       )}
-      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-    </section>
+    </Panel>
   );
 }
 
@@ -1562,173 +1470,148 @@ function RoutinesPanel({ slug }: { slug: string }) {
   }
 
   async function remove(id: string) {
-    if (!window.confirm(`Delete routine "${id}"?`)) return;
+    if (!window.confirm(`Delete the scheduled prompt "${id}"?`)) return;
     await fetch(`/api/agents/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}`, {
       method: "DELETE",
     }).catch(() => {});
   }
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <span className="microlabel">routines — scheduled prompts</span>
-        <span className="spacer" />
-        {!form && (
-          <button
-            className="open-raw"
-            onClick={() => setForm({ name: "", schedule: "0 9 * * 1-5", prompt: "", enabled: true })}
-          >
-            <Icon name="add" className="ms-sm" /> new routine
-          </button>
-        )}
-      </div>
+    <Panel
+      title="schedule — prompts that run on their own"
+      actions={
+        !form && (
+          <Button size="sm" icon="add" onClick={() => setForm({ name: "", schedule: "0 9 * * 1-5", prompt: "", enabled: true })}>
+            schedule a prompt
+          </Button>
+        )
+      }
+    >
       {routines.length === 0 && !form && (
-        <div className="viewer-note">
+        <Hint className="px-[18px] py-3 text-xs">
           none — a routine messages this agent on a schedule (cron, server local time) and each run
           opens a new session with the result.
-        </div>
+        </Hint>
       )}
       {routines.length > 0 && (
-        <div className="m3-list">
+        <PanelRows>
           {routines.map((r) => (
-            <div key={r.id} className="m3-row">
-              <span className="m3-ico"><Icon name="schedule" /></span>
-              <span className="m3-body">
-                <span className="m3-head">
+            <PanelRow
+              key={r.id}
+              icon="schedule"
+              title={
+                <>
                   {r.name}
                   {r.lastError && (
-                    <span className="chip stale" title={r.lastError}>
-                      error
+                    <span title={r.lastError}>
+                      <Tag tone="bad">error</Tag>
                     </span>
                   )}
                   {r.awaitingApproval && r.lastChatId && (
-                    <Link
+                    <Tag
                       href={`/agents/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}
-                      className="chip attention"
+                      tone="bad"
                       title="the last run asked for a permission nobody has answered yet"
                     >
                       needs approval
-                    </Link>
+                    </Tag>
                   )}
-                </span>
-                <span className="m3-sub">
-                  <code>{r.schedule}</code>
-                  {!r.enabled
-                    ? " · paused"
-                    : r.nextRunAt
-                      ? ` · next ${fmtWhen(r.nextRunAt)}`
-                      : ""}
-                  {" · "}
-                  {r.lastChatId ? (
-                    <Link href={`/agents/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}>
-                      last run {fmtWhen(r.lastRunAt)}
-                    </Link>
-                  ) : (
-                    "never ran"
-                  )}
-                </span>
+                </>
+              }
+              action={
+                <>
+                  <Button size="sm" icon="play_arrow" busy={busyId === r.id} onClick={() => runNow(r.id)}>
+                    {busyId === r.id ? "starting…" : "run"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() =>
+                      setForm({
+                        id: r.id,
+                        name: r.name,
+                        schedule: r.schedule,
+                        prompt: r.prompt,
+                        enabled: r.enabled,
+                      })
+                    }
+                  >
+                    edit
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => void remove(r.id)}>
+                    delete
+                  </Button>
+                  <Switch checked={r.enabled} label={r.enabled ? "enabled — click to pause" : "paused — click to enable"} onChange={() =>
+                      void post({
+                        id: r.id,
+                        name: r.name,
+                        schedule: r.schedule,
+                        prompt: r.prompt,
+                        enabled: !r.enabled,
+                      })
+                    } />
+                </>
+              }
+            >
+              <span className={SUB}>
+                <code>{r.schedule}</code>
+                {!r.enabled
+                  ? " · paused"
+                  : r.nextRunAt
+                    ? ` · next ${fmtWhen(r.nextRunAt)}`
+                    : ""}
+                {" · "}
+                {r.lastChatId ? (
+                  <Link href={`/agents/${encodeURIComponent(slug)}/chat/${r.lastChatId}`}>
+                    last run {fmtWhen(r.lastRunAt)}
+                  </Link>
+                ) : (
+                  "never ran"
+                )}
               </span>
-              <button className="open-raw" disabled={busyId === r.id} onClick={() => runNow(r.id)}>
-                {busyId === r.id ? "starting…" : <><Icon name="play_arrow" className="ms-sm" /> run</>}
-              </button>
-              <button
-                className="open-raw"
-                onClick={() =>
-                  setForm({
-                    id: r.id,
-                    name: r.name,
-                    schedule: r.schedule,
-                    prompt: r.prompt,
-                    enabled: r.enabled,
-                  })
-                }
-              >
-                edit
-              </button>
-              <button className="open-raw" onClick={() => void remove(r.id)}>
-                delete
-              </button>
-              <label
-                className="m3-switch"
-                title={r.enabled ? "enabled — click to pause" : "paused — click to enable"}
-              >
-                <input
-                  type="checkbox"
-                  checked={r.enabled}
-                  onChange={() =>
-                    void post({
-                      id: r.id,
-                      name: r.name,
-                      schedule: r.schedule,
-                      prompt: r.prompt,
-                      enabled: !r.enabled,
-                    })
-                  }
-                />
-                <span className="m3-switch-track" />
-              </label>
-            </div>
+            </PanelRow>
           ))}
-        </div>
+        </PanelRows>
       )}
       {form && (
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              name
-              <input
-                value={form.name}
-                placeholder="e.g. Morning report"
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </label>
-            <label className="agent-field" style={{ width: 200 }}>
-              schedule (cron)
-              <input
-                value={form.schedule}
-                placeholder="0 9 * * 1-5"
-                onChange={(e) => setForm({ ...form, schedule: e.target.value })}
-              />
-            </label>
-            <label className="agent-field wf-checks" style={{ width: 90 }}>
+        <FormStack className="max-w-[680px]">
+          <FieldRow>
+            <Field label="name" className="flex-1">
+              <TextField value={form.name} placeholder="e.g. Morning report" onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </Field>
+            <Field label="schedule (cron)" className="w-[200px] max-[900px]:w-auto">
+              <TextField className="font-mono" value={form.schedule} placeholder="0 9 * * 1-5" onChange={(e) => setForm({ ...form, schedule: e.target.value })} />
+            </Field>
+            <label className="flex h-9 cursor-pointer items-center gap-2 text-sm text-fg">
+              <input type="checkbox" className="accent-accent" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
               enabled
-              <label>
-                <input
-                  type="checkbox"
-                  checked={form.enabled}
-                  onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-                />
-                on
-              </label>
             </label>
-          </div>
-          <label className="agent-field">
-            prompt — what to ask this agent on each run
-            <textarea
-              rows={5}
-              value={form.prompt}
-              placeholder="Check ... and summarize what changed."
-              onChange={(e) => setForm({ ...form, prompt: e.target.value })}
-            />
-          </label>
-          <div className="agent-form-row">
-            <button
-              className="run-btn"
+          </FieldRow>
+          <Field label="prompt — what to ask this agent on each run">
+            <TextArea rows={5} value={form.prompt} placeholder="Check ... and summarize what changed." onChange={(e) => setForm({ ...form, prompt: e.target.value })} />
+          </Field>
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="primary"
               disabled={!form.name.trim() || !form.prompt.trim()}
               onClick={async () => {
                 if (await post(form)) setForm(null);
               }}
             >
-              {form.id ? "save routine" : "create routine"}
-            </button>
-            <button className="open-raw" onClick={() => (setForm(null), setError(""))}>
+              {form.id ? "save" : "add to the schedule"}
+            </Button>
+            <Button variant="quiet" onClick={() => (setForm(null), setError(""))}>
               cancel
-            </button>
+            </Button>
           </div>
+        </FormStack>
+      )}
+      {error && (
+        <div className="px-[18px] pb-3">
+          <Notice tone="bad">{error}</Notice>
         </div>
       )}
-      {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-    </section>
+    </Panel>
   );
 }
 
@@ -1821,232 +1704,142 @@ export function AgentEditor({ slug }: { slug?: string }) {
   }
 
   async function remove() {
-    if (!slug || !window.confirm(`Delete agent "${slug}" and its definition folder?`)) return;
+    if (!slug || !window.confirm(`Move agent "${slug}" to the trash?`)) return;
     await fetch(`/api/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }).catch(() => {});
     navigate("/agents");
   }
 
-  if (!form) return <div className="empty">{error || "loading…"}</div>;
+  if (!form) return <EmptyState>{error || "loading…"}</EmptyState>;
   const set = (patch: Partial<typeof form>) => setForm({ ...form, ...patch });
+  // Connect or disconnect one item of a list field.
+  const toggleIn = (key: "workflows" | "knowledge" | "vibeables" | "skills", name: string, on: boolean) =>
+    set({ [key]: on ? [...form[key], name] : form[key].filter((n) => n !== name) });
 
   return (
-    <div className="new-chat">
-      <div className="page-head">
-        <h1>{slug ? `edit ${slug}` : "new agent"}</h1>
-      </div>
-      <section className="panel new-chat-panel">
-        <div className="agent-form">
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              name
-              <input
-                value={form.name}
-                placeholder="e.g. Max"
-                onChange={(e) => set({ name: e.target.value })}
-              />
-            </label>
-            <label className="agent-field" style={{ width: 90 }}>
-              emoji
-              <input value={form.emoji} onChange={(e) => set({ emoji: e.target.value })} />
-            </label>
-          </div>
-          <div className="emoji-pick">
+    <Page width="narrow">
+      <Title>{slug ? `edit ${slug}` : "new agent"}</Title>
+      <Panel>
+        <FormStack className="max-w-[680px]">
+          <FieldRow>
+            <Field label="name" className="flex-1">
+              <TextField value={form.name} placeholder="e.g. Max" onChange={(e) => set({ name: e.target.value })} />
+            </Field>
+            <Field label="emoji" className="w-[90px] max-[900px]:w-auto">
+              <TextField value={form.emoji} onChange={(e) => set({ emoji: e.target.value })} />
+            </Field>
+          </FieldRow>
+          <div className="flex flex-wrap gap-1.5">
             {EMOJI_PRESETS.map((e) => (
               <button
                 key={e}
                 type="button"
-                className={form.emoji === e ? "active" : ""}
+                aria-pressed={form.emoji === e}
+                className={cn(
+                  "cursor-pointer rounded-xl border px-2.5 py-1.5 text-base transition-colors",
+                  form.emoji === e ? "border-transparent bg-accent-soft" : "border-line bg-transparent hover:bg-surface-2"
+                )}
                 onClick={() => set({ emoji: e })}
               >
                 {e}
               </button>
             ))}
           </div>
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ flex: 1 }}>
-              description
-              <input
-                value={form.description}
-                placeholder="one line: what this agent is for"
-                onChange={(e) => set({ description: e.target.value })}
-              />
-            </label>
-            <label className="agent-field" style={{ width: 180 }}>
-              group
-              <input
-                value={form.group}
-                placeholder="none"
-                onChange={(e) => set({ group: e.target.value })}
-              />
-            </label>
-          </div>
-          <div className="agent-form-row">
-            <label className="agent-field" style={{ width: 140 }}>
-              harness
-              <select value={form.harness} onChange={(e) => set({ harness: e.target.value })}>
+          <FieldRow>
+            <Field label="description" className="flex-1">
+              <TextField value={form.description} placeholder="one line: what this agent is for" onChange={(e) => set({ description: e.target.value })} />
+            </Field>
+            <Field label="group" className="w-[180px] max-[900px]:w-auto">
+              <TextField value={form.group} placeholder="none" onChange={(e) => set({ group: e.target.value })} />
+            </Field>
+          </FieldRow>
+          <FieldRow>
+            <Field label="harness" className="w-[140px] max-[900px]:w-auto">
+              <Select value={form.harness} onChange={(e) => set({ harness: e.target.value })}>
                 <option value="claude">claude</option>
                 <option value="codex">codex</option>
                 <option value="pi">pi</option>
-              </select>
-            </label>
-            <label className="agent-field" style={{ flex: 1 }}>
-              model
-              <input
-                value={form.model}
-                placeholder="harness default — e.g. sonnet, gpt-5.6-sol"
-                onChange={(e) => set({ model: e.target.value })}
-              />
-            </label>
-            <label className="agent-field" style={{ width: 140 }}>
-              effort
-              <select value={form.effort} onChange={(e) => set({ effort: e.target.value })}>
+              </Select>
+            </Field>
+            <Field label="model" className="flex-1">
+              <TextField className="font-mono" value={form.model} placeholder="harness default — e.g. sonnet, gpt-5.6-sol" onChange={(e) => set({ model: e.target.value })} />
+            </Field>
+            <Field label="effort" className="w-[140px] max-[900px]:w-auto">
+              <Select value={form.effort} onChange={(e) => set({ effort: e.target.value })}>
                 {EFFORTS.map((ef) => (
                   <option key={ef} value={ef}>
                     {ef || "default"}
                   </option>
                 ))}
-              </select>
-            </label>
-          </div>
-          <label className="agent-field">
-            system prompt — the agent's role
-            <textarea
+              </Select>
+            </Field>
+          </FieldRow>
+          <Field label="system prompt — the agent's role">
+            <TextArea
+              className={CODE_AREA}
               rows={10}
               value={form.system}
               placeholder={"You are the ... for this project. Your job is ..."}
               onChange={(e) => set({ system: e.target.value })}
             />
-          </label>
-          <div className="agent-field">
-            <span className="agent-field-label">connected workflows — autoloaded into the agent's context; it can run them</span>
-            <div className="wf-checks">
-              {available.map((w) => (
-                <label key={w.slug}>
-                  <input
-                    type="checkbox"
-                    checked={form.workflows.includes(w.slug)}
-                    onChange={(e) =>
-                      set({
-                        workflows: e.target.checked
-                          ? [...form.workflows, w.slug]
-                          : form.workflows.filter((s) => s !== w.slug),
-                      })
-                    }
-                  />
-                  <b>{w.slug}</b>
-                  {w.description && <span className="opt-hint"> — {w.description}</span>}
-                </label>
-              ))}
-              {available.length === 0 && <div className="viewer-note">no workflows in this project</div>}
-            </div>
-          </div>
-          <div className="agent-field">
-            <span className="agent-field-label">connected knowledge — OKF bundles the agent consults and maintains</span>
-            <div className="wf-checks">
-              {bundles.map((b) => (
-                <label key={b.name}>
-                  <input
-                    type="checkbox"
-                    checked={form.knowledge.includes(b.name)}
-                    onChange={(e) =>
-                      set({
-                        knowledge: e.target.checked
-                          ? [...form.knowledge, b.name]
-                          : form.knowledge.filter((n) => n !== b.name),
-                      })
-                    }
-                  />
-                  <b>{b.name}</b>
-                  <span className="opt-hint"> — {b.concepts} concepts</span>
-                </label>
-              ))}
-              {bundles.length === 0 && <div className="viewer-note">no knowledge bundles in this project</div>}
-            </div>
-          </div>
+          </Field>
+          <ConnectField label="connected workflows — autoloaded into the agent's context; it can run them">
+            {available.map((w) => (
+              <Checkbox key={w.slug} checked={form.workflows.includes(w.slug)} onChange={(on) => toggleIn("workflows", w.slug, on)} hint={w.description} mono>{w.slug}</Checkbox>
+            ))}
+            {available.length === 0 && <Hint className="py-1.5 px-0">no workflows in this project</Hint>}
+          </ConnectField>
+          <ConnectField label="connected knowledge — OKF bundles the agent consults and maintains">
+            {bundles.map((b) => (
+              <Checkbox key={b.name} checked={form.knowledge.includes(b.name)} onChange={(on) => toggleIn("knowledge", b.name, on)} hint={`${b.concepts} concepts`} mono>{b.name}</Checkbox>
+            ))}
+            {bundles.length === 0 && <Hint className="py-1.5 px-0">no knowledge bundles in this project</Hint>}
+          </ConnectField>
           {(features.vibeables || form.vibeables.length > 0) && (
-            <div className="agent-field" data-link-kind="vibeables">
-              <span className="agent-field-label">connected vibeables — small apps the agent builds and maintains</span>
-              <div className="wf-checks">
-                {vibeables.map((v) => (
-                  <label key={v.slug}>
-                    <input
-                      type="checkbox"
-                      checked={form.vibeables.includes(v.slug)}
-                      onChange={(e) =>
-                        set({
-                          vibeables: e.target.checked
-                            ? [...form.vibeables, v.slug]
-                            : form.vibeables.filter((n) => n !== v.slug),
-                        })
-                      }
-                    />
-                    <b>{v.slug}</b>
-                    <span className="opt-hint"> — {v.dev ? "dev" : "static"}</span>
-                  </label>
+            <ConnectField label="apps — small apps the agent builds and maintains" linkKind="vibeables">
+              {vibeables.map((v) => (
+                <Checkbox key={v.slug} checked={form.vibeables.includes(v.slug)} onChange={(on) => toggleIn("vibeables", v.slug, on)} hint={v.dev ? "dev" : "static"} mono>{v.slug}</Checkbox>
+              ))}
+              {form.vibeables
+                .filter((slug) => !vibeables.some((v) => v.slug === slug))
+                .map((slug) => (
+                  <Checkbox key={slug} checked onChange={() => toggleIn("vibeables", slug, false)} hint="not found in this workspace" mono>{slug}</Checkbox>
                 ))}
-                {form.vibeables
-                  .filter((slug) => !vibeables.some((v) => v.slug === slug))
-                  .map((slug) => (
-                    <label key={slug}>
-                      <input type="checkbox" checked onChange={() => set({ vibeables: form.vibeables.filter((n) => n !== slug) })} />
-                      <b>{slug}</b>
-                      <span className="opt-hint"> — not found in this workspace</span>
-                    </label>
-                  ))}
-                {!features.vibeables && <div className="viewer-note">vibeables are off in this workspace's settings</div>}
-                {features.vibeables && vibeables.length === 0 && <div className="viewer-note">no vibeables in this workspace yet</div>}
-              </div>
-            </div>
+              {!features.vibeables && <Hint className="py-1.5 px-0">vibeables are off in this workspace's settings</Hint>}
+              {features.vibeables && vibeables.length === 0 && <Hint className="py-1.5 px-0">no vibeables in this workspace yet</Hint>}
+            </ConnectField>
           )}
-          <div className="agent-field">
-            <span className="agent-field-label">connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions</span>
-            <div className="wf-checks">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={form.skillsAll}
-                  onChange={(e) => set({ skillsAll: e.target.checked })}
-                />
-                <b>all skills</b>
-                <span className="opt-hint"> — every discovered skill, including future ones</span>
-              </label>
-              {!form.skillsAll &&
-                allSkills.map((s) => (
-                  <label key={s.name}>
-                    <input
-                      type="checkbox"
-                      checked={form.skills.includes(s.name)}
-                      onChange={(e) =>
-                        set({
-                          skills: e.target.checked
-                            ? [...form.skills, s.name]
-                            : form.skills.filter((n) => n !== s.name),
-                        })
-                      }
-                    />
-                    <b>/{s.name}</b>
-                    {s.description && <span className="opt-hint"> — {s.description}</span>}
-                  </label>
-                ))}
-              {!form.skillsAll && allSkills.length === 0 && (
-                <div className="viewer-note">no skills found (.claude/skills, project or user)</div>
-              )}
-            </div>
-          </div>
-          {error && <div className="msg error"><Icon name="error" className="ms-sm" /> {error}</div>}
-          <div className="agent-form-row">
-            <button className="run-btn" disabled={!form.name.trim() || saving} onClick={save}>
+          <ConnectField label="connected skills — workspace skill packages (see the skills tab); invoked with /name in sessions">
+            <Checkbox checked={form.skillsAll} onChange={(on) => set({ skillsAll: on })} hint="every discovered skill, including future ones" mono>all skills</Checkbox>
+            {!form.skillsAll &&
+              allSkills.map((s) => (
+                <Checkbox key={s.name} checked={form.skills.includes(s.name)} onChange={(on) => toggleIn("skills", s.name, on)} hint={s.description} mono>{`/${s.name}`}</Checkbox>
+              ))}
+            {!form.skillsAll && allSkills.length === 0 && <Hint className="py-1.5 px-0">no skills found (.claude/skills, project or user)</Hint>}
+          </ConnectField>
+          {error && <Notice tone="bad">{error}</Notice>}
+          <div className="flex items-center gap-2.5">
+            <Button variant="primary" busy={saving} disabled={!form.name.trim()} onClick={save}>
               {saving ? "saving…" : slug ? "save" : "create"}
-            </button>
-            <span className="spacer" />
+            </Button>
+            <span className="flex-1" />
             {slug && (
-              <button className="stop-btn" onClick={remove}>
+              <Button variant="danger" icon="delete" onClick={remove}>
                 delete agent
-              </button>
+              </Button>
             )}
           </div>
-        </div>
-      </section>
+        </FormStack>
+      </Panel>
+    </Page>
+  );
+}
+
+/** A labelled checklist in the editor: what the agent is connected to. */
+function ConnectField({ label, linkKind, children }: { label: string; linkKind?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5" data-link-kind={linkKind}>
+      <span className="text-sm font-semibold text-fg">{label}</span>
+      <Checks>{children}</Checks>
     </div>
   );
 }

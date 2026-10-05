@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmtAgo, Icon, post, WorkspaceTile } from "./shared";
+import { Button, buttonClass, cn, EmptyState, Notice, Page, PageHeader, Panel } from "./ui";
 
 /**
  * Workspaces admin (#/workspaces, expert mode): every project this machine
@@ -39,6 +40,22 @@ const STATE_LABEL: Record<State, { label: string; note?: string }> = {
   died: { label: "died", note: "was killed or crashed" },
   missing: { label: "missing", note: "folder is gone" },
   orphaned: { label: "orphaned", note: "no kraftwerk.yml any more" },
+};
+
+/** The state word's colour, and how much a workspace that is not up fades. */
+const STATE_TONE: Record<State, string> = {
+  running: "text-ok",
+  stopped: "text-fg-2",
+  died: "text-ask",
+  missing: "text-bad",
+  orphaned: "text-bad",
+};
+const TILE_FADE: Record<State, string> = {
+  running: "",
+  stopped: "opacity-65 grayscale-50",
+  died: "opacity-80",
+  missing: "opacity-45 grayscale-80",
+  orphaned: "opacity-45 grayscale-80",
 };
 
 export function WorkspacesScreen() {
@@ -112,61 +129,70 @@ export function WorkspacesScreen() {
   const ambiguous = (i?: string) => !!i && (iconCount.get(i) ?? 0) > 1;
 
   return (
-    <div className="settings-screen ws-screen">
-      <div className="settings-head">
-        <h1><Icon name="hub" className="ms-lg" /> Workspaces</h1>
-        <span className="spacer" />
-        {rows && (
-          <span className="settings-note">
-            {rows.length} known · {running} running
-          </span>
-        )}
-        {rows && loadError && <span className="settings-err">{loadError}</span>}
-      </div>
+    <Page>
+      <PageHeader
+        icon={<Icon name="hub" className="text-[28px] text-fg-2" />}
+        title="Workspaces"
+        actions={
+          <>
+            {rows && (
+              <span className="text-xs text-fg-2">
+                {rows.length} known · {running} running
+              </span>
+            )}
+            {rows && loadError && <Notice tone="bad">{loadError}</Notice>}
+          </>
+        }
+      />
 
-      <section className="panel">
-        <div className="panel-head">
-          <span className="microlabel">workspaces on this machine</span>
-          <span className="spacer" />
-          <span className="settings-note">registry: <code>~/.kraftwerk/workspaces</code></span>
-        </div>
-        {!rows && !loadError && <div className="ws-empty">loading…</div>}
+      <Panel
+        title="workspaces on this machine"
+        actions={
+          <span className="text-xs text-fg-2">
+            registry: <code className="text-2xs">~/.kraftwerk/workspaces</code>
+          </span>
+        }
+      >
+        {!rows && !loadError && <EmptyState className="py-6">loading…</EmptyState>}
         {!rows && loadError && (
-          <div className="ws-empty ws-load-error">
-            <Icon name="error" className="ms-sm" /> {loadError}
+          <div className="px-[18px] py-4">
+            <Notice tone="bad">{loadError}</Notice>
           </div>
         )}
-        {rows && rows.length === 0 && <div className="ws-empty">No workspaces known yet.</div>}
+        {rows && rows.length === 0 && <EmptyState className="py-6">No workspaces known yet.</EmptyState>}
         {rows?.map((w) => {
           const key = keyOf(w);
           const verb = busy[key];
           const removable = !w.live && !!w.root && (w.exists === false || w.hasConfig === false);
+          const nameCls = cn("text-md font-semibold text-fg", w.named === false && "italic text-fg-2");
           return (
-            <div key={key} className={`ws-row state-${w.state} ${w.current ? "current" : ""}`}>
-              <WorkspaceTile className="ws-icon" icon={w.icon} name={w.name} color={w.color} seed={w.root ?? w.url} ambiguous={ambiguous(w.icon)} />
-              <div className="ws-main">
-                <div className="ws-title">
+            <div
+              key={key}
+              className={cn(
+                "grid grid-cols-[40px_minmax(0,1fr)_auto] items-start gap-3.5 px-[18px] py-3.5 [&+&]:border-t [&+&]:border-line/55",
+                w.state === "died" && "bg-ask-soft/30"
+              )}
+            >
+              <WorkspaceTile className={cn("size-10", TILE_FADE[w.state])} icon={w.icon} name={w.name} color={w.color} seed={w.root ?? w.url} ambiguous={ambiguous(w.icon)} />
+              <div className="flex min-w-0 flex-col gap-[3px]">
+                <div className="flex flex-wrap items-center gap-2.5">
                   {w.live && !w.current ? (
-                    <a href={w.url} className={`ws-name${w.named === false ? " unnamed" : ""}`}>{w.name}</a>
+                    <a href={w.url} className={cn(nameCls, "no-underline hover:underline")}>{w.name}</a>
                   ) : (
-                    <span className={`ws-name${w.named === false ? " unnamed" : ""}`}>{w.name}</span>
+                    <span className={nameCls}>{w.name}</span>
                   )}
-                  {w.current && <span className="switcher-hint">current</span>}
-                  <span className={`ws-state ws-state-${w.state}`}>
-                    {w.live && <span className="live-dot" />}
+                  {w.current && <span className="text-[10.5px] font-semibold tracking-[0.4px] text-fg-2 uppercase">current</span>}
+                  <span className={cn("inline-flex items-center gap-1.5 text-2xs font-semibold tracking-[0.4px] uppercase", STATE_TONE[w.state])}>
+                    {w.live && <span className="inline-block size-2 rounded-full bg-ok" />}
                     {STATE_LABEL[w.state].label}
                   </span>
-                  {STATE_LABEL[w.state].note && (
-                    <span className="ws-note">{STATE_LABEL[w.state].note}</span>
-                  )}
+                  {STATE_LABEL[w.state].note && <span className="text-xs text-fg-2">{STATE_LABEL[w.state].note}</span>}
                 </div>
-                <div className="ws-root" title={w.root}>
-                  {w.rootLabel ?? <span className="ws-dim">no root recorded (started by an older version)</span>}
+                <div className="font-mono text-xs [overflow-wrap:anywhere] text-fg-2" title={w.root}>
+                  {w.rootLabel ?? <span className="font-sans opacity-70">no root recorded (started by an older version)</span>}
                 </div>
-                <div className="ws-meta">
-                  {w.state !== "missing" && w.state !== "orphaned" && (
-                    <span>{w.url.replace(/^https?:\/\//, "")}</span>
-                  )}
+                <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-fg-2">
+                  {w.state !== "missing" && w.state !== "orphaned" && <span>{w.url.replace(/^https?:\/\//, "")}</span>}
                   {w.counts && (
                     <>
                       <span>{w.counts.agents} agents</span>
@@ -180,51 +206,51 @@ export function WorkspacesScreen() {
                   {w.startCount != null && <span>{w.startCount}× launched</span>}
                   {w.firstSeen && <span title={w.firstSeen}>first seen {fmtAgo(w.firstSeen)}</span>}
                 </div>
-                {errors[key] && <div className="settings-err">{errors[key]}</div>}
+                {errors[key] && <Notice tone="bad">{errors[key]}</Notice>}
               </div>
-              <div className="ws-actions">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {w.live && !w.current && (
-                  <a className="ws-btn" href={w.url} title="Open this workspace">
+                  <a className={buttonClass("secondary", "sm")} href={w.url} title="Open this workspace">
                     <Icon name="open_in_new" className="ms-sm" /> open
                   </a>
                 )}
                 {!w.live && w.root && w.exists !== false && !w.dirGone && (
-                  <button className="ws-btn primary" disabled={!!verb} onClick={() => void act(w, "start")}>
-                    <Icon name={verb === "start" ? "progress_activity" : "play_arrow"} className="ms-sm" />
+                  <Button size="sm" variant="primary" icon="play_arrow" busy={verb === "start"} disabled={!!verb} onClick={() => void act(w, "start")}>
                     {verb === "start" ? "starting…" : "start"}
-                  </button>
+                  </Button>
                 )}
                 {w.live && !w.current && (
-                  <button className="ws-btn danger" disabled={!!verb} onClick={() => void act(w, "stop")}>
-                    <Icon name={verb === "stop" ? "progress_activity" : "stop"} className="ms-sm" />
+                  <Button size="sm" variant="danger" icon="stop" busy={verb === "stop"} disabled={!!verb} onClick={() => void act(w, "stop")}>
                     {verb === "stop" ? "stopping…" : "stop"}
-                  </button>
+                  </Button>
                 )}
                 {removable && confirmRemove !== key && (
-                  <button className="ws-btn" disabled={!!verb} title="Drop this project from the registry (files untouched)" onClick={() => setConfirmRemove(key)}>
-                    <Icon name="delete" className="ms-sm" /> remove
-                  </button>
+                  <Button size="sm" icon="delete" disabled={!!verb} title="Drop this project from the registry (files untouched)" onClick={() => setConfirmRemove(key)}>
+                    remove
+                  </Button>
                 )}
                 {removable && confirmRemove === key && (
                   <>
-                    <button className="ws-btn danger" onClick={() => void act(w, "forget")}>
-                      <Icon name="delete" className="ms-sm" /> confirm remove
-                    </button>
-                    <button className="ws-btn" onClick={() => setConfirmRemove(null)}>cancel</button>
+                    <Button size="sm" variant="danger" icon="delete" onClick={() => void act(w, "forget")}>
+                      confirm remove
+                    </Button>
+                    <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(null)}>
+                      cancel
+                    </Button>
                   </>
                 )}
               </div>
             </div>
           );
         })}
-      </section>
+      </Panel>
 
-      <p className="settings-note">
+      <p className="m-0 text-xs text-fg-2 [&_code]:text-2xs">
         Start launches <code>kraftwerk ui</code> detached in the project root (log in <code>~/.kraftwerk/logs</code>).
         Stop sends SIGTERM to the running server. Remove is offered only for records whose root no
         longer holds a <code>kraftwerk.yml</code> — the same from the terminal:{" "}
         <code>kraftwerk workspaces</code>.
       </p>
-    </div>
+    </Page>
   );
 }

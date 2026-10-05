@@ -17,6 +17,8 @@ import {
   type ConceptInfo,
   type ValidationIssue,
 } from "../okf.js";
+import { deleteBundle } from "../inspector/knowledge.js";
+import { initContext as prepare } from "./routines.js";
 
 /**
  * `kraftwerk knowledge` — the CLI surface over OKF bundles (the
@@ -205,6 +207,21 @@ export function registerKnowledgeCommands(program: Command): void {
       try {
         const dir = await initBundle(await root(), bundle);
         console.log(`${chalk.green("✔")} bundle ${chalk.cyan(bundle)} created at ${dir}`);
+      } catch (err) {
+        console.error(chalk.red((err as Error).message));
+        process.exit(2);
+      }
+    });
+
+  knowledge
+    .command("remove")
+    .description("Move a bundle to the trash (`kraftwerk trash` puts it back)")
+    .argument("<bundle>", "Bundle name")
+    .action(async (bundle: string) => {
+      try {
+        await prepare();
+        await deleteBundle(bundle);
+        console.log(`${chalk.green("✔")} moved ${chalk.cyan(bundle)} to the trash`);
       } catch (err) {
         console.error(chalk.red((err as Error).message));
         process.exit(2);

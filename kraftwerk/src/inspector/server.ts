@@ -7,6 +7,11 @@ import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConf
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
 import { cloudGoodbye, cloudStatus, startCloudSync, stopCloudSync } from "./cloud.js";
 import { listRuns, getRun, readRunFile, deleteRun, safeRunDir } from "./runs.js";
+import { agentStatuses } from "./agent-status.js";
+import { listAttention } from "./attention.js";
+import { deleteFile, filesSummary, listFiles, listScopes, makeFolder, moveFile, openFile, saveUpload } from "./files.js";
+import { appendJournal, readJournal } from "./journal.js";
+import { emptyTrash, listTrash, purgeFromTrash, restoreFromTrash, trashRoot } from "./trash.js";
 import { decide } from "./decisions.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
 import { listWorkflows, getWorkflow } from "./workflows.js";
@@ -37,7 +42,9 @@ import {
   bundleDetail,
   conceptDetail,
   createBundle,
+  deleteBundle,
   knowledgeIndex,
+  UI_ACTOR,
   putConcept,
   verifyFromUi,
 } from "./knowledge.js";
@@ -1010,6 +1017,33 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
+  // DELETE /api/knowledge/:bundle — move the bundle to the trash
+  if (seg.length === 3 && seg[1] === "knowledge" && method === "DELETE") {
+    try {
+      await deleteBundle(decodeURIComponent(seg[2]));
+      return json(res, { ok: true });
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // GET /api/trash — what was deleted, newest first; DELETE /api/trash — empty it for good.
+  // POST /api/trash/restore {id} — put one back; POST /api/trash/purge {id} — delete one for good.
+  if (seg.length >= 2 && seg[1] === "trash") {
+    try {
+      if (seg.length === 2 && method === "GET") return json(res, { root: tildify(await trashRoot()), entries: await listTrash() });
+      if (seg.length === 2 && method === "DELETE") return json(res, { ok: true, purged: await emptyTrash() });
+      if (seg.length === 3 && method === "POST" && (seg[2] === "restore" || seg[2] === "purge")) {
+        const { id } = JSON.parse(await readBody(req)) as { id?: string };
+        if (!id) return json(res, { error: "id is required" }, 400);
+        return json(res, seg[2] === "restore" ? await restoreFromTrash(id) : await purgeFromTrash(id));
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+    return json(res, { error: "not found" }, 404);
+  }
+
   // GET/POST /api/knowledge/:bundle/concept?id=... — read / write one concept
   if (seg.length === 4 && seg[1] === "knowledge" && seg[3] === "concept") {
     const bundle = decodeURIComponent(seg[2]);
@@ -1153,6 +1187,79 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       }
       if (seg.length === 6 && seg[5] === "run" && method === "POST") {
         return json(res, await runRoutineNow(slug, id));
+      }
+    } catch (err) {
+      return json(res, { error: (err as Error).message }, 400);
+    }
+  }
+
+  // Files: GET /api/files (the roots: workspace + one per project), GET /api/files/list?scope&path,
+  // GET /api/files/raw?scope&path[&download=1], POST /api/files/upload?scope&path (raw body, x-file-name),
+  // POST /api/files/folder {scope, path}, POST /api/files/move {scope, from, to}, DELETE /api/files?scope&path (to the trash).
+  if (seg[1] === "files" && seg.length <= 3) {
+    const scope = url.searchParams.get("scope") ?? "workspace";
+    const rel = url.searchParams.get("path") ?? "";
+    try {
+      if (seg.length === 2 && method === "GET") return json(res, { scopes: await listScopes() });
+      if (seg.length === 2 && method === "DELETE") {
+        await deleteFile(scope, rel);
+        return json(res, { ok: true });
+      }
+      if (seg[2] === "list" && method === "GET") return json(res, await listFiles(scope, rel));
+      if (seg[2] === "recent" && method === "GET") return json(res, (await filesSummary(scope, 5)) ?? { root: "", count: 0, recent: [] });
+      if (seg[2] === "raw" && method === "GET") {
+        const f = await openFile(scope, rel);
+        res.writeHead(200, {
+          "content-type": f.mime,
+          "content-length": f.size,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+          // Anything in here may come from outside: a page, an SVG or XML renders without scripts, in an origin of its own.
+          // (Not on PDFs and media: a sandboxed document cannot show the browser's PDF viewer.)
+          ...(/^(text\/html|image\/svg|text\/xml|application\/xml)/.test(f.mime) ? { "content-security-policy": "sandbox" } : {}),
+          "content-disposition": `${url.searchParams.get("download") ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+        });
+        f.stream.pipe(res);
+        return;
+      }
+      if (seg[2] === "upload" && method === "POST") {
+        const name = decodeURIComponent(String(req.headers["x-file-name"] ?? "file"));
+        return json(res, await saveUpload(scope, rel, name, req), 201);
+      }
+      if (seg[2] === "folder" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { scope?: string; path?: string };
+        return json(res, await makeFolder(body.scope ?? scope, String(body.path ?? "")), 201);
+      }
+      if (seg[2] === "move" && method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { scope?: string; from?: string; to?: string };
+        await moveFile(body.scope ?? scope, String(body.from ?? ""), String(body.to ?? ""));
+        return json(res, { ok: true });
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      return json(res, { error: msg }, /^no (file|folder|project)/.test(msg) ? 404 : 400);
+    }
+    return json(res, { error: "not found" }, 404);
+  }
+
+  // GET /api/attention — what needs you: waiting approvals and questions, unread failures, with their owner
+  if (seg.length === 2 && seg[1] === "attention" && method === "GET") {
+    return json(res, await listAttention());
+  }
+
+  // GET /api/agent-status — per agent: waiting, working, next routine, last active (the rail's status line)
+  if (seg.length === 2 && seg[1] === "agent-status" && method === "GET") {
+    return json(res, await agentStatuses());
+  }
+
+  // GET /api/agents/:slug/journal — the journal; POST {entry, kind?} — a human adds a line
+  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "journal") {
+    const slug = decodeURIComponent(seg[2]);
+    try {
+      if (method === "GET") return json(res, { journal: await readJournal(slug) });
+      if (method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { entry?: string; kind?: string };
+        return json(res, { journal: await appendJournal(slug, String(body.entry ?? ""), { kind: body.kind, actor: UI_ACTOR }) });
       }
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
