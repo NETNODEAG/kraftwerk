@@ -32,11 +32,23 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
     seg[0] === kind && (slug === undefined || (seg[1] ? decodeURIComponent(seg[1]) : undefined) === slug);
   const general = seg[0] === "agents" && seg[1] === "chats";
   const [fold, setFold] = useFold();
+  // The project you were last in: it stays open while you visit its agents and
+  // apps (or anything else); only its chevron, or going into another project, folds it.
+  const [held, setHeld] = useState<string>();
+  const inProject = seg[0] === "projects" && seg[1] && seg[1] !== "new" ? decodeURIComponent(seg[1]) : undefined;
+  useEffect(() => {
+    if (inProject) setHeld(inProject);
+  }, [inProject]);
   // What waits for you, counted on every row that leads there.
   const waiting = useAttention() ?? [];
   const agentBySlug = new Map((agents?.agents ?? []).filter((a) => !a.archived).map((a) => [a.slug, a]));
 
   const projectList = projects?.projects ?? [];
+  const teamOf = (p: ProjectsView["projects"][number]) =>
+    (p.agents ?? []).map((slug) => agentBySlug.get(slug)).filter((a): a is Agent => !!a);
+  // Where you are: in the project, or in one of its agents having come from it.
+  const here = (p: ProjectsView["projects"][number]) =>
+    at("projects", p.slug) || (p.slug === held && teamOf(p).some((a) => at("agents", a.slug)));
   return (
     <nav className="rail" aria-label="Conversations">
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pt-2 pb-4">
@@ -64,7 +76,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             badge={
               fold.all ? (
                 <Badge
-                  n={new Set(projectList.filter((p) => !at("projects", p.slug)).flatMap((p) => attentionFor.project(waiting, p.slug, p.agents).map((i) => i.id))).size}
+                  n={new Set(projectList.filter((p) => !here(p)).flatMap((p) => attentionFor.project(waiting, p.slug, p.agents).map((i) => i.id))).size}
                   title="waiting in the projects folded away"
                 />
               ) : undefined
@@ -82,12 +94,12 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             }
           >
             {/* Collapsed, the group keeps only the project you are in. */}
-            {projectList.filter((p) => !fold.all || at("projects", p.slug)).map((p) => {
-              const team = (p.agents ?? []).map((slug) => agentBySlug.get(slug)).filter((a): a is Agent => !!a);
+            {projectList.filter((p) => !fold.all || here(p)).map((p) => {
+              const team = teamOf(p);
               const apps = features.vibeables ? (p.vibeables ?? []).filter((v) => vibeSlugs.has(v)) : [];
               const hasKids = team.length + apps.length > 0;
-              // Open: as you left it; untouched, only the project you are in.
-              const open = hasKids && (fold.open[p.slug] ?? at("projects", p.slug));
+              // Open: as its chevron left it; untouched, the project you were last in.
+              const open = hasKids && (fold.open[p.slug] ?? (p.slug === (inProject ?? held)));
               const busy = team.map((a) => status?.[a.slug]).filter((s): s is AgentStatus => !!s);
               const working = !open && busy.some((s) => s.working.length && !s.waiting.length);
               return (
@@ -128,6 +140,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
                         size="sm"
                         href={`/agents/${encodeURIComponent(a.slug)}`}
                         active={at("agents", a.slug)}
+                        onClick={() => setHeld(p.slug)}
                         innerProps={{ title: a.description || a.name, "data-nested": "agent" }}
                         leading={<span aria-hidden>{a.emoji || "🤖"}</span>}
                         title={<span className="font-medium">{a.name}</span>}
@@ -142,6 +155,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
                         className={NESTED}
                         size="sm"
                         href={`/projects/${encodeURIComponent(p.slug)}?app=${encodeURIComponent(v)}`}
+                        onClick={() => setHeld(p.slug)}
                         innerProps={{ title: `open ${v} beside the project's chat`, "data-nested": "app" }}
                         leading={<Icon name="web" className="ms-sm" />}
                         title={<span className="font-medium">{v}</span>}
@@ -152,7 +166,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             })}
             {fold.all && projectList.length > 0 && (
               <Button variant="quiet" size="sm" icon="expand_more" className="justify-start" onClick={() => setFold((f) => ({ ...f, all: false }))}>
-                {projectList.filter((p) => !at("projects", p.slug)).length} more
+                {projectList.filter((p) => !here(p)).length} more
               </Button>
             )}
           </Group>
@@ -248,7 +262,7 @@ const FOLD_KEY = "kw-rail-fold";
 interface Fold {
   /** The projects group collapsed to the project you are in. */
   all: boolean;
-  /** Per project: its agents and apps shown (true) or hidden (false); absent = open only while you are in it. */
+  /** Per project: its agents and apps shown (true) or hidden (false); absent = open while it is the project you were last in. */
   open: Record<string, boolean>;
 }
 

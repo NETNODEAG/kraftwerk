@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Folding projects in the rail: a project shows its agents only while you
- * are in it or opened it with the chevron, the choice survives a reload,
+ * Folding projects in the rail: a project shows its agents while it is the
+ * one you were last in (also while you visit them) or opened with the chevron, the choice survives a reload,
  * and the whole group collapses to the project you are in.
  */
 test.describe("rail folding", () => {
@@ -45,6 +45,26 @@ test.describe("rail folding", () => {
     await expect(projectRow("fold-gamma")).toHaveCount(0);
     await page.locator(".rail").getByRole("button", { name: /\d+ more$/ }).click();
     await expect(projectRow("fold-gamma")).toBeVisible();
+    await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
+  });
+
+  test("selecting a project's agent keeps the project open", async ({ page }) => {
+    const projectRow = (slug: string) => page.locator(`.rail a[data-project='${slug}']`);
+    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div > a[data-nested]`);
+    await page.goto("/#/projects/fold-gamma/chat/new");
+    await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
+    await page.reload();
+
+    await helperUnder("fold-gamma").click();
+    await expect(page).toHaveURL(/#\/agents\/fold-helper/);
+    await expect(helperUnder("fold-gamma")).toBeVisible();
+    await expect(helperUnder("fold-gamma")).toHaveAttribute("aria-current", "page");
+
+    // Collapsed to where you are, the project stays while you are in its agent.
+    await page.getByRole("button", { name: "collapse projects" }).click();
+    await expect(projectRow("fold-gamma")).toBeVisible();
+    await expect(projectRow("fold-alpha")).toHaveCount(0);
+    await expect(helperUnder("fold-gamma")).toBeVisible();
     await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
   });
 });

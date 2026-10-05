@@ -38,7 +38,9 @@ test.describe("project apps", () => {
     // From elsewhere, the rail entry brings the project back with the app open beside its chat.
     await page.goto("/#/agents/chats");
     await page.getByRole("tab", { name: /workflows/ }).click();
-    // Outside the project its apps are folded away; the chevron shows them.
+    // The project you were last in stays open elsewhere; only its chevron folds it.
+    await expect(appRow).toBeVisible();
+    await page.getByRole("button", { name: "collapse Apps probe" }).click();
     await expect(appRow).toHaveCount(0);
     await page.getByRole("button", { name: "expand Apps probe" }).click();
     await appRow.click();
