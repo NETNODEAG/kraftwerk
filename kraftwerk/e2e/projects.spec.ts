@@ -76,7 +76,7 @@ test.describe("projects", () => {
   test("a chat opened in the project lists under it and not under the general chats", async ({ page, request }) => {
     await page.goto("/#/projects/relaunch-the-website");
     // No chat yet: the new-chat pane names the project and starts a chat on its harness.
-    await expect(page.getByRole("heading", { name: "new chat in Relaunch the website" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
     await expect(page.getByRole("button", { name: /^start chat/ })).toContainText("claude");
     await page.getByRole("button", { name: /^start chat/ }).click();
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/chat-/);
@@ -113,14 +113,14 @@ test.describe("projects", () => {
     await tab.hover();
     await tab.getByRole("button", { name: /^close / }).click();
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
-    await expect(page.getByRole("heading", { name: "new chat in Relaunch the website" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
     await expect(page.locator(".session-tab")).toHaveCount(0);
 
     // The pencil on the sign edits the project in a modal over the conversation; escape closes it.
     await page.getByRole("link", { name: /edit the project/ }).click();
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/info$/);
     await expect(page.getByRole("dialog", { name: "edit" }).getByRole("textbox", { name: "goal" })).toHaveValue("Ship the new site by November");
-    await expect(page.getByRole("heading", { name: "new chat in Relaunch the website" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
     await expect(page.getByRole("dialog", { name: "edit" })).toHaveCount(0);

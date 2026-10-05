@@ -17,7 +17,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { ChatThread, createChatAndOpen } from "./chat";
-import { EFFORTS, Icon, Link, navigate, usePoll, fmtAgo, useExpertMode, PROJECTS_CHANGED_EVENT } from "./shared";
+import { EFFORTS, Icon, Link, navigate, usePoll, fmtAgo, useExpertMode, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT } from "./shared";
 import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
 import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
@@ -309,7 +309,9 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
   const harness = HARNESSES.find((h) => h.id === project?.harness) ?? HARNESSES[0];
   return (
     <Page width="narrow">
-      <Title size="lg">new chat in {title}</Title>
+      <Title size="lg">
+        {PROJECT_ASSISTANT.emoji} {PROJECT_ASSISTANT.name} · {title}
+      </Title>
       <Panel title="runs on">
         <div className="p-4">
           <button

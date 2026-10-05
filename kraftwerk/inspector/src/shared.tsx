@@ -378,6 +378,9 @@ export async function post<T extends object = {}>(
   return d;
 }
 
+/** Every project's own chat, shown as its first agent: what Ralv is to the workspace, the assistant is to one project. */
+export const PROJECT_ASSISTANT = { emoji: "🧭", name: "Assistant" };
+
 /** Poll a JSON endpoint; tightens the interval while `fast` (live run). */
 /** Fired after a project's links change in the UI, so lists that show them refetch at once. */
 export const PROJECTS_CHANGED_EVENT = "kw-projects-changed";

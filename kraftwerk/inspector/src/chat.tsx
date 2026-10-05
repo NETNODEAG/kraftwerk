@@ -21,7 +21,7 @@ import type {
   SkillInfo,
   StoredChatEvent,
 } from "./types";
-import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures, usePoll } from "./shared";
+import { Icon, Link, navigate, PROJECT_ASSISTANT, setPageTitle, useExpertMode, useFeatures, usePoll } from "./shared";
 import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Notice, Page, Panel, Select, Tag, TextField, Title, type DotTone } from "./ui";
@@ -289,6 +289,7 @@ function mainSpeaker(scope: ChatScope, agents: Agent[], agentName?: string): str
     return a ? `${a.emoji ? `${a.emoji} ` : ""}${a.name}` : (agentName ?? scope.slug);
   }
   if (scope.kind === "general" || scope.kind === "kraftwerk") return "🎩 Ralv";
+  if (scope.kind === "project") return `${PROJECT_ASSISTANT.emoji} ${PROJECT_ASSISTANT.name}`;
   return "The assistant";
 }
 

@@ -7,20 +7,39 @@ export function Eyebrow({ children, className }: { children: ReactNode; classNam
   return <span className={cn("text-2xs font-semibold uppercase tracking-[0.08em] text-fg-2", className)}>{children}</span>;
 }
 
-/** A titled group of rows or content, with an optional count and action on the right. */
+/**
+ * A titled group of rows or content, with an optional count and action on the right.
+ * `sm` (default) labels it with an eyebrow; `lg` is a real heading, for a page
+ * that reads top to bottom in sections (the context column's overview).
+ */
 export function Section({
   title,
   count,
   action,
+  size = "sm",
   children,
   className,
 }: {
   title: ReactNode;
   count?: number;
   action?: ReactNode;
+  size?: "sm" | "lg";
   children: ReactNode;
   className?: string;
 }) {
+  if (size === "lg") {
+    return (
+      <section className={cn("mt-4 border-t border-line pt-4 first:mt-0 first:border-t-0 first:pt-0", className)}>
+        <div className="flex items-center gap-2 px-2.5 pb-1.5">
+          <h3 className="m-0 text-[17px] leading-tight font-[750] tracking-[-0.01em] text-fg first-letter:uppercase">{title}</h3>
+          {count !== undefined && <span className="rounded-full bg-surface-2 px-2 py-px text-xs font-semibold tabular-nums text-fg-2">{count}</span>}
+          <span className="flex-1" />
+          {action}
+        </div>
+        {children}
+      </section>
+    );
+  }
   return (
     <section className={cn("mt-3 first:mt-0", className)}>
       <div className="flex items-center gap-2 px-2.5 pb-1 pt-1">

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { statusLine } from "../../src/inspector/status-line";
 import { attentionFor, useAttention } from "./attention";
-import { Icon, Link, PROJECTS_CHANGED_EVENT, useExpertMode, useFeatures, usePoll } from "./shared";
+import { Icon, Link, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT, useExpertMode, useFeatures, usePoll } from "./shared";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
 import type { Agent, AgentStatus, ChannelView, ProjectsView, VibeablesView } from "./types";
 
@@ -97,16 +97,17 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             {projectList.filter((p) => !fold.all || here(p)).map((p) => {
               const team = teamOf(p);
               const apps = features.vibeables ? (p.vibeables ?? []).filter((v) => vibeSlugs.has(v)) : [];
-              const hasKids = team.length + apps.length > 0;
-              // Open: as its chevron left it; untouched, the project you were last in.
-              const open = hasKids && (fold.open[p.slug] ?? (p.slug === (inProject ?? held)));
+              // Open: as its chevron left it; untouched, the project you were last in. Every project
+              // has its assistant under it, so every project folds.
+              const open = fold.open[p.slug] ?? p.slug === (inProject ?? held);
               const busy = team.map((a) => status?.[a.slug]).filter((s): s is AgentStatus => !!s);
               const working = !open && busy.some((s) => s.working.length && !s.waiting.length);
               return (
                 <Fragment key={p.slug}>
                   <ListRow
                     href={`/projects/${encodeURIComponent(p.slug)}`}
-                    active={at("projects", p.slug)}
+                    // Open, the assistant row below is where you are; folded, the project row says it.
+                    active={at("projects", p.slug) && !open}
                     innerProps={{ "data-project": p.slug }}
                     leading={<span aria-hidden>{p.status === "done" ? "✅" : p.status === "paused" ? "⏸️" : p.status === "archived" ? "🗄️" : "📁"}</span>}
                     title={p.title}
@@ -119,18 +120,29 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
                     sub={p.goal || (p.status !== "active" ? p.status : undefined)}
                     actionsAlways
                     actions={
-                      hasKids ? (
-                        <IconButton
-                          size="sm"
-                          icon={open ? "expand_more" : "chevron_right"}
-                          label={`${open ? "collapse" : "expand"} ${p.title}`}
-                          aria-expanded={open}
-                          title={open ? "hide its agents and apps" : `${team.length ? `${team.length} agent${team.length === 1 ? "" : "s"}` : ""}${team.length && apps.length ? ", " : ""}${apps.length ? `${apps.length} app${apps.length === 1 ? "" : "s"}` : ""}`}
-                          onClick={() => setFold((f) => ({ ...f, open: { ...f.open, [p.slug]: !open } }))}
-                        />
-                      ) : undefined
+                      <IconButton
+                        size="sm"
+                        icon={open ? "expand_more" : "chevron_right"}
+                        label={`${open ? "collapse" : "expand"} ${p.title}`}
+                        aria-expanded={open}
+                        title={open ? "hide its assistant, agents and apps" : ["the assistant", team.length && `${team.length} agent${team.length === 1 ? "" : "s"}`, apps.length && `${apps.length} app${apps.length === 1 ? "" : "s"}`].filter(Boolean).join(", ")}
+                        onClick={() => setFold((f) => ({ ...f, open: { ...f.open, [p.slug]: !open } }))}
+                      />
                     }
                   />
+                  {/* The project's assistant first, like Ralv for the workspace: the project's own chats. */}
+                  {open && (
+                    <ListRow
+                      className={NESTED}
+                      size="sm"
+                      href={`/projects/${encodeURIComponent(p.slug)}`}
+                      active={at("projects", p.slug)}
+                      innerProps={{ title: `${p.title}'s assistant: knows its brief, state and links`, "data-nested": "assistant" }}
+                      leading={<span aria-hidden>{PROJECT_ASSISTANT.emoji}</span>}
+                      title={<span className="font-medium">{PROJECT_ASSISTANT.name}</span>}
+                      titleExtra={<Badge n={waiting.filter((i) => i.owner.project?.slug === p.slug && !i.owner.agent).length} title="waiting for you" />}
+                    />
+                  )}
                   {/* The agents linked to the project, one level in: who works on it. */}
                   {open &&
                     team.map((a) => (
@@ -262,7 +274,7 @@ const FOLD_KEY = "kw-rail-fold";
 interface Fold {
   /** The projects group collapsed to the project you are in. */
   all: boolean;
-  /** Per project: its agents and apps shown (true) or hidden (false); absent = open while it is the project you were last in. */
+  /** Per project: its assistant, agents and apps shown (true) or hidden (false); absent = open while it is the project you were last in. */
   open: Record<string, boolean>;
 }
 

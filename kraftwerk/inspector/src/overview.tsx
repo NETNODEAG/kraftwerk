@@ -10,8 +10,8 @@ import type { Agent, AgentDetail, AgentStatus, AttentionItem, ChannelView, Proje
 
 /**
  * The context column's first tab: the place at a glance, in plain words.
- * What a project is for, what waits for you there, who works on it, where
- * it stands and what happened lately; for an agent its role, what it is
+ * What a project is for and what happened lately, what waits for you
+ * there, who works on it and where it stands; for an agent its role, what it is
  * doing, its schedule and its journal; for a channel who is in it; on Home
  * and with Ralv the workspace's projects and agents. Everything that had a
  * tab of its own (state, log, journal, agents, records) is a section here.
@@ -26,8 +26,8 @@ export type OverviewOf =
 /** Markdown for reading: a leading "# Title" is the section's own heading here, and "human:user" is you. */
 const plain = (text: string): string => text.replace(/^# .*\n+/, "").replace(/\(human:user\)/g, "(you)");
 // The overview's own pieces, so its sections read the same in every place.
-const OV = "flex flex-col gap-1.5 px-1.5 pb-6 pt-1";
-const GOAL = "m-0 px-2.5 pb-0.5 pt-1.5 text-md leading-[1.45] text-fg";
+const OV = "flex flex-col gap-1.5 px-1.5 pb-6 pt-3";
+const GOAL = "m-0 px-2.5 pb-0.5 text-md leading-[1.45] text-fg";
 const DIM = "m-0 px-2.5 py-0.5 text-sm text-fg-2";
 const MD = "md-body px-2.5 text-sm leading-normal";
 const md = (text: string): string => DOMPurify.sanitize(marked.parse(plain(text), { async: false }) as string);
@@ -49,7 +49,7 @@ function recentEntries(log: string, n: number): { day: string; text: string }[] 
 function NeedsYou({ items }: { items: AttentionItem[] }) {
   if (items.length === 0) return null;
   return (
-    <Section title="needs you" count={items.length}>
+    <Section size="lg" title="needs you" count={items.length}>
       {items.map((i) => (
         <ListRow
           key={i.id}
@@ -68,7 +68,7 @@ function Team({ slugs, agents, status, title = "team" }: { slugs: string[]; agen
   const team = slugs.map((s) => agents.find((a) => a.slug === s)).filter((a): a is Agent => !!a);
   if (team.length === 0) return null;
   return (
-    <Section title={title}>
+    <Section size="lg" title={title}>
       {team.map((a) => {
         const line = statusLine(status?.[a.slug], a.description);
         return (
@@ -94,7 +94,7 @@ function RecentFiles({ scope }: { scope: string }) {
   );
   if (!data || data.count === 0) return null;
   return (
-    <Section title="files" count={data.count} action={<Button variant="quiet" size="sm" href={filesHref(scope)}>all <Icon name="arrow_forward" className="ms-sm" /></Button>}>
+    <Section size="lg" title="files" count={data.count} action={<Button variant="quiet" size="sm" href={filesHref(scope)}>all <Icon name="arrow_forward" className="ms-sm" /></Button>}>
       {data.recent.map((f) => {
         const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
         return (
@@ -122,14 +122,11 @@ export function Overview({ of }: { of: OverviewOf }) {
     const log = recentEntries(p.log, 5);
     return (
       <div className={OV}>
-        <p className={GOAL}>{p.goal || <span className="text-fg-2">No goal written yet.</span>}{p.status !== "active" && <span className="text-fg-2"> · {p.status}</span>}</p>
-        <NeedsYou items={attentionFor.project(waiting, p.slug, team)} />
-        <Team slugs={team} agents={agents} status={status} />
-        <Section title="where it stands">
-          {p.state.trim() ? <div className={MD} dangerouslySetInnerHTML={{ __html: md(p.state) }} /> : <p className={DIM}>Nothing recorded yet: the project's chat writes this down at the end of a session that changed something.</p>}
+        <Section size="lg" title="goal">
+          <p className={GOAL}>{p.goal || <span className="text-fg-2">No goal written yet.</span>}{p.status !== "active" && <span className="text-fg-2"> · {p.status}</span>}</p>
         </Section>
         {log.length > 0 && (
-          <Section title="lately">
+          <Section size="lg" title="lately">
             {log.map((e, i) => (
               <div key={i} className="grid grid-cols-[74px_minmax(0,1fr)] gap-2 px-2.5 py-1 text-sm">
                 <span className="pt-px text-xs tabular-nums text-fg-2">{e.day}</span>
@@ -138,9 +135,14 @@ export function Overview({ of }: { of: OverviewOf }) {
             ))}
           </Section>
         )}
+        <NeedsYou items={attentionFor.project(waiting, p.slug, team)} />
+        <Team slugs={team} agents={agents} status={status} />
+        <Section size="lg" title="where it stands">
+          {p.state.trim() ? <div className={MD} dangerouslySetInnerHTML={{ __html: md(p.state) }} /> : <p className={DIM}>Nothing recorded yet: the project's chat writes this down at the end of a session that changed something.</p>}
+        </Section>
         <RecentFiles scope={`project:${p.slug}`} />
         {p.records.length > 0 && (
-          <Section title="systems of record">
+          <Section size="lg" title="systems of record">
             {p.records.map((r, i) => (
               <ListRow
                 key={i}
@@ -185,14 +187,14 @@ function AgentOverview({ agent: a, journal, waiting, status }: { agent: AgentDet
       {line && line.text !== a.description && <p className={`m-0 px-2.5 text-sm ${line.tone === "waiting" ? "text-bad" : line.tone === "working" ? "text-accent" : "text-fg-2"}`}>{line.text}</p>}
       <NeedsYou items={attentionFor.agent(waiting, a.slug)} />
       {mine.length > 0 && (
-        <Section title="works on">
+        <Section size="lg" title="works on">
           {mine.map((p) => (
             <ListRow key={p.slug} href={`/projects/${encodeURIComponent(p.slug)}`} leading={<span aria-hidden>📁</span>} title={p.title} sub={p.goal || undefined} />
           ))}
         </Section>
       )}
       {routines.length > 0 && (
-        <Section title="schedule">
+        <Section size="lg" title="schedule">
           {routines.map((r) => (
             <ListRow
               key={r.id}
@@ -203,7 +205,7 @@ function AgentOverview({ agent: a, journal, waiting, status }: { agent: AgentDet
           ))}
         </Section>
       )}
-      <Section title="journal">
+      <Section size="lg" title="journal">
         <JournalNote slug={a.slug} onAdded={setText} />
         <div className={MD} dangerouslySetInnerHTML={{ __html: md(plain(text) || "_Nothing yet: the agent notes what it learns, decides and promises here, and reads it back at the start of every session._") }} />
       </Section>
@@ -218,7 +220,7 @@ function WorkspaceOverview({ waiting, agents, status }: { waiting: AttentionItem
     <div className={OV}>
       <NeedsYou items={waiting} />
       {projects?.enabled && (
-        <Section title="projects" count={active.length}>
+        <Section size="lg" title="projects" count={active.length}>
           {active.length === 0 && <p className={DIM}>No active projects.</p>}
           {active.map((p) => {
             const n = attentionFor.project(waiting, p.slug, p.agents).length;

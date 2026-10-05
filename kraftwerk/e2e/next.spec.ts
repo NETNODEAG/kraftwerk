@@ -79,7 +79,7 @@ test.describe("next: what needs you", () => {
     await page.keyboard.press("Alt+KeyN");
     await expect(page).toHaveURL(new RegExp(`#/projects/nx-relaunch/chat/${projectChat}\\?focus=`));
     await expect(page.locator(".question-card.pending")).toBeInViewport();
-    await expect(page.locator(".question-card .perm-who")).toHaveText("The assistant asks");
+    await expect(page.locator(".question-card .perm-who")).toHaveText("🧭 Assistant asks");
 
     // Back to the approval, answer it: one left.
     await next.click();

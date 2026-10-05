@@ -52,7 +52,7 @@ export function UiGallery() {
         <Panel title="Tabs and sections">
           <Tabs items={[{ id: "overview", label: "overview" }, { id: "files", label: "files", count: 4 }, { id: "knowledge", label: "knowledge", count: 0 }]} value={tab} onChange={setTab} />
           <div className="p-2">
-            <Section title="needs you" count={2} action={<Button size="sm" variant="quiet">all</Button>}>
+            <Section size="lg" title="needs you" count={2} action={<Button size="sm" variant="quiet">all</Button>}>
               <ListRow leading="✋" title="Run npm install" sub="🐻 Max · needs approval · 4m ago" onClick={() => {}} />
             </Section>
             <Section title="team">

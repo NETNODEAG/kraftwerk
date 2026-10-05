@@ -23,11 +23,16 @@ test.describe("rail folding", () => {
 
   test("per project, remembered, and the whole group", async ({ page }) => {
     const projectRow = (slug: string) => page.locator(`.rail a[data-project='${slug}']`);
-    // A nested agent row sits right after its project's row wrapper.
-    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div > a[data-nested]`);
+    // A nested agent row follows its project's row and the assistant row.
+    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div + div > a[data-nested='agent']`);
 
     await page.goto("/#/projects/fold-alpha/chat/new");
     await expect(helperUnder("fold-alpha")).toBeVisible();
+    // The project's assistant is its first row and is where you are; the project row steps back.
+    const assistant = page.locator(".rail div:has(> a[data-project='fold-alpha']) + div > a[data-nested='assistant']");
+    await expect(assistant).toContainText("Assistant");
+    await expect(assistant).toHaveAttribute("aria-current", "page");
+    await expect(projectRow("fold-alpha")).not.toHaveAttribute("aria-current", "page");
     await expect(helperUnder("fold-beta")).toHaveCount(0);
 
     await page.getByRole("button", { name: "expand fold-beta" }).click();
@@ -50,7 +55,7 @@ test.describe("rail folding", () => {
 
   test("selecting a project's agent keeps the project open", async ({ page }) => {
     const projectRow = (slug: string) => page.locator(`.rail a[data-project='${slug}']`);
-    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div > a[data-nested]`);
+    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div + div > a[data-nested='agent']`);
     await page.goto("/#/projects/fold-gamma/chat/new");
     await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
     await page.reload();
