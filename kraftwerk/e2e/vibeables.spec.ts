@@ -29,7 +29,8 @@ test.describe("vibeables", () => {
 
   test("the chat offers no vibeable until settings turn the feature on", async ({ page }) => {
     await page.goto(`/#/agents/chats/${chatId}`);
-    await expect(page.getByRole("heading", { name: "new chat" })).toBeVisible();
+    // The chat names itself in its tab: the sign it loaded.
+    await expect(page.getByRole("tab", { name: /new chat/ })).toBeVisible();
     await expect(page.locator("nav a[href='#/vibeables']")).toHaveCount(0);
 
     await page.goto("/#/settings");

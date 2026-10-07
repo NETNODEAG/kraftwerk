@@ -46,6 +46,22 @@ describe("chats API: approval state", () => {
    * these cases from spawning an agent. A chat the agent never answered
    * in has nothing to fork, and pi has no session to fork at all.
    */
+  it("renames a chat; an empty name, an unknown chat and a cross-origin rename are refused", async () => {
+    const meta = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
+    const patch = (id: string, body: unknown, origin = new URL(srv.url).origin) =>
+      fetch(`${srv.url}/api/chats/${id}`, { method: "PATCH", headers: { "content-type": "application/json", origin }, body: JSON.stringify(body) });
+    let r = await patch(meta.id, { title: "  Repo   setup " + "x".repeat(100) });
+    assert.equal(r.status, 200);
+    const title = ((await r.json()) as { meta: ChatMeta }).meta.title;
+    assert.equal(title.length, 80);
+    assert.ok(title.startsWith("Repo setup x"));
+    const row = ((await (await fetch(srv.url + "/api/chats")).json()) as { chats: ChatRow[] }).chats.find((c) => c.id === meta.id);
+    assert.equal(row?.title, title);
+    assert.equal((await patch(meta.id, { title: "   " })).status, 400);
+    assert.equal((await patch("chat-2000-01-01-0000-00-none", { title: "x" })).status, 404);
+    assert.equal((await patch(meta.id, { title: "evil" }, "https://evil.example")).status, 403);
+  });
+
   it("refuses to fork a chat without a session, a pi chat, and an unknown chat", async () => {
     const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
     const meta = (await created.json()) as ChatMeta;

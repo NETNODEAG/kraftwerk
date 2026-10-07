@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { ChatMeta } from "./types";
 import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
 import { cn, Dot, IconButton, ListRow, SideHead, SideList, SideNote } from "./ui";
@@ -61,6 +62,44 @@ const writeTabs = (store: string, ids: string[]): void => {
     localStorage.setItem(tabsKey(store), JSON.stringify(ids));
   } catch {}
 };
+
+/** Fired with {id, title} when a chat is renamed from its tab, so the open thread takes the new name too. */
+export const CHAT_RENAMED_EVENT = "kw-chat-renamed";
+
+/** A tab being renamed: Enter or leaving the field saves, Escape keeps the name. */
+function TabName({ name, onDone }: { name: string; onDone: (title?: string) => void }) {
+  const [value, setValue] = useState(name);
+  const clean = value.replace(/\s+/g, " ").trim().slice(0, 80);
+  return (
+    <input
+      autoFocus
+      value={value}
+      aria-label="chat name"
+      maxLength={80}
+      className="-mb-px w-[220px] flex-none self-end rounded-t-[10px] border border-b-0 border-accent bg-surface px-3 py-[7px] font-[inherit] text-sm font-medium text-fg outline-none"
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onDone(clean && clean !== name ? clean : undefined);
+        if (e.key === "Escape") onDone();
+      }}
+      onBlur={() => onDone(clean && clean !== name ? clean : undefined)}
+    />
+  );
+}
+
+/** The tab strip's right end: the open chat puts its own actions there (`StripEnd`). */
+const STRIP_END_ID = "kw-strip-end";
+
+/** Render into the strip's right end, from inside the chat; nothing while there is no strip. */
+export function StripEnd({ children }: { children: ReactNode }) {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const target = document.getElementById(STRIP_END_ID);
+    if (target !== el) setEl(target);
+  });
+  return el ? createPortal(children, el) : null;
+}
 
 export function SessionsPane({
   storeKey,
@@ -132,8 +171,19 @@ export function SessionsPane({
     if (tabs.includes(c.id)) closeTab(c.id);
   };
 
+  // A rename shows at once; the next poll carries the same name.
+  const [renamed, setRenamed] = useState<Record<string, string>>({});
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const rename = async (id: string, title: string) => {
+    setRenaming(null);
+    const r = await fetch(`/api/chats/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) }).catch(() => null);
+    if (!r?.ok) return;
+    setRenamed((m) => ({ ...m, [id]: title }));
+    window.dispatchEvent(new CustomEvent(CHAT_RENAMED_EVENT, { detail: { id, title } }));
+  };
+
   const shown = data ? tabs.filter((id) => byId.has(id)) : [];
-  const titleOf = (c: Session) => (c.scope.kind === "channel" ? c.title || `#${c.scope.slug}` : c.title || fallbackTitle);
+  const titleOf = (c: Session) => renamed[c.id] ?? (c.scope.kind === "channel" ? c.title || `#${c.scope.slug}` : c.title || fallbackTitle);
 
   return (
     <>
@@ -159,6 +209,7 @@ export function SessionsPane({
           {shown.map((id) => {
             const c = byId.get(id)!;
             const active = id === chatId;
+            if (renaming === id) return <TabName key={id} name={titleOf(c)} onDone={(t) => (t ? void rename(id, t) : setRenaming(null))} />;
             return (
               <Link
                 key={id}
@@ -170,11 +221,30 @@ export function SessionsPane({
                 )}
                 role="tab"
                 aria-selected={active}
-                title={titleOf(c)}
+                title={`${titleOf(c)} · double-click to rename`}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  setRenaming(id);
+                }}
               >
                 {(c.busy || c.awaitingApproval) && <Dot tone={c.awaitingApproval ? "bad" : "working"} title={c.awaitingApproval ? "waiting for your approval" : "working"} />}
                 {c.scope.kind === "channel" && <Icon name="forum" className="ms-sm text-fg-2" />}
                 <span className="truncate">{titleOf(c)}</span>
+                {active && (
+                  <button
+                    type="button"
+                    className="inline-flex flex-none cursor-pointer rounded-md p-0.5 text-fg-2 opacity-0 transition-opacity group-hover/tab:opacity-100 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 pointer-coarse:opacity-100"
+                    aria-label={`rename ${titleOf(c)}`}
+                    title="rename"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRenaming(id);
+                    }}
+                  >
+                    <Icon name="edit" className="ms-sm" />
+                  </button>
+                )}
                 <button
                   type="button"
                   className={cn(
@@ -196,6 +266,8 @@ export function SessionsPane({
           })}
           {actions}
         </div>
+        <span className="flex-1" />
+        <span id={STRIP_END_ID} className="mb-1 flex flex-none items-center gap-0.5 self-center" />
       </nav>
       {open && (
         <aside className="runs-side sessions-side animate-slide-left">

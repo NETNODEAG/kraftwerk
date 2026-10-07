@@ -29,12 +29,13 @@ import type { ProjectHit } from "./projects.js";
  * from a handful of small files without probing anything.
  */
 
-const HOME = path.join(os.homedir(), ".kraftwerk");
-const INSTANCES_DIR = path.join(HOME, "instances");
-const WORKSPACES_DIR = path.join(HOME, "workspaces");
+// Resolved on every use, not at import: a test swaps HOME after some module already imported this one.
+const kwHome = () => path.join(os.homedir(), ".kraftwerk");
+const instancesDir = () => path.join(kwHome(), "instances");
+const workspacesDir = () => path.join(kwHome(), "workspaces");
 /** Where the records lived before 0.49 (`kraftwerk projects`); moved over once, see migrateRegistry. */
-const LEGACY_WORKSPACES_DIR = path.join(HOME, "projects");
-const LOGS_DIR = path.join(HOME, "logs");
+const legacyWorkspacesDir = () => path.join(kwHome(), "projects");
+const logsDir = () => path.join(kwHome(), "logs");
 
 interface InstanceFile {
   pid: number;
@@ -98,7 +99,7 @@ export interface WorkspaceEntry {
   lastStopped?: string;
 }
 
-const selfFile = (): string => path.join(INSTANCES_DIR, `${process.pid}.json`);
+const selfFile = (): string => path.join(instancesDir(), `${process.pid}.json`);
 
 let selfPort: number | null = null;
 let selfRoot: string | null = null;
@@ -107,7 +108,7 @@ let selfRoot: string | null = null;
 export const workspaceRecordName = (root: string): string =>
   `${createHash("sha1").update(absolutePath(root)).digest("hex").slice(0, 16)}.json`;
 
-const recordFile = (root: string): string => path.join(WORKSPACES_DIR, workspaceRecordName(root));
+const recordFile = (root: string): string => path.join(workspacesDir(), workspaceRecordName(root));
 
 /** ~/… for display. */
 export const tildify = (p: string): string => {
@@ -122,7 +123,7 @@ export async function registerInstance(port: number, root: string): Promise<void
   selfPort = port;
   selfRoot = absolutePath(root);
   try {
-    await fs.mkdir(INSTANCES_DIR, { recursive: true });
+    await fs.mkdir(instancesDir(), { recursive: true });
     const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString(), root: selfRoot };
     await fs.writeFile(selfFile(), JSON.stringify(rec));
   } catch {} // best-effort — without it discovery just won't see us
@@ -186,7 +187,7 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
   if (cache && Date.now() - cache.at < 5_000) return cache.entries;
   let files: string[];
   try {
-    files = await fs.readdir(INSTANCES_DIR);
+    files = await fs.readdir(instancesDir());
   } catch {
     return [];
   }
@@ -196,14 +197,14 @@ export async function discoverInstances(): Promise<DiscoveredInstance[]> {
       .map(async (f) => {
         let rec: InstanceFile;
         try {
-          rec = JSON.parse(await fs.readFile(path.join(INSTANCES_DIR, f), "utf8")) as InstanceFile;
+          rec = JSON.parse(await fs.readFile(path.join(instancesDir(), f), "utf8")) as InstanceFile;
         } catch {
           return null;
         }
         if (rec.pid === process.pid || rec.port === selfPort) return null;
         const found = await probe(rec.port);
         if (!found) {
-          await fs.unlink(path.join(INSTANCES_DIR, f)).catch(() => {}); // stale — prune
+          await fs.unlink(path.join(instancesDir(), f)).catch(() => {}); // stale — prune
           return null;
         }
         return { ...found, root: rec.root, pid: rec.pid } as DiscoveredInstance;
@@ -233,15 +234,15 @@ function migrateRegistry(): Promise<void> {
   return (migrated ??= (async () => {
     let legacy: string[];
     try {
-      legacy = await fs.readdir(LEGACY_WORKSPACES_DIR);
+      legacy = await fs.readdir(legacyWorkspacesDir());
     } catch {
       return;
     }
     try {
-      await fs.mkdir(WORKSPACES_DIR, { recursive: true });
+      await fs.mkdir(workspacesDir(), { recursive: true });
       for (const f of legacy) {
         if (!f.endsWith(".json")) continue;
-        await fs.copyFile(path.join(LEGACY_WORKSPACES_DIR, f), path.join(WORKSPACES_DIR, f), fsSync.constants.COPYFILE_EXCL).catch(() => {});
+        await fs.copyFile(path.join(legacyWorkspacesDir(), f), path.join(workspacesDir(), f), fsSync.constants.COPYFILE_EXCL).catch(() => {});
       }
     } catch {}
   })());
@@ -272,7 +273,7 @@ export async function registerWorkspace(root: string): Promise<void> {
   const abs = absolutePath(root);
   const now = new Date().toISOString();
   try {
-    await fs.mkdir(WORKSPACES_DIR, { recursive: true });
+    await fs.mkdir(workspacesDir(), { recursive: true });
     const prev = await readRecord(recordFile(abs));
     const rec: WorkspaceRecord = {
       root: abs,
@@ -328,12 +329,12 @@ export async function listWorkspaceRecords(): Promise<WorkspaceRecord[]> {
   await migrateRegistry();
   let files: string[];
   try {
-    files = await fs.readdir(WORKSPACES_DIR);
+    files = await fs.readdir(workspacesDir());
   } catch {
     return [];
   }
   const recs = await Promise.all(
-    files.filter((f) => f.endsWith(".json")).map((f) => readRecord(path.join(WORKSPACES_DIR, f)))
+    files.filter((f) => f.endsWith(".json")).map((f) => readRecord(path.join(workspacesDir(), f)))
   );
   return recs
     .filter((r): r is WorkspaceRecord => r != null)
@@ -343,7 +344,7 @@ export async function listWorkspaceRecords(): Promise<WorkspaceRecord[]> {
 /** Drop a workspace record (the root itself is untouched) — from the legacy directory too, see migrateRegistry. */
 export async function forgetWorkspace(root: string): Promise<boolean> {
   await migrateRegistry();
-  const legacy = fs.unlink(path.join(LEGACY_WORKSPACES_DIR, workspaceRecordName(root))).catch(() => {});
+  const legacy = fs.unlink(path.join(legacyWorkspacesDir(), workspaceRecordName(root))).catch(() => {});
   try {
     await fs.unlink(recordFile(root));
     await legacy;
@@ -596,8 +597,8 @@ export async function startWorkspace(root: string): Promise<StartResult> {
   let log: string | undefined;
   let stdio: ("ignore" | number)[] = ["ignore", "ignore", "ignore"];
   try {
-    await fs.mkdir(LOGS_DIR, { recursive: true });
-    log = path.join(LOGS_DIR, workspaceRecordName(abs).replace(/\.json$/, ".log"));
+    await fs.mkdir(logsDir(), { recursive: true });
+    log = path.join(logsDir(), workspaceRecordName(abs).replace(/\.json$/, ".log"));
     const fd = fsSync.openSync(log, "a");
     fsSync.writeSync(fd, `\n--- ${new Date().toISOString()} start ${name} (${abs}) ---\n`);
     stdio = ["ignore", fd, fd];

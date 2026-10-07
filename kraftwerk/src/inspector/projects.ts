@@ -136,10 +136,23 @@ export interface ProjectDetail extends ProjectSummary {
   links: ProjectLinks;
 }
 
+/**
+ * The sidebar's order of the projects, with named sections (ORDER_FILE in the
+ * projects root, versioned with the workspace). Normalised on every read:
+ * each project appears exactly once, gone ones are dropped, and a project
+ * nobody placed yet joins the end of `top`.
+ */
+export interface ProjectLayout {
+  /** Projects above every section, in order. */
+  top: string[];
+  sections: { name: string; projects: string[] }[];
+}
+
 export interface ProjectsView {
   enabled: boolean;
   root?: string;
   projects: ProjectSummary[];
+  layout: ProjectLayout;
   /** Set when the feature is off or the root cannot be read. */
   error?: string;
 }
@@ -347,7 +360,7 @@ const STATUS_ORDER: Record<ProjectStatus, number> = { active: 0, paused: 1, done
 /** Every project under the root: active ones first, then by title. */
 export async function listProjects(): Promise<ProjectsView> {
   const opened = await openProjects();
-  if (!opened.root) return { enabled: false, projects: [], error: opened.error };
+  if (!opened.root) return { enabled: false, projects: [], layout: { top: [], sections: [] }, error: opened.error };
   const root = opened.root;
   const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
   const slugs = entries.filter((e) => e.isDirectory() && SLUG_RE.test(e.name)).map((e) => e.name);
@@ -355,7 +368,58 @@ export async function listProjects(): Promise<ProjectsView> {
   projects.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.title.localeCompare(b.title));
   // Like the agent roster: the registry copy feeds other instances' palettes. Archived projects stay out.
   await syncWorkspaceProjects(opened.project!.root, projects.filter((p) => p.status !== "archived").map(toProjectHit)).catch(() => {});
-  return { enabled: true, root, projects };
+  const layout = normaliseLayout(await readLayout(root), projects.map((p) => p.slug));
+  return { enabled: true, root, projects, layout };
+}
+
+/* ---------- the sidebar's order ---------- */
+
+const ORDER_FILE = "order.yml";
+const SECTION_NAME_MAX = 60;
+
+async function readLayout(root: string): Promise<unknown> {
+  const raw = await fs.readFile(path.join(root, ORDER_FILE), "utf8").catch(() => "");
+  try {
+    return parse(raw) ?? {};
+  } catch {
+    return {}; // a broken file falls back to the default order rather than hiding the projects
+  }
+}
+
+/** Any input -> a layout over exactly `slugs` (in their default order for the unplaced ones). */
+function normaliseLayout(input: unknown, slugs: string[]): ProjectLayout {
+  const exists = new Set(slugs);
+  const seen = new Set<string>();
+  const take = (v: unknown): string[] =>
+    (Array.isArray(v) ? v : []).filter((s): s is string => typeof s === "string" && exists.has(s) && !seen.has(s) && !!seen.add(s));
+  const o = (input && typeof input === "object" ? input : {}) as { projects?: unknown; sections?: unknown };
+  const top = take(o.projects);
+  const names = new Set<string>();
+  const sections: ProjectLayout["sections"] = [];
+  for (const raw of Array.isArray(o.sections) ? o.sections : []) {
+    const s = (raw && typeof raw === "object" ? raw : {}) as { name?: unknown; projects?: unknown };
+    const name = typeof s.name === "string" ? s.name.trim().slice(0, SECTION_NAME_MAX) : "";
+    if (!name || names.has(name)) continue;
+    names.add(name);
+    sections.push({ name, projects: take(s.projects) });
+  }
+  top.push(...slugs.filter((s) => !seen.has(s)));
+  return { top, sections };
+}
+
+/** Save the sidebar's order (PUT /api/projects); section names must be unique and non-empty. */
+export async function saveLayout(input: unknown): Promise<ProjectLayout> {
+  const root = await requireRoot();
+  const l = (input && typeof input === "object" ? input : {}) as Partial<ProjectLayout>;
+  const names = (Array.isArray(l.sections) ? l.sections : []).map((s) => (typeof s?.name === "string" ? s.name.trim() : ""));
+  if (names.some((n) => !n)) throw new Error("a section needs a name");
+  if (names.some((n) => n.length > SECTION_NAME_MAX)) throw new Error(`a section name has at most ${SECTION_NAME_MAX} characters`);
+  if (new Set(names).size !== names.length) throw new Error("two sections share a name");
+  const view = await listProjects();
+  const layout = normaliseLayout({ projects: l.top, sections: l.sections }, view.projects.map((p) => p.slug));
+  const doc = { projects: layout.top, sections: layout.sections.map((s) => ({ name: s.name, projects: s.projects })) };
+  await fs.writeFile(path.join(root, ORDER_FILE), `# The order of the projects in the sidebar, with its sections. Drag them there.\n${stringify(doc)}`);
+  return layout;
 }
 
 /** Which of the linked slugs exist right now, with a display label for the ones that do. */

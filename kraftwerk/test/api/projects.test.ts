@@ -241,6 +241,31 @@ describe("projects API", () => {
     assert.equal((await del("/api/projects/broken")).status, 200);
   });
 
+  it("PUT /api/projects saves the sidebar's order and sections; reads drop gone projects and add new ones", async () => {
+    for (const title of ["Alpha one", "Beta two"]) assert.equal((await post("/api/projects", { title })).status, 201);
+    const slugs = (await list()).projects.map((p) => p.slug);
+    assert.deepEqual([...(await list()).layout.top].sort(), [...slugs].sort(), "unplaced projects are on top");
+
+    let r = await put("/api/projects", { top: ["beta-two", "nope"], sections: [{ name: "Clients", projects: ["alpha-one", "beta-two"] }, { name: "Later", projects: [] }] });
+    assert.equal(r.status, 200);
+    const saved = await readFile(path.join(fx.root, "kraftwerk-data/projects/order.yml"), "utf8");
+    assert.match(saved, /^projects:\n {2}- beta-two$/m);
+    const l = (await list()).layout;
+    assert.equal(l.top[0], "beta-two", "a project is placed once, first place wins");
+    assert.deepEqual(l.sections, [{ name: "Clients", projects: ["alpha-one"] }, { name: "Later", projects: [] }]);
+    assert.ok(!l.top.includes("nope"));
+    assert.ok(l.top.includes("relaunch-netnode-ch"), "a project nobody placed joins the top");
+
+    for (const sections of [[{ name: "" }], [{ name: "A" }, { name: "A" }], [{ name: "x".repeat(61) }]]) {
+      r = await put("/api/projects", { top: [], sections });
+      assert.equal(r.status, 400, JSON.stringify(sections));
+    }
+    // A deleted project leaves the layout on the next read.
+    assert.equal((await del("/api/projects/alpha-one")).status, 200);
+    assert.deepEqual((await list()).layout.sections[0], { name: "Clients", projects: [] });
+    await del("/api/projects/beta-two");
+  });
+
   it("DELETE removes the folder; a second DELETE and GET are 404; settings turn the feature off", async () => {
     assert.equal((await del("/api/projects/relaunch-netnode-ch")).status, 200);
     assert.ok(!existsSync(dir()));

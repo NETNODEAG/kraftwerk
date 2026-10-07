@@ -470,6 +470,12 @@ kraftwerk-data/projects/<slug>/
   log.md        # append-only, newest first: decisions and milestones, dated and attributed
 ```
 
+The sidebar lists the projects in the workspace's order, grouped into named
+sections: drag a project to another place or onto a section, drag a section by
+its heading, or press Alt+↑/↓ on a project. The order lives in
+`kraftwerk-data/projects/order.yml` and travels with the workspace; a new
+project joins the top, and removing a section moves its projects up.
+
 `project.yml` holds the one-line goal, a status (`active`, `paused`, `done`,
 `archived`), the harness, model and effort its chats run on (the same three
 fields an agent has; the harness decides, not the caller), the **systems of

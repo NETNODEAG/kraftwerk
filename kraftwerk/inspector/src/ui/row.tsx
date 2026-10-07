@@ -29,6 +29,7 @@ export function ListRow({
   over,
   actionsAlways,
   innerProps,
+  titleLines = 1,
 }: {
   leading?: ReactNode;
   title: ReactNode;
@@ -54,6 +55,8 @@ export function ListRow({
   actionsAlways?: boolean;
   /** Extra attributes for the link or button itself: a tooltip, data-* hooks. */
   innerProps?: Record<string, string | undefined>;
+  /** Lines the title may wrap to before it is cut (a long project title in the rail). */
+  titleLines?: 1 | 2;
 }) {
   const body = (
     <>
@@ -61,7 +64,7 @@ export function ListRow({
       <span className="grid min-w-0 flex-1">
         {over && <span className="truncate text-xs font-semibold text-fg-2">{over}</span>}
         <span className={cn("flex min-w-0 items-center gap-1.5 text-fg", over ? "font-normal" : "font-semibold", size === "sm" ? "text-sm" : "text-base")}>
-          <span className="min-w-0 truncate">{title}</span>
+          <span className={cn("min-w-0", titleLines === 2 ? "line-clamp-2 leading-snug [overflow-wrap:anywhere]" : "truncate")}>{title}</span>
           {titleExtra}
         </span>
         {sub && (
@@ -98,7 +101,7 @@ export function ListRow({
     >
       {inner}
       {actions && (
-        <span className={cn("flex shrink-0 items-center gap-0.5 pr-1.5", !actionsAlways && "opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100")}>
+        <span className={cn("flex shrink-0 items-center gap-0.5 pr-1.5", !actionsAlways && "opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 pointer-coarse:opacity-100")}>
           {actions}
         </span>
       )}

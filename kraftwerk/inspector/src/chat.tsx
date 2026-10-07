@@ -24,6 +24,7 @@ import type {
 import { Icon, Link, navigate, PROJECT_ASSISTANT, setPageTitle, useExpertMode, useFeatures, usePoll } from "./shared";
 import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
+import { CHAT_RENAMED_EVENT, StripEnd } from "./sessions";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Notice, Page, Panel, Select, Tag, TextField, Title, type DotTone } from "./ui";
 
 /** The name a human posts under in channels; per browser, changeable in the composer. */
@@ -311,6 +312,15 @@ export function ChatThread({
   onConverted?: (channelSlug: string) => void;
 }) {
   const [meta, setMeta] = useState<ChatMeta | null>(null);
+  // Renamed from its tab: the browser title follows.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ id: string; title: string }>).detail;
+      if (d.id === id) setMeta((m) => (m ? { ...m, title: d.title } : m));
+    };
+    window.addEventListener(CHAT_RENAMED_EVENT, on);
+    return () => window.removeEventListener(CHAT_RENAMED_EVENT, on);
+  }, [id]);
   const [events, setEvents] = useState<StoredChatEvent[]>([]);
   const [gone, setGone] = useState(false);
   const [coworker, setCoworker] = useState(false);
@@ -513,24 +523,27 @@ export function ChatThread({
     );
   }
 
-  const waiting = busy && pendingFrom(events) !== undefined;
+  // The chat names itself in its tab, and the tab's dot says whether it works or waits: no header of
+  // its own. "add coworker" sits at the strip's right end; expert detail keeps a quiet line here.
+  const canCoworker = (meta.scope.kind === "agent" && !meta.scope.routine) || meta.scope.kind === "project";
+  const signedOut = live.auth?.kind === "none";
   return (
     <>
     <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
-      <div className="flex flex-none flex-wrap items-center gap-x-2.5 gap-y-1.5 pb-1.5">
-        <Dot tone={waiting ? "bad" : busy ? "working" : "ok"} title={waiting ? "waiting for you" : busy ? "working" : undefined} />
-        <Title className="min-w-0">{title || "new chat"}</Title>
-        {((meta.scope.kind === "agent" && !meta.scope.routine) || meta.scope.kind === "project") && (
-          <Button
+      {canCoworker && (
+        <StripEnd>
+          <IconButton
             size="sm"
             icon="group_add"
+            label="add coworker"
+            title={meta.scope.kind === "project" ? "add coworker: turn this chat into a channel of the project and invite agents" : "add coworker: turn this chat into a channel and invite more agents"}
             onClick={() => setCoworker(true)}
-            title={meta.scope.kind === "project" ? "Turn this chat into a channel of the project and invite agents" : "Turn this chat into a channel and invite more agents"}
             disabled={busy}
-          >
-            add coworker
-          </Button>
-        )}
+          />
+        </StripEnd>
+      )}
+      {(expert || signedOut) && (
+      <div className="flex flex-none flex-wrap items-center gap-x-2.5 gap-y-1.5 pb-1.5">
         {expert && meta.agent !== "pi" && meta.sessions?.main && (
           <Button
             size="sm"
@@ -571,10 +584,11 @@ export function ChatThread({
           </span>
         )}
       </div>
+      )}
       {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
       <SpeakerContext.Provider value={() => mainSpeaker(meta.scope, allAgents, agentName)}>
         <Thread id={id} events={events} busy={busy} />
-        <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} />
+        <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} account={live.auth && live.auth.kind !== "none" ? live.auth.email ?? live.auth.label : undefined} />
       </SpeakerContext.Provider>
     </div>
     {attachedSlug && vibeSlot && createPortal(<VibePane key={attachedSlug} chatId={id} slug={attachedSlug} agentBusy={busy} onClosed={setMeta} />, vibeSlot)}
@@ -1194,7 +1208,8 @@ function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof liveSta
   }
   return (
     <>
-      {live.auth && (
+      {/* Signed in, the account is named in the composer's tooltip; signed out, it is a problem worth the space. */}
+      {live.auth?.kind === "none" && (
         <span title={[live.auth.detail, live.auth.email, live.auth.organization, live.auth.plan].filter(Boolean).join(" · ")}>
           <Tag tone={live.auth.kind === "none" ? "bad" : "neutral"}>
             <Icon name={live.auth.kind === "none" ? "person_off" : "person"} className="ms-sm mr-1" /> {live.auth.email ?? live.auth.label}
@@ -1442,6 +1457,7 @@ function Composer({
   agentMap,
   commands = [],
   canSteer,
+  account,
 }: {
   id: string;
   busy: boolean;
@@ -1452,6 +1468,8 @@ function Composer({
   commands?: AgentCommand[];
   /** A running turn can take a message (steering) instead of blocking the composer. */
   canSteer?: boolean;
+  /** Whose account the agent runs on, named in the field's tooltip. */
+  account?: string;
 }) {
   const [text, setText] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
@@ -1724,7 +1742,7 @@ function Composer({
                   ? `Add to what ${name} is doing…`
                   : `Message ${name}…`
           }
-          title={channel ? "Enter to send · Shift+Enter for a newline · @ mentions an agent · / for skills · drop or paste files" : "Enter to send · Shift+Enter for a newline · / for skills · drop or paste files"}
+          title={`${channel ? "Enter to send · Shift+Enter for a newline · @ mentions an agent · / for skills · drop or paste files" : "Enter to send · Shift+Enter for a newline · / for skills · drop or paste files"}${account ? `\nruns as ${account}` : ""}`}
           rows={Math.min(6, Math.max(1, text.split("\n").length))}
           onChange={(e) => {
             setText(e.target.value);

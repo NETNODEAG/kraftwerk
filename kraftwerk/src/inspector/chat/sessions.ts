@@ -1495,6 +1495,16 @@ export async function resolvePermission(
  * the trash. The agents' own transcripts stay until it is deleted from the
  * trash (purgeChatTranscripts), so a restored chat can resume.
  */
+/** Rename a chat: its tab and list name. Up to 80 characters, like the name the first message gives it. */
+export async function renameChat(id: string, title: unknown): Promise<{ meta?: ChatMeta; error?: string }> {
+  if (typeof title !== "string" || !title.replace(/\s+/g, " ").trim()) return { error: "a chat needs a name" };
+  const state = await loadState(id);
+  if (!state) return { error: "not found" };
+  state.meta.title = title.replace(/\s+/g, " ").trim().slice(0, 80);
+  await writeMeta(state.meta);
+  return { meta: state.meta };
+}
+
 export async function deleteChat(id: string): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };

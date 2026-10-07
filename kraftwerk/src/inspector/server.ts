@@ -30,6 +30,7 @@ import {
   setChatConfig,
   listAgentSessionsFor,
   deleteChat,
+  renameChat,
   disposeAllBackends,
   getChat,
   listChats,
@@ -118,6 +119,7 @@ import {
   appendProjectLog,
   createProject,
   deleteProject,
+  saveLayout,
   getProject,
   linkProject,
   listProjects,
@@ -593,9 +595,17 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     }
   }
 
-  // GET /api/projects — every project folder under the projects root | POST {title, goal?, slug?} — create one from the starter
+  // GET /api/projects — every project folder under the projects root, with the sidebar's layout | POST {title, goal?, slug?} — create one
+  // from the starter | PUT {top, sections} — save the sidebar's order and sections
   if (seg.length === 2 && seg[1] === "projects") {
     if (method === "GET") return json(res, await listProjects());
+    if (method === "PUT") {
+      try {
+        return json(res, { ok: true, layout: await saveLayout(JSON.parse(await readBody(req))) });
+      } catch (err) {
+        return json(res, { error: (err as Error).message }, /are off/.test((err as Error).message) ? 409 : 400);
+      }
+    }
     if (method === "POST") {
       if ((await openProjects()).off) return json(res, { error: "projects are off" }, 409);
       try {
@@ -1369,6 +1379,17 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
       return json(res, result, result.error ? 404 : 200);
     } catch {
       return json(res, { error: "invalid chat id" }, 400);
+    }
+  }
+
+  // PATCH /api/chats/:id {title} — rename the chat
+  if (seg.length === 3 && seg[1] === "chats" && method === "PATCH") {
+    try {
+      const body = JSON.parse(await readBody(req)) as { title?: unknown };
+      const result = await renameChat(seg[2], body.title);
+      return json(res, result, result.error ? (result.error === "not found" ? 404 : 400) : 200);
+    } catch {
+      return json(res, { error: "invalid chat id or body" }, 400);
     }
   }
 
