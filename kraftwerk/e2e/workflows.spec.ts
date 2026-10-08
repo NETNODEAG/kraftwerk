@@ -314,4 +314,20 @@ test.describe("workflows screen", () => {
     await page.goto("/#/trash");
     await expect(page.getByText("scrap").first()).toBeVisible();
   });
+
+  test("the context column's workflows: ▶ unfolds the launcher, a routine that runs one shows under it", async ({ page, request }) => {
+    expect((await request.put("/api/agents/ticker", { data: { name: "Ticker", harness: "claude" } })).ok()).toBeTruthy();
+    expect((await request.post("/api/agents/ticker/routines", { data: { name: "Morning tick", schedule: "0 9 * * *", prompt: "Run the tick workflow.", enabled: true } })).ok()).toBeTruthy();
+    await page.goto("/#/agents/chats");
+    const ctx = page.locator(".ctx");
+    await ctx.getByRole("tab", { name: /workflows/ }).click();
+    await expect(ctx.locator(".routine-line", { hasText: "Morning tick" })).toContainText(/Ticker · Morning tick · next/);
+
+    await ctx.getByRole("button", { name: "run tick" }).click();
+    await expect(ctx.getByText("This workflow takes no request.")).toBeVisible();
+    await expect(ctx.getByRole("button", { name: "Run", exact: true })).toBeVisible();
+    await ctx.getByRole("button", { name: /close the launcher of tick/ }).click();
+    await expect(ctx.getByText("This workflow takes no request.")).toHaveCount(0);
+    await request.delete("/api/agents/ticker");
+  });
 });

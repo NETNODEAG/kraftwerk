@@ -6,6 +6,7 @@ import { Overview } from "./overview";
 import { Button, cn, Dot, IconButton, ListRow, Select, Tabs, type DotTone } from "./ui";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
+import { RunForm } from "./run-launcher";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
 import type { AgentDetail, ChannelView, KnowledgeIndex, ProjectDetail, RunListItem, VibeablesView, WorkflowSummary } from "./types";
 
@@ -58,6 +59,30 @@ async function getJson<T>(url: string): Promise<T | null> {
   }
 }
 
+/** A routine (GET /api/routines) with the agent it belongs to and the workflows its prompt names. */
+interface WorkflowRoutine {
+  id: string;
+  name: string;
+  schedule: string;
+  prompt: string;
+  enabled: boolean;
+  nextRunAt?: string;
+  agent: { slug: string; name: string; emoji: string };
+  workflows: string[];
+}
+
+/** "today 17:00", "tomorrow 09:00", "Fri 17:00", "12 Oct 09:00". */
+function fmtNext(iso: string): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(d) - day(new Date())) / 86_400_000);
+  if (diff === 0) return `today ${time}`;
+  if (diff === 1) return `tomorrow ${time}`;
+  if (diff > 1 && diff < 7) return `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+  return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+}
+
 const present = (slugs: string[], have: Set<string>) => slugs.map((slug) => ({ slug, found: have.has(slug) }));
 
 
@@ -89,6 +114,10 @@ export function ContextPanel({ chatPath, workspace }: {
             : [undefined, ""];
   const wfs = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false, 15_000);
   const runs = usePoll<{ runs: RunListItem[] }>("/api/runs", false, 6000);
+  // The routines that run a workflow (their prompt names it), shown under it in the workflows tab.
+  const routines = usePoll<{ routines: WorkflowRoutine[] }>("/api/routines", false, 30_000);
+  // The workflow whose launcher is unfolded under its row.
+  const [launching, setLaunching] = useState<string | null>(null);
   const know = usePoll<KnowledgeIndex>("/api/knowledge", false, 15_000);
   const vibes = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false, 15_000);
   const [links, setLinks] = useState<Links | null>(null);
@@ -376,17 +405,57 @@ export function ContextPanel({ chatPath, workspace }: {
               {links?.workflows.map(({ slug, found }) => {
                 const w = wfOf(slug);
                 const last = lastRun(w);
+                const runnable = found && !!w && !w.error;
+                const scheduled = (routines?.routines ?? []).filter((r) => r.workflows.includes(slug));
                 return (
-                  <ListRow
-                    key={slug}
-                    href={`/workflows/${encodeURIComponent(slug)}`}
-                    onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}
-                    dim={!found}
-                    leading={<Dot tone={!found || w?.error ? "bad" : runTone(last?.status)} />}
-                    title={w?.name ?? slug}
-                    sub={!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
-                    meta={found && !w?.error ? <Icon name="chevron_right" className="ms-sm" /> : undefined}
-                  />
+                  <div key={slug} className="flex flex-col">
+                    <ListRow
+                      href={`/workflows/${encodeURIComponent(slug)}`}
+                      onClick={found ? openRow(`/workflows/${encodeURIComponent(slug)}`) : undefined}
+                      dim={!found}
+                      leading={<Dot tone={!found || w?.error ? "bad" : runTone(last?.status)} />}
+                      title={w?.name ?? slug}
+                      sub={!found ? "not in this workspace" : w?.error ? "broken" : last ? `${last.status} · ${fmtAgo(last.updatedAt)}` : (w?.description ?? "no runs yet")}
+                      actionsAlways
+                      actions={
+                        runnable ? (
+                          <IconButton
+                            size="sm"
+                            icon={launching === slug ? "close" : "play_arrow"}
+                            label={launching === slug ? `close the launcher of ${w.name ?? slug}` : `run ${w.name ?? slug}`}
+                            aria-expanded={launching === slug}
+                            onClick={() => setLaunching(launching === slug ? null : slug)}
+                          />
+                        ) : undefined
+                      }
+                    />
+                    {/* A routine whose prompt names the workflow: who runs it, and when next. */}
+                    {scheduled.map((r) => (
+                      <Link
+                        key={`${r.agent.slug}/${r.id}`}
+                        href={`/agents/${encodeURIComponent(r.agent.slug)}/info`}
+                        className="routine-line flex min-w-0 items-center gap-1.5 pt-0.5 pb-2 pl-[46px] pr-3 text-xs text-fg-2 no-underline hover:text-fg"
+                        title={`${r.agent.name}'s routine "${r.name}" (${r.schedule}) runs this workflow: ${r.prompt}`}
+                      >
+                        <Icon name="schedule" className="ms-sm flex-none text-[14px]" />
+                        <span className="min-w-0 truncate">
+                          {r.agent.emoji} {r.agent.name} · {r.name} · {r.enabled ? (r.nextRunAt ? `next ${fmtNext(r.nextRunAt)}` : r.schedule) : "paused"}
+                        </span>
+                      </Link>
+                    ))}
+                    {launching === slug && w && (
+                      <div className="mx-1 mb-2 rounded-card border border-line bg-surface [&>div]:px-3 [&>div]:pt-3">
+                        <RunForm
+                          slug={slug}
+                          usesRequest={w.usesRequest}
+                          onLaunched={() => {
+                            setLaunching(null);
+                            show(`/workflows/${encodeURIComponent(slug)}`);
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </>

@@ -128,6 +128,7 @@ import {
   type SaveProjectInput,
 } from "./projects.js";
 import {
+  allRoutines,
   deleteRoutine,
   routineStatuses,
   runRoutineNow,
@@ -1178,6 +1179,11 @@ async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise
     } catch (err) {
       return json(res, { error: (err as Error).message }, 400);
     }
+  }
+
+  // GET /api/routines — every agent's routines with run state and the workflows each one names
+  if (seg.length === 2 && seg[1] === "routines" && method === "GET") {
+    return json(res, { routines: await allRoutines((await listWorkflows()).workflows) });
   }
 
   // GET/POST /api/agents/:slug/routines — list (with run state) / upsert

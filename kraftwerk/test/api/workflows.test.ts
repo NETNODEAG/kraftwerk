@@ -105,6 +105,18 @@ describe("workflows API", () => {
     assert.equal(((await (await fetch(srv.url + "/api/workflows/shout")).json()) as WorkflowDetail).name, "shout");
   });
 
+  it("GET /api/routines lists every agent's routines with the workflows their prompts name", async () => {
+    const put = (url: string, body: unknown, method = "PUT") => fetch(srv.url + url, { method, headers: origin(), body: JSON.stringify(body) });
+    assert.equal((await put("/api/agents/tim", { name: "Tim", harness: "claude" })).status, 200);
+    const r = await put("/api/agents/tim/routines", { name: "Morning tick", schedule: "0 9 * * 1-5", prompt: "Run the tick workflow and post the stamp.", enabled: true }, "POST");
+    assert.equal(r.status, 200, await r.clone().text());
+    const { routines } = (await (await fetch(srv.url + "/api/routines")).json()) as { routines: { name: string; agent: { slug: string }; workflows: string[]; nextRunAt?: string }[] };
+    const tick = routines.find((x) => x.name === "Morning tick");
+    assert.deepEqual(tick?.workflows, ["tick"]);
+    assert.equal(tick?.agent.slug, "tim");
+    assert.ok(tick?.nextRunAt, "an enabled routine says when it runs next");
+  });
+
   it("reports docker status for the sandbox option", async () => {
     const d = (await (await fetch(srv.url + "/api/workflows/any/run")).json()) as { available: boolean; image: boolean };
     assert.equal(typeof d.available, "boolean");

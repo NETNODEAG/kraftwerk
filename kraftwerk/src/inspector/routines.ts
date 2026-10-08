@@ -226,6 +226,35 @@ async function writeState(state: Record<string, RoutineState>): Promise<void> {
   await fs.writeFile(stateFile(), JSON.stringify(state, null, 2));
 }
 
+/**
+ * Whether a routine's prompt names a workflow: its slug or its name as a whole word
+ * ("Run the daily-ceo-report workflow", "Run helpdesk workflow"). Routines are an
+ * agent's prompts, so this is how a workflow learns it runs on a schedule.
+ */
+export function mentionsWorkflow(prompt: string, w: { slug: string; name?: string }): boolean {
+  const text = prompt.toLowerCase();
+  return [w.slug, w.name].some((n) => {
+    if (!n?.trim()) return false;
+    const esc = n.trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9_-])${esc}($|[^a-z0-9_-])`).test(text);
+  });
+}
+
+/** Every agent's routines with their run state, each with the workflows its prompt names (GET /api/routines). */
+export async function allRoutines(workflows: { slug: string; name?: string }[]): Promise<(RoutineStatus & { agent: { slug: string; name: string; emoji: string }; workflows: string[] })[]> {
+  const agents = (await listAgents()).filter((a) => !a.archived);
+  const per = await Promise.all(
+    agents.map(async (a) =>
+      (await routineStatuses(a.slug).catch(() => [])).map((r) => ({
+        ...r,
+        agent: { slug: a.slug, name: a.name, emoji: a.emoji },
+        workflows: workflows.filter((w) => mentionsWorkflow(r.prompt, w)).map((w) => w.slug),
+      }))
+    )
+  );
+  return per.flat();
+}
+
 export async function routineStatuses(slug: string): Promise<RoutineStatus[]> {
   const [routines, state] = await Promise.all([listRoutines(slug), readState()]);
   return routines.map((r) => {
