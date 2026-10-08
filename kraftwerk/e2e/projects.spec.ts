@@ -70,7 +70,7 @@ test.describe("projects", () => {
     expect(readFileSync(path.join(dir, "project.yml"), "utf8")).toMatch(/^goal: Ship the new site by November$/m);
 
     // The sidebar lists it with its goal.
-    await expect(page.locator("[data-project='relaunch-the-website']")).toContainText("Relaunch the website");
+    await expect(page.locator(".rail [data-project='relaunch-the-website']")).toContainText("Relaunch the website");
   });
 
   test("a chat opened in the project lists under it and not under the general chats", async ({ page, request }) => {

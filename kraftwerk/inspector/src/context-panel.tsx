@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Icon, Link, LocalNav, PROJECTS_CHANGED_EVENT, fmtAgo, isEditPath, post, useExpertMode, useFeatures, useHashPath, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { Icon, Link, LocalNav, PROJECTS_CHANGED_EVENT, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath } from "./shared";
 import { BundleView } from "./knowledge";
 import { FileBrowser } from "./files";
 import { Overview } from "./overview";
@@ -8,7 +9,7 @@ import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "
 import { WorkflowView } from "./workflow-view";
 import { RunForm } from "./run-launcher";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
-import type { AgentDetail, ChannelView, KnowledgeIndex, ProjectDetail, RunListItem, VibeablesView, WorkflowSummary } from "./types";
+import type { AgentDetail, ChannelView, ProjectDetail, WorkflowSummary } from "./types";
 
 /** What the middle column talks to, read off its route. */
 type Context =
@@ -50,26 +51,6 @@ interface Links {
   all?: boolean;
 }
 
-async function getJson<T>(url: string): Promise<T | null> {
-  try {
-    const r = await fetch(url, { cache: "no-store" });
-    return r.ok ? ((await r.json()) as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** A routine (GET /api/routines) with the agent it belongs to and the workflows its prompt names. */
-interface WorkflowRoutine {
-  id: string;
-  name: string;
-  schedule: string;
-  prompt: string;
-  enabled: boolean;
-  nextRunAt?: string;
-  agent: { slug: string; name: string; emoji: string };
-  workflows: string[];
-}
 
 /** "today 17:00", "tomorrow 09:00", "Fri 17:00", "12 Oct 09:00". */
 function fmtNext(iso: string): string {
@@ -112,14 +93,14 @@ export function ContextPanel({ chatPath, workspace }: {
           : expert
             ? ["/settings", "workspace settings"]
             : [undefined, ""];
-  const wfs = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false, 15_000);
-  const runs = usePoll<{ runs: RunListItem[] }>("/api/runs", false, 6000);
+  const wfs = useApi("workflows.list", {}, { interval: 15_000 });
+  const runs = useApi("runs.list", {}, { interval: 6000 });
   // The routines that run a workflow (their prompt names it), shown under it in the workflows tab.
-  const routines = usePoll<{ routines: WorkflowRoutine[] }>("/api/routines", false, 30_000);
+  const routines = useApi("routines.list", {}, { interval: 30_000 });
   // The workflow whose launcher is unfolded under its row.
   const [launching, setLaunching] = useState<string | null>(null);
-  const know = usePoll<KnowledgeIndex>("/api/knowledge", false, 15_000);
-  const vibes = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false, 15_000);
+  const know = useApi("knowledge.list", {}, { interval: 15_000 });
+  const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 15_000 });
   const [links, setLinks] = useState<Links | null>(null);
   const [version, setVersion] = useState(0);
   // One category at a time, as tabs; remembered per browser.
@@ -168,8 +149,8 @@ export function ContextPanel({ chatPath, workspace }: {
   useEffect(() => setFilesAt({ dir: "" }), [key]);
   // Pin an app to the project (link the vibeable) or unpin it; the rail lists the pinned ones under the project.
   const pinApp = async (project: string, vibeable: string, remove: boolean) => {
-    const d = await post(`/api/projects/${encodeURIComponent(project)}/links`, { kind: "vibeables", target: vibeable, remove }).catch(() => null);
-    if (d && !d.error) {
+    const r = await api.request("projects.link", { slug: project, body: { kind: "vibeables", target: vibeable, remove } }).catch(() => null);
+    if (r?.ok) {
       setVersion((v) => v + 1);
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
     }
@@ -252,21 +233,21 @@ export function ContextPanel({ chatPath, workspace }: {
     (async () => {
       let next: Links | null = null;
       if (ctx.kind === "agent") {
-        const a = await getJson<AgentDetail>(`/api/agents/${encodeURIComponent(ctx.slug)}`);
+        const a = await api.call("agents.get", { slug: ctx.slug }).catch(() => null);
         if (a) {
           next = { title: `${a.emoji ? `${a.emoji} ` : ""}${a.name}`, agent: a, workflows: present(a.workflows, wfSlugs), knowledge: present(a.knowledge, bundleNames), editHref: `/agents/${encodeURIComponent(ctx.slug)}/edit` };
           // Linked apps show like a project's; an agent without any keeps the column as it was.
           if ((a.vibeables ?? []).length > 0) next.vibeables = present(a.vibeables, vibeSlugs);
-          next.journal = (await getJson<{ journal: string }>(`/api/agents/${encodeURIComponent(ctx.slug)}/journal`))?.journal ?? "";
+          next.journal = (await api.call("agents.journal", { slug: ctx.slug }).catch(() => null))?.journal ?? "";
         }
       } else if (ctx.kind === "project") {
-        const p = await getJson<ProjectDetail>(`/api/projects/${encodeURIComponent(ctx.slug)}`);
+        const p = await api.call("projects.get", { slug: ctx.slug }).catch(() => null);
         if (p) next = { title: `📁 ${p.title}`, project: p, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
       } else if (ctx.kind === "channel") {
-        const d = await getJson<{ channels: ChannelView[] }>("/api/channels");
+        const d = await api.call("channels.list").catch(() => null);
         const c = d?.channels.find((x) => x.slug === ctx.slug);
         if (c) {
-          const members = (await Promise.all(c.members.map((m) => getJson<AgentDetail>(`/api/agents/${encodeURIComponent(m)}`)))).filter((a): a is AgentDetail => !!a);
+          const members = (await Promise.all(c.members.map((m) => api.call("agents.get", { slug: m }).catch(() => null)))).filter((a): a is AgentDetail => !!a);
           const union = (pick: (a: AgentDetail) => string[]) => [...new Set(members.flatMap(pick))];
           const memberVibes = union((a) => a.vibeables ?? []);
           next = {

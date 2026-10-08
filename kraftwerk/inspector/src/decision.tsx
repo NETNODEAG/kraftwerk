@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DecisionView } from "./types";
+import { api } from "./api";
 import { fmtWhen } from "./shared";
 import { Button, cn, Dot, Notice, Tag, TextField } from "./ui";
 
@@ -39,14 +40,10 @@ export function DecisionPanel({ runId, decision }: { runId: string; decision: De
     if (!canSubmit) return;
     setBusy(true);
     setError(null);
-    const r = await fetch(`/api/runs/${encodeURIComponent(runId)}/decision`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision: choice, note: note.trim() }),
-    }).catch(() => null);
+    const r = await api.request("runs.decide", { id: runId, body: { decision: choice, note: note.trim() } }).catch(() => null);
     // On success the run poll brings the answer back and this renders as decided.
     if (r?.ok) return;
-    setError(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "could not save the decision");
+    setError((r?.data as { error?: string } | undefined)?.error ?? "could not save the decision");
     setBusy(false);
   }
 

@@ -1,5 +1,5 @@
-import { Icon, useExpertMode, useFeatures, usePoll } from "./shared";
-import type { GitStatus } from "./types";
+import { useApi } from "./api";
+import { Icon, useExpertMode, useFeatures } from "./shared";
 import { cn } from "./ui";
 
 /**
@@ -55,7 +55,7 @@ export function GlobalNav({ path }: { path: string }) {
 
 /** Ahead/behind counts on the git entry, so the state is visible without opening the screen. */
 function GitBadge() {
-  const st = usePoll<GitStatus>("/api/git", false, 15_000);
+  const st = useApi("git.status", {}, { interval: 15_000 });
   const dirty = st?.files?.filter((f) => f.syncable).length ?? 0;
   const badge = "ml-[5px] rounded-full bg-surface-2 px-1.5 py-px text-[10.5px] font-semibold tabular-nums";
   return (

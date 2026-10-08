@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { navigate, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { navigate } from "./shared";
 import { Button, Notice, SwitchRow, TextField } from "./ui";
 
 /**
@@ -15,7 +16,7 @@ export interface DockerStatus {
 
 /** Docker daemon + runner image, polled slowly; the route ignores the slug. */
 export function useDocker(): DockerStatus | null {
-  return usePoll<DockerStatus>("/api/workflows/any/run", false, 15_000);
+  return useApi("workflows.runner", { slug: "any" }, { interval: 15_000 });
 }
 
 export const sandboxReady = (d: DockerStatus | null): boolean => !!d?.available && !!d?.image;
@@ -31,13 +32,7 @@ export async function launchRun(
   slug: string,
   opts: { request: string; sandbox: boolean; ssh: boolean }
 ): Promise<string> {
-  const res = await fetch(`/api/workflows/${encodeURIComponent(slug)}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+  const data = await api.call("workflows.run", { slug, body: opts });
   return data.runId as string;
 }
 

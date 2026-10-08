@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "./api";
 import { Icon } from "./shared";
 import { Button, buttonClass, Checkbox, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
 
@@ -113,9 +114,9 @@ function CloudPanel() {
   useEffect(() => {
     let alive = true;
     const load = () =>
-      fetch("/api/meta", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((m: { cloud?: CloudMeta }) => alive && m.cloud && setCloud(m.cloud))
+      api
+        .call("meta.get")
+        .then((m) => alive && m.cloud && setCloud(m.cloud))
         .catch(() => {});
     void load();
     const t = setInterval(load, 10_000);
@@ -217,9 +218,9 @@ export function SettingsScreen() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then((d: SettingsData) => {
+    api
+      .call("settings.get")
+      .then((d) => {
         setData(d);
         setName(d.config.name ?? "");
         setIcon(d.config.icon ?? "");
@@ -243,10 +244,8 @@ export function SettingsScreen() {
     setSaving(true);
     setError("");
     try {
-      const r = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      const r = await api.request("settings.save", {
+        body: {
           name,
           icon,
           color,
@@ -255,10 +254,10 @@ export function SettingsScreen() {
           repos,
           vibeables,
           projects,
-        }),
+        },
       });
-      const d = (await r.json()) as SettingsData & { error?: string };
-      if (!r.ok) throw new Error(d.error || "save failed");
+      if (!r.ok) throw new Error((r.data as { error?: string } | undefined)?.error || "save failed");
+      const d = r.data;
       setData(d);
       setSwitcher(d.config.switcher ?? []);
       setGit(gitForm(d));

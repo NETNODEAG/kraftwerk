@@ -1,7 +1,8 @@
 import { Fragment, Suspense, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BundleDetail, ConceptDetail, KnowledgeIndex } from "./types";
 import { createChatAndOpen } from "./chat";
-import { navigate, Icon, Link, LocalNav, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { navigate, Icon, Link, LocalNav } from "./shared";
 import { Button, cn, Dot, EmptyState, Fact, Facts, Hint, ListRow, Notice, Panel, SideHead, SideList, SideNote, Tabs, Tag, TextField, Title } from "./ui";
 import { exportBundlePdf } from "./export";
 // The rich-text editor (MDXEditor + CodeMirror) is heavy: loaded the first time a page is edited as a document.
@@ -17,7 +18,7 @@ const editorHelpers = () => import("./editor");
  */
 
 export function KnowledgeScreen({ bundle, conceptId }: { bundle?: string; conceptId?: string }) {
-  const data = usePoll<KnowledgeIndex>("/api/knowledge", false);
+  const data = useApi("knowledge.list", {});
   // Bundles just moved to the trash, hidden until the poll stops listing them (else the landing would pick one again).
   const [gone, setGone] = useState<string[]>([]);
   useEffect(() => {
@@ -90,14 +91,10 @@ function KnowledgeHome() {
     if (!n) return;
     setCreating(true);
     setError("");
-    const res = await fetch("/api/knowledge", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: n }),
-    });
-    const body = await res.json();
+    const res = await api.request("knowledge.create", { body: { name: n } });
+    const body = res.data as { error?: string } | undefined;
     setCreating(false);
-    if (body.error) setError(body.error);
+    if (body?.error) setError(body.error);
     else navigate(`/knowledge/${encodeURIComponent(n)}`);
   }
 
@@ -153,16 +150,13 @@ const ACTIVITY_ID = "@activity";
  * shareable.
  */
 export function BundleView({ name, conceptId, onRemoved }: { name: string; conceptId?: string; onRemoved?: () => void }) {
-  const data = usePoll<BundleDetail | { error: string }>(
-    `/api/knowledge/${encodeURIComponent(name)}`,
-    false
-  );
+  const data = useApi("knowledge.get", { bundle: name });
   const embedded = useEmbedded();
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removeError, setRemoveError] = useState("");
   async function remove() {
-    const r = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
-    const body = await r?.json().catch(() => ({}));
+    const r = await api.request("knowledge.delete", { bundle: name }).catch(() => null);
+    const body = r?.data as { error?: string } | undefined;
     if (!r?.ok) {
       setRemoveError(body?.error ?? "delete failed");
       setConfirmRemove(false);
@@ -492,13 +486,8 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   const latestRef = useRef<string | null>(null); // a body waiting to be saved
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef<Promise<void> | null>(null);
-  const url = `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(conceptId)}`;
-
   const load = () => {
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setConcept)
-      .catch(() => setGone(true));
+    api.call("knowledge.concept", { bundle, query: { id: conceptId } }).then(setConcept, () => setGone(true));
   };
 
   // Poll so agent-written updates appear without a manual refresh; paused while
@@ -509,9 +498,9 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await api.request("knowledge.concept", { bundle, query: { id: conceptId } });
         if (r.ok) {
-          const c = (await r.json()) as ConceptDetail;
+          const c = r.data;
           if (alive) {
             setGone(false);
             setConcept((prev) => (JSON.stringify(prev) === JSON.stringify(c) ? prev : c));
@@ -527,7 +516,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
       alive = false;
       clearTimeout(timer);
     };
-  }, [url, mode]);
+  }, [bundle, conceptId, mode]);
 
   // The editor starts from the file on disk, and restarts when the file
   // changed underneath while nothing here is unsaved (an agent wrote it).
@@ -558,13 +547,9 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
       try {
         const head = headRef.current;
         const content = head ? `${head}${head.endsWith("\n") ? "" : "\n"}${body.replace(/^\n+/, "\n")}` : body;
-        const r = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: conceptId, content }),
-          keepalive: true,
-        });
-        const res = (await r.json()) as ConceptDetail & { error?: string };
+        // keepalive: this save also runs on tab close.
+        const r = await api.request("knowledge.putConcept", { bundle, body: { id: conceptId, content }, keepalive: true });
+        const res = r.data as ConceptDetail & { error?: string };
         if (res.error) throw new Error(res.error);
         headRef.current = (await editorHelpers()).splitFrontmatter(res.raw).head;
         lastRawRef.current = res.raw; // what we saved is what the editor shows: no restart
@@ -608,11 +593,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
 
   async function verify() {
     setVerifying(true);
-    await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/verify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: conceptId }),
-    }).catch(() => {});
+    await api.request("knowledge.verify", { bundle, body: { id: conceptId } }).catch(() => {});
     setVerifying(false);
     load();
   }
@@ -628,13 +609,10 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
   async function saveMarkdown() {
     setSaving(true);
     setSaveError("");
-    const body = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: conceptId, content: draft }),
-    })
-      .then((r) => r.json())
-      .catch(() => ({ error: "save failed" }));
+    const body = (await api
+      .request("knowledge.putConcept", { bundle, body: { id: conceptId, content: draft } })
+      .then((r) => (r.data && typeof r.data === "object" ? r.data : { error: "save failed" }))
+      .catch(() => ({ error: "save failed" }))) as ConceptDetail & { error?: string };
     setSaving(false);
     if (body.error) setSaveError(body.error);
     else {

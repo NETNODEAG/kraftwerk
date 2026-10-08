@@ -18,4 +18,4 @@ Run from `kraftwerk/`:
 - `npm test` — API and CLI tests (`test/**/*.test.ts`, node:test via tsx). `test/api/` starts the real inspector on a free port against a temp project from `test/helpers/project.ts`; `test/cli/` runs the real bin in a fresh process via `test/helpers/cli.ts`. `HOME` is redirected in both so `~/.kraftwerk` stays untouched. Runs in CI before publish.
 - `npm run test:e2e` — Playwright (`e2e/*.spec.ts`). `e2e/serve.ts` builds `inspector/dist` if missing and serves a fresh fixture on port 19981. Needs `npx playwright install chromium` once.
 
-Never spawn docker or a coding agent from a test. One fixture per test file: the inspector keeps its project root in module state.
+Never spawn docker or a coding agent from a test. Each `startServer` serves its fixture as its own `Workspace` (see `src/inspector/workspace.ts`), so several servers in one file are fine (`test/api/two-workspaces.test.ts`); the instance registry and the cloud client are still per process, so keep one fixture per file unless the test is about isolation.

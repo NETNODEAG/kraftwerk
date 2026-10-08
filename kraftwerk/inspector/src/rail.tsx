@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
 import { statusLine } from "../../src/inspector/status-line";
 import { attentionFor, useAttention } from "./attention";
-import { Icon, Link, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT, useExpertMode, useFeatures, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { Icon, Link, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT, useExpertMode, useFeatures } from "./shared";
 import { SortableProjects, freshSectionName } from "./rail-sort";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
 import type { Agent, AgentStatus, ChannelView, ProjectLayout, ProjectsView, VibeablesView } from "./types";
@@ -15,18 +16,18 @@ import type { Agent, AgentStatus, ChannelView, ProjectLayout, ProjectsView, Vibe
 export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const features = useFeatures();
   const expert = useExpertMode();
-  const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000);
-  const channels = usePoll<{ channels: ChannelView[] }>("/api/channels", false, 6000);
-  // A pin or unpin elsewhere bumps the url, which refetches the list at once.
+  const agents = useApi("agents.list", {}, { interval: 15_000 });
+  const channels = useApi("channels.list", {}, { interval: 6000 });
+  // A pin or unpin elsewhere bumps the rev, which refetches the list at once.
   const [projectsRev, setProjectsRev] = useState(0);
   useEffect(() => {
     const bump = () => setProjectsRev((n) => n + 1);
     window.addEventListener(PROJECTS_CHANGED_EVENT, bump);
     return () => window.removeEventListener(PROJECTS_CHANGED_EVENT, bump);
   }, []);
-  const projects = usePoll<ProjectsView>(features.projects ? `/api/projects${projectsRev ? `?rev=${projectsRev}` : ""}` : "", false, 15_000);
-  const status = usePoll<Record<string, AgentStatus>>("/api/agent-status", false, 5000);
-  const vibes = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false, 15_000);
+  const projects = useApi("projects.list", features.projects ? {} : null, { interval: 15_000, refresh: projectsRev });
+  const status = useApi("agents.status", {}, { interval: 5000 });
+  const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 15_000 });
   const vibeSlugs = new Set((vibes?.vibeables ?? []).map((v) => v.slug));
   const seg = chatPath.split("/").filter(Boolean);
   const at = (kind: string, slug?: string) =>
@@ -56,7 +57,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
     : projectList;
   // The order and sections are the workspace's (order.yml); saving refetches the list at once.
   const saveLayout = async (layout: ProjectLayout): Promise<boolean> => {
-    const r = await fetch("/api/projects", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(layout) }).catch(() => null);
+    const r = await api.request("projects.saveLayout", { body: layout }).catch(() => null);
     setProjectsRev((n) => n + 1);
     return !!r?.ok;
   };

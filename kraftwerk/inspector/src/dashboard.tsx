@@ -1,16 +1,13 @@
 import { useMemo, useState } from "react";
 import type {
-  AgentStatus,
   BundleInfo,
   ChatMeta,
-  KnowledgeIndex,
-  ProjectsView,
   RunListItem,
-  SkillInfo,
   Agent,
   WorkflowSummary,
 } from "./types";
-import { Icon, Link, usePoll, fmtAgo, useExpertMode, useHashPath } from "./shared";
+import { useApi } from "./api";
+import { Icon, Link, fmtAgo, useExpertMode, useHashPath } from "./shared";
 import { nextItem, openAttention, ownerText, useAttention } from "./attention";
 import { Button, cn, Dot, Eyebrow, ListRow, Panel, Tag } from "./ui";
 
@@ -62,15 +59,15 @@ function trimTitle(t: string): string {
 }
 
 export function DashboardScreen() {
-  const runsData = usePoll<{ outputDir: string; runs: RunListItem[] }>("/api/runs", false);
-  const chatsData = usePoll<{ chats: BusyChat[] }>("/api/chats", false);
-  const knowData = usePoll<KnowledgeIndex>("/api/knowledge", false);
-  const agentsData = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
-  const wfData = usePoll<{ root: string; workflows: WorkflowSummary[] }>("/api/workflows", false);
-  const skillsData = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
+  const runsData = useApi("runs.list", {});
+  const chatsData = useApi("chats.list", {});
+  const knowData = useApi("knowledge.list", {});
+  const agentsData = useApi("agents.list", {});
+  const wfData = useApi("workflows.list", {});
+  const skillsData = useApi("skills.list", {});
   const [filter, setFilter] = useState<FeedFilter>("all");
   const expert = useExpertMode();
-  const projectsData = usePoll<ProjectsView>("/api/projects", false, 30_000);
+  const projectsData = useApi("projects.list", {}, { interval: 30_000 });
   const projectTitle = (slug: string) => projectsData?.projects.find((p) => p.slug === slug)?.title ?? slug;
 
   const runs = runsData?.runs ?? [];
@@ -380,7 +377,7 @@ function Today({
 }) {
   const waiting = useAttention() ?? [];
   const hash = useHashPath();
-  const status = usePoll<Record<string, AgentStatus>>("/api/agent-status", false, 5000);
+  const status = useApi("agents.status", {}, { interval: 5000 });
   const wfName = (slug?: string) => (slug ? (workflows.find((w) => w.slug === slug)?.name ?? slug) : "workflow");
   // When a chat's turn started, from the agents' status (the chat list does not carry it).
   const startedAt = new Map<string, string>();

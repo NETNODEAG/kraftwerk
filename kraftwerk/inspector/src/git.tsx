@@ -1,5 +1,6 @@
 import { useCallback, useRef, useEffect, useState } from "react";
-import { fmtAgo, Icon, post } from "./shared";
+import { api, failure, type CallInput } from "./api";
+import { fmtAgo, Icon } from "./shared";
 import { Button, cn, EmptyState, Notice, Page, PageHeader, Panel, TextField } from "./ui";
 import type { GitDiff, GitStatus } from "./types";
 
@@ -31,23 +32,38 @@ const lineClass = (line: string): string => LINE_CLASSES.find(([re]) => re.test(
 
 /** The workspace repo's diff of one changed file. */
 function Diff({ file }: { file: string }) {
-  return <DiffView url={`/api/git/diff?path=${encodeURIComponent(file)}`} />;
+  return <DiffView source={{ route: "git.diff", input: { query: { path: file } } }} />;
 }
 
-/** Unified diff from any endpoint that answers a GitDiff, coloured per line. Small enough not to warrant a library. */
-export function DiffView({ url }: { url: string }) {
+/** The routes that answer a GitDiff. */
+export type DiffSource =
+  | { route: "git.diff"; input: CallInput<"git.diff"> }
+  | { route: "repos.diff"; input: CallInput<"repos.diff"> }
+  | { route: "repos.commit"; input: CallInput<"repos.commit"> };
+
+const loadDiff = (s: DiffSource) =>
+  s.route === "git.diff" ? api.request(s.route, s.input) : s.route === "repos.diff" ? api.request(s.route, s.input) : api.request(s.route, s.input);
+
+/**
+ * Unified diff from any route that answers a GitDiff, coloured per line. Small enough not to warrant a library.
+ * A changed `refresh` reloads it (the file changed under the same path).
+ */
+export function DiffView({ source, refresh }: { source: DiffSource; refresh?: unknown }) {
   const [text, setText] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState("");
 
+  const key = JSON.stringify(source);
   useEffect(() => {
     let alive = true;
     setText(null);
     setError("");
-    fetch(url)
-      .then((r) => r.json())
-      .then((d: Partial<GitDiff>) => {
+    // The error answers (400/404) carry the same shape, with `error` set.
+    loadDiff(source)
+      .then(({ data }) => {
         if (!alive) return;
+        if (!data || typeof data !== "object") throw new Error("not json");
+        const d = data as Partial<GitDiff>;
         setText(d.diff ?? "");
         setTruncated(!!d.truncated);
         setError(d.error ?? "");
@@ -56,7 +72,7 @@ export function DiffView({ url }: { url: string }) {
     return () => {
       alive = false;
     };
-  }, [url]);
+  }, [key, refresh]);
 
   if (error) return <div className={cn(DIFF, "text-bad")}>{error}</div>;
   if (text === null) return <div className={DIFF}>loading…</div>;
@@ -106,6 +122,7 @@ export const NOTE = "text-xs text-fg-2";
 /** What an empty panel says. */
 export const PANEL_EMPTY = "m-0 p-[18px] text-sm text-fg-2";
 
+/** The error a write answered with: its `{error}`, else the HTTP status when it was refused. */
 export function GitScreen() {
   const [st, setSt] = useState<GitStatus | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -120,9 +137,9 @@ export function GitScreen() {
   const first = useRef(true);
   const reload = useCallback(async () => {
     try {
-      const r = await fetch(first.current ? "/api/git?fresh=1" : "/api/git", { cache: "no-store" });
+      const r = await api.request("git.status", { query: { fresh: first.current } });
       first.current = false;
-      if (r.ok) setSt((await r.json()) as GitStatus);
+      if (r.ok) setSt(r.data);
     } catch {}
   }, []);
 
@@ -155,9 +172,9 @@ export function GitScreen() {
     setError("");
     setNote("");
     try {
-      const d = await post(`/api/git/${verb}`, body);
-      if (d.ok) setNote(verb === "push" ? "pushed" : verb === "pull" ? "pulled" : "fetched");
-      else setError(d.error || `${verb} failed`);
+      const r = await api.request(`git.${verb}`, { body: body ?? {} });
+      if (r.data?.ok) setNote(verb === "push" ? "pushed" : verb === "pull" ? "pulled" : "fetched");
+      else setError(failure(r) || `${verb} failed`);
     } catch (err) {
       setError((err as Error).message || `${verb} failed`);
     } finally {
@@ -171,13 +188,13 @@ export function GitScreen() {
     setError("");
     setNote("");
     try {
-      const d = await post("/api/git/commit", { paths: [...selected], message });
-      if (d.ok) {
+      const r = await api.request("git.commit", { body: { paths: [...selected], message } });
+      if (r.data?.ok) {
         setNote(`committed ${selected.size} file${selected.size === 1 ? "" : "s"}`);
         setSelected(new Set());
         setMessage("");
       } else {
-        setError(d.error || "commit failed");
+        setError(failure(r) || "commit failed");
       }
     } catch (err) {
       setError((err as Error).message || "commit failed");

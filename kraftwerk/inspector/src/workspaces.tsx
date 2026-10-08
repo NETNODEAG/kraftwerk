@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, Icon, post, WorkspaceTile } from "./shared";
+import { api } from "./api";
+import { fmtAgo, Icon, WorkspaceTile } from "./shared";
 import { Button, buttonClass, cn, EmptyState, Notice, Page, PageHeader, Panel } from "./ui";
 
 /**
@@ -67,9 +68,9 @@ export function WorkspacesScreen() {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/workspaces", { cache: "no-store" });
+      const r = await api.request("workspaces.list");
       if (r.ok) {
-        setRows((await r.json()) as Workspace[]);
+        setRows(r.data as Workspace[]);
         setLoadError("");
         return;
       }
@@ -108,8 +109,9 @@ export function WorkspacesScreen() {
     setConfirmRemove(null);
     try {
       const body = verb === "stop" ? { root: w.root, url: w.url } : { root: w.root };
-      const d = await post<{ url?: string; live?: boolean }>(`/api/workspaces/${verb}`, body);
-      if (!d.ok) throw new Error(d.error || "failed");
+      const r = await api.request(`workspaces.${verb}`, { body });
+      const d = (r.data && typeof r.data === "object" ? r.data : {}) as { ok?: boolean; error?: string };
+      if (!d.ok) throw new Error(d.error || (r.ok ? "failed" : `HTTP ${r.status}`));
       window.dispatchEvent(new Event("kw-meta-refresh"));
     } catch (err) {
       setErrors((e) => ({ ...e, [key]: (err as Error).message }));

@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getOutputDir } from "./context.js";
+import { perWorkspace } from "./workspace.js";
+import { touch } from "./live.js";
 import type { ChatMeta } from "./chat/types.js";
 
 /**
@@ -53,31 +55,35 @@ export interface NotificationsView {
 const MAX_ITEMS = 200;
 const BODY_MAX = 280;
 
-let cache: Notification[] | null = null;
-let writeChain: Promise<void> = Promise.resolve();
+/** The in-memory copy and the write queue, one per workspace. */
+const store = perWorkspace(() => ({ cache: null as Notification[] | null, writeChain: Promise.resolve() }));
 
 const file = (): string => path.join(getOutputDir(), "notifications.json");
 
 async function load(): Promise<Notification[]> {
-  if (cache) return cache;
+  const st = store();
+  if (st.cache) return st.cache;
   try {
     const parsed = JSON.parse(await fs.readFile(file(), "utf8")) as unknown;
-    cache = Array.isArray(parsed) ? (parsed as Notification[]) : [];
+    st.cache = Array.isArray(parsed) ? (parsed as Notification[]) : [];
   } catch {
-    cache = [];
+    st.cache = [];
   }
-  return cache;
+  return st.cache;
 }
 
 function persist(items: Notification[]): void {
-  cache = items;
-  writeChain = writeChain
+  const st = store();
+  const [dir, target] = [getOutputDir(), file()];
+  st.cache = items;
+  touch();
+  st.writeChain = st.writeChain
     .then(async () => {
-      await fs.mkdir(getOutputDir(), { recursive: true });
+      await fs.mkdir(dir, { recursive: true });
       // Write-then-rename: a reader (the UI, a test) never sees a half-written file.
-      const tmp = `${file()}.${process.pid}.tmp`;
+      const tmp = `${target}.${process.pid}.tmp`;
       await fs.writeFile(tmp, JSON.stringify(items, null, 2));
-      await fs.rename(tmp, file());
+      await fs.rename(tmp, target);
     })
     .catch(() => {});
 }
@@ -154,5 +160,5 @@ export async function clearNotifications(): Promise<void> {
 
 /** Tests / project switches: forget the in-memory copy so the next read hits disk. */
 export function resetNotificationsCache(): void {
-  cache = null;
+  store().cache = null;
 }

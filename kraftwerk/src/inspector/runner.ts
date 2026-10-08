@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, openSync, closeSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getProjectRoot } from "./context.js";
+import { perWorkspace } from "./workspace.js";
 import { RUN_ID_RE, getRun, safeRunDir } from "./runs.js";
 import { pushNotification } from "./notifications.js";
 import { newRunId } from "../workflow.js";
@@ -31,7 +32,7 @@ export function dockerStatus(): { available: boolean; image: boolean } {
 }
 
 /** Launchers this inspector started and that have not exited yet, by run id. */
-const live = new Map<string, ChildProcess>();
+const launchers = perWorkspace(() => new Map<string, ChildProcess>());
 
 export function triggerRun(opts: {
   workflowName: string;
@@ -64,7 +65,7 @@ export function triggerRun(opts: {
   });
   child.unref();
   closeSync(log);
-  live.set(runId, child);
+  launchers().set(runId, child);
   // Detached, but as long as the inspector lives it still hears the exit:
   // that is when the run's outcome goes to the bell (read from the trace,
   // the exit code alone does not say whether a gate blocked). The exit
@@ -72,7 +73,7 @@ export function triggerRun(opts: {
   // framework wrote a trace (missing env var, npx failure) shows as failed
   // instead of running until the stale timeout.
   child.on("exit", (code, signal) => {
-    live.delete(runId);
+    launchers().delete(runId);
     try {
       writeFileSync(
         path.join(runDir, "trigger.json"),
@@ -102,7 +103,7 @@ export function stopRun(runId: string): boolean {
   if (!RUN_ID_RE.test(runId)) return false;
   // A local run this inspector launched: the launcher is detached into its
   // own process group, so the negative pid ends npx and the framework under it.
-  const child = live.get(runId);
+  const child = launchers().get(runId);
   if (child?.pid && child.exitCode == null) {
     try {
       process.kill(-child.pid, "SIGTERM");

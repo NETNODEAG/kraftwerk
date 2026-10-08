@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import { getOutputDir } from "./context.js";
+import { perWorkspace } from "./workspace.js";
 import { getAgent, listAgents, safeAgentSlug, agentsRoot } from "./agents.js";
 import { chatAwaitingApproval, createChat, postMessage } from "./chat/sessions.js";
 import { pushNotification } from "./notifications.js";
@@ -318,7 +319,8 @@ export async function runRoutineNow(slug: string, id: string): Promise<{ chatId:
 
 /* ---------- scheduler ---------- */
 
-let timer: ReturnType<typeof setInterval> | null = null;
+/** The scheduler's timer, one per workspace. */
+const scheduler = perWorkspace(() => ({ timer: null as ReturnType<typeof setInterval> | null }));
 
 async function tick(): Promise<void> {
   const now = new Date();
@@ -360,9 +362,10 @@ async function tick(): Promise<void> {
   if (dirty) await writeState(state);
 }
 
-/** Start the in-process scheduler; safe to call more than once. */
+/** Start the current workspace's scheduler; safe to call more than once. Ticks run in that workspace. */
 export function startRoutineScheduler(): void {
-  if (timer) return;
-  timer = setInterval(() => void tick().catch(() => {}), 20_000);
-  timer.unref?.();
+  const s = scheduler();
+  if (s.timer) return;
+  s.timer = setInterval(() => void tick().catch(() => {}), 20_000);
+  s.timer.unref?.();
 }

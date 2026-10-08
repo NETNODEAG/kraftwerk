@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Agent, ChannelView } from "./types";
 import { ChatThread } from "./chat";
-import { navigate, usePoll, fmtWhen } from "./shared";
+import { api, useApi } from "./api";
+import { navigate, fmtWhen } from "./shared";
 import { Button, Checkbox, cn, Dot, EmptyState, Eyebrow, Field, IconButton, ListRow, Notice, Page, Panel, Select, SideHead, SideList, SideNote, TextField } from "./ui";
 
 /**
@@ -15,8 +16,8 @@ export type { ChannelView };
 
 /** The editor of one channel — or the create form without a slug — on its own (the modal over a conversation). */
 export function ChannelEditPage({ slug }: { slug?: string }) {
-  const data = usePoll<{ root: string; channels: ChannelView[] }>("/api/channels", false, 4000);
-  const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000);
+  const data = useApi("channels.list", {}, { interval: 4000 });
+  const agents = useApi("agents.list", {}, { interval: 15_000 });
   const current = slug ? data?.channels.find((c) => c.slug === slug) : undefined;
   if (!slug) return <ChannelEditor agents={agents?.agents ?? []} />;
   if (!data) return <EmptyState>loading…</EmptyState>;
@@ -27,8 +28,8 @@ export function ChannelEditPage({ slug }: { slug?: string }) {
 export function ChannelsScreen({ seg }: { seg: string[] }) {
   const slug = seg[0] && seg[0] !== "new" ? decodeURIComponent(seg[0]) : undefined;
   const mode = seg[0] === "new" ? "new" : slug && seg[1] === "edit" ? "edit" : slug ? "channel" : "home";
-  const data = usePoll<{ root: string; channels: ChannelView[] }>("/api/channels", false, 4000);
-  const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000);
+  const data = useApi("channels.list", {}, { interval: 4000 });
+  const agents = useApi("agents.list", {}, { interval: 15_000 });
   const channels = data?.channels ?? [];
   const current = slug ? channels.find((c) => c.slug === slug) : undefined;
 
@@ -149,12 +150,9 @@ export function ChannelEditor({ channel, agents }: { channel?: ChannelView; agen
     setSaving(true);
     setError("");
     try {
-      const r = await fetch(channel ? `/api/channels/${encodeURIComponent(channel.slug)}` : "/api/channels", {
-        method: channel ? "PUT" : "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, purpose, members, responder: responder || null }),
-      });
-      const d = (await r.json()) as ChannelView & { error?: string };
+      const body = { name, purpose, members, responder: responder || null };
+      const r = channel ? await api.request("channels.save", { slug: channel.slug, body }) : await api.request("channels.create", { body });
+      const d = (r.data ?? {}) as ChannelView & { error?: string };
       if (!r.ok || d.error) throw new Error(d.error ?? `HTTP ${r.status}`);
       navigate(`/channels/${encodeURIComponent(d.slug)}`);
     } catch (err) {
@@ -166,7 +164,7 @@ export function ChannelEditor({ channel, agents }: { channel?: ChannelView; agen
   async function remove(): Promise<void> {
     if (!channel) return;
     if (!window.confirm(`Move #${channel.slug} and its transcript to the trash?`)) return;
-    await fetch(`/api/channels/${encodeURIComponent(channel.slug)}`, { method: "DELETE" }).catch(() => {});
+    await api.request("channels.delete", { slug: channel.slug }).catch(() => {});
     navigate("/channels");
   }
 
@@ -249,9 +247,9 @@ export function AddCoworkerDialog({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/agents")
-      .then((r) => r.json())
-      .then((d: { agents: Agent[] }) => setAgents(d.agents.filter((a) => !a.archived && a.slug !== agentSlug)))
+    api
+      .call("agents.list")
+      .then((d) => setAgents(d.agents.filter((a) => !a.archived && a.slug !== agentSlug)))
       .catch(() => {});
   }, [agentSlug]);
 
@@ -259,17 +257,15 @@ export function AddCoworkerDialog({
     setSaving(true);
     setError("");
     try {
-      const r = await fetch("/api/channels/from-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      const r = await api.request("channels.fromChat", {
+        body: {
           chatId,
           name,
           members: agentSlug ? [agentSlug, ...picked] : picked,
           responder: agentSlug ?? picked[0],
-        }),
+        },
       });
-      const d = (await r.json()) as { slug?: string; error?: string };
+      const d = (r.data ?? {}) as { slug?: string; error?: string };
       if (!r.ok || !d.slug) throw new Error(d.error ?? `HTTP ${r.status}`);
       onClose();
       if (onCreated) onCreated(d.slug);

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { SkillDetail, SkillInfo } from "./types";
-import { navigate, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { navigate } from "./shared";
 import { Dot, EmptyState, Fact, Facts, ListRow, Panel, SideHead, SideList, SideNote, Tabs, Tag, Title } from "./ui";
 
 /**
@@ -24,7 +25,7 @@ function sourceTag(source: SkillInfo["source"]) {
 }
 
 export function SkillsScreen({ name }: { name?: string }) {
-  const data = usePoll<{ root: string; skills: SkillInfo[] }>("/api/skills", false);
+  const data = useApi("skills.list", {});
   const skills = data?.skills ?? [];
   const workspace = skills.filter((s) => s.source === "workspace");
   const local = skills.filter((s) => s.source !== "workspace");
@@ -106,10 +107,7 @@ function SkillView({ name }: { name: string }) {
   );
 
   useEffect(() => {
-    fetch(`/api/skills/${encodeURIComponent(name)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setSkill)
-      .catch(() => setGone(true));
+    api.call("skills.get", { name }).then(setSkill, () => setGone(true));
   }, [name]);
 
   if (gone) return <EmptyState icon="extension">skill not found</EmptyState>;

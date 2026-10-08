@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 // cn straight from its module: ui/ imports this file, the index would be a cycle.
 import { cn } from "./ui/cn";
+import { api } from "./api";
 
 /* ---------- icons ---------- */
 
@@ -101,22 +102,17 @@ export function navigate(to: string, opts?: { replace?: boolean }): void {
  * the entry live through /api/meta.
  */
 export async function startWorkspace(root: string): Promise<string> {
-  const r = await fetch("/api/workspaces/start", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ root }),
-  });
-  const d = (await r.json()) as { ok?: boolean; live?: boolean; url?: string; error?: string };
+  const r = await api.request("workspaces.start", { body: { root } });
+  const d = (r.data ?? {}) as { ok?: boolean; live?: boolean; url?: string; error?: string };
   if (!d.ok) throw new Error(d.error || `HTTP ${r.status}`);
   window.dispatchEvent(new Event("kw-meta-refresh"));
   if (d.live && d.url) return d.url;
   for (let i = 0; i < 12; i++) {
     await new Promise((res) => setTimeout(res, 1_000));
     try {
-      const m = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
-        switcher?: { root?: string; live?: boolean; url: string }[];
-      };
-      const hit = m.switcher?.find((e) => e.root === root && e.live);
+      const m = await api.call("meta.get");
+      // Manual entries carry no root or live flag; only discovered ones match.
+      const hit = (m.switcher as { root?: string; live?: boolean; url: string }[]).find((e) => e.root === root && e.live);
       if (hit) return hit.url;
     } catch {}
   }
@@ -361,56 +357,11 @@ export function WorkspaceTile({
   );
 }
 
-/* ---------- polling ---------- */
-
-/** JSON POST; a non-2xx without an error body gets "HTTP <status>". */
-export async function post<T extends object = {}>(
-  url: string,
-  body?: unknown
-): Promise<T & { ok?: boolean; error?: string }> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body ?? {}),
-  });
-  const d = (await r.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
-  if (!r.ok && !d.error) d.error = `HTTP ${r.status}`;
-  return d;
-}
-
 /** Every project's own chat, shown as its first agent: what Ralv is to the workspace, the assistant is to one project. */
 export const PROJECT_ASSISTANT = { emoji: "🧭", name: "Assistant" };
 
-/** Poll a JSON endpoint; tightens the interval while `fast` (live run). */
 /** Fired after a project's links change in the UI, so lists that show them refetch at once. */
 export const PROJECTS_CHANGED_EVENT = "kw-projects-changed";
-
-export function usePoll<T>(url: string, fast: boolean, intervalMs = 6000): T | null {
-  const [data, setData] = useState<T | null>(null);
-  const urlRef = useRef(url);
-  urlRef.current = url;
-
-  useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      // An empty url pauses the poll (a screen that only needs the data in one state); a change restarts it.
-      if (!urlRef.current) return;
-      try {
-        const res = await fetch(urlRef.current, { cache: "no-store" });
-        if (res.ok && alive) setData(await res.json());
-      } catch {}
-      if (alive) timer = setTimeout(tick, fast ? 1500 : intervalMs);
-    };
-    tick();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [url, fast, intervalMs]);
-
-  return data;
-}
 
 /* ---------- formatting ---------- */
 

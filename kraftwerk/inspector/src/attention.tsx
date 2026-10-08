@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { api } from "./api";
 import { Icon, navigate, useHashPath } from "./shared";
 import type { AttentionItem, AttentionOwner } from "./types";
 import { Kbd } from "./ui";
@@ -17,9 +18,9 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 
 async function tick(): Promise<void> {
   try {
-    const r = await fetch("/api/attention", { cache: "no-store" });
+    const r = await api.request("attention.list");
     if (r.ok) {
-      items = ((await r.json()) as { items: AttentionItem[] }).items;
+      items = r.data.items;
       for (const l of listeners) l();
     }
   } catch {}
@@ -75,11 +76,8 @@ export function nextItem(list: AttentionItem[], hash: string): AttentionItem | u
 /** Open an item: its place, with the request in view; a failure counts as seen once opened. */
 export function openAttention(item: AttentionItem): void {
   if (item.notificationId) {
-    void fetch("/api/notifications/read", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids: [item.notificationId] }),
-    })
+    void api
+      .request("notifications.read", { body: { ids: [item.notificationId] } })
       .then(() => refreshAttention())
       .catch(() => {});
   }

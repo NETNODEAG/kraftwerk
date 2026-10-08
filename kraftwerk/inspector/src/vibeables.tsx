@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { api, failure, live } from "./api";
 import { fmtAgo, Icon, navigate, useExpertMode } from "./shared";
 import { Button, cn, Dot, EmptyState, Hint, IconButton, ListRow, Notice, Select, SideHead, SideList, SideNote, SideSearch, Tag, TextField, Title, type DotTone } from "./ui";
 import type { ChatAgentId, ChatMeta, VibeableInfo, VibeablesView, VibeableStatus } from "./types";
@@ -28,14 +29,9 @@ export function announceVibeable(detail: VibeAttachment | null): void {
 }
 
 async function setVibeable(chatId: string, slug: string | null): Promise<ChatMeta> {
-  const r = await fetch(`/api/chats/${chatId}/vibeable`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ slug }),
-  });
-  const d = (await r.json()) as ChatMeta & { error?: string };
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-  return d;
+  const r = await api.request("chats.setVibeable", { id: chatId, body: { slug } });
+  if (!r.ok) throw new Error(failure(r));
+  return r.data;
 }
 
 /* ---------- pane ---------- */
@@ -63,10 +59,9 @@ export function VibePane({
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/vibeables/${encodeURIComponent(slug)}`, { cache: "no-store" });
-      const d = (await r.json()) as VibeableStatus & { error?: string };
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setStatus(d);
+      const r = await api.request("vibeables.get", { slug });
+      if (!r.ok) throw new Error(failure(r));
+      setStatus(r.data);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -75,10 +70,9 @@ export function VibePane({
 
   useEffect(() => {
     void load();
-    const es = new EventSource(`/api/vibeables/${encodeURIComponent(slug)}/events`);
     let flashTimer: ReturnType<typeof setTimeout> | undefined;
-    es.onmessage = (m) => {
-      const ev = JSON.parse(m.data) as
+    const stop = live.subscribe(`vibeable.${slug}`, {}, (data) => {
+      const ev = data as
         | { type: "change"; files: string[] }
         | { type: "dev"; dev: VibeableStatus["dev"] }
         | { type: "error"; message: string };
@@ -93,9 +87,9 @@ export function VibePane({
       } else if (ev.type === "error") {
         setError(ev.message);
       }
-    };
+    });
     return () => {
-      es.close();
+      stop();
       clearTimeout(flashTimer);
     };
   }, [slug, load]);
@@ -119,10 +113,9 @@ export function VibePane({
     setBusy(verb);
     setError("");
     try {
-      const r = await fetch(`/api/vibeables/${encodeURIComponent(slug)}/dev/${verb}`, { method: "POST" });
-      const d = (await r.json()) as VibeableStatus & { error?: string };
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setStatus(d);
+      const r = await api.request(verb === "start" ? "vibeables.devStart" : "vibeables.devStop", { slug });
+      if (!r.ok) throw new Error(failure(r));
+      setStatus(r.data);
       if (verb === "start") setShowLog(true);
     } catch (err) {
       setError((err as Error).message);
@@ -289,13 +282,9 @@ const AGENT_KEY = "kw-vibeable-agent";
 
 /** Start a chat on the given harness with the app open in its pane, and go there. */
 async function openInChat(slug: string, agent: ChatAgentId): Promise<void> {
-  const r = await fetch("/api/chats", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ agent, scope: { kind: "general" } }),
-  });
-  const chat = (await r.json()) as ChatMeta & { error?: string };
-  if (!r.ok || !chat.id) throw new Error(chat.error || `HTTP ${r.status}`);
+  const r = await api.request("chats.create", { body: { agent, scope: { kind: "general" } } });
+  const chat = r.data;
+  if (!r.ok || !chat.id) throw new Error(failure(r) || `HTTP ${r.status}`);
   await setVibeable(chat.id, slug);
   navigate(`/agents/chats/${chat.id}`);
 }
@@ -327,9 +316,9 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/vibeables", { cache: "no-store" });
+      const r = await api.request("vibeables.list");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setView((await r.json()) as VibeablesView);
+      setView(r.data);
       setLoadError("");
     } catch (err) {
       setLoadError((err as Error).message || "could not load the apps");
@@ -384,13 +373,9 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
     mark("__new", "create");
     setErrors((x) => ({ ...x, __new: "" }));
     try {
-      const r = await fetch("/api/vibeables", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: n }),
-      });
-      const d = (await r.json()) as VibeableInfo & { error?: string };
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      const r = await api.request("vibeables.create", { body: { name: n } });
+      if (!r.ok) throw new Error(failure(r));
+      const d = r.data;
       setName("");
       await reload();
       navigate(`/vibeables/${encodeURIComponent(d.slug ?? n)}`);
@@ -415,8 +400,8 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
     mark(target, "remove");
     setConfirmRemove(false);
     try {
-      const r = await fetch(`/api/vibeables/${encodeURIComponent(target)}`, { method: "DELETE" });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const r = await api.request("vibeables.delete", { slug: target });
+      const d = r.data as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       await reload();
       navigate("/vibeables", { replace: true });

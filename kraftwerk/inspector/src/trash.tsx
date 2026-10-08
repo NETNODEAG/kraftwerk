@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fmtAgo, Icon, post } from "./shared";
+import { api, failure } from "./api";
+import { fmtAgo, Icon } from "./shared";
 import { Button, EmptyState, ListRow, Notice, Page, PageHeader, Panel } from "./ui";
 
 /**
@@ -37,8 +38,8 @@ export function TrashScreen() {
   const [confirm, setConfirm] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const r = await fetch("/api/trash", { cache: "no-store" }).catch(() => null);
-    if (r?.ok) setData(await r.json());
+    const r = await api.request("trash.list").catch(() => null);
+    if (r?.ok) setData(r.data);
     else setError(r?.status === 404 ? "this server has no trash yet — restart it after updating" : "could not load the trash");
   }, []);
   useEffect(() => {
@@ -50,11 +51,12 @@ export function TrashScreen() {
     setError("");
     setConfirm(null);
     try {
-      const d =
+      // Emptying reads only the answer's {error}; restore and purge also fail on a bare HTTP error.
+      const error =
         verb === "empty"
-          ? await fetch("/api/trash", { method: "DELETE" }).then((r) => r.json())
-          : await post(`/api/trash/${verb}`, { id });
-      if (d.error) throw new Error(d.error);
+          ? ((await api.request("trash.empty")).data as { error?: string } | undefined)?.error
+          : failure(await api.request(`trash.${verb}`, { body: { id } }));
+      if (error) throw new Error(error);
     } catch (err) {
       setError((err as Error).message);
     } finally {

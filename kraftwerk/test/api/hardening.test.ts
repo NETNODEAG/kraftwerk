@@ -67,4 +67,15 @@ describe("hardening", () => {
     assert.equal(pdf.headers.get("x-content-type-options"), "nosniff");
     assert.equal(pdf.headers.get("content-security-policy"), null);
   });
+
+  it("a run file's text comes back as JSON from runs.fileText, never as the file itself", async () => {
+    const text = await fetch(srv.url + "/api/runs/20260101-000000-demo/text?name=report.html");
+    assert.equal(text.status, 200);
+    assert.match(text.headers.get("content-type") ?? "", /application\/json/);
+    const d = (await text.json()) as { name: string; content: string; truncated: boolean };
+    assert.deepEqual([d.name, d.truncated], ["report.html", false]);
+    assert.match(d.content, /<script>/);
+    assert.equal((await fetch(srv.url + "/api/runs/20260101-000000-demo/text?name=missing.txt")).status, 404);
+    assert.equal((await fetch(srv.url + "/api/runs/..%2F..%2Fetc/text?name=passwd")).status, 400);
+  });
 });

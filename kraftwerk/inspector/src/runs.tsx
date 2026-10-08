@@ -4,10 +4,10 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { RunDetail, RunListItem, PhaseView, FileView } from "./types";
 import { createChatAndOpen } from "./chat";
+import { api, useApi } from "./api";
 import {
   Link,
   navigate,
-  usePoll,
   fmtDuration,
   fmtCost,
   fmtTokens,
@@ -66,7 +66,7 @@ export const STATS = "mb-[22px] flex flex-wrap gap-[26px]";
  * on artifacts, running ones on the timeline.
  */
 export function RunsScreen({ id, workflow }: { id: string; workflow?: string }) {
-  const data = usePoll<{ runs: RunListItem[] }>("/api/runs", true);
+  const data = useApi("runs.list", {}, { fast: true });
   const runs = data?.runs ?? [];
   // The workflows list links here with ?workflow=<name>; the box is free text after that.
   const [filter, setFilter] = useState(workflow ?? "");
@@ -122,7 +122,7 @@ function SideRow({ r, active }: { r: RunListItem; active: boolean }) {
 /* ---------- detail ---------- */
 
 function RunDetailView({ id }: { id: string }) {
-  const run = usePoll<RunDetail>(`/api/runs/${id}`, true);
+  const run = useApi("runs.get", { id }, { fast: true });
   const live = run?.status === "running";
   const [tab, setTab] = useState<"run" | "artifacts" | null>(null);
   const [stopping, setStopping] = useState(false);
@@ -137,22 +137,22 @@ function RunDetailView({ id }: { id: string }) {
   async function stop() {
     setStopping(true);
     setBusy(null);
-    const r = await fetch(`/api/runs/${id}/stop`, { method: "POST" }).catch(() => null);
+    const r = await api.request("runs.stop", { id }).catch(() => null);
     if (!r?.ok) {
       setStopping(false);
-      setBusy(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "stop failed");
+      setBusy((r?.data as { error?: string } | undefined)?.error ?? "stop failed");
     }
   }
 
   async function remove() {
     if (!window.confirm(`Move run ${id} to the trash?`)) return;
     setBusy(null);
-    const r = await fetch(`/api/runs/${id}`, { method: "DELETE" }).catch(() => null);
+    const r = await api.request("runs.delete", { id }).catch(() => null);
     if (r?.ok) {
       navigate(run?.workflow ? `/workflows/${encodeURIComponent(run.workflow)}` : "/workflows");
       return;
     }
-    setBusy(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "remove failed");
+    setBusy((r?.data as { error?: string } | undefined)?.error ?? "remove failed");
   }
 
   return (
@@ -384,7 +384,7 @@ function ArtifactsTab({ id, files, live }: { id: string; files: FileView[]; live
         className="flex min-h-0 flex-col"
         actions={
           selected && (
-            <a className={buttonLink} href={`/api/runs/${id}/file?name=${encodeURIComponent(selected)}&raw=1`} target="_blank">
+            <a className={buttonLink} href={api.url("runs.file", { id, query: { name: selected, raw: true } })} target="_blank">
               open raw ↗
             </a>
           )
@@ -408,7 +408,7 @@ const FRAME = "block h-full min-h-[560px] w-full border-0 bg-white";
 
 function Viewer({ id, name, live }: { id: string; name: string; live: boolean }) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
-  const rawUrl = `/api/runs/${id}/file?name=${encodeURIComponent(name)}&raw=1`;
+  const rawUrl = api.url("runs.file", { id, query: { name, raw: true } });
 
   if (ext === "html") {
     return (
@@ -448,10 +448,7 @@ const VIEWER_NOTE = "flex items-center gap-3 border-b border-line/55 px-[18px] p
 
 function MarkdownViewer({ id, name, live }: { id: string; name: string; live: boolean }) {
   const [mode, setMode] = useState<"rendered" | "source">("rendered");
-  const data = usePoll<{ content: string; truncated: boolean; size: number }>(
-    `/api/runs/${id}/file?name=${encodeURIComponent(name)}`,
-    live
-  );
+  const data = useApi("runs.fileText", { id, query: { name } }, { fast: live });
   // Artifacts are model-generated — sanitize before injecting into the page.
   const html = useMemo(
     () => (data ? DOMPurify.sanitize(marked.parse(data.content, { async: false })) : ""),
@@ -486,10 +483,7 @@ function MarkdownViewer({ id, name, live }: { id: string; name: string; live: bo
 }
 
 function TextViewer({ id, name, live }: { id: string; name: string; live: boolean }) {
-  const data = usePoll<{ content: string; truncated: boolean; size: number }>(
-    `/api/runs/${id}/file?name=${encodeURIComponent(name)}`,
-    live
-  );
+  const data = useApi("runs.fileText", { id, query: { name } }, { fast: live });
   return (
     <div className={VIEWER}>
       {data?.truncated && <div className={VIEWER_NOTE}>large file — showing the last {fmtSize(400_000)}</div>}

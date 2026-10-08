@@ -1,32 +1,16 @@
-import path from "node:path";
+import { currentWorkspace } from "./workspace.js";
 
 /**
- * Server-side context for the inspector: which consumer project it looks at.
- * Set once by startInspector() before any request is served.
+ * Shorthands for the current workspace's paths (see workspace.ts for how
+ * the current workspace is chosen).
  */
-
-let outputDir = "";
-let projectRoot = "";
-
-export function setOutputDir(dir: string): void {
-  outputDir = path.resolve(dir);
-}
-
-export function setProjectRoot(dir: string): void {
-  projectRoot = path.resolve(dir);
-}
 
 /** Absolute output directory (runs/ + chats/ live inside). */
 export function getOutputDir(): string {
-  if (!outputDir) throw new Error("inspector context not initialized");
-  return outputDir;
+  return currentWorkspace().outputDir;
 }
 
-/**
- * The consumer project root. Set explicitly at startup; falls back to the
- * parent of the output dir (wrong for nested output dirs like
- * kraftwerk-data/output — always pass projectRoot when known).
- */
+/** The workspace root: where kraftwerk.yml lives. */
 export function getProjectRoot(): string {
-  return projectRoot || path.dirname(getOutputDir());
+  return currentWorkspace().root;
 }

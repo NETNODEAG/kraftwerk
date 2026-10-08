@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ChatMeta } from "./types";
-import { Icon, Link, navigate, usePoll, fmtWhen } from "./shared";
+import { api, useApi } from "./api";
+import { Icon, Link, navigate, fmtWhen } from "./shared";
 import { cn, Dot, IconButton, ListRow, SideHead, SideList, SideNote } from "./ui";
 
 /**
@@ -129,9 +130,9 @@ export function SessionsPane({
   /** The "new" button, placed right after the last tab like a browser's. */
   actions?: React.ReactNode;
 }) {
-  // The current chat rides in the URL so a freshly created one shows up on
-  // arrival, not a poll interval later (usePoll refetches on a url change).
-  const data = usePoll<{ chats: Session[] }>(`/api/chats?for=${encodeURIComponent(chatId ?? "")}`, false);
+  // The current chat is the refresh key so a freshly created one shows up on
+  // arrival, not a poll interval later (useApi refetches on a refresh change).
+  const data = useApi("chats.list", {}, { refresh: chatId });
   const sessions = useMemo(() => filter(data?.chats ?? []), [data, filter]);
   const byId = useMemo(() => new Map(sessions.map((c) => [c.id, c])), [sessions]);
   const open = useSessionsList();
@@ -167,7 +168,7 @@ export function SessionsPane({
 
   const remove = async (c: Session) => {
     if (!window.confirm(`Delete ${label === "chats" ? "chat" : "session"} "${c.title || c.id}"?`)) return;
-    await fetch(`/api/chats/${c.id}`, { method: "DELETE" }).catch(() => {});
+    await api.request("chats.delete", { id: c.id }).catch(() => {});
     if (tabs.includes(c.id)) closeTab(c.id);
   };
 
@@ -176,7 +177,7 @@ export function SessionsPane({
   const [renaming, setRenaming] = useState<string | null>(null);
   const rename = async (id: string, title: string) => {
     setRenaming(null);
-    const r = await fetch(`/api/chats/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) }).catch(() => null);
+    const r = await api.request("chats.rename", { id, body: { title } }).catch(() => null);
     if (!r?.ok) return;
     setRenamed((m) => ({ ...m, [id]: title }));
     window.dispatchEvent(new CustomEvent(CHAT_RENAMED_EVENT, { detail: { id, title } }));

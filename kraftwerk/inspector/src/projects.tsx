@@ -2,22 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type {
-  Agent,
   ChatAgentId,
   ChatMeta,
-  ChannelView,
-  KnowledgeIndex,
   LinkState,
   ProjectDetail,
   ProjectStatus,
   ProjectsView,
-  ReposView,
   SystemOfRecord,
-  VibeablesView,
-  WorkflowSummary,
 } from "./types";
+import { api, useApi } from "./api";
 import { ChatThread, createChatAndOpen } from "./chat";
-import { EFFORTS, Icon, Link, navigate, usePoll, fmtAgo, useExpertMode, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT } from "./shared";
+import { EFFORTS, Icon, Link, navigate, fmtAgo, useExpertMode, PROJECT_ASSISTANT, PROJECTS_CHANGED_EVENT } from "./shared";
 import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
 import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
@@ -68,15 +63,13 @@ const chatsOf = (chats: ProjectChat[] | undefined, slug: string): ProjectChat[] 
 /** Every chat of a project opens here — a channel session too; it just renders in channel mode. */
 const chatHref = (c: ProjectChat, slug: string): string => `/projects/${encodeURIComponent(slug)}/chat/${c.id}`;
 
+/** The `error` a refused request answered with. */
+const errorOf = (r: { data: unknown }): string | undefined => (r.data as { error?: string } | undefined)?.error;
+
 async function putProject(slug: string, patch: Record<string, unknown>): Promise<ProjectDetail> {
-  const r = await fetch(`/api/projects/${encodeURIComponent(slug)}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  const d = (await r.json()) as ProjectDetail & { error?: string };
-  if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-  return d;
+  const r = await api.request("projects.save", { slug, body: patch });
+  if (!r.ok) throw new Error(errorOf(r) || `HTTP ${r.status}`);
+  return r.data;
 }
 
 export function ProjectsScreen({ seg }: { seg: string[] }) {
@@ -92,9 +85,9 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/projects", { cache: "no-store" });
+      const r = await api.request("projects.list");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setView((await r.json()) as ProjectsView);
+      setView(r.data);
       setLoadError("");
     } catch (err) {
       setLoadError((err as Error).message || "could not load projects");
@@ -201,7 +194,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
 
 /** The create form on its own (the modal over a conversation): reads the root it will write to. */
 export function NewProjectPage() {
-  const view = usePoll<ProjectsView>("/api/projects", false, 60_000);
+  const view = useApi("projects.list", {}, { interval: 60_000 });
   if (view && !view.enabled) return <EmptyState icon="folder_off">Projects are off. Turn them on in <a href="#/settings">settings</a>.</EmptyState>;
   return <NewProject root={view?.root} onCreated={async () => {}} />;
 }
@@ -219,13 +212,9 @@ function NewProject({ root, onCreated }: { root?: string; onCreated: () => Promi
     setBusy(true);
     setError("");
     try {
-      const r = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: t, goal: goal.trim() }),
-      });
-      const d = (await r.json()) as ProjectDetail & { error?: string };
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      const r = await api.request("projects.create", { body: { title: t, goal: goal.trim() } });
+      if (!r.ok) throw new Error(errorOf(r) || `HTTP ${r.status}`);
+      const d = r.data;
       // Navigate before the list refreshes: the bare-projects redirect fires
       // once the list has a project, and must not race this route change.
       navigate(`/projects/${encodeURIComponent(d.slug)}/info`);
@@ -275,9 +264,9 @@ function ProjectLanding({ slug, title }: { slug: string; title: string }) {
   useEffect(() => {
     let alive = true;
     setNone(false);
-    fetch("/api/chats")
-      .then((r) => r.json())
-      .then((d: { chats: ChatMeta[] }) => {
+    api
+      .call("chats.list")
+      .then((d) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — first match is the latest.
         const latest = d.chats.find((c) => c.scope.kind === "project" && c.scope.slug === slug);
@@ -298,9 +287,9 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
   const [creating, setCreating] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetch(`/api/projects/${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((p: ProjectDetail) => alive && setProject(p))
+    api
+      .call("projects.get", { slug })
+      .then((p) => alive && setProject(p))
       .catch(() => {});
     return () => {
       alive = false;
@@ -349,17 +338,17 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
   const [gen, setGen] = useState(0);
   useEffect(() => {
     let alive = true;
-    fetch(`/api/chats/${chatId}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { meta: ChatMeta }) => alive && setScope(d.meta.scope))
+    api
+      .call("chats.get", { id: chatId })
+      .then((d) => alive && setScope(d.meta.scope))
       .catch(() => alive && setGone(true));
     return () => {
       alive = false;
     };
   }, [chatId, gen]);
   const channelSlug = scope?.kind === "channel" ? scope.slug : undefined;
-  const channels = usePoll<{ channels: ChannelView[] }>(channelSlug ? "/api/channels" : "", false, 4000);
-  const agents = usePoll<{ agents: Agent[] }>(channelSlug ? "/api/agents" : "", false, 8000);
+  const channels = useApi("channels.list", channelSlug ? {} : null, { interval: 4000 });
+  const agents = useApi("agents.list", channelSlug ? {} : null, { interval: 8000 });
   if (gone) return <EmptyState icon="chat_error">chat not found</EmptyState>;
   if (!scope) return <EmptyState>loading…</EmptyState>;
   if (channelSlug) {
@@ -450,9 +439,9 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/projects/${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((p: ProjectDetail) => alive && apply(p))
+    api
+      .call("projects.get", { slug })
+      .then((p) => alive && apply(p))
       .catch(() => alive && setGone(true));
     return () => {
       alive = false;
@@ -484,8 +473,8 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
   const remove = async () => {
     setSaving(true);
     try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(slug)}`, { method: "DELETE" });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const r = await api.request("projects.delete", { slug });
+      const d = (r.data ?? {}) as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       await onChanged();
       window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
@@ -502,12 +491,8 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
     setSaving(true);
     setError("");
     try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(slug)}/log`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ entry }),
-      });
-      const d = (await r.json()) as { ok?: boolean; log?: string; error?: string };
+      const r = await api.request("projects.log", { slug, body: { entry } });
+      const d = (r.data ?? {}) as { ok?: boolean; log?: string; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       setLogEntry("");
       setProject((p) => (p ? { ...p, log: d.log ?? p.log } : p));
@@ -677,14 +662,9 @@ async function linkChange(
   onError: (msg: string) => void
 ): Promise<void> {
   try {
-    const r = await fetch(`/api/projects/${encodeURIComponent(slug)}/links`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind, target, remove }),
-    });
-    const d = (await r.json()) as ProjectDetail & { error?: string };
-    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-    onOk(d);
+    const r = await api.request("projects.link", { slug, body: { kind, target, remove } });
+    if (!r.ok) throw new Error(errorOf(r) || `HTTP ${r.status}`);
+    onOk(r.data);
     window.dispatchEvent(new Event(PROJECTS_CHANGED_EVENT));
   } catch (err) {
     onError((err as Error).message);
@@ -695,23 +675,23 @@ async function linkChange(
 async function loadOptions(kind: LinkKind): Promise<Option[]> {
   switch (kind) {
     case "knowledge": {
-      const d = (await (await fetch("/api/knowledge")).json()) as KnowledgeIndex;
+      const d = await api.call("knowledge.list");
       return d.bundles.map((b) => ({ slug: b.name, hint: `${b.concepts} concepts` }));
     }
     case "vibeables": {
-      const d = (await (await fetch("/api/vibeables")).json()) as VibeablesView;
+      const d = await api.call("vibeables.list");
       return d.vibeables.map((v) => ({ slug: v.slug, hint: v.dev ? "dev" : "static" }));
     }
     case "repos": {
-      const d = (await (await fetch("/api/repos")).json()) as ReposView;
+      const d = await api.call("repos.list");
       return d.repos.map((r) => ({ slug: r.slug, hint: r.branch }));
     }
     case "workflows": {
-      const d = (await (await fetch("/api/workflows")).json()) as { workflows: WorkflowSummary[] };
+      const d = await api.call("workflows.list");
       return d.workflows.map((w) => ({ slug: w.slug, hint: w.description ?? w.name }));
     }
     case "agents": {
-      const d = (await (await fetch("/api/agents")).json()) as { agents: Agent[] };
+      const d = await api.call("agents.list");
       return d.agents.filter((a) => !a.archived).map((a) => ({ slug: a.slug, hint: `${a.emoji} ${a.name}` }));
     }
   }

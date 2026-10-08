@@ -4,6 +4,7 @@ import path from "node:path";
 import { projectsRootFor, reposRootFor, resolveProject, vibeablesRootFor, type Project, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, getProjectRoot } from "./context.js";
+import { perWorkspace } from "./workspace.js";
 
 /**
  * Workspace git sync. Several people run kraftwerk against one git repo, so
@@ -392,14 +393,27 @@ export function parseStatus(out: string): { path: string; code: string }[] {
   return files;
 }
 
-let statusCache: { at: number; value: GitStatus } | null = null;
-/** Bumped by touched(); a status computed under an older value is stale. */
-let generation = 0;
+/**
+ * The workspace's sync state: the status cache, the queue of repo-mutating
+ * commands, the last fetch/pull/error, and the background timer.
+ */
+const gitState = perWorkspace(() => ({
+  statusCache: null as { at: number; value: GitStatus } | null,
+  /** Bumped by touched(); a status computed under an older value is stale. */
+  generation: 0,
+  chain: Promise.resolve() as Promise<unknown>,
+  lastFetch: undefined as string | undefined,
+  lastPull: undefined as string | undefined,
+  lastError: undefined as string | undefined,
+  timer: null as ReturnType<typeof setTimeout> | null,
+  ticking: false,
+  lastRun: 0,
+}));
 
 /** Invalidate the status cache after anything that changes the repo. */
 const touched = (): void => {
-  statusCache = null;
-  generation++;
+  gitState().statusCache = null;
+  gitState().generation++;
 };
 
 /**
@@ -410,16 +424,12 @@ const touched = (): void => {
  * fetch, pull and push queue behind each other. Status stays outside the
  * queue (GIT_OPTIONAL_LOCKS=0 keeps it lock-free).
  */
-let chain: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(fn, fn);
-  chain = run.catch(() => {});
+  const run = gitState().chain.then(fn, fn);
+  gitState().chain = run.catch(() => {});
   return run;
 }
 
-let lastFetch: string | undefined;
-let lastPull: string | undefined;
-let lastError: string | undefined;
 
 /**
  * Everything the git screen renders. Each call shells out to git a handful
@@ -427,8 +437,9 @@ let lastError: string | undefined;
  * cached for a beat.
  */
 export async function gitStatus(fresh = false): Promise<GitStatus> {
-  if (!fresh && statusCache && Date.now() - statusCache.at < CACHE_MS) return statusCache.value;
-  const gen = generation;
+  const cached = gitState().statusCache;
+  if (!fresh && cached && Date.now() - cached.at < CACHE_MS) return cached.value;
+  const gen = gitState().generation;
   const opened = await openRepo();
   if (opened.off) return { enabled: false };
   const { repo, cfg } = opened;
@@ -464,9 +475,9 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     diverged: !!ahead && !!behind,
     autosync: repo.cfg.autosync,
     interval: repo.cfg.interval,
-    lastFetch,
-    lastPull,
-    lastError,
+    lastFetch: gitState().lastFetch,
+    lastPull: gitState().lastPull,
+    lastError: gitState().lastError,
   };
 
   // A failed status (a stale index.lock, a timeout on a huge untracked tree)
@@ -474,7 +485,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
   // refuses everything, and the message should say why.
   if (!status.ok) {
     const value = { ...base, error: `git status failed: ${status.stderr || "unknown error"}` };
-    if (gen === generation) statusCache = { at: Date.now(), value };
+    if (gen === gitState().generation) gitState().statusCache = { at: Date.now(), value };
     return value;
   }
 
@@ -502,7 +513,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
   // A commit that finished while this status was running already emptied
   // the cache; caching the pre-commit list on top of that would show the
   // committed file as dirty for another CACHE_MS.
-  if (gen === generation) statusCache = { at: Date.now(), value };
+  if (gen === gitState().generation) gitState().statusCache = { at: Date.now(), value };
   return value;
 }
 
@@ -626,11 +637,11 @@ async function fetchNow(): Promise<{ ok: boolean; error?: string }> {
   // put "fetched 5s ago" next to ahead/behind counts that stopped moving
   // hours ago, which is the one thing this line exists to rule out.
   if (!r.ok) {
-    lastError = r.stderr || "fetch failed";
-    return { ok: false, error: lastError };
+    gitState().lastError = r.stderr || "fetch failed";
+    return { ok: false, error: gitState().lastError };
   }
-  lastFetch = new Date().toISOString();
-  lastError = undefined;
+  gitState().lastFetch = new Date().toISOString();
+  gitState().lastError = undefined;
   return { ok: true };
 }
 
@@ -655,13 +666,13 @@ async function pullNow(): Promise<{ ok: boolean; error?: string }> {
     // git's own non-fast-forward output is a wall of hints. Say the one
     // thing that matters and leave the resolution to a terminal.
     const notFf = /non-fast-forward|diverg|cannot be fast-forwarded/i.test(r.stderr);
-    lastError = notFf
+    gitState().lastError = notFf
       ? "The branch has diverged from its upstream. Merge or rebase it in a terminal."
       : r.stderr || "pull failed";
-    return { ok: false, error: lastError };
+    return { ok: false, error: gitState().lastError };
   }
-  lastPull = new Date().toISOString();
-  lastError = undefined;
+  gitState().lastPull = new Date().toISOString();
+  gitState().lastError = undefined;
   return { ok: true };
 }
 
@@ -682,10 +693,10 @@ async function pushNow(): Promise<{ ok: boolean; error?: string }> {
     : await gitNet(netArgs(["push", "--set-upstream"], cfg.remote, `HEAD:${head.branch}`), repoRoot);
   touched();
   if (!r.ok) {
-    lastError = r.stderr || "push failed";
-    return { ok: false, error: lastError };
+    gitState().lastError = r.stderr || "push failed";
+    return { ok: false, error: gitState().lastError };
   }
-  lastError = undefined;
+  gitState().lastError = undefined;
   return { ok: true };
 }
 
@@ -699,9 +710,6 @@ async function pushNow(): Promise<{ ok: boolean; error?: string }> {
  */
 const RECHECK_MS = 60_000;
 
-let timer: ReturnType<typeof setTimeout> | null = null;
-let ticking = false;
-let lastRun = 0;
 
 /**
  * Fetch on an interval, and fast-forward when `autosync: pull` is set. Never
@@ -711,33 +719,34 @@ let lastRun = 0;
  * out) before the next one starts, or a short interval piles up processes.
  */
 export function startGitSync(): void {
-  if (timer || ticking) return;
+  if (gitState().timer || gitState().ticking) return;
   schedule(0);
 }
 
 function schedule(ms: number): void {
-  timer = setTimeout(() => void tick(), ms);
+  const timer = setTimeout(() => void tick(), ms);
   timer.unref?.();
+  gitState().timer = timer;
 }
 
 async function tick(): Promise<void> {
-  timer = null;
-  ticking = true;
+  gitState().timer = null;
+  gitState().ticking = true;
   let next = RECHECK_MS;
   try {
     const { repo } = await openRepo();
     if (repo && repo.cfg.interval > 0) {
       const every = repo.cfg.interval * 1000;
-      if (Date.now() - lastRun >= every - 500) {
-        lastRun = Date.now();
+      if (Date.now() - gitState().lastRun >= every - 500) {
+        gitState().lastRun = Date.now();
         await sync(repo);
       }
-      next = Math.min(RECHECK_MS, Math.max(1_000, lastRun + every - Date.now()));
+      next = Math.min(RECHECK_MS, Math.max(1_000, gitState().lastRun + every - Date.now()));
     }
   } catch {
     // A failed tick is retried at the next one; the status carries lastError.
   } finally {
-    ticking = false;
+    gitState().ticking = false;
     schedule(next);
   }
 }

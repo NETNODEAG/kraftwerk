@@ -1,9 +1,10 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
+import { api, useApi } from "./api";
 import { NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
-import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, usePoll, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
+import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { DashboardScreen } from "./dashboard";
@@ -161,19 +162,7 @@ export function App() {
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const d = (await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json())) as {
-          projectName?: string;
-          projectIcon?: string;
-          projectColor?: string;
-          projectNamed?: boolean;
-          projectRoot?: string;
-          projectRootLabel?: string;
-          git?: boolean;
-          repos?: boolean;
-          vibeables?: boolean;
-          projects?: boolean;
-          switcher?: SwitcherEntry[];
-        };
+        const d = await api.call("meta.get");
         if (!alive) return;
         setProjectName(d.projectName ?? "");
         setProjectIcon(d.projectIcon ?? "");
@@ -182,7 +171,7 @@ export function App() {
         setProjectRoot(d.projectRootLabel ?? "");
         setProjectRootAbs(d.projectRoot ?? "");
         setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects });
-        setSwitcher(Array.isArray(d.switcher) ? d.switcher : []);
+        setSwitcher(Array.isArray(d.switcher) ? (d.switcher as SwitcherEntry[]) : []);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
     };
@@ -609,9 +598,9 @@ function LatestRun() {
   const [empty, setEmpty] = useState<{ outputDir: string } | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch("/api/runs")
-      .then((r) => r.json())
-      .then((data: { outputDir: string; runs: RunListItem[] }) => {
+    api
+      .call("runs.list")
+      .then((data) => {
         if (!alive) return;
         if (data.runs.length > 0) navigate(`/runs/${data.runs[0].id}`, { replace: true });
         else setEmpty({ outputDir: data.outputDir });
@@ -638,12 +627,12 @@ function LatestRun() {
  */
 /** Restart the supervised server and reload once it answers with `target`. */
 async function relaunchTo(target: string): Promise<void> {
-  await fetch("/api/restart", { method: "POST" }).catch(() => {});
+  await api.request("server.restart").catch(() => {});
   // Wait until the respawned server answers with the on-disk version.
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
-      const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
+      const d = await api.call("meta.get");
       if (d.version === target) break;
     } catch {}
   }
@@ -667,7 +656,7 @@ function RelaunchNote() {
     const tick = async () => {
       clearTimeout(timer);
       try {
-        const d = await fetch("/api/meta", { cache: "no-store" }).then((r) => r.json());
+        const d = await api.call("meta.get");
         if (alive) setMeta(d);
       } catch {}
       if (alive) timer = setTimeout(tick, 30_000);
@@ -751,7 +740,7 @@ const NOTIF_TOAST_DISMISSED = "kw.notif.toast.dismissed";
  */
 function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const data = usePoll<NotificationsView>("/api/notifications", false, 5000);
+  const data = useApi("notifications.list", {}, { interval: 5000 });
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission
   );
@@ -815,22 +804,20 @@ function NotificationBell() {
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
 
-  async function post(url: string, body?: unknown): Promise<void> {
+  async function act(req: Promise<{ ok: boolean; data: unknown }>): Promise<void> {
     try {
-      const r = await fetch(url, {
-        method: url.endsWith("/notifications") ? "DELETE" : "POST",
-        headers: { "content-type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      const r = await req;
       if (!r.ok) return;
-      const d = (await r.json()) as NotificationsView | { ok: true };
+      const d = r.data as NotificationsView | { ok: true };
       setFresh("items" in d ? d : { items: [], unread: 0 });
     } catch {}
   }
+  const markRead = (ids: string[]) => act(api.request("notifications.read", { body: { ids } }));
+  const clearAll = () => act(api.request("notifications.clear"));
 
   function openItem(n: Notification): void {
     setOpen(false);
-    if (!n.readAt) void post("/api/notifications/read", { ids: [n.id] });
+    if (!n.readAt) void markRead([n.id]);
     navigate(n.href);
   }
 
@@ -838,8 +825,8 @@ function NotificationBell() {
   async function diagnose(n: Notification): Promise<void> {
     setDiagnosing(n.id);
     try {
-      const r = await fetch(`/api/notifications/${encodeURIComponent(n.id)}/diagnose`, { method: "POST" });
-      const d = (await r.json()) as { href?: string; error?: string };
+      const r = await api.request("notifications.diagnose", { id: n.id });
+      const d = (r.data ?? {}) as { href?: string; error?: string };
       if (d.href) {
         setOpen(false);
         navigate(d.href);
@@ -885,12 +872,12 @@ function NotificationBell() {
             <Eyebrow className="text-fg">notifications</Eyebrow>
             <span className="flex-1" />
             {unreadUpdates > 0 && (
-              <Button variant="quiet" size="sm" onClick={() => void post("/api/notifications/read", { ids: updates.filter((n) => !n.readAt).map((n) => n.id) })}>
+              <Button variant="quiet" size="sm" onClick={() => void markRead(updates.filter((n) => !n.readAt).map((n) => n.id))}>
                 mark updates read
               </Button>
             )}
             {items.length > 0 && (
-              <Button variant="quiet" size="sm" onClick={() => void post("/api/notifications")}>
+              <Button variant="quiet" size="sm" onClick={() => void clearAll()}>
                 clear
               </Button>
             )}
@@ -1002,16 +989,16 @@ function groupByOwner(xs: AttentionItem[]): Array<[string, AttentionItem[]]> {
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   const expert = useExpertMode();
   const [runs, setRuns] = useState<{ outputDir: string; runs: RunListItem[] } | null>(null);
-  const [wfs, setWfs] = useState<{ root: string; workflows: unknown[] } | null>(null);
+  const [wfs, setWfs] = useState<{ root?: string; workflows: unknown[] } | null>(null);
   const [version, setVersion] = useState("");
   useEffect(() => {
-    fetch("/api/meta")
-      .then((r) => r.json())
-      .then((d: { version: string }) => setVersion(d.version))
+    api
+      .call("meta.get")
+      .then((d) => setVersion(d.version))
       .catch(() => {});
     if (!expert) return;
-    fetch("/api/runs").then((r) => r.json()).then(setRuns).catch(() => {});
-    fetch("/api/workflows").then((r) => r.json()).then(setWfs).catch(() => {});
+    api.call("runs.list").then(setRuns).catch(() => {});
+    api.call("workflows.list").then(setWfs).catch(() => {});
   }, [expert]);
   return (
     <div className="ws-menu mt-1.5 flex flex-col gap-0.5 border-t border-line px-1.5 pb-1 pt-2">
@@ -1068,9 +1055,8 @@ function UpdateCheck() {
   async function check(): Promise<void> {
     setState("busy");
     try {
-      const r = await fetch("/api/update-check", { cache: "no-store" });
-      const d = (await r.json()) as { name: string; current: string; latest: string };
-      if (!r.ok || !d.latest) throw new Error();
+      const d = await api.call("update.check");
+      if (!d.latest) throw new Error();
       setInfo(d);
       setState("done");
     } catch {
@@ -1085,7 +1071,7 @@ function UpdateCheck() {
     let alive = true;
     const timer = setInterval(async () => {
       try {
-        const d = (await fetch("/api/update", { cache: "no-store" }).then((r) => r.json())) as UpdateJob;
+        const d = (await api.call("update.status")) as UpdateJob;
         if (!alive) return;
         setJob(d);
         if (d.state !== "running") window.dispatchEvent(new Event(VERSION_EVENT));
@@ -1100,12 +1086,8 @@ function UpdateCheck() {
   async function install(): Promise<void> {
     if (!info) return;
     setRefused("");
-    const r = await fetch("/api/update", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ version: info.latest }),
-    });
-    const d = (await r.json()) as UpdateJob & { error?: string };
+    const r = await api.request("update.start", { body: { version: info.latest } });
+    const d = r.data as UpdateJob & { error?: string };
     if (!r.ok) setRefused(d.error ?? "update refused");
     else setJob(d);
   }

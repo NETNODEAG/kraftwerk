@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { Icon, fmtAgo, post, usePoll } from "./shared";
+import { api, useApi } from "./api";
+import { Icon, fmtAgo } from "./shared";
 import { Button, ListRow, Notice, Section, TextField } from "./ui";
 import { attentionFor, openAttention, useAttention } from "./attention";
 import { filesHref } from "./files";
 import { statusLine } from "../../src/inspector/status-line";
-import type { Agent, AgentDetail, AgentStatus, AttentionItem, ChannelView, ProjectDetail, ProjectsView, RoutineStatus } from "./types";
+import type { Agent, AgentDetail, AgentStatus, AttentionItem, ChannelView, ProjectDetail } from "./types";
 
 /**
  * The context column's first tab: the place at a glance, in plain words.
@@ -87,11 +88,7 @@ function Team({ slugs, agents, status, title = "team" }: { slugs: string[]; agen
 }
 
 function RecentFiles({ scope }: { scope: string }) {
-  const data = usePoll<{ root: string; count: number; recent: { path: string; at: string }[] }>(
-    `/api/files/recent?scope=${encodeURIComponent(scope)}`,
-    false,
-    20_000
-  );
+  const data = useApi("files.recent", { query: { scope } }, { interval: 20_000 });
   if (!data || data.count === 0) return null;
   return (
     <Section size="lg" title="files" count={data.count} action={<Button variant="quiet" size="sm" href={filesHref(scope)}>all <Icon name="arrow_forward" className="ms-sm" /></Button>}>
@@ -113,8 +110,8 @@ function RecentFiles({ scope }: { scope: string }) {
 
 export function Overview({ of }: { of: OverviewOf }) {
   const waiting = useAttention() ?? [];
-  const agents = usePoll<{ agents: Agent[] }>("/api/agents", false, 15_000)?.agents ?? [];
-  const status = usePoll<Record<string, AgentStatus>>("/api/agent-status", false, 5000) ?? undefined;
+  const agents = useApi("agents.list", {}, { interval: 15_000 })?.agents ?? [];
+  const status = useApi("agents.status", {}, { interval: 5000 }) ?? undefined;
 
   if (of.kind === "project") {
     const p = of.project;
@@ -175,8 +172,8 @@ export function Overview({ of }: { of: OverviewOf }) {
 }
 
 function AgentOverview({ agent: a, journal, waiting, status }: { agent: AgentDetail; journal: string; waiting: AttentionItem[]; status?: Record<string, AgentStatus> }) {
-  const projects = usePoll<ProjectsView>("/api/projects", false, 30_000)?.projects ?? [];
-  const routines = usePoll<{ routines: RoutineStatus[] }>(`/api/agents/${encodeURIComponent(a.slug)}/routines`, false, 30_000)?.routines ?? [];
+  const projects = useApi("projects.list", {}, { interval: 30_000 })?.projects ?? [];
+  const routines = useApi("agents.routines", { slug: a.slug }, { interval: 30_000 })?.routines ?? [];
   const [text, setText] = useState(journal);
   useEffect(() => setText(journal), [journal]);
   const line = statusLine(status?.[a.slug], a.description);
@@ -214,7 +211,7 @@ function AgentOverview({ agent: a, journal, waiting, status }: { agent: AgentDet
 }
 
 function WorkspaceOverview({ waiting, agents, status }: { waiting: AttentionItem[]; agents: Agent[]; status?: Record<string, AgentStatus> }) {
-  const projects = usePoll<ProjectsView>("/api/projects", false, 30_000);
+  const projects = useApi("projects.list", {}, { interval: 30_000 });
   const active = (projects?.projects ?? []).filter((p) => p.status === "active");
   return (
     <div className={OV}>
@@ -252,7 +249,14 @@ export function JournalNote({ slug, onAdded }: { slug: string; onAdded: (journal
     if (!text.trim()) return;
     setBusy(true);
     setError("");
-    const d = await post<{ journal?: string }>(`/api/agents/${encodeURIComponent(slug)}/journal`, { entry: text, kind: "note" }).catch((err: Error) => ({ error: err.message, journal: undefined }));
+    const d = await api
+      .request("agents.addJournal", { slug, body: { entry: text, kind: "note" } })
+      .then((r) => {
+        const d = (r.data && typeof r.data === "object" ? r.data : {}) as { journal?: string; error?: string };
+        if (!r.ok && !d.error) d.error = `HTTP ${r.status}`;
+        return d;
+      })
+      .catch((err: Error) => ({ error: err.message, journal: undefined }));
     setBusy(false);
     if (d.error || d.journal === undefined) return setError(d.error ?? "could not save");
     setText("");

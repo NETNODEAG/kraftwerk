@@ -49,6 +49,8 @@ test.describe("agent status line", () => {
         },
       })
     );
+    // The stub answers HTTP; with the socket closed the rail falls back to polling it.
+    await page.routeWebSocket("**/api/ws", (ws) => ws.close());
     await page.goto("/#/agents/chats");
 
     const scout = row(page, "Scout");

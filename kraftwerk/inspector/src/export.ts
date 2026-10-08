@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { ConceptDetail, ConceptInfo } from "./types";
+import { api } from "./api";
+import type { ConceptDetail } from "./types";
 
 /**
  * Export a knowledge bundle as PDF: open a print-styled document in a new
@@ -17,24 +18,18 @@ export async function exportBundlePdf(bundle: string, conceptId?: string): Promi
     `<title>${escapeHtml(label)}</title><body style="font-family:system-ui;padding:40px;color:#555">preparing ${escapeHtml(label)}…</body>`
   );
 
-  const conceptUrl = (id: string) =>
-    `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(id)}`;
   let parts: ConceptDetail[];
   let workspace = "";
   try {
     const [ids, meta] = await Promise.all([
       conceptId
         ? Promise.resolve([conceptId])
-        : (fetch(`/api/knowledge/${encodeURIComponent(bundle)}`).then((r) => r.json()) as Promise<{
-            concepts: ConceptInfo[];
-          }>).then((d) => d.concepts.map((c) => c.id)),
-      fetch("/api/meta")
-        .then((r) => r.json() as Promise<{ projectName?: string }>)
-        .catch(() => ({}) as { projectName?: string }),
+        : api.call("knowledge.get", { bundle }).then((d) => d.concepts.map((c) => c.id)),
+      api.call("meta.get").catch(() => ({}) as { projectName?: string }),
     ]);
     workspace = meta.projectName ?? "";
     parts = await Promise.all(
-      ids.map((id) => fetch(conceptUrl(id)).then((r) => r.json()) as Promise<ConceptDetail>)
+      ids.map((id) => api.call("knowledge.concept", { bundle, query: { id } }) as Promise<ConceptDetail>)
     );
     if (parts.some((c) => typeof c?.id !== "string")) throw new Error("missing concept");
   } catch {

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSummary, AgentSearch, ChannelSummary, ProjectHit, WorkspaceAgents } from "./types";
+import { api } from "./api";
 import { Icon, navigate, startWorkspace } from "./shared";
 import { cn, Kbd } from "./ui";
 
@@ -136,9 +137,9 @@ function Palette({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/search/agents", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: AgentSearch) => {
+    api
+      .call("search.agents")
+      .then((d) => {
         cached = d;
         if (alive) setData(d);
       })

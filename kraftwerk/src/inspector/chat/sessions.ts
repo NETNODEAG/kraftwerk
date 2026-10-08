@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { getOutputDir, getProjectRoot } from "../context.js";
+import { perWorkspace } from "../workspace.js";
+import { touch } from "../live.js";
 import { knowledgeIndex } from "../knowledge.js";
 import { getRun, listRuns, safeRunDir } from "../runs.js";
 import { listSkills, readSkill, type SkillInfo } from "../skills.js";
@@ -78,7 +80,8 @@ interface ChatState {
 }
 
 const MAIN = "main";
-const states = new Map<string, ChatState>();
+/** Chats with a loaded state, by id — one table per workspace. */
+const chatStates = perWorkspace(() => new Map<string, ChatState>());
 
 const newSeat = (key: string, harness: ChatAgentId): Seat => ({
   key,
@@ -189,22 +192,26 @@ function dropBackend(state: ChatState): void {
 const IDLE_BACKEND_MS = 15 * 60_000;
 const reaper = setInterval(() => {
   const cutoff = Date.now() - IDLE_BACKEND_MS;
-  for (const state of states.values()) {
-    const live = [...state.seats.values()].some((s) => s.backend);
-    if (live && !isBusy(state) && Date.parse(state.meta.updatedAt) < cutoff) {
-      dropBackend(state);
-    }
+  for (const [ws, states] of chatStates.entries()) {
+    ws.run(() => {
+      for (const state of chatStates().values()) {
+        const live = [...state.seats.values()].some((s) => s.backend);
+        if (live && !isBusy(state) && Date.parse(state.meta.updatedAt) < cutoff) {
+          dropBackend(state);
+        }
+      }
+    });
   }
 }, 60_000);
 reaper.unref?.();
 
 /** Server shutdown: no agent subprocess may outlive the inspector. */
 export function disposeAllBackends(): void {
-  for (const state of states.values()) dropBackend(state);
+  for (const [ws, states] of chatStates.entries()) ws.run(() => states.forEach((state) => dropBackend(state)));
 }
 
 async function loadState(id: string): Promise<ChatState | null> {
-  const existing = states.get(id);
+  const existing = chatStates().get(id);
   if (existing) return existing;
   const meta = await readMeta(id);
   if (!meta) return null;
@@ -220,7 +227,7 @@ async function loadState(id: string): Promise<ChatState | null> {
     writeChain: Promise.resolve(),
   };
   // Two racing loads: keep whichever registered first.
-  const registered = states.get(id) ?? (states.set(id, state), state);
+  const registered = chatStates().get(id) ?? (chatStates().set(id, state), state);
   if (registered === state) closeInterruptedWork(state);
   return registered;
 }
@@ -297,8 +304,13 @@ function emit(state: ChatState, ev: ChatEvent, from?: Author): StoredChatEvent {
     .then(() => appendEvent(state.meta.id, stored))
     .catch(() => {});
   for (const fn of state.subscribers) fn(stored);
+  // What a list shows about a chat (busy, waiting for you) changed: live watches re-evaluate.
+  if (STATUS_EVENTS.has(ev.type)) touch();
   return stored;
 }
+
+/** Events that change a chat's state as lists show it — not the streamed text in between. */
+const STATUS_EVENTS = new Set<string>(["user_message", "turn_start", "turn_end", "error", "failure", "permission_request", "permission_resolved", "elicitation_request", "elicitation_resolved", "files_changed"]);
 
 /* ---------- skills ---------- */
 
@@ -950,7 +962,7 @@ export async function createChat(opts: {
     updatedAt: now,
   };
   await writeMeta(meta);
-  states.set(meta.id, {
+  chatStates().set(meta.id, {
     meta,
     events: [],
     subscribers: new Set(),
@@ -966,7 +978,7 @@ export async function createChat(opts: {
 
 /** A permission request is waiting for a human in this chat (live state only — a restart drops it with the backend). */
 export function chatAwaitingApproval(id: string): boolean {
-  return (states.get(id)?.pendingInfo.size ?? 0) > 0;
+  return (chatStates().get(id)?.pendingInfo.size ?? 0) > 0;
 }
 
 /** A request in a chat that waits for a human: an approval or a question, with the seat (agent) that raised it. */
@@ -983,7 +995,7 @@ export interface WaitingRequest {
 /** Every request waiting for a human, across the chats in memory. */
 export function waitingRequests(): WaitingRequest[] {
   const out: WaitingRequest[] = [];
-  for (const state of states.values()) {
+  for (const state of chatStates().values()) {
     for (const [requestId, info] of state.pendingInfo) {
       out.push({ requestId, ...info, meta: state.meta, seat: state.pendingSeat.get(requestId) ?? MAIN });
     }
@@ -1007,7 +1019,7 @@ export interface AgentActivity {
 export function agentActivity(): Map<string, { working: AgentActivity[]; waiting: AgentActivity[] }> {
   const out = new Map<string, { working: AgentActivity[]; waiting: AgentActivity[] }>();
   const of = (slug: string) => out.get(slug) ?? out.set(slug, { working: [], waiting: [] }).get(slug)!;
-  for (const state of states.values()) {
+  for (const state of chatStates().values()) {
     const { meta } = state;
     for (const seat of state.seats.values()) {
       const slug = meta.scope.kind === "agent" ? meta.scope.slug : meta.scope.kind === "channel" ? seat.key : undefined;
@@ -1023,8 +1035,8 @@ export function agentActivity(): Map<string, { working: AgentActivity[]; waiting
 export async function listChats(): Promise<Array<ChatMeta & { busy: boolean; awaitingApproval: boolean }>> {
   const metas = await listChatMetas();
   return metas.map((m) => ({
-    ...(states.get(m.id)?.meta ?? m),
-    busy: states.has(m.id) ? isBusy(states.get(m.id)!) : false,
+    ...(chatStates().get(m.id)?.meta ?? m),
+    busy: chatStates().has(m.id) ? isBusy(chatStates().get(m.id)!) : false,
     awaitingApproval: chatAwaitingApproval(m.id),
   }));
 }
@@ -1243,7 +1255,7 @@ async function runSeatTurn(state: ChatState, channel: Channel, seat: Seat, hops:
 export async function ensureChannelChat(channel: Channel): Promise<ChatMeta> {
   const metas = await listChatMetas();
   const existing = metas.find((m) => m.scope.kind === "channel" && m.scope.slug === channel.slug);
-  if (existing) return states.get(existing.id)?.meta ?? existing;
+  if (existing) return chatStates().get(existing.id)?.meta ?? existing;
   const meta = await createChat({ agent: "claude", scope: { kind: "channel", slug: channel.slug }, title: channel.name });
   if (channel.project) {
     meta.project = channel.project;
@@ -1300,7 +1312,7 @@ export async function convertChatToChannel(chatId: string, channel: Channel): Pr
 
 /** Members left the channel: their processes go, the transcript stays. */
 export async function dropChannelSeats(chatId: string, keep: string[]): Promise<void> {
-  const state = states.get(chatId);
+  const state = chatStates().get(chatId);
   if (!state) return;
   for (const [key, seat] of state.seats) {
     if (!keep.includes(key)) {
@@ -1511,7 +1523,7 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   for (const resolve of state.pendingPermissions.values()) resolve(null);
   for (const resolve of state.pendingElicitations.values()) resolve({ action: "cancel" });
   dropBackend(state);
-  states.delete(id);
+  chatStates().delete(id);
   await moveToTrash("chats", id, safeChatDir(id));
   return {};
 }

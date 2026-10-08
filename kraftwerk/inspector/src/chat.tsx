@@ -21,7 +21,8 @@ import type {
   SkillInfo,
   StoredChatEvent,
 } from "./types";
-import { Icon, Link, navigate, PROJECT_ASSISTANT, setPageTitle, useExpertMode, useFeatures, usePoll } from "./shared";
+import { api, live as socket, useApi } from "./api";
+import { Icon, Link, navigate, PROJECT_ASSISTANT, setPageTitle, useExpertMode, useFeatures } from "./shared";
 import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "./vibeables";
 import { AddCoworkerDialog } from "./channels";
 import { CHAT_RENAMED_EVENT, StripEnd } from "./sessions";
@@ -64,13 +65,8 @@ export async function createChatAndOpen(
   scope: { kind: string; runId?: string; bundle?: string; slug?: string },
   resume?: string
 ): Promise<void> {
-  const res = await fetch("/api/chats", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ agent, scope, ...(resume ? { resume } : {}) }),
-  });
-  const meta = await res.json();
-  if (meta.id) {
+  const { data: meta } = await api.request("chats.create", { body: { agent, scope, ...(resume ? { resume } : {}) } });
+  if (meta?.id) {
     navigate(
       meta.scope?.kind === "agent"
         ? `/agents/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`
@@ -146,9 +142,7 @@ export function NewChat() {
                 icon="history"
                 onClick={async () => {
                   setSessions("loading");
-                  const d = await fetch(`/api/agent-sessions?agent=${agent}`)
-                    .then((r) => (r.ok ? r.json() : { sessions: [] }))
-                    .catch(() => ({ sessions: [] }));
+                  const d = await api.call("agents.sessions", { query: { agent } }).catch(() => ({ sessions: [] }));
                   setSessions((d.sessions ?? []).slice(0, 20));
                 }}
               >
@@ -187,11 +181,7 @@ export function NewChat() {
 
 /** Interrupt one agent (channels) or every agent in a chat. */
 function stopAgent(chatId: string, agent?: string): void {
-  void fetch(`/api/chats/${chatId}/cancel`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(agent ? { agent } : {}),
-  }).catch(() => {});
+  void api.request("chats.cancel", { id: chatId, body: agent ? { agent } : {} }).catch(() => {});
 }
 
 const oneLine = (s: string, max = 90) => {
@@ -330,7 +320,7 @@ export function ChatThread({
   const [focus, setFocus] = useState<string | null>(null);
   const features = useFeatures();
   const expert = useExpertMode();
-  const allAgents = usePoll<{ agents: Agent[] }>(channel ? "" : "/api/agents", false, 30_000)?.agents ?? [];
+  const allAgents = useApi("agents.list", channel ? null : {}, { interval: 30_000 })?.agents ?? [];
   // An attached app shows in the context column: announce it, and render the
   // pane into the column's slot once it is in the DOM.
   const attachedSlug = meta?.vibeable && features.vibeables ? meta.vibeable : null;
@@ -345,26 +335,25 @@ export function ChatThread({
 
   useEffect(() => {
     let alive = true;
-    let es: EventSource | null = null;
-    fetch(`/api/chats/${id}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d: { meta: ChatMeta; events: StoredChatEvent[] }) => {
+    let stop: (() => void) | undefined;
+    api
+      .call("chats.get", { id })
+      .then((d) => {
         if (!alive) return;
         setMeta(d.meta);
         setEvents(d.events);
         const last = d.events[d.events.length - 1]?.seq ?? 0;
-        es = new EventSource(`/api/chats/${id}/events?after=${last}`);
-        es.onmessage = (m) => {
-          const ev: StoredChatEvent = JSON.parse(m.data);
+        stop = socket.subscribe(`chat.${id}`, { after: last }, (data) => {
+          const ev = data as StoredChatEvent;
           setEvents((prev) =>
             prev.some((p) => p.seq === ev.seq) ? prev : [...prev, ev]
           );
-        };
+        });
       })
       .catch(() => alive && setGone(true));
     return () => {
       alive = false;
-      es?.close();
+      stop?.();
     };
   }, [id]);
 
@@ -557,8 +546,8 @@ export function ChatThread({
             onClick={async () => {
               if (meta.agent === "codex") return setForkNote("fork is not supported by codex");
               setForking(true);
-              const r = await fetch(`/api/chats/${id}/fork`, { method: "POST" });
-              const body = (await r.json().catch(() => ({}))) as ChatMeta & { error?: string };
+              const r = await api.request("chats.fork", { id });
+              const body = (r.data ?? {}) as ChatMeta & { error?: string };
               setForking(false);
               if (!r.ok || !body.id) return alert(body.error ?? `fork failed (${r.status})`);
               navigate(body.scope?.kind === "agent" ? `/agents/${encodeURIComponent(body.scope.slug)}/chat/${body.id}` : `/agents/chats/${body.id}`);
@@ -983,7 +972,7 @@ function BlockView({ b, chatId, nested }: { b: Block; chatId: string; nested?: b
           {b.attachments && b.attachments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {b.attachments.map((a) => {
-                const href = `/api/chats/${chatId}/attachments/${encodeURIComponent(a.name)}`;
+                const href = api.url("chats.attachment", { id: chatId, name: a.name });
                 return a.mimeType.startsWith("image/") ? (
                   <a key={a.name} href={href} target="_blank" rel="noreferrer" title={a.name}>
                     <img src={href} alt={a.name} className="block max-h-60 max-w-full rounded-lg" />
@@ -1044,11 +1033,7 @@ function BlockView({ b, chatId, nested }: { b: Block; chatId: string; nested?: b
                 className="ml-2 cursor-pointer rounded-lg border border-line bg-transparent px-1.5 py-px font-[inherit] text-[10px] tracking-[0.5px] text-inherit uppercase hover:border-bad hover:text-bad"
                 title="stop this background task (the turn goes on)"
                 onClick={() =>
-                  fetch(`/api/chats/${chatId}/task-stop`, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ taskId: b.taskId }),
-                  }).catch(() => {})
+                  api.request("chats.stopTask", { id: chatId, body: { taskId: b.taskId } }).catch(() => {})
                 }
               >
                 stop
@@ -1137,14 +1122,10 @@ function FailureCard({ b, chatId }: { b: Extract<Block, { kind: "failure" }>; ch
     try {
       if (action === "retry") {
         if (!b.retryText) return setNote("nothing to retry — send a message");
-        await fetch(`/api/chats/${chatId}/message`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: b.retryText }),
-        });
+        await api.request("chats.message", { id: chatId, body: { text: b.retryText } });
       } else {
-        const r = await fetch(`/api/chats/${chatId}/reset-session`, { method: "POST" });
-        if (!r.ok) setNote(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `reset failed (${r.status})`);
+        const r = await api.request("chats.resetSession", { id: chatId });
+        if (!r.ok) setNote((r.data as { error?: string } | undefined)?.error ?? `reset failed (${r.status})`);
       }
     } catch {
       /* offline: the buttons stay */
@@ -1198,13 +1179,9 @@ function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof liveSta
   const shown = live.config.filter((o) => o.category === "model" || o.category === "thought_level");
   async function change(o: ConfigOption, value: string | boolean) {
     setBusyId(o.id);
-    const r = await fetch(`/api/chats/${id}/config`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ configId: o.id, value }),
-    }).catch(() => null);
+    const r = await api.request("chats.config", { id, body: { configId: o.id, value } }).catch(() => null);
     setBusyId(null);
-    if (r && !r.ok) alert(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `setting refused (${r.status})`);
+    if (r && !r.ok) alert((r.data as { error?: string } | undefined)?.error ?? `setting refused (${r.status})`);
   }
   return (
     <>
@@ -1263,12 +1240,11 @@ function QuestionCard({ b, chatId }: { b: Extract<Block, { kind: "question" }>; 
   async function answer(action: "accept" | "decline") {
     setSending(true);
     try {
-      const r = await fetch(`/api/chats/${chatId}/elicitation`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: b.requestId, action, ...(action === "accept" ? { content: values } : {}) }),
+      const r = await api.request("chats.elicitation", {
+        id: chatId,
+        body: { requestId: b.requestId, action, ...(action === "accept" ? { content: values } : {}) },
       });
-      if (!r.ok) setGone(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `request failed (${r.status})`);
+      if (!r.ok) setGone((r.data as { error?: string } | undefined)?.error ?? `request failed (${r.status})`);
     } catch {
       /* offline: the form stays */
     }
@@ -1399,14 +1375,10 @@ function PermissionCard({
   async function answer(optionId: string | null) {
     setSending(true);
     try {
-      const r = await fetch(`/api/chats/${chatId}/permission`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: b.requestId, optionId }),
-      });
+      const r = await api.request("chats.permission", { id: chatId, body: { requestId: b.requestId, optionId } });
       if (!r.ok) {
-        const body = (await r.json().catch(() => ({}))) as { error?: string };
-        setGone(body.error ?? `request failed (${r.status})`);
+        const body = r.data as { error?: string } | undefined;
+        setGone(body?.error ?? `request failed (${r.status})`);
       }
     } catch {
       /* offline: the buttons stay, the next click retries */
@@ -1485,12 +1457,13 @@ function Composer({
     for (const f of Array.from(list)) {
       setUploading((n) => n + 1);
       try {
-        const r = await fetch(`/api/chats/${id}/attachments`, {
-          method: "POST",
+        const r = await api.request("chats.attach", {
+          id,
           headers: { "content-type": f.type || "application/octet-stream", "x-file-name": encodeURIComponent(f.name || "pasted.png") },
           body: f,
         });
-        const body = (await r.json()) as Attachment & { error?: string };
+        if (typeof r.data !== "object" || !r.data) throw new Error("not json");
+        const body = r.data as Attachment & { error?: string };
         if (!r.ok) setProblem(body.error ?? `upload failed (${r.status})`);
         else setFiles((prev) => [...prev, { ...body, ...(f.type.startsWith("image/") ? { preview: URL.createObjectURL(f) } : {}) }]);
       } catch {
@@ -1520,16 +1493,12 @@ function Composer({
     let alive = true;
     (async () => {
       try {
-        const d = await fetch("/api/skills").then((r) => r.json());
-        let list: SkillInfo[] = d.skills ?? [];
+        const d = (await api.request("skills.list")).data as { skills?: SkillInfo[] } | undefined;
+        let list: SkillInfo[] = d?.skills ?? [];
         if (scope?.kind === "agent") {
           const [m, own] = await Promise.all([
-            fetch(`/api/agents/${encodeURIComponent(scope.slug)}`)
-              .then((r) => (r.ok ? r.json() : null))
-              .catch(() => null),
-            fetch(`/api/agents/${encodeURIComponent(scope.slug)}/skills`)
-              .then((r) => (r.ok ? r.json() : null))
-              .catch(() => null),
+            api.call("agents.get", { slug: scope.slug }).catch(() => null),
+            api.call("agents.skills", { slug: scope.slug }).catch(() => null),
           ]);
           if (m && Array.isArray(m.skills)) {
             const allowed = new Set(m.skills.map((n: string) => n.toLowerCase()));
@@ -1615,13 +1584,10 @@ function Composer({
     setText("");
     setFiles([]);
     setProblem(null);
-    const r = await fetch(`/api/chats/${id}/${steering ? "steer" : "message"}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: t, ...(attachments.length ? { attachments } : {}), ...(channel ? { from: me || "you" } : {}) }),
-    }).catch(() => null);
+    const body = { text: t, ...(attachments.length ? { attachments } : {}), ...(channel ? { from: me || "you" } : {}) };
+    const r = await (steering ? api.request("chats.steer", { id, body }) : api.request("chats.message", { id, body })).catch(() => null);
     if (r && !r.ok) {
-      setProblem(((await r.json().catch(() => ({}))) as { error?: string }).error ?? `not sent (${r.status})`);
+      setProblem((r.data as { error?: string } | undefined)?.error ?? `not sent (${r.status})`);
       setText(t);
       setFiles(files);
     }
@@ -1786,7 +1752,7 @@ function Composer({
           }}
         />
         {busy && (
-          <Button size="sm" variant="danger" icon="stop" className="mr-1 self-center" onClick={() => fetch(`/api/chats/${id}/cancel`, { method: "POST" }).catch(() => {})}>
+          <Button size="sm" variant="danger" icon="stop" className="mr-1 self-center" onClick={() => api.request("chats.cancel", { id }).catch(() => {})}>
             stop
           </Button>
         )}

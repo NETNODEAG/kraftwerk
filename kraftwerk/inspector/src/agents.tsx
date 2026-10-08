@@ -3,19 +3,14 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type {
   BundleDetail,
-  ChatMeta,
   ConceptDetail,
   ConceptInfo,
-  KnowledgeIndex,
-  RoutineStatus,
-  SkillInfo,
   Agent,
   AgentDetail,
-  VibeablesView,
-  WorkflowSummary,
 } from "./types";
 import { ChatThread, NewChat, createChatAndOpen } from "./chat";
-import { EFFORTS, Icon, Link, navigate, usePoll, fmtWhen, useExpertMode, useFeatures } from "./shared";
+import { api, useApi } from "./api";
+import { EFFORTS, Icon, Link, navigate, fmtWhen, useExpertMode, useFeatures } from "./shared";
 import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
 import { exportBundlePdf } from "./export";
 import { Avatar, Button, Checkbox, cn, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, RowIcon, Select, SideHead, SideList, Switch, Tag, TextArea, TextField, Title } from "./ui";
@@ -77,7 +72,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
   const newChat = mode === "chats" && seg[1] === "new";
   const chatId = mode === "chat" ? seg[2] : mode === "chats" && !newChat ? seg[1] : undefined;
 
-  const data = usePoll<{ root: string; agents: Agent[] }>("/api/agents", false);
+  const data = useApi("agents.list", {});
   const expert = useExpertMode();
   const listOpen = useSessionsList();
 
@@ -161,15 +156,8 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
     if ((current?.group ?? "") === group) return;
     setMoved((prev) => ({ ...prev, [memberSlug]: group }));
     try {
-      const r = await fetch(`/api/agents/${encodeURIComponent(memberSlug)}`);
-      if (!r.ok) throw new Error();
-      const full = (await r.json()) as AgentDetail;
-      const res = await fetch(`/api/agents/${encodeURIComponent(memberSlug)}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...full, group: group || undefined }),
-      });
-      if (!res.ok) throw new Error();
+      const full = await api.call("agents.get", { slug: memberSlug });
+      await api.call("agents.save", { slug: memberSlug, body: { ...full, group: group || undefined } });
     } catch {
       setMoved((prev) => {
         const next = { ...prev };
@@ -459,8 +447,8 @@ function KnowledgeSide({
       await Promise.all(
         bundles.map(async (b) => {
           try {
-            const r = await fetch(`/api/knowledge/${encodeURIComponent(b)}`, { cache: "no-store" });
-            const d = r.ok ? ((await r.json()) as BundleDetail) : null;
+            const r = await api.request("knowledge.get", { bundle: b });
+            const d = r.ok ? r.data : null;
             if (alive)
               setDetails((prev) =>
                 JSON.stringify(prev[b]) === JSON.stringify(d) ? prev : { ...prev, [b]: d }
@@ -489,11 +477,8 @@ function KnowledgeSide({
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        const r = await fetch(
-          `/api/knowledge/${encodeURIComponent(bundle)}/concept?id=${encodeURIComponent(id)}`,
-          { cache: "no-store" }
-        );
-        const concept = r.ok ? ((await r.json()) as ConceptDetail) : null;
+        const r = await api.request("knowledge.concept", { bundle, query: { id } });
+        const concept = r.ok ? r.data : null;
         if (alive)
           setConcepts((prev) =>
             JSON.stringify(prev[openId]) === JSON.stringify(concept)
@@ -525,12 +510,8 @@ function KnowledgeSide({
     setSaving(true);
     setSaveError("");
     try {
-      const r = await fetch(`/api/knowledge/${encodeURIComponent(bundle)}/concept`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id, content: draft }),
-      });
-      const body = (await r.json()) as ConceptDetail & { error?: string };
+      const r = await api.request("knowledge.putConcept", { bundle, body: { id, content: draft } });
+      const body = r.data as ConceptDetail & { error?: string };
       if (body.error) {
         setSaveError(body.error);
       } else {
@@ -732,9 +713,9 @@ function AgentLanding({ slug, name }: { slug: string; name?: string }) {
   useEffect(() => {
     let alive = true;
     setNoSessions(false);
-    fetch("/api/chats")
-      .then((r) => r.json())
-      .then((d: { chats: ChatMeta[] }) => {
+    api
+      .call("chats.list")
+      .then((d) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — first match is the latest.
         const latest = d.chats.find((c) => c.scope.kind === "agent" && c.scope.slug === slug);
@@ -787,9 +768,9 @@ function GeneralChatsLanding() {
   const [none, setNone] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetch("/api/chats")
-      .then((r) => r.json())
-      .then((d: { chats: ChatMeta[] }) => {
+    api
+      .call("chats.list")
+      .then((d) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — first match is the latest.
         const latest = d.chats.find((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
@@ -878,9 +859,9 @@ function AgentsLanding({ agents }: { agents: Agent[] }) {
   useEffect(() => {
     let alive = true;
     const fallback = () => navigate(`/agents/${encodeURIComponent(agents[0].slug)}`, { replace: true });
-    fetch("/api/chats")
-      .then((r) => r.json())
-      .then((d: { chats: ChatMeta[] }) => {
+    api
+      .call("chats.list")
+      .then((d) => {
         if (!alive) return;
         // /api/chats is sorted by updatedAt desc — the first agent session wins.
         const slugs = new Set(agents.map((a) => a.slug));
@@ -933,15 +914,15 @@ export function AgentView({ slug }: { slug: string }) {
   const [error, setError] = useState("");
 
   const features = useFeatures();
-  const wfData = usePoll<{ workflows: WorkflowSummary[] }>("/api/workflows", false);
-  const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
-  const vData = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false);
-  const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
+  const wfData = useApi("workflows.list", {});
+  const kData = useApi("knowledge.list", {});
+  const vData = useApi("vibeables.list", features.vibeables ? {} : null);
+  const sData = useApi("skills.list", {});
 
   useEffect(() => {
     let alive = true;
-    fetch(`/api/agents/${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+    api
+      .call("agents.get", { slug })
       .then((m) => alive && setMember(m))
       .catch(() => alive && setGone(true));
     return () => {
@@ -960,11 +941,10 @@ export function AgentView({ slug }: { slug: string }) {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`/api/agents/${encodeURIComponent(slug)}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
+      const res = await api.request("agents.save", {
+        slug,
         // Full agent + the changed section; an absent skills key = all skills.
-        body: JSON.stringify({
+        body: {
           name: agent.name,
           emoji: agent.emoji,
           description: agent.description,
@@ -978,9 +958,9 @@ export function AgentView({ slug }: { slug: string }) {
           vibeables: agent.vibeables,
           skills: agent.skills,
           ...patch,
-        }),
+        },
       });
-      const body = await res.json();
+      const body = res.data as AgentDetail & { error?: string };
       if (body.error) setError(body.error);
       else {
         setMember(body);
@@ -1000,12 +980,8 @@ export function AgentView({ slug }: { slug: string }) {
     setSaving(true);
     setError("");
     try {
-      const r = await fetch(`/api/agents/${encodeURIComponent(slug)}/archive`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ archived }),
-      });
-      const body = await r.json();
+      const r = await api.request("agents.archive", { slug, body: { archived } });
+      const body = r.data as AgentDetail & { error?: string };
       if (body.error) setError(body.error);
       else setMember(body);
     } catch (err) {
@@ -1295,10 +1271,7 @@ Instructions this agent follows when the skill applies or is invoked with /<name
 `;
 
 function AgentSkillsPanel({ slug }: { slug: string }) {
-  const data = usePoll<{ skills: SkillInfo[] }>(
-    `/api/agents/${encodeURIComponent(slug)}/skills`,
-    false
-  );
+  const data = useApi("agents.skills", { slug });
   const skills = data?.skills ?? [];
   const [form, setForm] = useState<{ name: string; content: string; isNew: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1306,10 +1279,9 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
 
   async function edit(name: string): Promise<void> {
     setError("");
-    const r = await fetch(
-      `/api/agents/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`
-    );
-    const body = await r.json().catch(() => null);
+    const r = await api.request("agents.skill", { slug, name }).catch(() => null);
+    if (!r) return void setError("could not load skill");
+    const body = (r.data && typeof r.data === "object" ? r.data : null) as { content?: string; error?: string } | null;
     if (!r.ok || !body || body.error) return void setError(body?.error ?? "could not load skill");
     setForm({ name, content: body.content ?? "", isNew: false });
   }
@@ -1318,12 +1290,8 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
     if (!form) return;
     setSaving(true);
     setError("");
-    const res = await fetch(`/api/agents/${encodeURIComponent(slug)}/skills`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: form.name, content: form.content }),
-    });
-    const body = await res.json().catch(() => ({ error: "save failed" }));
+    const res = await api.request("agents.saveSkill", { slug, body: { name: form.name, content: form.content } });
+    const body = (res.data && typeof res.data === "object" ? res.data : { error: "save failed" }) as { error?: string };
     setSaving(false);
     if (body.error) setError(body.error);
     else setForm(null);
@@ -1331,9 +1299,7 @@ function AgentSkillsPanel({ slug }: { slug: string }) {
 
   async function remove(name: string): Promise<void> {
     if (!window.confirm(`Move skill "/${name}" of this agent to the trash?`)) return;
-    await fetch(`/api/agents/${encodeURIComponent(slug)}/skills/${encodeURIComponent(name)}`, {
-      method: "DELETE",
-    }).catch(() => {});
+    await api.request("agents.deleteSkill", { slug, name }).catch(() => {});
     if (form?.name === name) setForm(null);
   }
 
@@ -1432,10 +1398,7 @@ interface RoutineForm {
 }
 
 function RoutinesPanel({ slug }: { slug: string }) {
-  const data = usePoll<{ routines: RoutineStatus[] }>(
-    `/api/agents/${encodeURIComponent(slug)}/routines`,
-    false
-  );
+  const data = useApi("agents.routines", { slug });
   const routines = data?.routines ?? [];
   const [form, setForm] = useState<RoutineForm | null>(null);
   const [error, setError] = useState("");
@@ -1443,12 +1406,8 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
   async function post(routine: RoutineForm): Promise<boolean> {
     setError("");
-    const res = await fetch(`/api/agents/${encodeURIComponent(slug)}/routines`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(routine),
-    });
-    const body = await res.json();
+    const res = await api.request("agents.saveRoutine", { slug, body: routine });
+    const body = res.data as { error?: string };
     if (body.error) {
       setError(body.error);
       return false;
@@ -1459,11 +1418,8 @@ function RoutinesPanel({ slug }: { slug: string }) {
   async function runNow(id: string) {
     setBusyId(id);
     setError("");
-    const res = await fetch(
-      `/api/agents/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}/run`,
-      { method: "POST" }
-    );
-    const body = await res.json();
+    const res = await api.request("agents.runRoutine", { slug, id });
+    const body = res.data as { chatId?: string; error?: string };
     setBusyId("");
     if (body.error) setError(body.error);
     else if (body.chatId) navigate(`/agents/${encodeURIComponent(slug)}/chat/${body.chatId}`);
@@ -1471,9 +1427,7 @@ function RoutinesPanel({ slug }: { slug: string }) {
 
   async function remove(id: string) {
     if (!window.confirm(`Delete the scheduled prompt "${id}"?`)) return;
-    await fetch(`/api/agents/${encodeURIComponent(slug)}/routines/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }).catch(() => {});
+    await api.request("agents.deleteRoutine", { slug, id }).catch(() => {});
   }
 
   return (
@@ -1635,21 +1589,21 @@ export function AgentEditor({ slug }: { slug?: string }) {
   } | null>(slug ? null : defaults());
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const wfData = usePoll<{ workflows: WorkflowSummary[] }>("/api/workflows", false);
+  const wfData = useApi("workflows.list", {});
   const available = wfData?.workflows ?? [];
-  const kData = usePoll<KnowledgeIndex>("/api/knowledge", false);
+  const kData = useApi("knowledge.list", {});
   const bundles = kData?.bundles ?? [];
   const features = useFeatures();
-  const vData = usePoll<VibeablesView>(features.vibeables ? "/api/vibeables" : "", false);
+  const vData = useApi("vibeables.list", features.vibeables ? {} : null);
   const vibeables = vData?.vibeables ?? [];
-  const sData = usePoll<{ skills: SkillInfo[] }>("/api/skills", false);
+  const sData = useApi("skills.list", {});
   const allSkills = sData?.skills ?? [];
 
   useEffect(() => {
     if (!slug) return;
-    fetch(`/api/agents/${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((m: AgentDetail) =>
+    api
+      .call("agents.get", { slug })
+      .then((m) =>
         setForm({
           name: m.name,
           emoji: m.emoji,
@@ -1691,13 +1645,10 @@ export function AgentEditor({ slug }: { slug?: string }) {
     if (!form) return;
     setSaving(true);
     setError("");
-    const res = await fetch(slug ? `/api/agents/${encodeURIComponent(slug)}` : "/api/agents", {
-      method: slug ? "PUT" : "POST",
-      headers: { "content-type": "application/json" },
-      // skillsAll = no allowlist: omit the skills key entirely.
-      body: JSON.stringify({ ...form, skills: form.skillsAll ? undefined : form.skills }),
-    });
-    const body = await res.json();
+    // skillsAll = no allowlist: omit the skills key entirely.
+    const payload = { ...form, skills: form.skillsAll ? undefined : form.skills };
+    const res = slug ? await api.request("agents.save", { slug, body: payload }) : await api.request("agents.create", { body: payload });
+    const body = res.data as { slug: string; error?: string };
     setSaving(false);
     if (body.error) setError(body.error);
     else navigate(`/agents/${encodeURIComponent(body.slug)}/info`);
@@ -1705,7 +1656,7 @@ export function AgentEditor({ slug }: { slug?: string }) {
 
   async function remove() {
     if (!slug || !window.confirm(`Move agent "${slug}" to the trash?`)) return;
-    await fetch(`/api/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }).catch(() => {});
+    await api.request("agents.delete", { slug }).catch(() => {});
     navigate("/agents");
   }
 

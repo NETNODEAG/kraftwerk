@@ -3,7 +3,7 @@ import path from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import { resolveProject } from "../config.js";
-import { setOutputDir, setProjectRoot } from "../inspector/context.js";
+import { setDefaultWorkspace, Workspace } from "../inspector/workspace.js";
 import {
   deleteRoutine,
   listRoutines,
@@ -23,8 +23,7 @@ import { getAgent, listAgents } from "../inspector/agents.js";
 /** Point the inspector context at this project so agent/routine paths resolve. */
 export async function initContext(): Promise<{ port: number }> {
   const project = await resolveProject(process.cwd());
-  setProjectRoot(project.root);
-  setOutputDir(project.outputDir);
+  setDefaultWorkspace(new Workspace({ root: project.root, outputDir: project.outputDir }));
   return { port: project.config.port ?? 1981 };
 }
 

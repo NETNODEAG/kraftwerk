@@ -1,212 +1,33 @@
 import { existsSync, promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { attachmentPath, readMeta, saveAttachment } from "./chat/store.js";
-import { setOutputDir, setProjectRoot, getOutputDir, getProjectRoot } from "./context.js";
-import { publicHostFor, publicUrlFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
+import { setDefaultWorkspace, Workspace } from "./workspace.js";
+import { publicHostFor, resolveProject, tunnelFor, type AccessConfig } from "../config.js";
 import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
-import { cloudGoodbye, cloudStatus, startCloudSync, stopCloudSync } from "./cloud.js";
-import { listRuns, getRun, readRunFile, deleteRun, safeRunDir } from "./runs.js";
-import { agentStatuses } from "./agent-status.js";
-import { listAttention } from "./attention.js";
-import { deleteFile, filesSummary, listFiles, listScopes, makeFolder, moveFile, openFile, saveUpload } from "./files.js";
-import { appendJournal, readJournal } from "./journal.js";
-import { emptyTrash, listTrash, purgeFromTrash, restoreFromTrash, trashRoot } from "./trash.js";
-import { decide } from "./decisions.js";
-import { canSelfUpdate, startUpdate, updateStatus } from "./update.js";
-import { listWorkflows, getWorkflow, deleteWorkflow } from "./workflows.js";
-import { dockerStatus, triggerRun, stopRun } from "./runner.js";
-import { clearNotifications, listNotifications, markNotificationsRead } from "./notifications.js";
-import { startDiagnosis } from "./diagnose.js";
-import { deleteChannel, getChannel, listChannels, saveChannel, channelsRoot, type Channel, type SaveChannelInput } from "./channels.js";
-import {
-  cancelChat,
-  createChat,
-  forkChat,
-  resetSession,
-  answerElicitation,
-  steerChat,
-  stopChatTask,
-  setChatConfig,
-  listAgentSessionsFor,
-  deleteChat,
-  renameChat,
-  disposeAllBackends,
-  getChat,
-  listChats,
-  postMessage,
-  resolvePermission,
-  setChatVibeable,
-  subscribeChat, convertChatToChannel, dropChannelSeats, ensureChannelChat } from "./chat/sessions.js";
-import type { ChatAgentId, ChatMeta, ChatScope } from "./chat/types.js";
-import {
-  bundleDetail,
-  conceptDetail,
-  createBundle,
-  deleteBundle,
-  knowledgeIndex,
-  UI_ACTOR,
-  putConcept,
-  verifyFromUi,
-} from "./knowledge.js";
-import {
-  deleteAgent,
-  getAgent,
-  listAgents,
-  saveAgent,
-  setAgentArchived,
-  agentsRoot,
-  type SaveAgentInput,
-} from "./agents.js";
-import {
-  deleteAgentSkill,
-  getSkill,
-  listAgentSkills,
-  listSkills,
-  readSkill,
-  saveAgentSkill,
-  skillsRoot,
-} from "./skills.js";
-import {
-  discoverWorkspaces,
-  forgetWorkspace,
-  listWorkspacesDetailed,
-  markWorkspaceStopped,
-  registerInstance,
-  registerWorkspace,
-  startWorkspace,
-  stopWorkspace,
-  tildify,
-  unregisterInstance,
-} from "./instances.js";
-import {
-  gitCommit,
-  gitDiff,
-  gitFetch,
-  gitPull,
-  gitPush,
-  gitStatus,
-  startGitSync,
-} from "./git.js";
-import { getSettings, saveSettings, type SaveSettingsInput } from "./settings.js";
-import {
-  addRepo,
-  listRepos,
-  openRepos,
-  removeRepo,
-  repoCommitDiff,
-  repoDetail,
-  repoDiff,
-  updateRepo,
-} from "./repos.js";
-import {
-  createVibeable,
-  deleteVibeable,
-  disposeAllDevs,
-  listVibeables,
-  openVibeables,
-  proxyUpgrade,
-  resolveVibeable,
-  serveVibeable,
-  startDev,
-  stopDev,
-  subscribeVibeable,
-  vibeableStatus,
-  type VibeableEvent,
-} from "./vibeables.js";
-import { searchAgents } from "./search.js";
-import {
-  appendProjectLog,
-  createProject,
-  deleteProject,
-  saveLayout,
-  getProject,
-  linkProject,
-  listProjects,
-  openProjects,
-  saveProject,
-  type SaveProjectInput,
-} from "./projects.js";
-import {
-  allRoutines,
-  deleteRoutine,
-  routineStatuses,
-  runRoutineNow,
-  saveRoutine,
-  startRoutineScheduler,
-  type SaveRoutineInput,
-} from "./routines.js";
+import { cloudGoodbye, startCloudSync, stopCloudSync } from "./cloud.js";
+import { disposeAllBackends } from "./chat/sessions.js";
+import { markWorkspaceStopped, registerInstance, registerWorkspace, unregisterInstance } from "./instances.js";
+import { startGitSync } from "./git.js";
+import { disposeAllDevs, proxyUpgrade, serveVibeable } from "./vibeables.js";
+import { startRoutineScheduler } from "./routines.js";
+import { apiRouter } from "./api/index.js";
+import { serveSocket } from "./api/socket.js";
+import { acceptWebSocket } from "./ws.js";
+import { json } from "./api/router.js";
+import { MIME } from "./api/mime.js";
+import { getPkgVersion, RESTART_EXIT_CODE } from "./version.js";
+
+export { RESTART_EXIT_CODE };
 
 /**
  * The inspector server: a plain node:http server with no dependencies.
- * Serves the prebuilt SPA (inspector/dist) plus the JSON/file API the
- * frontend polls. Realtime is polling — no daemon, no socket, works on a
- * plain filesystem.
+ * Serves the prebuilt SPA (inspector/dist), an app's files for its preview
+ * (/vibeables/…), and the API (/api/…). The API's routes live in api/ — one
+ * module per domain, each route named; this file is the HTTP transport
+ * around them: who may talk to us, static files, startup and shutdown.
  */
 
-/** CSP for raw run files: same shape as the vibeable preview — scripts allowed, origin opaque. */
-const RUN_FILE_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
-
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".pdf": "application/pdf",
-  ".json": "application/json; charset=utf-8",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".txt": "text/plain; charset=utf-8",
-};
-
-/** Text preview payloads are capped; the tail matters most for logs. */
-const MAX_TEXT = 400_000;
-
 type Res = http.ServerResponse;
-
-function json(res: Res, body: unknown, status = 200): void {
-  // A late error on an SSE response must not try to write headers again.
-  if (res.headersSent) return void res.end();
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-  res.end(JSON.stringify(body));
-}
-
-/** A raw upload body (attachments), capped at `max` bytes. */
-function readRawBody(req: http.IncomingMessage, max: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", (c: Buffer) => {
-      size += c.length;
-      if (size > max) {
-        reject(new Error(`file too large (max ${Math.round(max / 1_000_000)} MB)`));
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    req.on("data", (c) => {
-      data += c;
-      if (data.length > 1_000_000) reject(new Error("body too large"));
-    });
-    req.on("end", () => resolve(data));
-    req.on("error", reject);
-  });
-}
 
 /**
  * Interface to bind. Loopback by default: the UI is unauthenticated and its
@@ -222,16 +43,19 @@ const INSPECTOR_HOST = process.env.KRAFTWERK_UI_HOST || (IN_CONTAINER ? "0.0.0.0
 const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 const LOOPBACK_BIND = LOOPBACK_NAMES.has(INSPECTOR_HOST);
 
-/**
- * The hostname from kraftwerk.yml `public`, when set: the name a tunnel or
- * reverse proxy delivers as Host. A Cloudflare Tunnel forwards the
- * browser's Host untouched and sets no X-Forwarded-Host, so without this
- * the loopback bind would refuse every request that came through it. A
- * rebinding page cannot exploit it: the name is one the operator owns.
- */
-let publicHost = "";
-/** Access verification for requests arriving via the public hostname (kraftwerk.yml `tunnel.access`). */
-let access: AccessConfig | undefined;
+/** Who may reach one server: read from its workspace's kraftwerk.yml at start. */
+interface Gate {
+  /**
+   * The hostname from kraftwerk.yml `public`, when set: the name a tunnel or
+   * reverse proxy delivers as Host. A Cloudflare Tunnel forwards the
+   * browser's Host untouched and sets no X-Forwarded-Host, so without this
+   * the loopback bind would refuse every request that came through it. A
+   * rebinding page cannot exploit it: the name is one the operator owns.
+   */
+  publicHost: string;
+  /** Access verification for requests arriving via the public hostname (kraftwerk.yml `tunnel.access`). */
+  access?: AccessConfig;
+}
 
 /**
  * Whether the Host header names this server. A loopback bind alone does not
@@ -248,7 +72,7 @@ let access: AccessConfig | undefined;
  * browser only sends it after a CORS preflight, which this server never
  * answers, and a form post cannot set headers at all.
  */
-function hostAllowed(req: http.IncomingMessage): boolean {
+function hostAllowed(req: http.IncomingMessage, { publicHost }: Gate): boolean {
   if (!LOOPBACK_BIND) return true;
   if (forwardedHost(req)) return true;
   const host = req.headers.host;
@@ -258,7 +82,7 @@ function hostAllowed(req: http.IncomingMessage): boolean {
 }
 
 /** Whether the browser addressed the public hostname (directly or, via a proxy, in X-Forwarded-Host). */
-function viaPublicHost(req: http.IncomingMessage): boolean {
+function viaPublicHost(req: http.IncomingMessage, { publicHost }: Gate): boolean {
   if (!publicHost) return false;
   const host = forwardedHost(req) || req.headers.host;
   return !!host && hostnameOf(host) === publicHost;
@@ -272,8 +96,9 @@ function viaPublicHost(req: http.IncomingMessage): boolean {
  * proxy) can deliver the public name in the first place. Returns the reason
  * to refuse, or undefined to proceed.
  */
-async function accessRefusal(req: http.IncomingMessage): Promise<string | undefined> {
-  if (!access || !viaPublicHost(req)) return undefined;
+async function accessRefusal(req: http.IncomingMessage, gate: Gate): Promise<string | undefined> {
+  const { access } = gate;
+  if (!access || !viaPublicHost(req, gate)) return undefined;
   const raw = req.headers[ACCESS_HEADER];
   const token = Array.isArray(raw) ? raw[0] : raw;
   if (!token) return "Cloudflare Access token missing";
@@ -291,39 +116,6 @@ function forwardedHost(req: http.IncomingMessage): string | undefined {
 function hostnameOf(host: string): string {
   try {
     return new URL(`http://${host}`).hostname;
-  } catch {
-    return "";
-  }
-}
-
-/** Exit code the `kraftwerk ui` supervisor treats as "relaunch me". */
-export const RESTART_EXIT_CODE = 75;
-
-/** Whether a supervisor is around to respawn us (set by `kraftwerk ui`). */
-const supervised = (): boolean => process.env.KRAFTWERK_UI_SUPERVISED === "1";
-
-/** Package version as it is on disk right now (re-read per call, detects upgrades). */
-async function getDiskVersion(): Promise<string> {
-  try {
-    const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
-    return (JSON.parse(raw) as { version?: string }).version ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/** Package version this process loaded with, read once. Works from src/ (tsx) and dist/ alike. */
-let pkgVersion: string | undefined;
-async function getPkgVersion(): Promise<string> {
-  pkgVersion ??= await getDiskVersion();
-  return pkgVersion;
-}
-
-/** Package name from package.json (registry lookups). */
-async function getPkgName(): Promise<string> {
-  try {
-    const raw = await fs.readFile(new URL("../../package.json", import.meta.url), "utf8");
-    return (JSON.parse(raw) as { name?: string }).name ?? "";
   } catch {
     return "";
   }
@@ -361,1200 +153,6 @@ function sameOrigin(req: http.IncomingMessage): boolean {
   }
 }
 
-async function handleApi(req: http.IncomingMessage, res: Res, url: URL): Promise<void> {
-  const seg = url.pathname.split("/").filter(Boolean); // ["api", ...]
-  const method = req.method ?? "GET";
-
-  if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) {
-    return json(res, { error: "cross-origin request refused" }, 403);
-  }
-
-  // Channels — shared transcripts with several agents (channels/<slug>/channel.yml + one chat).
-  // GET /api/channels | POST /api/channels {name, purpose?, members, responder?}
-  // POST /api/channels/from-chat {chatId, name, members, ...} — an agent session becomes a channel
-  // GET/PUT/DELETE /api/channels/:slug
-  if (seg.length >= 2 && seg[1] === "channels") {
-    const view = async (c: Channel) => {
-      const meta = await ensureChannelChat(c);
-      const live = (await listChats()).find((x) => x.id === meta.id);
-      return { ...c, chatId: meta.id, busy: live?.busy ?? false, awaitingApproval: live?.awaitingApproval ?? false, updatedAt: meta.updatedAt };
-    };
-    let body: SaveChannelInput & { chatId?: string } = {};
-    if (method === "POST" || method === "PUT") {
-      try {
-        const raw = await readBody(req);
-        if (raw) body = JSON.parse(raw);
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-    }
-    try {
-      if (seg.length === 2 && method === "GET") {
-        const channels = await listChannels();
-        return json(res, { root: await channelsRoot(), channels: await Promise.all(channels.map(view)) });
-      }
-      if (seg.length === 2 && method === "POST") {
-        const { chatId: _c, slug: _s, ...input } = body;
-        return json(res, await view(await saveChannel(input)));
-      }
-      if (seg.length === 3 && seg[2] === "from-chat" && method === "POST") {
-        const { chatId, slug: _s, project: _p, ...input } = body;
-        if (!chatId) return json(res, { error: "chatId is required" }, 400);
-        // A project chat's coworkers work in that project: the chat decides, not the body.
-        let source: ChatMeta | null = null;
-        try {
-          source = await readMeta(chatId);
-        } catch {}
-        if (!source) return json(res, { error: "chat not found" }, 404);
-        const channel = await saveChannel({ ...input, ...(source.scope.kind === "project" ? { project: source.scope.slug } : {}) });
-        const converted = await convertChatToChannel(chatId, channel);
-        if (converted.error) {
-          await deleteChannel(channel.slug).catch(() => {});
-          return json(res, { error: converted.error }, 409);
-        }
-        return json(res, await view(channel));
-      }
-      if (seg.length === 3) {
-        const slug = decodeURIComponent(seg[2]);
-        const channel = await getChannel(slug);
-        if (!channel) return json(res, { error: "channel not found" }, 404);
-        if (method === "GET") return json(res, await view(channel));
-        if (method === "PUT") {
-          const { chatId: _c, slug: _s, ...input } = body;
-          const saved = await saveChannel({ ...input, slug });
-          const meta = await ensureChannelChat(saved);
-          await dropChannelSeats(meta.id, saved.members);
-          return json(res, await view(saved));
-        }
-        if (method === "DELETE") {
-          const meta = (await listChats()).find((c) => c.scope.kind === "channel" && c.scope.slug === slug);
-          if (meta) await deleteChat(meta.id);
-          await deleteChannel(slug);
-          return json(res, { ok: true });
-        }
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-    return json(res, { error: "not found" }, 404);
-  }
-
-  // GET /api/notifications — the bell: attention items, newest first, plus unread count.
-  // POST /api/notifications/read {ids?: string[]} — mark some (or all) read.
-  // DELETE /api/notifications — clear the list.
-  if (seg.length >= 2 && seg[1] === "notifications") {
-    if (seg.length === 2 && method === "GET") return json(res, await listNotifications());
-    if (seg.length === 2 && method === "DELETE") {
-      await clearNotifications();
-      return json(res, { ok: true });
-    }
-    // POST /api/notifications/:id/diagnose — open a chat that investigates the failure behind an item.
-    if (seg.length === 4 && seg[3] === "diagnose" && method === "POST") {
-      const result = await startDiagnosis(seg[2]);
-      if ("error" in result) return json(res, result, result.status);
-      return json(res, result);
-    }
-    if (seg.length === 3 && seg[2] === "read" && method === "POST") {
-      let body: { ids?: unknown } = {};
-      try {
-        const raw = await readBody(req);
-        if (raw) body = JSON.parse(raw);
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-      const ids = Array.isArray(body.ids) ? body.ids.map(String) : "all";
-      return json(res, await markNotificationsRead(ids));
-    }
-    return json(res, { error: "not found" }, 404);
-  }
-
-  // GET /api/meta — package version + project name ("environment") for the UI.
-  // ?probe=1 marks a discovery probe from another instance: answer identity
-  // only, skip our own discovery (two instances must not probe each other
-  // recursively).
-  if (seg.length === 2 && seg[1] === "meta" && method === "GET") {
-    const project = await resolveProject(getProjectRoot()).catch(() => null);
-    const projectName = project?.config.name ?? (project ? path.basename(project.root) : "");
-    const manual = project?.config.switcher ?? [];
-    const discovered = url.searchParams.get("probe") === "1" ? [] : await discoverWorkspaces();
-    // Manual switcher entries keep their configured name/icon; discovered
-    // workspaces that duplicate one (same url, running) only contribute
-    // the live flag. Stopped workspaces never collide — they carry a root,
-    // and a manual entry pointing at the same port is just a link.
-    const norm = (u: string) => u.replace(/\/+$/, "").replace("127.0.0.1", "localhost").toLowerCase();
-    const manualUrls = new Set(manual.map((e) => norm(e.url)));
-    const liveUrls = new Set(discovered.filter((d) => d.live).map((d) => norm(d.url)));
-    const switcher = [
-      ...manual.map((e) => (liveUrls.has(norm(e.url)) ? { ...e, live: true } : e)),
-      ...discovered.filter((d) => !(d.live && manualUrls.has(norm(d.url)))),
-    ];
-    return json(res, {
-      version: await getPkgVersion(),
-      // A differing disk version means an upgrade landed while this process
-      // runs — the UI offers a relaunch when a supervisor can respawn us.
-      diskVersion: await getDiskVersion(),
-      restartable: supervised(),
-      projectName,
-      projectIcon: project?.config.icon ?? "",
-      projectColor: project?.config.color ?? "",
-      projectNamed: !!project?.config.name,
-      projectRoot: project?.root ?? getProjectRoot(),
-      projectRootLabel: tildify(project?.root ?? getProjectRoot()),
-      git: (project?.config.git && project.config.git.enabled !== false) === true,
-      repos: (project?.config.repos && project.config.repos.enabled !== false) === true,
-      vibeables: (project?.config.vibeables && project.config.vibeables.enabled !== false) === true,
-      projects: (project?.config.projects && project.config.projects.enabled !== false) === true,
-      publicUrl: (project && publicUrlFor(project)) ?? "",
-      cloud: cloudStatus(),
-      switcher,
-    });
-  }
-
-  // GET /api/git — branch, ahead/behind, changed files (the git screen polls
-  // this, so it is cached for a beat; ?fresh=1 bypasses the cache).
-  if (seg.length === 2 && seg[1] === "git" && method === "GET") {
-    return json(res, await gitStatus(url.searchParams.has("fresh")));
-  }
-
-  // GET /api/git/diff?path= — unified diff for one file
-  if (seg.length === 3 && seg[1] === "git" && seg[2] === "diff" && method === "GET") {
-    const file = url.searchParams.get("path");
-    if (!file) return json(res, { error: "path required" }, 400);
-    return json(res, await gitDiff(file));
-  }
-
-  // POST /api/git/commit {paths, message} — stage and commit the selection.
-  // Commit and push stay manual; the background timer never writes history.
-  if (seg.length === 3 && seg[1] === "git" && seg[2] === "commit" && method === "POST") {
-    try {
-      const body = JSON.parse(await readBody(req)) as { paths?: unknown; message?: unknown };
-      const paths = Array.isArray(body.paths) ? body.paths.filter((p): p is string => typeof p === "string") : [];
-      const message = typeof body.message === "string" ? body.message : "";
-      const result = await gitCommit(paths, message);
-      return json(res, result, result.ok ? 200 : 409);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/git/{fetch,pull,push}
-  if (seg.length === 3 && seg[1] === "git" && method === "POST" && ["fetch", "pull", "push"].includes(seg[2])) {
-    const run = seg[2] === "fetch" ? gitFetch : seg[2] === "pull" ? gitPull : gitPush;
-    const result = await run();
-    return json(res, result, result.ok ? 200 : 409);
-  }
-
-  // GET /api/repos — every clone under the repos root, read live from git
-  if (seg.length === 2 && seg[1] === "repos" && method === "GET") {
-    return json(res, await listRepos());
-  }
-
-  // POST /api/repos {url, name?, branch?, depth?} — clone into the root
-  if (seg.length === 2 && seg[1] === "repos" && method === "POST") {
-    if ((await openRepos()).off) return json(res, { error: "repositories are off" }, 409);
-    try {
-      const body = JSON.parse(await readBody(req)) as { url?: unknown; name?: unknown; branch?: unknown; depth?: unknown };
-      const str = (v: unknown) => (typeof v === "string" ? v : undefined);
-      const depth = body.depth === undefined ? undefined : typeof body.depth === "number" ? body.depth : Number.NaN;
-      const repo = await addRepo({ url: str(body.url) ?? "", name: str(body.name), branch: str(body.branch), depth });
-      return json(res, repo, 201);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/vibeables — every app folder under the vibeables root | POST {name} — create one with the starter
-  if (seg.length === 2 && seg[1] === "vibeables") {
-    if (method === "GET") return json(res, await listVibeables());
-    if (method === "POST") {
-      if ((await openVibeables()).off) return json(res, { error: "vibeables are off" }, 409);
-      try {
-        const body = JSON.parse(await readBody(req)) as { name?: unknown };
-        return json(res, await createVibeable(typeof body.name === "string" ? body.name : ""), 201);
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  const vibeableError = (err: unknown): [number, { error: string }] => {
-    const msg = (err as Error).message;
-    return [/^no vibeable/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
-  };
-
-  // GET /api/vibeables/<slug> — how the app previews: mode, static url, dev server state | DELETE — remove the folder
-  if (seg.length === 3 && seg[1] === "vibeables") {
-    try {
-      if (method === "GET") return json(res, await vibeableStatus(seg[2]));
-      if (method === "DELETE") {
-        await deleteVibeable(seg[2]);
-        return json(res, { ok: true });
-      }
-    } catch (err) {
-      const [status, body] = vibeableError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // GET /api/projects — every project folder under the projects root, with the sidebar's layout | POST {title, goal?, slug?} — create one
-  // from the starter | PUT {top, sections} — save the sidebar's order and sections
-  if (seg.length === 2 && seg[1] === "projects") {
-    if (method === "GET") return json(res, await listProjects());
-    if (method === "PUT") {
-      try {
-        return json(res, { ok: true, layout: await saveLayout(JSON.parse(await readBody(req))) });
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, /are off/.test((err as Error).message) ? 409 : 400);
-      }
-    }
-    if (method === "POST") {
-      if ((await openProjects()).off) return json(res, { error: "projects are off" }, 409);
-      try {
-        const body = JSON.parse(await readBody(req)) as { title?: unknown; goal?: unknown; slug?: unknown };
-        const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
-        return json(res, await createProject({ title: str(body.title) ?? "", goal: str(body.goal), slug: str(body.slug) }), 201);
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  const projectError = (err: unknown): [number, { error: string }] => {
-    const msg = (err as Error).message;
-    return [/^no project/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
-  };
-
-  // GET /api/projects/<slug> — definition, brief, state, log and link states | PUT — save fields | DELETE — remove the folder
-  if (seg.length === 3 && seg[1] === "projects") {
-    try {
-      if (method === "GET") {
-        const p = await getProject(seg[2]);
-        return p ? json(res, p) : json(res, { error: `no project "${seg[2]}"` }, 404);
-      }
-      if (method === "PUT") {
-        const body = JSON.parse(await readBody(req)) as SaveProjectInput;
-        return json(res, await saveProject(seg[2], body));
-      }
-      if (method === "DELETE") {
-        await deleteProject(seg[2]);
-        return json(res, { ok: true });
-      }
-    } catch (err) {
-      const [status, body] = projectError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // POST /api/projects/<slug>/log {entry, actor?} — append a stamped line to log.md
-  if (seg.length === 4 && seg[1] === "projects" && seg[3] === "log" && method === "POST") {
-    try {
-      const body = JSON.parse(await readBody(req)) as { entry?: unknown; actor?: unknown };
-      const log = await appendProjectLog(seg[2], typeof body.entry === "string" ? body.entry : "", typeof body.actor === "string" ? body.actor : "human:user");
-      return json(res, { ok: true, log });
-    } catch (err) {
-      const [status, body] = projectError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // POST /api/projects/<slug>/links {kind, target, remove?} — add or drop one linked slug
-  if (seg.length === 4 && seg[1] === "projects" && seg[3] === "links" && method === "POST") {
-    try {
-      const body = JSON.parse(await readBody(req)) as { kind?: unknown; target?: unknown; remove?: unknown };
-      return json(res, await linkProject(seg[2], typeof body.kind === "string" ? body.kind : "", typeof body.target === "string" ? body.target : "", body.remove === true));
-    } catch (err) {
-      const [status, body] = projectError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // GET /api/vibeables/<slug>/events — SSE: file changes (debounced) and dev-server state
-  if (seg.length === 4 && seg[1] === "vibeables" && seg[3] === "events" && method === "GET") {
-    let dir: string;
-    try {
-      dir = (await resolveVibeable(seg[2])).dir;
-    } catch (err) {
-      const [status, body] = vibeableError(err);
-      return json(res, body, status);
-    }
-    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
-    res.write(":ok\n\n");
-    const unsubscribe = subscribeVibeable(seg[2], dir, (ev: VibeableEvent) => res.write(`data: ${JSON.stringify(ev)}\n\n`));
-    const heartbeat = setInterval(() => res.write(":hb\n\n"), 25_000);
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-    });
-    return;
-  }
-
-  // POST /api/vibeables/<slug>/dev/{start,stop} — the app's dev command
-  if (seg.length === 5 && seg[1] === "vibeables" && seg[3] === "dev" && method === "POST") {
-    try {
-      if (seg[4] === "start") return json(res, await startDev(seg[2]));
-      if (seg[4] === "stop") return json(res, await stopDev(seg[2]));
-      return json(res, { error: "not found" }, 404);
-    } catch (err) {
-      const [status, body] = vibeableError(err);
-      return json(res, body, status);
-    }
-  }
-
-  const repoError = (err: unknown): [number, { error: string }] => {
-    const msg = (err as Error).message;
-    return [/^no repository/.test(msg) ? 404 : /are off/.test(msg) ? 409 : 400, { error: msg }];
-  };
-
-  // GET /api/repos/<slug> — what is happening in the clone: changed files, line counts, recent commits (unpushed marked)
-  if (seg.length === 3 && seg[1] === "repos" && method === "GET") {
-    try {
-      const detail = await repoDetail(seg[2]);
-      return detail ? json(res, detail) : json(res, { error: `no repository "${seg[2]}"` }, 404);
-    } catch (err) {
-      const [status, body] = repoError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // GET /api/repos/<slug>/diff?path= — unified diff of one changed file against HEAD
-  if (seg.length === 4 && seg[1] === "repos" && seg[3] === "diff" && method === "GET") {
-    try {
-      const d = await repoDiff(seg[2], url.searchParams.get("path") ?? "");
-      return json(res, d, d.error ? (/^not shown/.test(d.error) ? 404 : 400) : 200);
-    } catch (err) {
-      const [status, body] = repoError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // GET /api/repos/<slug>/commits/<hash> — one commit as a patch
-  if (seg.length === 5 && seg[1] === "repos" && seg[3] === "commits" && method === "GET") {
-    try {
-      const d = await repoCommitDiff(seg[2], seg[4]);
-      return json(res, d, d.error ? (/^no such commit/.test(d.error) ? 404 : 400) : 200);
-    } catch (err) {
-      const [status, body] = repoError(err);
-      return json(res, body, status);
-    }
-  }
-
-  // POST /api/repos/<slug>/update — fetch, fast-forward when clean
-  if (seg.length === 4 && seg[1] === "repos" && seg[3] === "update" && method === "POST") {
-    try {
-      const result = await updateRepo(seg[2]);
-      return json(res, result, result.ok ? 200 : result.repo || result.off ? 409 : 404);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // DELETE /api/repos/<slug>[?force=1] — remove the clone; 409 while it holds unpushed or uncommitted work
-  if (seg.length === 3 && seg[1] === "repos" && method === "DELETE") {
-    try {
-      const force = ["1", "true"].includes(url.searchParams.get("force") ?? "");
-      const result = await removeRepo(seg[2], force);
-      return json(res, result, result.ok ? 200 : result.conflict || result.off ? 409 : 404);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/search/agents — active agents and channels of every reachable workspace (the ⌘K palette)
-  if (seg.length === 3 && seg[1] === "search" && seg[2] === "agents" && method === "GET") {
-    return json(res, await searchAgents());
-  }
-
-  // GET /api/workspaces — every known workspace incl. this one, with state + counts (admin screen)
-  if (seg.length === 2 && seg[1] === "workspaces" && method === "GET") {
-    return json(res, await listWorkspacesDetailed());
-  }
-
-  // POST /api/workspaces/start {root} — launch `kraftwerk ui` for a known
-  // workspace as a detached process (the switcher's Start button).
-  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "start" && method === "POST") {
-    try {
-      const { root } = JSON.parse(await readBody(req)) as { root?: string };
-      if (!root) return json(res, { error: "root required" }, 400);
-      const result = await startWorkspace(root);
-      return json(res, result, result.ok ? 200 : 409);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/workspaces/stop {root | url} — SIGTERM a running workspace's server
-  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "stop" && method === "POST") {
-    try {
-      const target = JSON.parse(await readBody(req)) as { root?: string; url?: string };
-      if (!target.root && !target.url) return json(res, { error: "root or url required" }, 400);
-      const result = await stopWorkspace(target);
-      return json(res, result, result.ok ? 200 : 409);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/workspaces/forget {root} — drop a workspace from the registry
-  if (seg.length === 3 && seg[1] === "workspaces" && seg[2] === "forget" && method === "POST") {
-    try {
-      const { root } = JSON.parse(await readBody(req)) as { root?: string };
-      if (!root) return json(res, { error: "root required" }, 400);
-      return json(res, { ok: await forgetWorkspace(root) });
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/settings — kraftwerk.yml (parsed + resolved paths) for the settings page
-  if (seg.length === 2 && seg[1] === "settings" && method === "GET") {
-    return json(res, await getSettings());
-  }
-
-  // PUT /api/settings — write the UI-editable subset (name, icon, switcher, git, repos) back
-  if (seg.length === 2 && seg[1] === "settings" && method === "PUT") {
-    try {
-      const input = JSON.parse(await readBody(req)) as SaveSettingsInput;
-      return json(res, await saveSettings(input));
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/update-check — ask the npm registry for the latest published version
-  if (seg.length === 2 && seg[1] === "update-check" && method === "GET") {
-    const name = await getPkgName();
-    const current = await getDiskVersion();
-    try {
-      const r = await fetch(`https://registry.npmjs.org/${name}/latest`, {
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!r.ok) throw new Error(String(r.status));
-      const latest = ((await r.json()) as { version?: string }).version ?? "";
-      return json(res, { name, current, latest });
-    } catch {
-      return json(res, { name, current, latest: "", error: "npm registry unreachable" }, 502);
-    }
-  }
-
-  // GET /api/update — state and log of the self-update, plus whether one can run here.
-  // POST /api/update {version?} — run `npm i -g <name>@<version>`; 409 when refused or already running.
-  if (seg.length === 2 && seg[1] === "update") {
-    const name = await getPkgName();
-    if (method === "GET") {
-      const can = canSelfUpdate(name);
-      return json(res, { ...updateStatus(), name, available: can.ok, reason: can.ok ? undefined : can.reason, restartable: supervised() });
-    }
-    if (method === "POST") {
-      let version = "latest";
-      try {
-        const body = JSON.parse((await readBody(req)) || "{}") as { version?: unknown };
-        if (typeof body.version === "string" && body.version) version = body.version;
-      } catch {
-        return json(res, { error: "invalid body" }, 400);
-      }
-      try {
-        return json(res, { ...startUpdate(name, version), name }, 202);
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 409);
-      }
-    }
-  }
-
-  // POST /api/restart — exit with the respawn code; the `kraftwerk ui` supervisor relaunches
-  if (seg.length === 2 && seg[1] === "restart" && method === "POST") {
-    if (!supervised()) {
-      return json(res, { error: "not supervised — restart `kraftwerk ui` manually" }, 400);
-    }
-    json(res, { ok: true });
-    setTimeout(() => {
-      disposeAllBackends();
-      disposeAllDevs();
-      process.exit(RESTART_EXIT_CODE);
-    }, 150);
-    return;
-  }
-
-  // GET /api/runs
-  if (seg.length === 2 && seg[1] === "runs" && method === "GET") {
-    return json(res, { outputDir: getOutputDir(), runs: await listRuns() });
-  }
-
-  // GET /api/runs/:id
-  if (seg.length === 3 && seg[1] === "runs" && method === "GET") {
-    try {
-      const run = await getRun(seg[2]);
-      return run ? json(res, run) : json(res, { error: "not found" }, 404);
-    } catch {
-      return json(res, { error: "invalid run id" }, 400);
-    }
-  }
-
-  // GET /api/runs/:id/file?name=...&raw=1
-  if (seg.length === 4 && seg[1] === "runs" && seg[3] === "file" && method === "GET") {
-    const name = url.searchParams.get("name") ?? "";
-    const raw = url.searchParams.get("raw") === "1";
-    let file;
-    try {
-      file = await readRunFile(seg[2], name);
-    } catch {
-      return json(res, { error: "invalid request" }, 400);
-    }
-    if (!file) return json(res, { error: "not found" }, 404);
-
-    const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
-    const buf = await fs.readFile(file.absPath);
-    if (raw) {
-      // Agent-written files must not run as the inspector's origin: the
-      // sandbox keeps scripts working (interactive reports) but makes the
-      // origin opaque, so no fetch() into /api and no cookies. PDFs are
-      // exempt — Chrome's viewer refuses sandboxed documents, and PDF
-      // scripting has no DOM or origin access.
-      res.writeHead(200, {
-        "content-type": MIME[ext] ?? "text/plain; charset=utf-8",
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff",
-        ...(ext === ".pdf" ? {} : { "content-security-policy": RUN_FILE_CSP }),
-      });
-      return void res.end(buf);
-    }
-    let text = buf.toString("utf8");
-    let truncated = false;
-    if (text.length > MAX_TEXT) {
-      text = text.slice(-MAX_TEXT);
-      truncated = true;
-    }
-    return json(res, { name, size: file.size, truncated, content: text });
-  }
-
-  // POST /api/runs/:id/decision {decision, note?} — a person answers the
-  // step that wrote decision-request.json; the answer is written once.
-  if (seg.length === 4 && seg[1] === "runs" && seg[3] === "decision" && method === "POST") {
-    let runDir: string;
-    let body: { decision?: unknown; note?: unknown };
-    try {
-      runDir = safeRunDir(seg[2]);
-      body = JSON.parse((await readBody(req)) || "{}");
-    } catch {
-      return json(res, { error: "invalid request" }, 400);
-    }
-    const r = await decide(runDir, body ?? {});
-    return r.ok ? json(res, r.answer) : json(res, { error: r.error }, r.status);
-  }
-
-  // POST /api/runs/:id/stop
-  if (seg.length === 4 && seg[1] === "runs" && seg[3] === "stop" && method === "POST") {
-    return stopRun(seg[2])
-      ? json(res, { stopped: true })
-      : json(res, { error: "nothing to stop: no launcher of this inspector and no sandbox container for this run" }, 404);
-  }
-
-  // DELETE /api/runs/:id — refused while the run is live (stop it first)
-  if (seg.length === 3 && seg[1] === "runs" && method === "DELETE") {
-    let outcome;
-    try {
-      outcome = await deleteRun(seg[2]);
-    } catch {
-      return json(res, { error: "invalid run id" }, 400);
-    }
-    if (outcome === "missing") return json(res, { error: "not found" }, 404);
-    if (outcome === "running") return json(res, { error: "run is still running — stop it first" }, 409);
-    return json(res, { deleted: true });
-  }
-
-  // GET /api/workflows
-  if (seg.length === 2 && seg[1] === "workflows" && method === "GET") {
-    return json(res, await listWorkflows());
-  }
-
-  // GET /api/workflows/:slug
-  if (seg.length === 3 && seg[1] === "workflows" && method === "GET") {
-    const wf = await getWorkflow(decodeURIComponent(seg[2]));
-    return wf ? json(res, wf) : json(res, { error: "not found" }, 404);
-  }
-
-  // DELETE /api/workflows/:slug — move it to the trash
-  if (seg.length === 3 && seg[1] === "workflows" && method === "DELETE") {
-    const outcome = await deleteWorkflow(decodeURIComponent(seg[2]));
-    if (outcome === "missing") return json(res, { error: "not found" }, 404);
-    if (outcome === "running") return json(res, { error: "a run of this workflow is still running — stop it first" }, 409);
-    return json(res, { ok: true });
-  }
-
-  // GET/POST /api/workflows/:slug/run
-  if (seg.length === 4 && seg[1] === "workflows" && seg[3] === "run") {
-    if (method === "GET") return json(res, dockerStatus());
-    if (method === "POST") {
-      const wf = await getWorkflow(decodeURIComponent(seg[2]));
-      if (!wf || wf.error || !wf.name) return json(res, { error: "workflow not found or broken" }, 404);
-      let body: { request?: string; sandbox?: boolean; ssh?: boolean };
-      try {
-        body = JSON.parse(await readBody(req));
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-      const request = (body.request ?? "").trim();
-      if (!request && wf.usesRequest) return json(res, { error: "this workflow needs a request" }, 400);
-      try {
-        const { runId } = triggerRun({
-          workflowName: wf.name,
-          request,
-          sandbox: body.sandbox ?? true,
-          ssh: !!body.ssh,
-        });
-        return json(res, { runId });
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 503);
-      }
-    }
-  }
-
-  // GET/POST /api/knowledge — bundle index / create a bundle
-  if (seg.length === 2 && seg[1] === "knowledge") {
-    if (method === "GET") return json(res, await knowledgeIndex());
-    if (method === "POST") {
-      let body: { name?: string };
-      try {
-        body = JSON.parse(await readBody(req));
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-      try {
-        return json(res, await createBundle(String(body.name ?? "").trim()));
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  // GET /api/knowledge/:bundle — concepts + log
-  if (seg.length === 3 && seg[1] === "knowledge" && method === "GET") {
-    try {
-      const detail = await bundleDetail(decodeURIComponent(seg[2]));
-      return detail ? json(res, detail) : json(res, { error: "not found" }, 404);
-    } catch {
-      return json(res, { error: "invalid bundle name" }, 400);
-    }
-  }
-
-  // DELETE /api/knowledge/:bundle — move the bundle to the trash
-  if (seg.length === 3 && seg[1] === "knowledge" && method === "DELETE") {
-    try {
-      await deleteBundle(decodeURIComponent(seg[2]));
-      return json(res, { ok: true });
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/trash — what was deleted, newest first; DELETE /api/trash — empty it for good.
-  // POST /api/trash/restore {id} — put one back; POST /api/trash/purge {id} — delete one for good.
-  if (seg.length >= 2 && seg[1] === "trash") {
-    try {
-      if (seg.length === 2 && method === "GET") return json(res, { root: tildify(await trashRoot()), entries: await listTrash() });
-      if (seg.length === 2 && method === "DELETE") return json(res, { ok: true, purged: await emptyTrash() });
-      if (seg.length === 3 && method === "POST" && (seg[2] === "restore" || seg[2] === "purge")) {
-        const { id } = JSON.parse(await readBody(req)) as { id?: string };
-        if (!id) return json(res, { error: "id is required" }, 400);
-        return json(res, seg[2] === "restore" ? await restoreFromTrash(id) : await purgeFromTrash(id));
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-    return json(res, { error: "not found" }, 404);
-  }
-
-  // GET/POST /api/knowledge/:bundle/concept?id=... — read / write one concept
-  if (seg.length === 4 && seg[1] === "knowledge" && seg[3] === "concept") {
-    const bundle = decodeURIComponent(seg[2]);
-    if (method === "GET") {
-      const id = url.searchParams.get("id") ?? "";
-      try {
-        const concept = await conceptDetail(bundle, id);
-        return concept ? json(res, concept) : json(res, { error: "not found" }, 404);
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-    if (method === "POST") {
-      let body: { id?: string; content?: string };
-      try {
-        body = JSON.parse(await readBody(req));
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-      if (!body.id || !body.content?.trim()) {
-        return json(res, { error: "id and content are required" }, 400);
-      }
-      try {
-        return json(res, await putConcept(bundle, body.id, body.content));
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  // POST /api/knowledge/:bundle/verify — human verification from the UI
-  if (seg.length === 4 && seg[1] === "knowledge" && seg[3] === "verify" && method === "POST") {
-    let body: { id?: string };
-    try {
-      body = JSON.parse(await readBody(req));
-    } catch {
-      return json(res, { error: "invalid JSON body" }, 400);
-    }
-    if (!body.id) return json(res, { error: "id is required" }, 400);
-    try {
-      return json(res, await verifyFromUi(decodeURIComponent(seg[2]), body.id));
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/skills — discovered skills (workspace root + .claude/skills + ~/.claude/skills)
-  if (seg.length === 2 && seg[1] === "skills" && method === "GET") {
-    const [root, skills] = await Promise.all([skillsRoot(), listSkills()]);
-    return json(res, { root, skills });
-  }
-
-  // GET /api/skills/:name — one skill with SKILL.md content + bundled files
-  if (seg.length === 3 && seg[1] === "skills" && method === "GET") {
-    const skill = await getSkill(decodeURIComponent(seg[2]));
-    return skill ? json(res, skill) : json(res, { error: "not found" }, 404);
-  }
-
-  // GET/POST /api/agents — member list / create a member
-  if (seg.length === 2 && seg[1] === "agents") {
-    if (method === "GET") {
-      return json(res, { root: await agentsRoot(), agents: await listAgents() });
-    }
-    if (method === "POST") {
-      try {
-        const body = JSON.parse(await readBody(req)) as SaveAgentInput;
-        return json(res, await saveAgent({ ...body, slug: undefined }));
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  // POST /api/agents/:slug/archive — archive/unarchive a member ({ archived: boolean })
-  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "archive" && method === "POST") {
-    try {
-      const body = JSON.parse(await readBody(req)) as { archived?: boolean };
-      return json(res, await setAgentArchived(decodeURIComponent(seg[2]), body.archived === true));
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET/POST /api/agents/:slug/skills — the agent's own skills / create or update one
-  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "skills") {
-    const slug = decodeURIComponent(seg[2]);
-    try {
-      if (method === "GET") return json(res, { skills: await listAgentSkills(slug) });
-      if (method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { name?: string; content?: string };
-        return json(res, await saveAgentSkill(slug, String(body.name ?? ""), String(body.content ?? "")));
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET/DELETE /api/agents/:slug/skills/:name — one agent skill with content / delete
-  if (seg.length === 5 && seg[1] === "agents" && seg[3] === "skills") {
-    const slug = decodeURIComponent(seg[2]);
-    const name = decodeURIComponent(seg[4]);
-    try {
-      if (method === "GET") {
-        const skill = (await listAgentSkills(slug)).find(
-          (s) => s.name.toLowerCase() === name.toLowerCase()
-        );
-        if (!skill) return json(res, { error: "not found" }, 404);
-        return json(res, { ...skill, content: await readSkill(skill) });
-      }
-      if (method === "DELETE") {
-        await deleteAgentSkill(slug, name);
-        return json(res, { ok: true });
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/routines — every agent's routines with run state and the workflows each one names
-  if (seg.length === 2 && seg[1] === "routines" && method === "GET") {
-    return json(res, { routines: await allRoutines((await listWorkflows()).workflows) });
-  }
-
-  // GET/POST /api/agents/:slug/routines — list (with run state) / upsert
-  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "routines") {
-    const slug = decodeURIComponent(seg[2]);
-    try {
-      if (method === "GET") return json(res, { routines: await routineStatuses(slug) });
-      if (method === "POST") {
-        const body = JSON.parse(await readBody(req)) as SaveRoutineInput;
-        return json(res, await saveRoutine(slug, body));
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // DELETE /api/agents/:slug/routines/:id | POST /api/agents/:slug/routines/:id/run
-  if (seg.length >= 5 && seg[1] === "agents" && seg[3] === "routines") {
-    const slug = decodeURIComponent(seg[2]);
-    const id = decodeURIComponent(seg[4]);
-    try {
-      if (seg.length === 5 && method === "DELETE") {
-        await deleteRoutine(slug, id);
-        return json(res, { ok: true });
-      }
-      if (seg.length === 6 && seg[5] === "run" && method === "POST") {
-        return json(res, await runRoutineNow(slug, id));
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // Files: GET /api/files (the roots: workspace + one per project), GET /api/files/list?scope&path,
-  // GET /api/files/raw?scope&path[&download=1], POST /api/files/upload?scope&path (raw body, x-file-name),
-  // POST /api/files/folder {scope, path}, POST /api/files/move {scope, from, to}, DELETE /api/files?scope&path (to the trash).
-  if (seg[1] === "files" && seg.length <= 3) {
-    const scope = url.searchParams.get("scope") ?? "workspace";
-    const rel = url.searchParams.get("path") ?? "";
-    try {
-      if (seg.length === 2 && method === "GET") return json(res, { scopes: await listScopes() });
-      if (seg.length === 2 && method === "DELETE") {
-        await deleteFile(scope, rel);
-        return json(res, { ok: true });
-      }
-      if (seg[2] === "list" && method === "GET") return json(res, await listFiles(scope, rel));
-      if (seg[2] === "recent" && method === "GET") return json(res, (await filesSummary(scope, 5)) ?? { root: "", count: 0, recent: [] });
-      if (seg[2] === "raw" && method === "GET") {
-        const f = await openFile(scope, rel);
-        res.writeHead(200, {
-          "content-type": f.mime,
-          "content-length": f.size,
-          "cache-control": "no-store",
-          "x-content-type-options": "nosniff",
-          // Anything in here may come from outside: a page, an SVG or XML renders without scripts, in an origin of its own.
-          // (Not on PDFs and media: a sandboxed document cannot show the browser's PDF viewer.)
-          ...(/^(text\/html|image\/svg|text\/xml|application\/xml)/.test(f.mime) ? { "content-security-policy": "sandbox" } : {}),
-          "content-disposition": `${url.searchParams.get("download") ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
-        });
-        f.stream.pipe(res);
-        return;
-      }
-      if (seg[2] === "upload" && method === "POST") {
-        const name = decodeURIComponent(String(req.headers["x-file-name"] ?? "file"));
-        return json(res, await saveUpload(scope, rel, name, req), 201);
-      }
-      if (seg[2] === "folder" && method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { scope?: string; path?: string };
-        return json(res, await makeFolder(body.scope ?? scope, String(body.path ?? "")), 201);
-      }
-      if (seg[2] === "move" && method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { scope?: string; from?: string; to?: string };
-        await moveFile(body.scope ?? scope, String(body.from ?? ""), String(body.to ?? ""));
-        return json(res, { ok: true });
-      }
-    } catch (err) {
-      const msg = (err as Error).message;
-      return json(res, { error: msg }, /^no (file|folder|project)/.test(msg) ? 404 : 400);
-    }
-    return json(res, { error: "not found" }, 404);
-  }
-
-  // GET /api/attention — what needs you: waiting approvals and questions, unread failures, with their owner
-  if (seg.length === 2 && seg[1] === "attention" && method === "GET") {
-    return json(res, await listAttention());
-  }
-
-  // GET /api/agent-status — per agent: waiting, working, next routine, last active (the rail's status line)
-  if (seg.length === 2 && seg[1] === "agent-status" && method === "GET") {
-    return json(res, await agentStatuses());
-  }
-
-  // GET /api/agents/:slug/journal — the journal; POST {entry, kind?} — a human adds a line
-  if (seg.length === 4 && seg[1] === "agents" && seg[3] === "journal") {
-    const slug = decodeURIComponent(seg[2]);
-    try {
-      if (method === "GET") return json(res, { journal: await readJournal(slug) });
-      if (method === "POST") {
-        const body = JSON.parse(await readBody(req)) as { entry?: string; kind?: string };
-        return json(res, { journal: await appendJournal(slug, String(body.entry ?? ""), { kind: body.kind, actor: UI_ACTOR }) });
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET/PUT/DELETE /api/agents/:slug
-  if (seg.length === 3 && seg[1] === "agents") {
-    const slug = decodeURIComponent(seg[2]);
-    try {
-      if (method === "GET") {
-        const agent = await getAgent(slug);
-        return agent ? json(res, agent) : json(res, { error: "not found" }, 404);
-      }
-      if (method === "PUT") {
-        const body = JSON.parse(await readBody(req)) as SaveAgentInput;
-        return json(res, await saveAgent({ ...body, slug }));
-      }
-      if (method === "DELETE") {
-        await deleteAgent(slug);
-        return json(res, { ok: true });
-      }
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET/POST /api/chats
-  if (seg.length === 2 && seg[1] === "chats") {
-    if (method === "GET") return json(res, { chats: await listChats() });
-    if (method === "POST") {
-      let body: {
-        agent?: string;
-        scope?: { kind?: string; runId?: string; bundle?: string; slug?: string };
-        /** Continue one of the agent's own sessions (see GET /api/agent-sessions). */
-        resume?: string;
-      };
-      try {
-        body = JSON.parse(await readBody(req));
-      } catch {
-        return json(res, { error: "invalid JSON body" }, 400);
-      }
-      let agent = body.agent as ChatAgentId;
-      let scope: ChatScope;
-      if (body.scope?.kind === "agent" && body.scope.slug) {
-        // Agent sessions run on the agent's configured harness.
-        const def = await getAgent(body.scope.slug).catch(() => null);
-        if (!def) return json(res, { error: "agent not found" }, 404);
-        scope = { kind: "agent", slug: def.slug };
-        agent = def.harness;
-      } else if (body.scope?.kind === "run" && body.scope.runId) {
-        scope = { kind: "run", runId: body.scope.runId };
-      } else if (body.scope?.kind === "kraftwerk") {
-        scope = { kind: "kraftwerk" };
-      } else if (body.scope?.kind === "knowledge") {
-        scope = { kind: "knowledge", ...(body.scope.bundle ? { bundle: body.scope.bundle } : {}) };
-      } else if (body.scope?.kind === "project" && body.scope.slug) {
-        // A project chat needs its folder; a missing one is a 404 here, not a chat that apologizes.
-        let found: Awaited<ReturnType<typeof getProject>>;
-        try {
-          found = await getProject(body.scope.slug);
-        } catch (err) {
-          const [status, e] = projectError(err);
-          return json(res, e, status);
-        }
-        if (!found) return json(res, { error: "project not found" }, 404);
-        scope = { kind: "project", slug: found.slug };
-        // Like agent sessions: the project decides the harness, not the caller.
-        agent = found.harness;
-      } else {
-        scope = { kind: "general" };
-      }
-      if (!["claude", "codex", "pi"].includes(agent)) {
-        return json(res, { error: "agent must be claude, codex, or pi" }, 400);
-      }
-      try {
-        return json(res, await createChat({ agent, scope, ...(typeof body.resume === "string" && body.resume ? { resume: body.resume } : {}) }));
-      } catch (err) {
-        return json(res, { error: (err as Error).message }, 400);
-      }
-    }
-  }
-
-  // GET /api/agent-sessions?agent=claude|codex — the agent's own sessions in the project root
-  if (seg.length === 2 && seg[1] === "agent-sessions" && method === "GET") {
-    const agent = url.searchParams.get("agent") ?? "claude";
-    if (!["claude", "codex", "pi"].includes(agent)) return json(res, { error: "agent must be claude, codex, or pi" }, 400);
-    try {
-      return json(res, { sessions: await listAgentSessionsFor(agent as ChatAgentId) });
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 502);
-    }
-  }
-
-  // DELETE /api/chats/:id
-  if (seg.length === 3 && seg[1] === "chats" && method === "DELETE") {
-    try {
-      const result = await deleteChat(seg[2]);
-      return json(res, result, result.error ? 404 : 200);
-    } catch {
-      return json(res, { error: "invalid chat id" }, 400);
-    }
-  }
-
-  // PATCH /api/chats/:id {title} — rename the chat
-  if (seg.length === 3 && seg[1] === "chats" && method === "PATCH") {
-    try {
-      const body = JSON.parse(await readBody(req)) as { title?: unknown };
-      const result = await renameChat(seg[2], body.title);
-      return json(res, result, result.error ? (result.error === "not found" ? 404 : 400) : 200);
-    } catch {
-      return json(res, { error: "invalid chat id or body" }, 400);
-    }
-  }
-
-  // GET /api/chats/:id
-  if (seg.length === 3 && seg[1] === "chats" && method === "GET") {
-    try {
-      const chat = await getChat(seg[2]);
-      return chat ? json(res, chat) : json(res, { error: "not found" }, 404);
-    } catch {
-      return json(res, { error: "invalid chat id" }, 400);
-    }
-  }
-
-  // GET /api/chats/:id/events?after=N — SSE stream of thread events.
-  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "events" && method === "GET") {
-    const afterSeq = Number(url.searchParams.get("after") ?? "0") || 0;
-    const send = (ev: { seq: number }) => {
-      res.write(`id: ${ev.seq}\ndata: ${JSON.stringify(ev)}\n\n`);
-    };
-    let unsubscribe: (() => void) | null = null;
-    try {
-      res.writeHead(200, {
-        "content-type": "text/event-stream",
-        "cache-control": "no-store",
-        connection: "keep-alive",
-      });
-      unsubscribe = await subscribeChat(seg[2], afterSeq, send);
-    } catch {
-      return void res.end();
-    }
-    if (!unsubscribe) return void res.end();
-    const heartbeat = setInterval(() => res.write(":hb\n\n"), 25_000);
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe?.();
-    });
-    return;
-  }
-
-  // POST /api/chats/:id/vibeable {slug | null} — open an app in the chat's preview pane (cwd follows), or close it
-  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "vibeable" && method === "POST") {
-    try {
-      const body = JSON.parse((await readBody(req)) || "{}") as { slug?: unknown };
-      const slug = body.slug == null || body.slug === "" ? null : String(body.slug);
-      const result = await setChatVibeable(seg[2], slug);
-      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/chats/:id/fork — a new chat continuing a copy of this one's session
-  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "fork" && method === "POST") {
-    try {
-      const result = await forkChat(seg[2]);
-      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/chats/:id/attachments — raw file body; x-file-name names it. Returns the stored attachment.
-  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "attachments" && method === "POST") {
-    try {
-      if (!(await getChat(seg[2]))) return json(res, { error: "not found" }, 404);
-      const data = await readRawBody(req, 25_000_000);
-      if (data.length === 0) return json(res, { error: "empty file" }, 400);
-      const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
-      const name = await saveAttachment(seg[2], decodeURIComponent(String(req.headers["x-file-name"] ?? "file")), data);
-      return json(res, { name, mimeType, size: data.length });
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // GET /api/chats/:id/attachments/:name — the stored file
-  if (seg.length === 5 && seg[1] === "chats" && seg[3] === "attachments" && method === "GET") {
-    try {
-      const file = attachmentPath(seg[2], seg[4]);
-      const ext = path.extname(file).toLowerCase();
-      const data = await fs.readFile(file);
-      res.writeHead(200, {
-        "content-type": MIME[ext] ?? "application/octet-stream",
-        "content-length": data.length,
-        "cache-control": "private, max-age=86400",
-        "x-content-type-options": "nosniff",
-      });
-      return void res.end(data);
-    } catch {
-      return json(res, { error: "not found" }, 404);
-    }
-  }
-
-  // POST /api/chats/:id/reset-session — forget the agent's session; the next message starts fresh
-  if (seg.length === 4 && seg[1] === "chats" && seg[3] === "reset-session" && method === "POST") {
-    try {
-      const result = await resetSession(seg[2]);
-      return result.error ? json(res, { error: result.error }, result.status ?? 400) : json(res, result.meta);
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  // POST /api/chats/:id/{message,permission,cancel}
-  if (seg.length === 4 && seg[1] === "chats" && method === "POST") {
-    let body: Record<string, unknown> = {};
-    try {
-      const raw = await readBody(req);
-      if (raw) body = JSON.parse(raw);
-    } catch {
-      return json(res, { error: "invalid JSON body" }, 400);
-    }
-    try {
-      let result: { error?: string };
-      const attachments = Array.isArray(body.attachments)
-        ? (body.attachments as Array<Record<string, unknown>>)
-            .filter((a) => a && typeof a.name === "string" && typeof a.mimeType === "string")
-            .map((a) => ({ name: String(a.name), mimeType: String(a.mimeType), size: Number(a.size) || 0 }))
-        : [];
-      if (seg[3] === "message") {
-        const text = String(body.text ?? "").trim();
-        if (!text && attachments.length === 0) return json(res, { error: "text is required" }, 400);
-        // Channels: the poster's display name signs the message.
-        result = await postMessage(seg[2], text || "(see attached)", { from: typeof body.from === "string" ? body.from : undefined, attachments });
-      } else if (seg[3] === "permission") {
-        result = await resolvePermission(
-          seg[2],
-          String(body.requestId ?? ""),
-          body.optionId == null ? null : String(body.optionId)
-        );
-      } else if (seg[3] === "cancel") {
-        // Channels: `agent` stops one member; without it every agent in the chat.
-        result = await cancelChat(seg[2], typeof body.agent === "string" && body.agent ? body.agent : undefined);
-      } else if (seg[3] === "steer") {
-        const text = String(body.text ?? "").trim();
-        if (!text && attachments.length === 0) return json(res, { error: "text is required" }, 400);
-        result = await steerChat(seg[2], text || "(see attached)", attachments);
-      } else if (seg[3] === "elicitation") {
-        const action = body.action === "accept" || body.action === "decline" || body.action === "cancel" ? body.action : null;
-        if (!action) return json(res, { error: "action must be accept, decline, or cancel" }, 400);
-        const content = body.content && typeof body.content === "object" ? (body.content as Record<string, string | number | boolean | string[]>) : {};
-        result = await answerElicitation(seg[2], String(body.requestId ?? ""), action === "accept" ? { action, content } : { action });
-      } else if (seg[3] === "task-stop") {
-        result = await stopChatTask(seg[2], String(body.taskId ?? ""));
-      } else if (seg[3] === "config") {
-        const value = typeof body.value === "boolean" ? body.value : String(body.value ?? "");
-        result = await setChatConfig(seg[2], String(body.configId ?? ""), value);
-      } else {
-        return json(res, { error: "not found" }, 404);
-      }
-      return result.error ? json(res, result, 409) : json(res, { ok: true });
-    } catch (err) {
-      return json(res, { error: (err as Error).message }, 400);
-    }
-  }
-
-  json(res, { error: "not found" }, 404);
-}
-
 async function serveStatic(res: Res, staticDir: string, pathname: string): Promise<void> {
   // SPA: unknown paths fall back to index.html (routing is client-side).
   const rel = pathname === "/" ? "index.html" : pathname.slice(1);
@@ -1587,14 +185,16 @@ export interface InspectorOptions {
 
 /** Start the server; resolves once it listens. Runs until the process ends. */
 export async function startInspector(opts: InspectorOptions): Promise<http.Server> {
-  setOutputDir(opts.outputDir);
-  if (opts.projectRoot) setProjectRoot(opts.projectRoot);
+  // Every request, timer and listener below runs in this workspace (see workspace.ts).
+  const ws = setDefaultWorkspace(new Workspace({ outputDir: opts.outputDir, root: opts.projectRoot }));
   // Read once: like the port, the public hostname takes effect on restart.
-  const project = await resolveProject(getProjectRoot()).catch(() => null);
-  publicHost = (project && publicHostFor(project)) ?? "";
-  access = project ? tunnelFor(project)?.access : undefined;
-  startRoutineScheduler();
-  startGitSync();
+  const project = await resolveProject(ws.root).catch(() => null);
+  // This server's own: several servers in one process each guard their own workspace.
+  const gate: Gate = { publicHost: (project && publicHostFor(project)) ?? "", access: project ? tunnelFor(project)?.access : undefined };
+  ws.run(() => {
+    startRoutineScheduler();
+    startGitSync();
+  });
   // Chat agent subprocesses must die with the server — signals bypass
   // "exit" handlers, so hook the signals themselves.
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
@@ -1614,38 +214,54 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
     // A self-restart (new version) is not a stop — the project stays "running".
     if (code !== RESTART_EXIT_CODE) markWorkspaceStopped();
   });
-  const server = http.createServer(async (req, res) => {
+  const server = http.createServer((req, res) => ws.run(() => serve(req, res)));
+  const serve = async (req: http.IncomingMessage, res: Res): Promise<void> => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
-      if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
-      const refusal = await accessRefusal(req);
+      if (!hostAllowed(req, gate)) return json(res, { error: "unexpected Host header" }, 421);
+      const refusal = await accessRefusal(req, gate);
       if (refusal) return json(res, { error: refusal }, 401);
-      if (url.pathname.startsWith("/api/")) await handleApi(req, res, url);
+      if (url.pathname.startsWith("/api/")) {
+        const method = req.method ?? "GET";
+        if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) json(res, { error: "cross-origin request refused" }, 403);
+        else await apiRouter.handle(req, res, url);
+      }
       // /vibeables/<slug>/… is an app's own files, served for the preview pane.
       else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) await serveVibeable(req, res, url);
       else await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);
     }
-  });
-  // WebSocket upgrades exist for one reason: a vibeable's dev server (HMR).
+  };
+  // WebSocket upgrades: the control plane's socket (/api/ws), and a vibeable's dev server (HMR).
   server.on("upgrade", (req, socket, head) => {
-    if (!hostAllowed(req)) return void socket.destroy();
-    accessRefusal(req).then(
-      (refusal) => (refusal ? socket.destroy() : proxyUpgrade(req, socket, head)),
-      () => socket.destroy()
+    if (!hostAllowed(req, gate)) return void socket.destroy();
+    ws.run(() =>
+      accessRefusal(req, gate).then(
+        async (refusal) => {
+          if (refusal) return void socket.destroy();
+          if (new URL(req.url ?? "/", "http://localhost").pathname !== "/api/ws") return proxyUpgrade(req, socket, head);
+          // A socket is not covered by CORS: a page from another site could open one, so the Origin must be ours.
+          if (!sameOrigin(req)) return void socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+          const conn = acceptWebSocket(req, socket, head);
+          if (conn) serveSocket(conn, ws, await getPkgVersion());
+        },
+        () => socket.destroy()
+      )
     );
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.once("close", stopCloudSync);
-    server.listen(opts.port, INSPECTOR_HOST, () => {
-      const addr = server.address();
-      const port = typeof addr === "object" && addr ? addr.port : opts.port;
-      void registerInstance(port, getProjectRoot());
-      void registerWorkspace(getProjectRoot());
-      void getPkgVersion().then((v) => startCloudSync(port, v));
-      resolve(server);
-    });
+    server.listen(opts.port, INSPECTOR_HOST, () =>
+      ws.run(() => {
+        const addr = server.address();
+        const port = typeof addr === "object" && addr ? addr.port : opts.port;
+        void registerInstance(port, ws.root);
+        void registerWorkspace(ws.root);
+        void getPkgVersion().then((v) => startCloudSync(port, v));
+        resolve(server);
+      })
+    );
   });
 }

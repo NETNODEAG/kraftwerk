@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { WorkflowDetail, AgentInfo, StepInfo, RunListItem } from "./types";
-import { Link, navigate, usePoll, fmtDuration, fmtCost, fmtWhen, Elapsed } from "./shared";
+import { api, useApi } from "./api";
+import { Link, navigate, fmtDuration, fmtCost, fmtWhen, Elapsed } from "./shared";
 import { RunForm } from "./run-launcher";
 import { WorkflowBoard, StepIndex, agentColour } from "./workflow-board";
 import { DecisionTag, RunStatus, Stat, STATS, TIMELINE_ROW, runTone } from "./runs";
@@ -18,12 +19,12 @@ export const WORKFLOW_DELETED_EVENT = "kw-workflow-deleted";
  * delete (into the trash), as does a broken workflow's page.
  */
 export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) {
-  const wf = usePoll<WorkflowDetail>(`/api/workflows/${encodeURIComponent(slug)}`, false);
+  const wf = useApi("workflows.get", { slug });
   // A launch from this page stays here; the poll tightens until the new
   // run is on the board (and stays tight while any run of this workflow is live).
   const [launchedAt, setLaunchedAt] = useState(0);
   const [liveCount, setLiveCount] = useState(0);
-  const runsData = usePoll<{ runs: RunListItem[] }>("/api/runs", liveCount > 0 || Date.now() - launchedAt < 20_000);
+  const runsData = useApi("runs.list", {}, { fast: liveCount > 0 || Date.now() - launchedAt < 20_000 });
 
   if (!wf) return <EmptyState>loading…</EmptyState>;
   if (wf.error) {
@@ -171,8 +172,8 @@ function DeleteWorkflow({ slug }: { slug: string }) {
     setBusy(true);
     setError("");
     try {
-      const r = await fetch(`/api/workflows/${encodeURIComponent(slug)}`, { method: "DELETE" });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const r = await api.request("workflows.delete", { slug });
+      const d = r.data as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       window.dispatchEvent(new CustomEvent(WORKFLOW_DELETED_EVENT, { detail: slug }));
       navigate("/workflows", { replace: true });

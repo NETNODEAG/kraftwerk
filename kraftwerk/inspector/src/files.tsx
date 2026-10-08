@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { Icon, fmtAgo, fmtSize, navigate, post } from "./shared";
+import { api, failure } from "./api";
+import { Icon, fmtAgo, fmtSize, navigate } from "./shared";
 import { Button, cn, EmptyState, IconButton, ListRow, Notice, SideHead, SideList, TextField } from "./ui";
 import type { FileEntry, FilesListing, FilesScopeInfo } from "./types";
 
@@ -17,8 +18,7 @@ import type { FileEntry, FilesListing, FilesScopeInfo } from "./types";
  * "workspace" or "project:<slug>".
  */
 
-const raw = (scope: string, p: string, download = false) =>
-  `/api/files/raw?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(p)}${download ? "&download=1" : ""}`;
+const raw = (scope: string, p: string, download = false) => api.url("files.raw", { query: { scope, path: p, download } });
 
 export const filesHref = (scope: string, dir = "", file?: string) =>
   `/files/${encodeURIComponent(scope)}${dir ? `/${dir.split("/").map(encodeURIComponent).join("/")}` : ""}${file ? `?file=${encodeURIComponent(file)}` : ""}`;
@@ -57,10 +57,10 @@ export function FilesScreen({ scope, dir, file }: { scope: string; dir: string; 
   const [scopes, setScopes] = useState<FilesScopeInfo[] | null>(null);
   const [rev, setRev] = useState(0);
   useEffect(() => {
-    fetch("/api/files", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d: { scopes: FilesScopeInfo[] }) => setScopes(d.scopes))
-      .catch(() => setScopes([]));
+    api.call("files.scopes").then(
+      (d) => setScopes(d.scopes),
+      () => setScopes([])
+    );
   }, [rev]);
   const projects = (scopes ?? []).filter((s) => s.scope !== "workspace");
   return (
@@ -135,8 +135,8 @@ export function FileBrowser({
   const input = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const r = await fetch(`/api/files/list?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(dir)}`, { cache: "no-store" }).catch(() => null);
-    const d = (await r?.json().catch(() => null)) as (FilesListing & { error?: string }) | null;
+    const r = await api.request("files.list", { query: { scope, path: dir } }).catch(() => null);
+    const d = r?.data && typeof r.data === "object" ? (r.data as FilesListing & { error?: string }) : null;
     if (!r?.ok || !d || d.error) {
       setError(d?.error ?? "could not load the folder");
       setListing(null);
@@ -162,12 +162,14 @@ export function FileBrowser({
     setError("");
     for (const [i, f] of list.entries()) {
       setBusy(list.length > 1 ? `uploading ${i + 1} of ${list.length}…` : `uploading ${f.name}…`);
-      const r = await fetch(`/api/files/upload?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(dir)}`, {
-        method: "POST",
-        headers: { "x-file-name": encodeURIComponent(f.name), "content-type": f.type || "application/octet-stream" },
-        body: f,
-      }).catch(() => null);
-      if (!r?.ok) setError(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? `could not upload ${f.name}`);
+      const r = await api
+        .request("files.upload", {
+          query: { scope, path: dir },
+          headers: { "x-file-name": encodeURIComponent(f.name), "content-type": f.type || "application/octet-stream" },
+          body: f,
+        })
+        .catch(() => null);
+      if (!r?.ok) setError((r?.data as { error?: string } | undefined)?.error ?? `could not upload ${f.name}`);
     }
     setBusy("");
     await changed();
@@ -177,8 +179,8 @@ export function FileBrowser({
     const n = name.trim();
     setNewFolder(null);
     if (!n) return;
-    const d = await post("/api/files/folder", { scope, path: dir ? `${dir}/${n}` : n });
-    if (d.error) setError(d.error);
+    const error = failure(await api.request("files.mkdir", { body: { scope, path: dir ? `${dir}/${n}` : n } }));
+    if (error) setError(error);
     await changed();
   }
 
@@ -187,16 +189,16 @@ export function FileBrowser({
     const n = name.trim();
     if (!n || n === from.split("/").pop()) return;
     const to = from.includes("/") ? `${from.slice(0, from.lastIndexOf("/"))}/${n}` : n;
-    const d = await post("/api/files/move", { scope, from, to });
-    if (d.error) setError(d.error);
+    const error = failure(await api.request("files.move", { body: { scope, from, to } }));
+    if (error) setError(error);
     else if (file === from) onOpen(dir, to);
     await changed();
   }
 
   async function remove(p: string) {
     setConfirmDelete(null);
-    const r = await fetch(`/api/files?scope=${encodeURIComponent(scope)}&path=${encodeURIComponent(p)}`, { method: "DELETE" }).catch(() => null);
-    if (!r?.ok) setError(((await r?.json().catch(() => null)) as { error?: string } | null)?.error ?? "could not delete");
+    const r = await api.request("files.delete", { query: { scope, path: p } }).catch(() => null);
+    if (!r?.ok) setError((r?.data as { error?: string } | undefined)?.error ?? "could not delete");
     if (file === p) onOpen(dir);
     await changed();
   }

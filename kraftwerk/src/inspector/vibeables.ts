@@ -6,6 +6,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { resolveProject, vibeablesRootFor, type Project } from "../config.js";
 import { getProjectRoot } from "./context.js";
+import { perWorkspace } from "./workspace.js";
 import { moveToTrash } from "./trash.js";
 import { newestMtime } from "./mtime.js";
 
@@ -375,7 +376,7 @@ export async function serveVibeable(req: http.IncomingMessage, res: http.ServerR
   // A running dev server owns the whole prefix: the pane and a new tab reach
   // it through the inspector's origin, which is what a container or reverse
   // proxy exposes — a random port on the host is not.
-  const dev = devs.get(slug);
+  const dev = devs().get(slug);
   if (dev && dev.exitCode === undefined && dev.child) return proxyToDev(req, res, url, slug, dev.port);
   const rest = seg.slice(1).map((s) => {
     try {
@@ -471,7 +472,7 @@ export function proxyUpgrade(req: http.IncomingMessage, socket: import("node:str
   const url = new URL(req.url ?? "/", "http://localhost");
   const seg = url.pathname.split("/");
   const slug = seg[1] === "vibeables" ? decodeURIComponent(seg[2] ?? "") : "";
-  const dev = slug ? devs.get(slug) : undefined;
+  const dev = slug ? devs().get(slug) : undefined;
   if (!dev || dev.exitCode !== undefined || !dev.child) return void socket.destroy();
   const upstream = net.connect(dev.port, "127.0.0.1", () => {
     const lines = [`${req.method} ${devPath(url, slug)} HTTP/1.1`];
@@ -500,7 +501,7 @@ interface Channel {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const channels = new Map<string, Channel>();
+const channels = perWorkspace(() => new Map<string, Channel>());
 
 const IGNORED = /(^|[\\/])(\.git|node_modules|\.cache|\.vite|\.next)([\\/]|$)/;
 
@@ -511,10 +512,10 @@ const IGNORED = /(^|[\\/])(\.git|node_modules|\.cache|\.vite|\.next)([\\/]|$)/;
  * where it cannot watch, the pane still has its manual reload.
  */
 export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEvent) => void): () => void {
-  let ch = channels.get(slug);
+  let ch = channels().get(slug);
   if (!ch) {
     ch = { watcher: null, subs: new Set(), pending: new Set(), timer: null };
-    channels.set(slug, ch);
+    channels().set(slug, ch);
     const c = ch;
     try {
       c.watcher = watch(dir, { recursive: true, persistent: false }, (_event, filename) => {
@@ -543,28 +544,28 @@ export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEv
   }
   ch.subs.add(fn);
   return () => {
-    const c = channels.get(slug);
+    const c = channels().get(slug);
     if (!c) return;
     c.subs.delete(fn);
     if (c.subs.size === 0) {
       if (c.timer) clearTimeout(c.timer);
       c.watcher?.close();
-      channels.delete(slug);
+      channels().delete(slug);
     }
   };
 }
 
 /** Close a channel's watcher and forget it; subscribers are left to reconnect. */
 function dropChannel(slug: string): void {
-  const c = channels.get(slug);
+  const c = channels().get(slug);
   if (!c) return;
   if (c.timer) clearTimeout(c.timer);
   c.watcher?.close();
-  channels.delete(slug);
+  channels().delete(slug);
 }
 
 function broadcast(slug: string, ev: VibeableEvent): void {
-  const c = channels.get(slug);
+  const c = channels().get(slug);
   if (!c) return;
   for (const s of c.subs) s(ev);
 }
@@ -581,12 +582,12 @@ interface DevState {
   log: string[];
 }
 
-const devs = new Map<string, DevState>();
+const devs = perWorkspace(() => new Map<string, DevState>());
 const LOG_LINES = 200;
 const READY_TIMEOUT = 90_000;
 
 function devView(slug: string): VibeableDev | undefined {
-  const d = devs.get(slug);
+  const d = devs().get(slug);
   if (!d) return undefined;
   return {
     command: d.command,
@@ -638,13 +639,13 @@ function pushLog(d: DevState, chunk: Buffer): void {
  * (npm → vite → esbuild).
  */
 /** Starts in flight per slug: two clicks (or two tabs) share one spawn instead of leaking a process. */
-const starting = new Map<string, Promise<VibeableStatus>>();
+const starting = perWorkspace(() => new Map<string, Promise<VibeableStatus>>());
 
 export function startDev(slug: string): Promise<VibeableStatus> {
-  const inFlight = starting.get(slug);
+  const inFlight = starting().get(slug);
   if (inFlight) return inFlight;
-  const p = startDevNow(slug).finally(() => starting.delete(slug));
-  starting.set(slug, p);
+  const p = startDevNow(slug).finally(() => starting().delete(slug));
+  starting().set(slug, p);
   return p;
 }
 
@@ -652,7 +653,7 @@ async function startDevNow(slug: string): Promise<VibeableStatus> {
   const r = await resolveVibeable(slug);
   if (r.configError) throw new Error(r.configError);
   if (!r.config.dev) throw new Error(`no dev command — add \`dev: <command>\` to ${VIBEABLE_CONFIG_FILE}`);
-  const existing = devs.get(slug);
+  const existing = devs().get(slug);
   if (existing && existing.exitCode === undefined && existing.child) return vibeableStatus(slug);
   const port = r.config.port ?? (await freePort());
   // The pane reaches the server through /vibeables/<slug>/ on the inspector,
@@ -675,7 +676,7 @@ async function startDevNow(slug: string): Promise<VibeableStatus> {
     },
   });
   const d: DevState = { child, command: r.config.dev, port, ready: false, startedAt: new Date().toISOString(), log: [] };
-  devs.set(slug, d);
+  devs().set(slug, d);
   child.stdout?.on("data", (c: Buffer) => pushLog(d, c));
   child.stderr?.on("data", (c: Buffer) => pushLog(d, c));
   child.on("error", (err) => {
@@ -694,7 +695,7 @@ async function startDevNow(slug: string): Promise<VibeableStatus> {
   // Readiness runs in the background; the pane follows the dev events.
   void (async () => {
     const until = Date.now() + READY_TIMEOUT;
-    while (Date.now() < until && d.exitCode === undefined && devs.get(slug) === d) {
+    while (Date.now() < until && d.exitCode === undefined && devs().get(slug) === d) {
       if (await probe(port)) {
         d.ready = true;
         broadcast(slug, { type: "dev", dev: devView(slug)! });
@@ -723,7 +724,7 @@ function killGroup(d: DevState, signal: NodeJS.Signals): void {
 export async function stopDev(slug: string): Promise<VibeableStatus> {
   // Kill before resolving: a folder that vanished or a feature switched off
   // must not leave the process running.
-  const d = devs.get(slug);
+  const d = devs().get(slug);
   if (d && d.exitCode === undefined && d.child) {
     const exited = new Promise<void>((resolve) => d.child!.once("exit", () => resolve()));
     killGroup(d, "SIGTERM");
@@ -736,5 +737,5 @@ export async function stopDev(slug: string): Promise<VibeableStatus> {
 
 /** Server shutdown: no dev server may outlive the inspector. */
 export function disposeAllDevs(): void {
-  for (const d of devs.values()) if (d.exitCode === undefined) killGroup(d, "SIGTERM");
+  for (const [, table] of devs.entries()) for (const d of table.values()) if (d.exitCode === undefined) killGroup(d, "SIGTERM");
 }

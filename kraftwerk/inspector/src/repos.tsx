@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { api, failure } from "./api";
 import { DiffView, FileStatus, NOTE, PANEL_EMPTY } from "./git";
 import { fmtAgo, Icon, Link, useExpertMode } from "./shared";
 import { Button, cn, EmptyState, Field, Notice, Page, PageHeader, Panel, Tag, TextField, Title } from "./ui";
@@ -86,10 +87,9 @@ function RepoPage({ slug }: { slug: string }) {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch(`/api/repos/${encodeURIComponent(slug)}`, { cache: "no-store" });
-      const d = (await r.json()) as RepoDetail & { error?: string };
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setDetail(d);
+      const r = await api.request("repos.get", { slug });
+      if (!r.ok) throw new Error(failure(r));
+      setDetail(r.data);
       setLoadError("");
     } catch (err) {
       setLoadError((err as Error).message || "could not load the repository");
@@ -115,8 +115,8 @@ function RepoPage({ slug }: { slug: string }) {
     setVerb("update");
     setActionError("");
     try {
-      const r = await fetch(`/api/repos/${encodeURIComponent(slug)}/update`, { method: "POST" });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+      const r = await api.request("repos.update", { slug });
+      const d = r.data as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       if (d.error) setActionError(d.error);
     } catch (err) {
@@ -180,7 +180,7 @@ function RepoPage({ slug }: { slug: string }) {
               <span className={ITEM_PATH}>{f.path}</span>
             </button>
             {openFile === f.path && (
-              <DiffView url={`/api/repos/${encodeURIComponent(slug)}/diff?path=${encodeURIComponent(f.path)}&v=${encodeURIComponent(detail.updatedAt ?? "")}`} />
+              <DiffView source={{ route: "repos.diff", input: { slug, query: { path: f.path } } }} refresh={detail.updatedAt} />
             )}
           </div>
         ))}
@@ -197,7 +197,7 @@ function RepoPage({ slug }: { slug: string }) {
               {c.local && <Tag tone="accent">not pushed</Tag>}
               <span className={cn(NOTE, "ml-auto flex-none")}>{c.author} · {fmtAgo(c.committedAt)}</span>
             </button>
-            {openCommit === c.hash && <DiffView url={`/api/repos/${encodeURIComponent(slug)}/commits/${c.hash}`} />}
+            {openCommit === c.hash && <DiffView source={{ route: "repos.commit", input: { slug, hash: c.hash } }} />}
           </div>
         ))}
       </Panel>
@@ -220,9 +220,9 @@ function ReposList() {
 
   const reload = useCallback(async () => {
     try {
-      const r = await fetch("/api/repos", { cache: "no-store" });
+      const r = await api.request("repos.list");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      setView((await r.json()) as ReposView);
+      setView(r.data);
       setLoadError("");
     } catch (err) {
       setLoadError((err as Error).message || "could not load repositories");
@@ -250,9 +250,9 @@ function ReposList() {
     try {
       const r =
         verb === "update"
-          ? await fetch(`/api/repos/${encodeURIComponent(slug)}/update`, { method: "POST" })
-          : await fetch(`/api/repos/${encodeURIComponent(slug)}${force ? "?force=1" : ""}`, { method: "DELETE" });
-      const d = (await r.json()) as { ok?: boolean; error?: string };
+          ? await api.request("repos.update", { slug })
+          : await api.request("repos.remove", { slug, query: { force } });
+      const d = r.data as { ok?: boolean; error?: string };
       if (!r.ok || !d.ok) throw new Error(d.error || "failed");
       if (d.error) setErrors((e) => ({ ...e, [slug]: d.error! }));
     } catch (err) {
@@ -273,13 +273,8 @@ function ReposList() {
     setAdding(true);
     setAddError("");
     try {
-      const r = await fetch("/api/repos", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: url.trim(), name: name.trim() || undefined, branch: branch.trim() || undefined }),
-      });
-      const d = (await r.json()) as RepoInfo & { error?: string };
-      if (!r.ok) throw new Error(d.error || "clone failed");
+      const r = await api.request("repos.add", { body: { url: url.trim(), name: name.trim() || undefined, branch: branch.trim() || undefined } });
+      if (!r.ok) throw new Error((r.data as { error?: string }).error || "clone failed");
       setUrl("");
       setName("");
       setBranch("");
