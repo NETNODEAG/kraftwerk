@@ -282,7 +282,8 @@ export function ChatThread({
           </Button>
         )}
         {expert && forkNote && <span className="text-2xs text-fg-2">{forkNote}</span>}
-        {expert && <Tag>{meta.agent}</Tag>}
+        {/* A phone keeps fork, the status and the model: the rest is detail for a wider screen. */}
+        {expert && <span className="max-[800px]:hidden"><Tag>{meta.agent}</Tag></span>}
         <AgentStatus id={id} live={live} />
         {expert && meta.scope.kind === "run" && <TagLink href={`/runs/${meta.scope.runId}`}>{meta.scope.runId}</TagLink>}
         {expert && meta.scope.kind === "kraftwerk" && <Tag>kraftwerk-aware</Tag>}
@@ -291,9 +292,13 @@ export function ChatThread({
             knowledge{meta.scope.bundle ? `:${meta.scope.bundle}` : ""}
           </TagLink>
         )}
-        {expert && meta.scope.kind === "agent" && <TagLink href={`/agents/${encodeURIComponent(meta.scope.slug)}/info`}>agent:{meta.scope.slug}</TagLink>}
+        {expert && meta.scope.kind === "agent" && (
+          <span className="max-[800px]:hidden">
+            <TagLink href={`/agents/${encodeURIComponent(meta.scope.slug)}/info`}>agent:{meta.scope.slug}</TagLink>
+          </span>
+        )}
         {expert && (
-          <span className="rid max-w-[34ch] min-w-0 truncate font-mono text-xs text-fg-2" title={meta.cwd}>
+          <span className="rid max-w-[34ch] min-w-0 truncate font-mono text-xs text-fg-2 max-[800px]:hidden" title={meta.cwd}>
             {meta.cwd}
           </span>
         )}

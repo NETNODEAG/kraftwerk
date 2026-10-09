@@ -146,12 +146,13 @@ function AgentMessage({ text, small }: { text: string; small?: boolean }) {
 /** What the agent did, one line each: a dot for how it went, the kind, then the command or title. */
 function Activity({ tone, kind, kindTone, children, extra }: { tone: DotTone; kind?: string; kindTone?: "ask"; children: React.ReactNode; extra?: React.ReactNode }) {
   return (
-    <div className="flex max-w-[90ch] items-start gap-2 self-start px-0.5 font-mono text-2xs text-fg-2">
+    // On a phone the text goes under the kind instead of a column beside it, which left it a third of the width.
+    <div className="flex max-w-[min(90ch,100%)] items-start gap-2 self-start px-0.5 font-mono text-2xs text-fg-2 max-[800px]:flex-wrap max-[800px]:gap-y-0.5">
       <span className="mt-[3px] grid">
         <Dot tone={tone} />
       </span>
       <span className={cn("min-w-16 shrink-0 text-[10px] tracking-[0.5px] uppercase", kindTone === "ask" && "text-ask")}>{kind}</span>
-      <span className="min-w-0 leading-[1.5] break-words whitespace-pre-wrap">{children}</span>
+      <span className="min-w-0 leading-[1.5] [overflow-wrap:anywhere] whitespace-pre-wrap max-[800px]:basis-full max-[800px]:ps-4">{children}</span>
       {extra}
     </div>
   );

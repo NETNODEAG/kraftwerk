@@ -88,11 +88,11 @@ export function DashboardScreen() {
   );
 
   return (
-    <div className="w-full px-7 pt-6 pb-10">
+    <div className="w-full px-7 pt-6 pb-10 max-[800px]:px-3 max-[800px]:pt-3">
       <Today runs={runs} chats={chats} bundles={bundles} agents={agentsData?.agents ?? []} workflows={wfData?.workflows ?? []} projectTitle={projectTitle} loaded={!!runsData && !!chatsData} />
       {/* Expert mode: the inventory and the whole activity, filterable, below today. */}
       {expert && (
-        <div className="mx-0.5 mt-3.5 mb-3 flex flex-wrap justify-end gap-[18px] text-xs text-fg-2">
+        <div className="mx-0.5 mt-3.5 mb-3 flex flex-wrap justify-end gap-x-[18px] gap-y-1 text-xs text-fg-2 max-[800px]:justify-start max-[800px]:gap-x-3.5">
           {mini.map(([count, label, href]) => (
             <Link key={label} href={href} className="group/mini text-inherit no-underline hover:text-accent hover:underline">
               <b className="font-semibold tabular-nums text-fg group-hover/mini:text-accent">{count ?? "…"}</b> {label}
@@ -265,7 +265,7 @@ function ActivityFeed({
       className="animate-rise"
       title="all activity"
       actions={
-        <span className="flex gap-1.5">
+        <span className="flex flex-wrap gap-1.5">
           {FILTERS.map(([k, label]) => (
             <button key={k} type="button" className={chip(filter === k)} aria-pressed={filter === k} onClick={() => setFilter(k)}>
               {label}
@@ -308,13 +308,14 @@ function ActivityFeed({
                     </span>
                   }
                   title={trimTitle(f.title)}
-                  titleExtra={<Tag tone={KIND_TONE[f.kind]}>{f.kind === "session" ? "chat" : f.kind}</Tag>}
+                  // On a phone the face says what it is; the name needs the room.
+                  titleExtra={<span className="max-[800px]:hidden"><Tag tone={KIND_TONE[f.kind]}>{f.kind === "session" ? "chat" : f.kind}</Tag></span>}
                   sub={f.sub && trimTitle(f.sub)}
                   meta={
                     <span className="flex items-center gap-2">
                       {f.status && <Tag tone={STATUS_TONE[f.lamp] ?? "neutral"}>{f.status}</Tag>}
                       <span title={new Date(f.at).toLocaleString()}>{fmtAgo(f.at)}</span>
-                      <Icon name="chevron_right" className="ms-sm" />
+                      <Icon name="chevron_right" className="ms-sm max-[800px]:hidden" />
                     </span>
                   }
                 />

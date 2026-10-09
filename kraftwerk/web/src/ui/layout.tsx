@@ -70,8 +70,9 @@ export function Panel({
   return (
     <section className={cn("overflow-hidden rounded-card border border-line bg-surface", className)}>
       {(title || actions) && (
-        <div className="flex min-h-12 items-center gap-2 border-b border-line px-[18px] py-2">
-          {title && <Eyebrow className="text-fg">{title}</Eyebrow>}
+        // Wraps: on a phone the actions (filter chips) go under the title instead of off the edge.
+        <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-line px-[18px] py-2">
+          {title && <Eyebrow className="whitespace-nowrap text-fg">{title}</Eyebrow>}
           {count !== undefined && count > 0 && <span className="text-xs font-bold tabular-nums text-bad">{count}</span>}
           <span className="flex-1" />
           {actions}

@@ -127,7 +127,7 @@ export function App() {
   const editScreen = isChatRoute ? editScreenOf(path) : null;
   const effChat = isChatRoute && !editScreen ? path : chatPath;
   // Phones show one column at a time.
-  const [focus, setFocus] = useState<"chat" | "context">("chat");
+  const [focus, setFocus] = useState<"side" | "chat" | "context">("chat");
   const [ctxW, setCtxW] = useState<number | null>(readCtxW);
   const resizeCtx = (px: number | null) => {
     setCtxW(px);
@@ -136,6 +136,10 @@ export function App() {
       else localStorage.setItem(CTX_W_KEY, String(px));
     } catch {}
   };
+  // Picking a conversation (or Home) in the list on a phone opens it.
+  useEffect(() => {
+    setFocus((f) => (f === "side" ? "chat" : f));
+  }, [hash]);
   useEffect(() => {
     if (isChatRoute && !editScreenOf(path)) {
       setChatPath(path);
@@ -300,6 +304,7 @@ export function App() {
       {/* Phones show one column at a time; this picks which. */}
       {!globalScreen && (
         <nav className="places" aria-label="Sections">
+          <button className={focus === "side" ? "active" : ""} onClick={() => setFocus("side")}><Icon name="menu" /> list</button>
           <button className={focus === "chat" ? "active" : ""} onClick={() => setFocus("chat")}><Icon name="forum" /> chat</button>
           <button className={focus === "context" ? "active" : ""} onClick={() => setFocus("context")}><Icon name="account_tree" /> context</button>
         </nav>
@@ -410,7 +415,7 @@ function StoppedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguou
         )}
       </span>
       <span className="ml-auto inline-flex flex-none items-center gap-3">
-        <Port url={entry.url} />
+        <Port entry={entry} />
         <Button
           variant="quiet"
           size="sm"
@@ -431,12 +436,17 @@ function StoppedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguou
   );
 }
 
-/** Where a workspace answers (":2027"), with a green light when it is running. */
-function Port({ url, live }: { url: string; live?: boolean }) {
+/**
+ * Where a workspace answers (":2027"), with a green light when it is running.
+ * One this daemon serves shows no address: it is reached by its name, and
+ * <slug>.localhost means nothing on a phone. Phones show the light only —
+ * the name needs the room.
+ */
+function Port({ entry }: { entry: SwitcherEntry }) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-2xs font-medium tracking-[0.5px] text-fg-2">
-      {live && <Dot tone="ok" title="running" />}
-      {shortHost(url)}
+      {entry.live && <Dot tone="ok" title="running" />}
+      {!entry.here && <span className="max-[800px]:hidden">{shortHost(entry.url)}</span>}
     </span>
   );
 }
@@ -457,7 +467,7 @@ function LinkedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous
         <RootLine label={entry.rootLabel ?? (entry.root ? undefined : entry.url.replace(/^https?:\/\//, ""))} />
       </span>
       <span className="ml-auto inline-flex flex-none items-center gap-3">
-        <Port url={entry.url} live={entry.live} />
+        <Port entry={entry} />
       </span>
     </a>
   );

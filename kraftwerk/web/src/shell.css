@@ -71,6 +71,9 @@
 .ctx-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 24px; }
 .ctx-embed { display: flex; flex-direction: column; padding: 4px 12px 24px; container-type: inline-size; }
 .ctx-embed-vibe { flex: 1; min-height: 0; overflow: hidden; }
+/* The column scrolls; what is in it keeps its height. A panel clips its overflow, which lets a flex item
+   shrink below its content: in a short column (a phone) the run card lost its button, the board its runs. */
+.ctx-embed:not(.ctx-embed-vibe) > * { flex-shrink: 0; }
 .ctx-browser { padding: 4px 12px 12px; }
 /* A hidden category stays hidden: an embed's flex display must not override the attribute. */
 .ctx-body[hidden], .ctx-embed[hidden] { display: none; }
@@ -181,7 +184,10 @@ body.kw-resizing iframe { pointer-events: none; }
   .space-title { grid-column: 1; }
   .shell.three[data-focus="side"] > .col-chat,
   .shell.three[data-focus="context"] > .col-chat,
-  .shell.three[data-focus="chat"] > .ctx { display: none; }
+  .shell.three[data-focus="chat"] > .ctx,
+  .shell.three[data-focus="side"] > .ctx { display: none; }
+  /* The list (Home, Ralv, projects, agents, channels) gets the whole screen. */
+  .shell.three[data-focus="side"] > .rail { display: flex; margin-right: 0; overflow-y: auto; }
   .shell.three > .ctx[data-full] { display: flex; }
   .col-chat, .ctx { border-right: 1px solid var(--line); border-radius: var(--radius); }
   .ctx::before, .split-handle { display: none; }
@@ -199,7 +205,7 @@ body.kw-resizing iframe { pointer-events: none; }
     bottom: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     height: 52px;
     padding: 0 8px env(safe-area-inset-bottom, 0px);
     background: var(--surface-2);

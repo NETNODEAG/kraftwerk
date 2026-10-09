@@ -25,7 +25,16 @@ export function Tabs<T extends string>({
   bare?: boolean;
 }) {
   return (
-    <div role="tablist" aria-label={label} className={cn("flex flex-wrap gap-x-4", !bare && "border-b border-line px-4", className)}>
+    // A phone scrolls the tabs sideways instead of wrapping them onto a second row.
+    <div
+      role="tablist"
+      aria-label={label}
+      className={cn(
+        "flex flex-wrap gap-x-4 max-[800px]:flex-nowrap max-[800px]:overflow-x-auto max-[800px]:overflow-y-hidden max-[800px]:[scrollbar-width:none] max-[800px]:[&>*]:flex-none",
+        !bare && "border-b border-line px-4",
+        className,
+      )}
+    >
       {items.map((t) => {
         const on = t.id === value;
         const cls = cn(
