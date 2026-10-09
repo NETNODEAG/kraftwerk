@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { AgentDetail } from "../../src/inspector/agents.js";
-import { agentVibeablesContext } from "../../src/inspector/chat/sessions.js";
+import type { AgentDetail } from "../../src/core/agents.js";
+import { agentVibeablesContext } from "../../src/core/chat/sessions.js";
 
 /**
  * Agents over the HTTP API, with the focus on their links: vibeables are

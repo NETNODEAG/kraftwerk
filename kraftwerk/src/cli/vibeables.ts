@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import Table from "cli-table3";
 import type { Command } from "commander";
-import { createVibeable, deleteVibeable, listVibeables } from "../inspector/vibeables.js";
+import { createVibeable, deleteVibeable, listVibeables } from "../core/vibeables.js";
 import { fmtAgo } from "./workspaces.js";
 import { initContext as prepare } from "./routines.js";
 

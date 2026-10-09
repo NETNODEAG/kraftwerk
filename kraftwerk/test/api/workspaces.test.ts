@@ -22,7 +22,7 @@ describe("/api/workspaces", () => {
     await mkdir(legacyRoot, { recursive: true });
     await writeFile(path.join(legacyRoot, "kraftwerk.yml"), "name: Legacy\n");
     process.env.HOME = fx.home; // the registry paths are resolved when the module loads
-    const { workspaceRecordName } = await import("../../src/inspector/instances.js");
+    const { workspaceRecordName } = await import("../../src/core/instances.js");
     const legacyDir = path.join(fx.home, ".kraftwerk", "projects");
     await mkdir(legacyDir, { recursive: true });
     await writeFile(path.join(legacyDir, workspaceRecordName(legacyRoot)), JSON.stringify({ root: legacyRoot, firstSeen: "2026-01-01T00:00:00.000Z", lastStarted: "2026-01-01T00:00:00.000Z", startCount: 1 }));
@@ -79,7 +79,7 @@ describe("/api/workspaces", () => {
   });
 
   it("expands ~ in a root sent to the registry and stores the absolute form", async () => {
-    const { registerWorkspace } = await import("../../src/inspector/instances.js");
+    const { registerWorkspace } = await import("../../src/core/instances.js");
     await registerWorkspace("~/other");
     const stored = await roots();
     assert.ok(stored.includes(otherRoot), `expected ${otherRoot} in ${stored.join(", ")}`);

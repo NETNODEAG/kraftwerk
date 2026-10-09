@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { NotificationsView } from "../../src/inspector/notifications.js";
+import type { NotificationsView } from "../../src/core/notifications.js";
 
 /**
  * The bell: attention items land in /api/notifications, count as unread

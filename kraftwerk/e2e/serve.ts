@@ -11,9 +11,9 @@ import { makeProject } from "../test/helpers/project.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = path.resolve(here, "..");
-const dist = path.join(pkg, "inspector", "dist");
+const dist = path.join(pkg, "web", "dist");
 if (!existsSync(path.join(dist, "index.html"))) {
-  const r = spawnSync("npm", ["run", "build:inspector"], { cwd: pkg, stdio: "inherit" });
+  const r = spawnSync("npm", ["run", "build:web"], { cwd: pkg, stdio: "inherit" });
   if (r.status !== 0) process.exit(1);
 }
 
@@ -25,7 +25,7 @@ process.env.HOME = fx.home;
 process.env.KRAFTWERK_CLOUD_URL = "off"; // never register the e2e fixture with the real cloud
 // A message in an e2e chat reaches the scripted fake agent, never a real one (it asks for one approval per prompt).
 process.env.KRAFTWERK_ACP_ADAPTER = path.join(here, "../test/helpers/fake-acp-agent.mjs");
-const { startInspector } = await import("../src/inspector/server.js");
+const { startInspector } = await import("../src/server/server.js");
 const port = Number(process.env.E2E_PORT || 19981);
-await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port, projectRoot: fx.root });
+await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port, root: fx.root });
 console.log(`e2e inspector on http://127.0.0.1:${port} for ${fx.root}`);

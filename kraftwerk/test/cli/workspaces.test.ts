@@ -26,7 +26,7 @@ describe("kraftwerk workspaces", () => {
   it("lists a registered workspace as not running, by its kraftwerk.yml name", async () => {
     // Register the way the inspector does on start, with the same HOME the CLI sees.
     process.env.HOME = dir.home;
-    const { registerWorkspace } = await import("../../src/inspector/instances.js");
+    const { registerWorkspace } = await import("../../src/core/instances.js");
     await registerWorkspace(dir.root);
 
     const entries = json<Entry[]>(await run(["--json"]));
@@ -48,7 +48,7 @@ describe("kraftwerk workspaces", () => {
   it("a ~ ref addresses a workspace under HOME and the record stays absolute", async () => {
     // Registered with a tilde (what a quoted arg or a JSON body carries): stored expanded.
     process.env.HOME = dir.home;
-    const { registerWorkspace } = await import("../../src/inspector/instances.js");
+    const { registerWorkspace } = await import("../../src/core/instances.js");
     await registerWorkspace("~/tilde-project");
     const entries = json<Entry[]>(await run(["--json"]));
     const rec = entries.find((e) => e.root === path.join(dir.home, "tilde-project"));

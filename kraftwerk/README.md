@@ -11,7 +11,7 @@ npm install -g @netnodeag/kraftwerk
 
 cd your-project
 kraftwerk init                         # scaffold the workspace
-kraftwerk doctor                       # check harnesses, docker, workflows, env vars
+kraftwerk doctor                       # check harnesses, docker, workflows, env vars, legacy leftovers
 kraftwerk ui                           # open it at http://localhost:1981
 ```
 
@@ -66,7 +66,11 @@ with a time, token and cost summary table.
 You need Node 20 or newer and at least one agent harness on your PATH: Claude
 Code (`claude`), Codex (`codex`), or Pi (`pi`). See [Harnesses](#harnesses)
 for how to get them. `kraftwerk doctor` checks for all of it and names
-whatever is missing.
+whatever is missing. It also lists what older versions left behind: a
+workspace still served by an older kraftwerk (relaunch it), several
+`kraftwerk` installs on your PATH at different versions, the old
+`~/.kraftwerk/projects` registry, chats and runs in old formats. Those
+are notes, never failures, and doctor changes nothing.
 
 Install it globally to get the `kraftwerk` command in every project:
 
@@ -106,7 +110,7 @@ workflows only:
 ```bash
 cd your-project
 kraftwerk init                     # scaffold kraftwerk.yml + kraftwerk-data/ (workflow, agent, knowledge)
-kraftwerk doctor                   # preflight: harness CLIs, docker, workflows, declared env vars
+kraftwerk doctor                   # preflight: harness CLIs, docker, workflows, declared env vars, legacy leftovers
 kraftwerk run hello "Was ist kraftwerk?"
 kraftwerk ui                       # inspector on http://localhost:1981
 ```
@@ -160,7 +164,7 @@ kraftwerk workspaces                    # every workspace on this machine; works
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
 kraftwerk journal <agent> ["<entry>"]   # an agent's memory across sessions: print it, add a line (--kind)
-kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars
+kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars, legacy leftovers
 kraftwerk validate                      # all discovered: schema + semantics + files, exit 1 on failure
 kraftwerk validate src/workflows/pitch  # specific paths
 kraftwerk create "was der Workflow tun soll"   # for LLM agents: prints a build brief
@@ -1216,9 +1220,9 @@ npm publish         # runs npm run build first via prepublishOnly
 
 The `files` field whitelists the tarball: `bin/`, `dist/`, `runner/` (the
 Dockerfile for sandboxed runs), `schema/` (the workflow JSON schema), and
-`inspector/dist/` (the prebuilt web UI for `kraftwerk ui`, built by
+`web/dist/` (the prebuilt web UI for `kraftwerk ui`, built by
 `prepublishOnly` and served by the dependency-free server compiled into
-`dist/inspector/`). No `src/`, no examples. Check with `npm pack --dry-run`
+`dist/server/`). No `src/`, no examples. Check with `npm pack --dry-run`
 before a release. Runtime deps stay regular `dependencies`, while `tsx`,
 `typescript`, and the inspector's Vite and React toolchain are dev-only, so
 consumers install none of them.

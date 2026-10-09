@@ -111,7 +111,7 @@ export const REPOS_DEFAULT_ROOT = "repos";
  * place that reads the block, so the sync exclude, the doctor check, the
  * settings save and the module itself cannot disagree.
  */
-export function reposRootFor(project: Project): string | undefined {
+export function reposRootFor(project: ResolvedWorkspace): string | undefined {
   const r = project.config.repos;
   if (!r || r.enabled === false) return undefined;
   return path.resolve(project.root, r.root ?? REPOS_DEFAULT_ROOT);
@@ -134,7 +134,7 @@ export interface VibeablesConfig {
 export const VIBEABLES_DEFAULT_ROOT = "kraftwerk-data/vibeables";
 
 /** Absolute vibeables root when the feature is on, undefined otherwise. */
-export function vibeablesRootFor(project: Project): string | undefined {
+export function vibeablesRootFor(project: ResolvedWorkspace): string | undefined {
   const v = project.config.vibeables;
   if (!v || v.enabled === false) return undefined;
   return path.resolve(project.root, v.root ?? VIBEABLES_DEFAULT_ROOT);
@@ -158,7 +158,7 @@ export interface ProjectsConfig {
 export const PROJECTS_DEFAULT_ROOT = "kraftwerk-data/projects";
 
 /** Absolute projects root when the feature is on, undefined otherwise. */
-export function projectsRootFor(project: Project): string | undefined {
+export function projectsRootFor(project: ResolvedWorkspace): string | undefined {
   const p = project.config.projects;
   if (!p || p.enabled === false) return undefined;
   return path.resolve(project.root, p.root ?? PROJECTS_DEFAULT_ROOT);
@@ -231,7 +231,7 @@ export interface CloudSettings {
 }
 
 /** The effective cloud settings when the feature is on; undefined when kraftwerk.yml or the environment turned it off. */
-export function cloudFor(project: Project): CloudSettings | undefined {
+export function cloudFor(project: ResolvedWorkspace): CloudSettings | undefined {
   const c = project.config.cloud ?? {};
   const envUrl = process.env.KRAFTWERK_CLOUD_URL?.trim();
   if (c.enabled === false || envUrl?.toLowerCase() === "off") return undefined;
@@ -243,17 +243,17 @@ export function cloudFor(project: Project): CloudSettings | undefined {
 }
 
 /** The public hostname (lowercase, no port) when `public` is set, undefined otherwise. */
-export function publicHostFor(project: Project): string | undefined {
+export function publicHostFor(project: ResolvedWorkspace): string | undefined {
   return project.config.public ? parsePublic(project.config.public)?.hostname : undefined;
 }
 
 /** The public origin ("https://kw.example.com") when `public` is set, undefined otherwise. */
-export function publicUrlFor(project: Project): string | undefined {
+export function publicUrlFor(project: ResolvedWorkspace): string | undefined {
   return project.config.public ? parsePublic(project.config.public)?.origin : undefined;
 }
 
 /** The tunnel block when the feature is on, undefined otherwise. */
-export function tunnelFor(project: Project): TunnelConfig | undefined {
+export function tunnelFor(project: ResolvedWorkspace): TunnelConfig | undefined {
   const t = project.config.tunnel;
   if (!t || t.enabled === false) return undefined;
   return t;
@@ -293,7 +293,7 @@ export interface SwitcherEntry {
   icon?: string;
 }
 
-export interface ProjectConfig {
+export interface WorkspaceConfig {
   /** Display name of the project ("environment"), shown in the inspector header. */
   name?: string;
   /** Emoji used as the inspector favicon (browser-tab icon). */
@@ -334,11 +334,11 @@ export interface ProjectConfig {
   cloud?: CloudConfig;
 }
 
-export interface Project {
+export interface ResolvedWorkspace {
   /** Absolute project root the CLI operates on. */
   root: string;
   /** Parsed kraftwerk.yml, {} if none exists. */
-  config: ProjectConfig;
+  config: WorkspaceConfig;
   /** Absolute path of the config file, if one exists. */
   configPath?: string;
   /** Absolute workflows root, if one exists. */
@@ -390,10 +390,10 @@ async function findWorkflowsDir(dir: string, configured?: string): Promise<strin
  * a command run inside the workspace's own data (kraftwerk-data/projects/<slug>,
  * next to kraftwerk-data/workflows) still finds the workspace.
  */
-export async function resolveProject(cwd: string): Promise<Project> {
+export async function resolveWorkspace(cwd: string): Promise<ResolvedWorkspace> {
   const start = path.resolve(cwd);
   let gitFallback: string | undefined;
-  let bare: Project | undefined;
+  let bare: ResolvedWorkspace | undefined;
 
   for (let dir = start; ; dir = path.dirname(dir)) {
     const configPath = await findConfigFile(dir);
@@ -420,9 +420,16 @@ export async function resolveProject(cwd: string): Promise<Project> {
   return { root, config: {}, outputDir: path.join(root, "output") };
 }
 
+/** @deprecated Renamed: a kraftwerk.yml root is a workspace (projects are the folders inside). Use `resolveWorkspace`. */
+export const resolveProject = resolveWorkspace;
+/** @deprecated Use `ResolvedWorkspace`. */
+export type Project = ResolvedWorkspace;
+/** @deprecated Use `WorkspaceConfig`. */
+export type ProjectConfig = WorkspaceConfig;
+
 const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "public", "tunnel", "cloud"];
 
-async function loadConfig(configPath: string): Promise<ProjectConfig> {
+async function loadConfig(configPath: string): Promise<WorkspaceConfig> {
   let raw: unknown;
   try {
     raw = parse(await readFile(configPath, "utf8"));
@@ -484,7 +491,7 @@ async function loadConfig(configPath: string): Promise<ProjectConfig> {
   if (tunnel && tunnel.enabled !== false && !config.public) {
     throw new Error(`${path.basename(configPath)}: tunnel needs public: the hostname the tunnel routes to`);
   }
-  return config as ProjectConfig;
+  return config as WorkspaceConfig;
 }
 
 /** tunnel: { enabled?, name?, access?: { team, aud } } */

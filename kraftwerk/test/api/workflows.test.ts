@@ -1,7 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { WorkflowDetail, WorkflowSummary } from "../../src/inspector/workflows.js";
+import type { WorkflowDetail, WorkflowSummary } from "../../src/core/workflows.js";
 
 /**
  * Workflows over the HTTP API: the listing says whether a workflow reads

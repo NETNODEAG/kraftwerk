@@ -7,7 +7,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cli, json } from "../helpers/cli.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
-import type { ReposView } from "../../src/inspector/repos.js";
+import type { ReposView } from "../../src/core/repos.js";
 
 /** `kraftwerk repos` against a local upstream: flag, add, list, update, remove. */
 describe("kraftwerk repos", () => {

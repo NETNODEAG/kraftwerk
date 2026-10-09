@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import Table from "cli-table3";
-import { resolveProject } from "../config.js";
+import { resolveWorkspace } from "../config.js";
 import { fmtDuration, fmtTokens } from "../stats.js";
 import { runDirFor } from "../workflow.js";
 
@@ -58,7 +58,7 @@ async function readRun(dir: string): Promise<RunInfo | undefined> {
 }
 
 async function collectRuns(cwd: string): Promise<{ outputDir: string; runs: RunInfo[] }> {
-  const { outputDir } = await resolveProject(cwd);
+  const { outputDir } = await resolveWorkspace(cwd);
   // New runs live under <output>/runs/; legacy run-* folders sit at the root.
   const dirs = [
     ...(await readdir(path.join(outputDir, "runs"), { withFileTypes: true }).catch(() => []))
@@ -118,7 +118,7 @@ export async function listRuns(cwd: string, opts: { json?: boolean } = {}): Prom
 }
 
 export async function showRun(cwd: string, id: string, opts: { json?: boolean } = {}): Promise<void> {
-  const { outputDir } = await resolveProject(cwd);
+  const { outputDir } = await resolveWorkspace(cwd);
   const dir = runDirFor(outputDir, id);
   if (!(await stat(dir).catch(() => null))) {
     console.error(chalk.red(`Run "${id}" not found under ${outputDir}.`));

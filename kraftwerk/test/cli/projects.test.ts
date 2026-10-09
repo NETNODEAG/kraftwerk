@@ -5,7 +5,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cli, json } from "../helpers/cli.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
-import type { ProjectDetail, ProjectsView } from "../../src/inspector/projects.js";
+import type { ProjectDetail, ProjectsView } from "../../src/core/projects.js";
 
 /** `kraftwerk projects`: flag, create, list, show, link/unlink, log, remove — and doctor on the config key. */
 describe("kraftwerk projects", () => {

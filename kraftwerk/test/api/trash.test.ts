@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { TrashEntry } from "../../src/inspector/trash.js";
+import type { TrashEntry } from "../../src/core/trash.js";
 
 /**
  * The trash over the HTTP API: deleting a knowledge bundle (or a chat)

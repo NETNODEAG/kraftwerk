@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mentionTargets } from "../../src/inspector/channels.js";
+import { mentionTargets } from "../../src/core/channels.js";
 
 /** Who a channel message wakes. */
 describe("channel mention routing", () => {

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { statusLine } from "../../src/inspector/status-line.js";
-import type { AgentStatus } from "../../src/inspector/agent-status.js";
+import { statusLine } from "../../src/core/status-line.js";
+import type { AgentStatus } from "../../src/core/agent-status.js";
 
 /**
  * The status line under an agent's name: which state wins, and how each

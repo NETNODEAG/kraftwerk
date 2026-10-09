@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { divertExtensionUpdates, extensionClientMeta, fileChangeReportMeta, openSession, parseExtensionLine, type AcpExtensionNotification } from "../../src/acp.js";
-import { authStatusOf, configOptions, elicitationFields, failureOf, promptBlocks, translateExtension, translateUpdate } from "../../src/inspector/chat/acp.js";
+import { authStatusOf, configOptions, elicitationFields, failureOf, promptBlocks, translateExtension, translateUpdate } from "../../src/core/chat/acp.js";
 
 /**
  * The protocol plumbing without an adapter process: how extension updates

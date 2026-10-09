@@ -13,7 +13,7 @@ import {
   recordLine,
   saveProject,
   type ProjectDetail,
-} from "../inspector/projects.js";
+} from "../core/projects.js";
 import { initContext as prepare } from "./routines.js";
 import { fmtAgo } from "./workspaces.js";
 

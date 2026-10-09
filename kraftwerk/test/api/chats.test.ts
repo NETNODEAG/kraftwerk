@@ -1,8 +1,8 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { ChatMeta } from "../../src/inspector/chat/types.js";
-import type { RoutineStatus } from "../../src/inspector/routines.js";
+import type { ChatMeta } from "../../src/core/chat/types.js";
+import type { RoutineStatus } from "../../src/core/routines.js";
 
 type ChatRow = ChatMeta & { busy: boolean; awaitingApproval: boolean };
 
@@ -135,7 +135,7 @@ describe("chats API: approval state", () => {
     const a = (await up.json()) as { name: string };
     // The fork itself needs a live agent (never from a test); the copy step is what carries the files.
     const copy = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
-    const { copyChatFiles } = await import("../../src/inspector/chat/store.js");
+    const { copyChatFiles } = await import("../../src/core/chat/store.js");
     await copyChatFiles(meta.id, copy.id);
     const got = await fetch(`${srv.url}/api/chats/${copy.id}/attachments/${a.name}`);
     assert.equal(got.status, 200);

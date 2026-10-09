@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { UpdateStatus } from "../../src/inspector/update.js";
+import type { UpdateStatus } from "../../src/core/update.js";
 
 /**
  * Self-update over the HTTP API, against a stub npm (KRAFTWERK_NPM): the

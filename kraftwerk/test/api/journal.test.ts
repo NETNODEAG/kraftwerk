@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import { appendJournal, journalExcerpt } from "../../src/inspector/journal.js";
-import { agentJournalContext } from "../../src/inspector/chat/sessions.js";
-import type { AgentStatus } from "../../src/inspector/agent-status.js";
+import { appendJournal, journalExcerpt } from "../../src/core/journal.js";
+import { agentJournalContext } from "../../src/core/chat/sessions.js";
+import type { AgentStatus } from "../../src/core/agent-status.js";
 
 /**
  * An agent's journal and status over the HTTP API: a human's note is

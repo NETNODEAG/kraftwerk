@@ -4,7 +4,7 @@
 # The UI image lives in the repo root's deploy-starter/.
 .git
 node_modules
-inspector/node_modules
-inspector/dist
+web/node_modules
+web/dist
 output
 examples

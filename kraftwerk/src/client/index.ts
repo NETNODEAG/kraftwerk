@@ -1,4 +1,4 @@
-import type { ApiName, ApiPath, ApiResult } from "../inspector/api/index.js";
+import type { ApiBody, ApiName, ApiPath, ApiResult } from "../server/api/index.js";
 import { ROUTES } from "./routes.js";
 
 /**
@@ -17,7 +17,7 @@ import { ROUTES } from "./routes.js";
  * a repository with unpushed work).
  */
 
-export type { ApiName, ApiPath, ApiResult };
+export type { ApiBody, ApiName, ApiPath, ApiResult };
 export { createLive, type Live, type LiveOptions, type WatchOptions } from "./live.js";
 
 type ParamNames<P extends string> = P extends `${string}:${infer Name}/${infer Rest}` ? Name | ParamNames<`/${Rest}`> : P extends `${string}:${infer Name}` ? Name : never;
@@ -35,7 +35,8 @@ export interface CallExtras {
   keepalive?: boolean;
 }
 
-export type CallInput<N extends ApiName> = PathParams<N> & CallExtras;
+/** Path parameters by name, plus the extras; `body` is typed by the route's schema. */
+export type CallInput<N extends ApiName> = PathParams<N> & Omit<CallExtras, "body"> & { body?: ApiBody<N> };
 
 /** Routes without path parameters may omit the input. */
 type InputArg<N extends ApiName> = [ParamNames<ApiPath<N>>] extends [never] ? [input?: CallInput<N>] : [input: CallInput<N>];
@@ -46,16 +47,23 @@ export class ApiRequestError extends Error {
     readonly body: unknown,
     readonly route: string,
   ) {
-    const error = body && typeof body === "object" && "error" in body ? body.error : undefined;
-    super(typeof error === "string" && error ? error : `${route}: HTTP ${status}`);
+    super(errorOf(body) ?? `${route}: HTTP ${status}`);
   }
 }
 
-export interface ApiResponse<T> {
-  ok: boolean;
-  status: number;
-  /** The result when ok; the error body (usually `{error}`) otherwise. */
-  data: T;
+/**
+ * A route's answer without throwing: the result when ok; otherwise the
+ * server's message (`error`, absent when the body carried none) and the
+ * whole error body — some refusals carry a result (a 409 git commit).
+ */
+export type ApiResponse<T> =
+  | { ok: true; status: number; data: T; error?: undefined }
+  | { ok: false; status: number; data: unknown; error: string | undefined };
+
+/** The `error` string of an error body, if it has one. */
+export function errorOf(body: unknown): string | undefined {
+  const error = body && typeof body === "object" && "error" in body ? body.error : undefined;
+  return typeof error === "string" && error ? error : undefined;
 }
 
 export interface ClientOptions {
@@ -69,11 +77,14 @@ export interface Client {
   request<N extends ApiName>(name: N, ...input: InputArg<N>): Promise<ApiResponse<ApiResult<N>>>;
   /** The URL of a route: for raw routes (a file to show or download, an event stream) and links. */
   url<N extends ApiName>(name: N, ...input: InputArg<N>): string;
+  /** Called after every change this client made (a non-GET route that went through). */
+  onChange(fn: () => void): () => void;
 }
 
 export function createClient(opts: ClientOptions = {}): Client {
   const base = (opts.baseUrl ?? "").replace(/\/+$/, "");
   const doFetch = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
+  const changeFns = new Set<() => void>();
 
   const url = (name: ApiName, input: Record<string, unknown> = {}): string => {
     const [, pattern] = ROUTES[name];
@@ -105,10 +116,15 @@ export function createClient(opts: ClientOptions = {}): Client {
     try {
       data = text ? JSON.parse(text) : undefined;
     } catch {}
-    return { ok: res.ok, status: res.status, data };
+    if (res.ok && method !== "GET") for (const fn of changeFns) fn();
+    return res.ok ? { ok: true, status: res.status, data } : { ok: false, status: res.status, data, error: errorOf(data) };
   };
 
   return {
+    onChange(fn) {
+      changeFns.add(fn);
+      return () => changeFns.delete(fn);
+    },
     url: ((name: ApiName, input?: Record<string, unknown>) => url(name, input)) as unknown as Client["url"],
     request: ((name: ApiName, input?: Record<string, unknown>) => request(name, input)) as unknown as Client["request"],
     call: (async (name: ApiName, input?: Record<string, unknown>) => {

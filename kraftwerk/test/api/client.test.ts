@@ -42,7 +42,7 @@ describe("client", () => {
 
   it("calls a route by name and returns its result", async () => {
     const meta = await api.call("meta.get", { query: { probe: true } });
-    assert.equal(meta.projectRoot, fx.root);
+    assert.equal(meta.workspaceRoot, fx.root);
     const created = await api.call("knowledge.create", { body: { name: "client-made" } });
     assert.ok(created);
     assert.match(JSON.stringify(await api.call("knowledge.list")), /client-made/);
@@ -84,6 +84,13 @@ describe("client", () => {
       await waitFor(() => n >= 2);
       assert.equal(none.connected, false);
       stop();
+      // Polling slowly, a change this client makes still shows at once.
+      const seen: string[] = [];
+      const stopList = none.watch("knowledge.list", undefined, { interval: 60_000 }, (d) => seen.push(JSON.stringify(d)));
+      await waitFor(() => seen.length > 0);
+      await api.call("knowledge.create", { body: { name: "polled-made" } });
+      await waitFor(() => seen.some((x) => x.includes("polled-made")), 2000);
+      stopList();
     } finally {
       none.close();
     }

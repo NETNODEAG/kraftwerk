@@ -1,6 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { resolveProject } from "./config.js";
+import { resolveWorkspace } from "./config.js";
 import { loadWorkflow, type LoadedWorkflow } from "./yaml.js";
 
 /**
@@ -24,7 +24,7 @@ export interface DiscoveredWorkflow {
 
 /** Workflows root for a cwd (walk-up + kraftwerk.yml aware). */
 export async function findWorkflowsRoot(cwd: string): Promise<string | undefined> {
-  return (await resolveProject(cwd)).workflowsRoot;
+  return (await resolveWorkspace(cwd)).workflowsRoot;
 }
 
 export async function discoverWorkflows(cwd: string): Promise<DiscoveredWorkflow[]> {

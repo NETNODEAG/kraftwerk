@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { GitStatus } from "../../src/inspector/git.js";
-import type { SettingsView } from "../../src/inspector/settings.js";
+import type { GitStatus } from "../../src/core/git.js";
+import type { SettingsView } from "../../src/core/settings.js";
 
 /** The settings screen's git block, written to kraftwerk.yml and read back by the git screen. */
 describe("settings API: git sync", () => {
@@ -95,7 +95,7 @@ describe("settings API: workspace colour + name flag", () => {
       body: JSON.stringify(body),
     });
   const meta = async () =>
-    (await fetch(srv.url + "/api/meta", { cache: "no-store" })).json() as Promise<{ projectColor: string; projectNamed: boolean }>;
+    (await fetch(srv.url + "/api/meta", { cache: "no-store" })).json() as Promise<{ workspaceColor: string; workspaceNamed: boolean }>;
   const yml = () => readFile(path.join(fx.root, "kraftwerk.yml"), "utf8");
 
   it("writes color to kraftwerk.yml and meta reports it, named because name: is set", async () => {
@@ -104,8 +104,8 @@ describe("settings API: workspace colour + name flag", () => {
     assert.equal(((await r.json()) as SettingsView).config.color, "#c2410c");
     assert.match(await yml(), /^color: "#c2410c"$/m);
     const m = await meta();
-    assert.equal(m.projectColor, "#c2410c");
-    assert.equal(m.projectNamed, true);
+    assert.equal(m.workspaceColor, "#c2410c");
+    assert.equal(m.workspaceNamed, true);
   });
 
   it("rejects a non-hex colour and leaves the file alone", async () => {
@@ -122,7 +122,7 @@ describe("settings API: workspace colour + name flag", () => {
     assert.doesNotMatch(text, /^color:/m);
     assert.doesNotMatch(text, /^name:/m);
     const m = await meta();
-    assert.equal(m.projectColor, "");
-    assert.equal(m.projectNamed, false);
+    assert.equal(m.workspaceColor, "");
+    assert.equal(m.workspaceNamed, false);
   });
 });

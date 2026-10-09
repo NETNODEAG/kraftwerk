@@ -9,7 +9,7 @@ import {
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { AgentInvocation, AgentResult, Harness, HarnessId } from "../harness.js";
 import { acpMcpServers, adapterEnv, connectAcp, openSession, type AcpAgent } from "../acp.js";
-import { declineOption, unattendedMode } from "../inspector/chat/permissions.js";
+import { declineOption, unattendedMode } from "../core/chat/permissions.js";
 
 /**
  * Agent Client Protocol harness: a phase is one prompt on an ACP session

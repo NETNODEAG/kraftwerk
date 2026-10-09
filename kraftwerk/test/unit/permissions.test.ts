@@ -5,7 +5,7 @@ import {
   declineOption,
   unattendedMode,
   unattendedTimeoutLabel,
-} from "../../src/inspector/chat/permissions.js";
+} from "../../src/core/chat/permissions.js";
 
 /** What an unanswered permission request in a routine session resolves to: never an allow. */
 describe("unattended permission fallback", () => {

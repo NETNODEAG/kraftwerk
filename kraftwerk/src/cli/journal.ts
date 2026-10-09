@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
-import { appendJournal, JOURNAL_KINDS, readJournal } from "../inspector/journal.js";
+import { appendJournal, JOURNAL_KINDS, readJournal } from "../core/journal.js";
 import { initContext as prepare } from "./routines.js";
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsWorkflow } from "../../src/inspector/routines.js";
+import { mentionsWorkflow } from "../../src/core/routines.js";
 
 /** A routine belongs to a workflow when its prompt names the workflow's slug or name as a whole word. */
 describe("mentionsWorkflow", () => {

@@ -20,7 +20,7 @@ import { registerTrashCommands } from "./trash.js";
 import { registerJournalCommands } from "./journal.js";
 import { registerTunnelCommands } from "./tunnel.js";
 import { applyDotenv } from "../dotenv.js";
-import { resolveProject } from "../config.js";
+import { resolveWorkspace } from "../config.js";
 import { registerRoutineCommands } from "./routines.js";
 import { listRuns, showRun } from "./runs.js";
 import { runUi } from "./ui.js";
@@ -80,7 +80,7 @@ const program = new Command()
   // ui` spawns its server, and again in that server on every restart). A
   // broken kraftwerk.yml is the command's own error to report, not the hook's.
   .hook("preAction", async () => {
-    const project = await resolveProject(process.cwd()).catch(() => null);
+    const project = await resolveWorkspace(process.cwd()).catch(() => null);
     if (project) await applyDotenv(project.root);
   });
 
@@ -235,10 +235,10 @@ program
 
     if (opts.sandbox) {
       const { runSandboxed } = await import("../runner/docker.js");
-      const { resolveProject } = await import("../config.js");
+      const { resolveWorkspace } = await import("../config.js");
       const handle = await runSandboxed({
         projectRoot: baseDir,
-        outputDir: opts.from ? undefined : (await resolveProject(baseDir)).outputDir,
+        outputDir: opts.from ? undefined : (await resolveWorkspace(baseDir)).outputDir,
         workflowPath: entry.path,
         workflowName: workflow.name,
         request,
@@ -255,8 +255,8 @@ program
       // kraftwerk.yml `output:` and works from subdirs); for remote runs at
       // the caller's cwd — never inside the clone cache.
       const { newRunId, runDirFor } = await import("../workflow.js");
-      const { resolveProject } = await import("../config.js");
-      const outBase = opts.from ? path.resolve("output") : (await resolveProject(baseDir)).outputDir;
+      const { resolveWorkspace } = await import("../config.js");
+      const outBase = opts.from ? path.resolve("output") : (await resolveWorkspace(baseDir)).outputDir;
       process.env.KRAFTWERK_RUN_DIR = runDirFor(outBase, opts.runId ?? newRunId(workflow.name));
     }
 

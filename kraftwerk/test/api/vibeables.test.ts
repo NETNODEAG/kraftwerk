@@ -4,10 +4,10 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { VibeableInfo, VibeableStatus, VibeablesView } from "../../src/inspector/vibeables.js";
-import type { ChatMeta } from "../../src/inspector/chat/types.js";
-import type { GitStatus } from "../../src/inspector/git.js";
-import { effectiveCwd, vibeableContext } from "../../src/inspector/chat/sessions.js";
+import type { VibeableInfo, VibeableStatus, VibeablesView } from "../../src/core/vibeables.js";
+import type { ChatMeta } from "../../src/core/chat/types.js";
+import type { GitStatus } from "../../src/core/git.js";
+import { effectiveCwd, vibeableContext } from "../../src/core/chat/sessions.js";
 
 /**
  * Vibeables over the HTTP API: the feature flag, creating an app from the

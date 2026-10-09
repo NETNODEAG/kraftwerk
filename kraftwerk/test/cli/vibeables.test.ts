@@ -5,7 +5,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { cli, json } from "../helpers/cli.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
-import type { VibeableInfo, VibeablesView } from "../../src/inspector/vibeables.js";
+import type { VibeableInfo, VibeablesView } from "../../src/core/vibeables.js";
 
 /** `kraftwerk vibeables`: flag, create, list, remove — and doctor on the config key. */
 describe("kraftwerk vibeables", () => {

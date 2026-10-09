@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { currentWorkspace, perWorkspace, setDefaultWorkspace, Workspace } from "../../src/inspector/workspace.js";
+import { currentWorkspace, perWorkspace, setDefaultWorkspace, Workspace } from "../../src/core/workspace.js";
 
 /**
  * The current workspace: none until one is set or run in, `ws.run` wins

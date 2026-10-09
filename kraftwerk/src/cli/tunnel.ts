@@ -7,7 +7,7 @@ import path from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import { parseDocument } from "yaml";
-import { parsePublic, publicHostFor, resolveProject, tunnelFor, type Project } from "../config.js";
+import { parsePublic, publicHostFor, resolveWorkspace, tunnelFor, type ResolvedWorkspace } from "../config.js";
 
 /**
  * Cloudflare Tunnel next to the inspector. `kraftwerk ui` runs cloudflared
@@ -44,7 +44,7 @@ export interface RunningTunnel {
 }
 
 /** Start cloudflared for the project's tunnel, or return undefined (nothing to run, or told why not). */
-export function startTunnel(project: Project, port: number): RunningTunnel | undefined {
+export function startTunnel(project: ResolvedWorkspace, port: number): RunningTunnel | undefined {
   const tunnel = tunnelFor(project);
   if (!tunnel) return undefined;
   const host = publicHostFor(project);
@@ -158,7 +158,7 @@ function inspectorListening(port: number): Promise<boolean> {
 }
 
 /** A tunnel name from the project's display name or folder: "kraftwerk-agent-playground". */
-function defaultTunnelName(project: Project): string {
+function defaultTunnelName(project: ResolvedWorkspace): string {
   const base = (project.config.name ?? path.basename(project.root)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return `kraftwerk-${base || "inspector"}`;
 }
@@ -169,7 +169,7 @@ function originCertPath(): string {
 }
 
 /** Write public: and tunnel.name into kraftwerk.yml, keeping everything else (comments, an access block) as it is. */
-async function writeTunnelConfig(project: Project, publicUrl: string, name: string): Promise<string> {
+async function writeTunnelConfig(project: ResolvedWorkspace, publicUrl: string, name: string): Promise<string> {
   const configPath = project.configPath!;
   const doc = parseDocument(await readFile(configPath, "utf8"));
   if (doc.errors.length > 0) throw new Error(`${path.basename(configPath)}: ${doc.errors[0].message}`);
@@ -195,7 +195,7 @@ export function registerTunnelCommands(program: Command): void {
     .description("Run the project's tunnel in the foreground (the inspector runs separately, e.g. `kraftwerk ui` elsewhere)")
     .option("--port <port>", "Inspector port to route to (default: kraftwerk.yml `port`, else 1981)")
     .action(async (opts: { port?: string }) => {
-      const project = await resolveProject(process.cwd()).catch((err: Error) => die(err.message, 2));
+      const project = await resolveWorkspace(process.cwd()).catch((err: Error) => die(err.message, 2));
       if (!tunnelFor(project)) {
         die(
           "tunnel is off — `kraftwerk tunnel setup <hostname>` creates one, or add `public:` and `tunnel:` to kraftwerk.yml (see kraftwerk doctor)."
@@ -220,7 +220,7 @@ export function registerTunnelCommands(program: Command): void {
     .option("--overwrite-dns", "Replace an existing DNS record for the hostname")
     .action(async (hostname: string, opts: { name?: string; overwriteDns?: boolean }) => {
       const host = parsePublic(hostname)?.hostname ?? die(`"${hostname}" is not a hostname — expected something like kw.example.com`, 2);
-      const project = await resolveProject(process.cwd()).catch((err: Error) => die(err.message, 2));
+      const project = await resolveWorkspace(process.cwd()).catch((err: Error) => die(err.message, 2));
       if (!project.configPath) die("no kraftwerk.yml here — `kraftwerk init` scaffolds one, then run setup again.", 2);
       const name = opts.name ?? defaultTunnelName(project);
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) die(`"${name}" is not a plain tunnel name (letters, digits, ".", "_", "-")`, 2);

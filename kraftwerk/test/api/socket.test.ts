@@ -85,7 +85,7 @@ describe("socket", () => {
   it("runs routes by name: results, refusals, HTTP-only routes", async () => {
     const meta = await conn.call("meta.get", { query: { probe: true } });
     assert.equal(meta.status, 200);
-    assert.equal((meta.data as { projectRoot: string }).projectRoot, fx.root);
+    assert.equal((meta.data as { workspaceRoot: string }).workspaceRoot, fx.root);
     assert.deepEqual(await conn.call("chats.get", { id: "nope" }), { id: 2, status: 404, data: { error: "not found" } });
     assert.equal((await conn.call("files.upload", {})).status, 400);
     assert.equal((await conn.call("no.such")).status, 404);

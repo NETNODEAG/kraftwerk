@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.63.0",
+  "version": "0.64.0",
   "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
@@ -33,7 +33,7 @@
     "dist",
     "runner",
     "schema",
-    "inspector/dist"
+    "web/dist"
   ],
   "exports": {
     ".": {
@@ -49,11 +49,11 @@
     "typecheck": "tsc --noEmit",
     "validate": "tsx src/validate.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "build:inspector": "npm --prefix inspector install --no-fund --no-audit && npm --prefix inspector run build",
-    "prepublishOnly": "npm run build && npm run build:inspector",
+    "prepublishOnly": "npm run build && npm run build:web",
     "test": "node --import tsx --test test/*/*.test.ts",
     "test:e2e": "playwright test",
-    "gen:client": "tsx scripts/gen-client-routes.ts"
+    "gen:client": "tsx scripts/gen-client-routes.ts",
+    "build:web": "npm --prefix web install --no-fund --no-audit && npm --prefix web run build"
   },
   "license": "MIT",
   "devDependencies": {
@@ -72,7 +72,8 @@
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
     "ora": "^9.4.1",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^4.6.5"
   },
   "bin": {
     "kraftwerk": "bin/kraftwerk.js"

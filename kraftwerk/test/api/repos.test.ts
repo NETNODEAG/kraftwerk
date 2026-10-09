@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { RepoDetail, RepoInfo, ReposView } from "../../src/inspector/repos.js";
+import type { RepoDetail, RepoInfo, ReposView } from "../../src/core/repos.js";
 
 /**
  * Repositories over the HTTP API: the feature flag, cloning into the root,

@@ -4,10 +4,10 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { ProjectDetail, ProjectsView } from "../../src/inspector/projects.js";
-import { projectContext } from "../../src/inspector/projects.js";
-import type { ChatMeta } from "../../src/inspector/chat/types.js";
-import type { GitStatus } from "../../src/inspector/git.js";
+import type { ProjectDetail, ProjectsView } from "../../src/core/projects.js";
+import { projectContext } from "../../src/core/projects.js";
+import type { ChatMeta } from "../../src/core/chat/types.js";
+import type { GitStatus } from "../../src/core/git.js";
 
 /**
  * Projects over the HTTP API: the feature flag, creating one from the

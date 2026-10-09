@@ -6,8 +6,8 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { AgentSearch } from "../../src/inspector/search.js";
-import type { WorkspaceRecord } from "../../src/inspector/instances.js";
+import type { AgentSearch } from "../../src/core/search.js";
+import type { WorkspaceRecord } from "../../src/core/instances.js";
 
 /**
  * The ⌘K palette's data: this workspace's roster, projects and channels from disk

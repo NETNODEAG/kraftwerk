@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { ChatMeta, StoredChatEvent } from "../../src/inspector/chat/types.js";
-import type { Channel } from "../../src/inspector/channels.js";
+import type { ChatMeta, StoredChatEvent } from "../../src/core/chat/types.js";
+import type { Channel } from "../../src/core/channels.js";
 
 type ChannelView = Channel & { chatId: string; busy: boolean; awaitingApproval: boolean };
 

@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { cli } from "../helpers/cli.js";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { RunDetail, RunListItem } from "../../src/inspector/runs.js";
+import type { RunDetail, RunListItem } from "../../src/core/runs.js";
 
 /**
  * The human step, end to end: a real `kraftwerk run` whose script step

@@ -1,7 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { GitDiff, GitStatus } from "../../src/inspector/git.js";
+import type { GitDiff, GitStatus } from "../../src/core/git.js";
 
 /** Status, diff and commit against a real repo, through the HTTP API. */
 describe("git sync API", () => {

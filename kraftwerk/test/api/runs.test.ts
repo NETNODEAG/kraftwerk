@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { RunDetail, RunListItem } from "../../src/inspector/runs.js";
+import type { RunDetail, RunListItem } from "../../src/core/runs.js";
 
 /**
  * Runs over the HTTP API: status for runs that never wrote a trace (the

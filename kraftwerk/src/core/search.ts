@@ -1,0 +1,67 @@
+import path from "node:path";
+import { resolveWorkspace } from "../config.js";
+import { workspaceRoot } from "./context.js";
+import { listAgents, toSummary, type AgentSummary } from "./agents.js";
+import { listChannels, toChannelSummary, type ChannelSummary } from "./channels.js";
+import { currentInstanceUrl, discoverWorkspaces, listWorkspaceRecords } from "./instances.js";
+import { listProjects, toProjectHit, type ProjectHit } from "./projects.js";
+
+/**
+ * The ⌘K palette: every active agent, project and channel in every workspace
+ * this machine knows, so a user can jump to one without switching
+ * workspaces first. This instance reads its own lists from disk; the others
+ * come from the workspace registry, where each instance records them
+ * whenever it reads them (see instances.ts). Stopped workspaces are listed too — the
+ * palette starts them on the way to the agent.
+ */
+
+export interface WorkspaceAgents {
+  name: string;
+  icon?: string;
+  /** Where the workspace's UI lives — hits link to `${url}/#/agents/<slug>`. */
+  url: string;
+  /** Project root (what /api/projects/start takes for a stopped workspace). */
+  root?: string;
+  /** The instance answering this request: hits navigate in place. */
+  current: boolean;
+  live: boolean;
+  agents: AgentSummary[];
+  channels: ChannelSummary[];
+  /** Projects that are not archived; empty when the feature is off. */
+  projects: ProjectHit[];
+}
+
+export interface AgentSearch {
+  workspaces: WorkspaceAgents[];
+}
+
+export async function searchAgents(): Promise<AgentSearch> {
+  const project = await resolveWorkspace(workspaceRoot()).catch(() => null);
+  const self: WorkspaceAgents = {
+    name: project?.config.name ?? path.basename(project?.root ?? workspaceRoot()),
+    icon: project?.config.icon || undefined,
+    url: currentInstanceUrl() ?? "",
+    root: project?.root ?? workspaceRoot(),
+    current: true,
+    live: true,
+    agents: (await listAgents().catch(() => [])).filter((a) => !a.archived).map(toSummary),
+    channels: (await listChannels().catch(() => [])).map(toChannelSummary),
+    projects: (await listProjects().catch(() => ({ projects: [] }))).projects.filter((p) => p.status !== "archived").map(toProjectHit),
+  };
+  const [workspaces, known] = await Promise.all([discoverWorkspaces(), listWorkspaceRecords()]);
+  const records = new Map(known.map((p) => [p.root, p]));
+  const others = workspaces
+    .filter((w) => w.root && w.exists !== false)
+    .map((w): WorkspaceAgents => ({
+      name: w.name,
+      icon: w.icon,
+      url: w.url,
+      root: w.root,
+      current: false,
+      live: w.live,
+      agents: records.get(w.root!)?.agents ?? [],
+      channels: records.get(w.root!)?.channels ?? [],
+      projects: records.get(w.root!)?.projects ?? [],
+    }));
+  return { workspaces: [self, ...others] };
+}

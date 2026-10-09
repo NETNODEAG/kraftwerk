@@ -5,7 +5,7 @@ import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { GitStatus } from "../../src/inspector/git.js";
+import type { GitStatus } from "../../src/core/git.js";
 
 /**
  * The reason the feature exists: two people, one repo. A bare repo on disk

@@ -46,5 +46,7 @@ export { runCli } from "./cli.js";
 export { loadWorkflow, loadWorkflowYaml, missingEnv, type LoadedWorkflow } from "./yaml.js";
 export { discoverWorkflows, findWorkflowsRoot, type DiscoveredWorkflow } from "./discover.js";
 export { validateWorkflows } from "./validate.js";
-export { resolveProject, SCHEMA_URL, type Project, type ProjectConfig } from "./config.js";
+export { resolveWorkspace, SCHEMA_URL, type ResolvedWorkspace, type WorkspaceConfig } from "./config.js";
+// Pre-0.64 names, kept for library users.
+export { resolveProject, type Project, type ProjectConfig } from "./config.js";
 export { isRemoteSpec, resolveRemote, type RemoteSource } from "./remote.js";

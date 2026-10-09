@@ -114,6 +114,11 @@ export function createLive(opts: LiveOptions): Live {
     s.onEvent(data);
   };
 
+  // Over the socket the server pushes after a change; while polling, this client's own change re-polls at once.
+  const stopOnChange = client.onChange(() => {
+    if (!connected) for (const key of watches.keys()) poll(key);
+  });
+
   /* ---------- the socket ---------- */
 
   const resume = () => {
@@ -203,6 +208,7 @@ export function createLive(opts: LiveOptions): Live {
     },
     close() {
       closed = true;
+      stopOnChange();
       clearTimeout(retry);
       socket?.close();
       for (const w of watches.values()) clearTimeout(w.timer);

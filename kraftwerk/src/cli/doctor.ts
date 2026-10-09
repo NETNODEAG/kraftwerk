@@ -2,16 +2,18 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { cloudFor, ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveProject, tunnelFor } from "../config.js";
+import { cloudFor, ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveWorkspace, tunnelFor } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
+import { legacyFindings, versionLt } from "./doctor-legacy.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
  * harness CLIs installed that the discovered workflows actually need, is
  * docker there for --sandbox, are the workflows valid, are declared env
- * vars set. One failed hard check → exit 1.
+ * vars set, and what older kraftwerk versions left behind (legacy). One
+ * failed hard check → exit 1; legacy findings never fail it.
  */
 
 type Level = "ok" | "warn" | "fail" | "info";
@@ -25,16 +27,6 @@ const ICONS: Record<Level, string> = {
 
 function report(level: Level, label: string, detail?: string): void {
   console.log(`${ICONS[level]} ${label}${detail ? chalk.dim(` — ${detail}`) : ""}`);
-}
-
-/** True if a < b for plain x.y.z versions (prerelease tags ignored). */
-function semverLt(a: string, b: string): boolean {
-  const pa = a.split("-")[0].split(".").map(Number);
-  const pb = b.split("-")[0].split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0);
-  }
-  return false;
 }
 
 /** Latest published version from the npm registry, or undefined if unreachable. */
@@ -75,17 +67,17 @@ export async function runDoctor(cwd: string): Promise<void> {
   const latest = await latestNpmVersion(pkg.name);
   if (!latest) {
     report("info", `kraftwerk ${pkg.version}`, "could not reach npm registry to check for updates");
-  } else if (semverLt(pkg.version, latest)) {
+  } else if (versionLt(pkg.version, latest)) {
     report("warn", `kraftwerk ${pkg.version}`, `${latest} available — npm i -g ${pkg.name}@latest`);
   } else {
     report("ok", `kraftwerk ${pkg.version}`, latest === pkg.version ? "latest on npm" : `ahead of npm (latest: ${latest})`);
   }
 
-  // Project. resolveProject throws on a malformed kraftwerk.yml (bad YAML,
+  // Project. resolveWorkspace throws on a malformed kraftwerk.yml (bad YAML,
   // non-mapping, unknown keys, non-string values) — surface that as a check.
   let project;
   try {
-    project = await resolveProject(cwd);
+    project = await resolveWorkspace(cwd);
   } catch (err) {
     report("fail", "kraftwerk.yml invalid", (err as Error).message.split("\n")[0]);
     console.log(chalk.red("\n1 problem(s) found."));
@@ -231,6 +223,9 @@ export async function runDoctor(cwd: string): Promise<void> {
     if (missing.length === 0) report("ok", `${e.workflow!.name}: requires satisfied`, requires.join(", "));
     else report("warn", `${e.workflow!.name}: env missing`, missing.join(", "));
   }
+
+  // Legacy: what older versions left behind, and what still runs or is installed at one.
+  for (const f of await legacyFindings(project, pkg.version)) report(f.level, f.label, f.detail);
 
   if (failures > 0) {
     console.log(chalk.red(`\n${failures} problem(s) found.`));

@@ -4,10 +4,10 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { FilesListing, FilesScopeInfo } from "../../src/inspector/files.js";
-import type { TrashEntry } from "../../src/inspector/trash.js";
-import { projectContext } from "../../src/inspector/projects.js";
-import { agentFilesContext } from "../../src/inspector/chat/sessions.js";
+import type { FilesListing, FilesScopeInfo } from "../../src/core/files.js";
+import type { TrashEntry } from "../../src/core/trash.js";
+import { projectContext } from "../../src/core/projects.js";
+import { agentFilesContext } from "../../src/core/chat/sessions.js";
 
 /**
  * Files over the HTTP API: the workspace root and a project's own root,

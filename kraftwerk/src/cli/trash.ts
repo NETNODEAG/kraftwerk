@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import Table from "cli-table3";
 import type { Command } from "commander";
-import { emptyTrash, listTrash, purgeFromTrash, restoreFromTrash, trashRoot } from "../inspector/trash.js";
+import { emptyTrash, listTrash, purgeFromTrash, restoreFromTrash, trashRoot } from "../core/trash.js";
 import { fmtAgo } from "./workspaces.js";
 import { initContext as prepare } from "./routines.js";
 

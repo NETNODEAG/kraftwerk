@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
-import { resolveProject } from "../config.js";
+import { resolveWorkspace } from "../config.js";
 import {
   fsck,
   getConcept,
@@ -17,7 +17,7 @@ import {
   type ConceptInfo,
   type ValidationIssue,
 } from "../okf.js";
-import { deleteBundle } from "../inspector/knowledge.js";
+import { deleteBundle } from "../core/knowledge.js";
 import { initContext as prepare } from "./routines.js";
 
 /**
@@ -37,7 +37,7 @@ const actorOf = (opts: { actor?: string }): string =>
   opts.actor?.trim() || process.env.KRAFTWERK_ACTOR?.trim() || DEFAULT_ACTOR;
 
 async function root(): Promise<string> {
-  const project = await resolveProject(process.cwd());
+  const project = await resolveWorkspace(process.cwd());
   return knowledgeRoot(project.root, project.config.knowledge);
 }
 

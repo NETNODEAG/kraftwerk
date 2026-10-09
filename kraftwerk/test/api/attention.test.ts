@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { AttentionItem } from "../../src/inspector/attention.js";
-import type { NotificationsView } from "../../src/inspector/notifications.js";
-import type { AgentStatus } from "../../src/inspector/agent-status.js";
+import type { AttentionItem } from "../../src/core/attention.js";
+import type { NotificationsView } from "../../src/core/notifications.js";
+import type { AgentStatus } from "../../src/core/agent-status.js";
 
 /**
  * What needs you, with real waiting requests: the adapter is replaced by a
@@ -48,7 +48,7 @@ describe("attention API", () => {
   after(async () => {
     delete process.env.KRAFTWERK_ACP_ADAPTER;
     // The fake agents are child processes: stop them, or the test process stays alive.
-    const { disposeAllBackends } = await import("../../src/inspector/chat/sessions.js");
+    const { disposeAllBackends } = await import("../../src/core/chat/sessions.js");
     await disposeAllBackends();
     await srv.close();
     await fx.cleanup();
@@ -104,7 +104,7 @@ describe("attention API", () => {
   });
 
   it("an unread failure needs you until it is read", async () => {
-    const { pushNotification } = await import("../../src/inspector/notifications.js");
+    const { pushNotification } = await import("../../src/core/notifications.js");
     const n = await pushNotification({
       kind: "routine_failed",
       title: "🦊 Lisa · ⏰ Morning brief failed",

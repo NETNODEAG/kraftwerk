@@ -10,7 +10,7 @@ import {
   stopWorkspace,
   tildify,
   type WorkspaceEntry,
-} from "../inspector/instances.js";
+} from "../core/instances.js";
 
 /**
  * `kraftwerk workspaces` — every workspace that ever ran the inspector on this

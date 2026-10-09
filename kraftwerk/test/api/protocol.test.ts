@@ -1,7 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { ApiResult } from "../../src/inspector/api/index.js";
+import type { ApiResult } from "../../src/server/api/index.js";
 
 /**
  * The control plane's contract: GET /api/protocol names every route with
@@ -162,9 +162,21 @@ describe("protocol", () => {
     );
   });
 
+  it("publishes each JSON body's shape as JSON Schema, for clients without the TypeScript types", async () => {
+    const body = (await (await fetch(srv.url + "/api/protocol")).json()) as ApiResult<"protocol.get">;
+    const log = body.routes.find((r) => r.name === "projects.log");
+    assert.deepEqual(log?.body, {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: { entry: { type: "string" }, actor: { default: "human:user", type: "string" } },
+      required: ["entry"],
+    });
+    assert.equal(body.routes.find((r) => r.name === "projects.list")?.body, undefined, "a GET has no body");
+  });
+
   it("a route's result type is the handler's: meta.get is typed end to end", async () => {
     const meta = (await (await fetch(srv.url + "/api/meta")).json()) as ApiResult<"meta.get">;
     assert.equal(typeof meta.version, "string");
-    assert.equal(meta.projectRoot.length > 0, true);
+    assert.equal(meta.workspaceRoot.length > 0, true);
   });
 });

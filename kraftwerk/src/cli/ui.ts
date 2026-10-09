@@ -4,16 +4,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
-import { absolutePath, publicUrlFor, resolveProject } from "../config.js";
+import { absolutePath, publicUrlFor, resolveWorkspace } from "../config.js";
 import { startTunnel } from "./tunnel.js";
-import { selfCommand } from "../inspector/self-command.js";
-import { RESTART_EXIT_CODE, startInspector } from "../inspector/server.js";
+import { selfCommand } from "../core/self-command.js";
+import { RESTART_EXIT_CODE, startInspector } from "../server/server.js";
 
 /**
  * `kraftwerk ui` — start the inspector web UI pointed at the current
  * project's output dir. The server is dependency-free node:http (part of
  * this package); the frontend is a prebuilt Vite bundle shipped in
- * inspector/dist. Nothing to install at runtime — the server starts
+ * web/dist. Nothing to install at runtime — the server starts
  * instantly and runs in the foreground until Ctrl-C.
  *
  * The command is a thin supervisor: the actual server runs as a child
@@ -27,26 +27,26 @@ const packageRoot = (): string =>
   path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 /**
- * Published packages ship inspector/dist. A dev checkout builds it on
- * first use (and after frontend edits: `npm run build` in inspector/).
+ * Published packages ship web/dist. A dev checkout builds it on
+ * first use (and after frontend edits: `npm run build` in web/).
  */
 function ensureBuilt(): string {
-  const inspector = path.join(packageRoot(), "inspector");
-  const dist = path.join(inspector, "dist");
+  const web = path.join(packageRoot(), "web");
+  const dist = path.join(web, "dist");
   if (existsSync(path.join(dist, "index.html"))) return dist;
 
-  if (!existsSync(path.join(inspector, "src"))) {
+  if (!existsSync(path.join(web, "src"))) {
     console.error(chalk.red(`Inspector assets missing at ${dist} — broken install?`));
     process.exit(1);
   }
   console.log(chalk.dim("Building the inspector frontend (first use in this checkout) ..."));
   for (const args of [
-    ...(existsSync(path.join(inspector, "node_modules")) ? [] : [["install", "--no-fund", "--no-audit"]]),
+    ...(existsSync(path.join(web, "node_modules")) ? [] : [["install", "--no-fund", "--no-audit"]]),
     ["run", "build"],
   ]) {
-    const r = spawnSync("npm", args, { cwd: inspector, stdio: "inherit" });
+    const r = spawnSync("npm", args, { cwd: web, stdio: "inherit" });
     if (r.status !== 0) {
-      console.error(chalk.red(`npm ${args.join(" ")} failed in inspector/.`));
+      console.error(chalk.red(`npm ${args.join(" ")} failed in web/.`));
       process.exit(1);
     }
   }
@@ -57,12 +57,12 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
   if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(cwd, opts);
 
   const staticDir = ensureBuilt();
-  const project = await resolveProject(cwd);
+  const project = await resolveWorkspace(cwd);
   const outputDir = opts.output ? absolutePath(opts.output, cwd) : project.outputDir;
   // Port precedence: --port flag > kraftwerk.yml `port` > 1981.
   const port = opts.port ? Number(opts.port) : (project.config.port ?? 1981);
 
-  await startInspector({ outputDir, staticDir, port, projectRoot: project.root });
+  await startInspector({ outputDir, staticDir, port, root: project.root });
   console.log(
     `${chalk.green("✔")} Kraftwerk UI: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
@@ -88,7 +88,7 @@ async function superviseUi(cwd: string, opts: { port?: string; output?: string }
   ]);
   // The tunnel lives with the supervisor, not the server: a self-restart
   // (new version) swaps the server process and the tunnel stays up.
-  const project = await resolveProject(cwd).catch(() => null);
+  const project = await resolveWorkspace(cwd).catch(() => null);
   const tunnel = project ? startTunnel(project, opts.port ? Number(opts.port) : (project.config.port ?? 1981)) : undefined;
   for (;;) {
     const child = spawn(cmd, args, {

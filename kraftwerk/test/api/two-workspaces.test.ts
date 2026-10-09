@@ -35,8 +35,8 @@ describe("two workspaces in one process", () => {
   });
 
   it("each server answers for its own root", async () => {
-    assert.equal((await get<{ projectRoot: string }>(srvA, "/api/meta")).projectRoot, a.root);
-    assert.equal((await get<{ projectRoot: string }>(srvB, "/api/meta")).projectRoot, b.root);
+    assert.equal((await get<{ workspaceRoot: string }>(srvA, "/api/meta")).workspaceRoot, a.root);
+    assert.equal((await get<{ workspaceRoot: string }>(srvB, "/api/meta")).workspaceRoot, b.root);
   });
 
   it("each server keeps its own gate: B starting does not lift A's Access check", async () => {

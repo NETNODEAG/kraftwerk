@@ -1,0 +1,119 @@
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { mkdirSync, openSync, closeSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { workspaceRoot } from "./context.js";
+import { perWorkspace } from "./workspace.js";
+import { RUN_ID_RE, getRun, safeRunDir } from "./runs.js";
+import { pushNotification } from "./notifications.js";
+import { newRunId } from "../workflow.js";
+
+/**
+ * Workflow trigger for the web UI. The inspector stays decoupled from the
+ * framework runtime: it shells out to `npx kraftwerk run` in the consumer
+ * project, detached, with a pre-chosen --run-id so the browser can jump to
+ * /runs/<id> immediately and watch the (already polling) live timeline.
+ *
+ * Sandbox mode adds --sandbox: one Docker container per run, workflow
+ * mounted read-only, run dir bind-mounted back into output/ (see
+ * kraftwerk/src/runner/docker.ts).
+ */
+
+export function dockerStatus(): { available: boolean; image: boolean } {
+  const daemon = spawnSync("docker", ["version", "--format", "ok"], {
+    stdio: "ignore",
+    timeout: 8000,
+  });
+  if (daemon.status !== 0) return { available: false, image: false };
+  const image = spawnSync("docker", ["image", "inspect", "kraftwerk-runner"], {
+    stdio: "ignore",
+    timeout: 8000,
+  });
+  return { available: true, image: image.status === 0 };
+}
+
+/** Launchers this inspector started and that have not exited yet, by run id. */
+const launchers = perWorkspace(() => new Map<string, ChildProcess>());
+
+export function triggerRun(opts: {
+  workflowName: string;
+  request: string;
+  sandbox: boolean;
+  ssh: boolean;
+}): { runId: string } {
+  if (opts.sandbox) {
+    const docker = dockerStatus();
+    if (!docker.available) throw new Error("Docker daemon not reachable — start Docker first.");
+    if (!docker.image) throw new Error('Image "kraftwerk-runner" missing — run `kraftwerk runner build`.');
+  }
+
+  const runId = newRunId(opts.workflowName);
+  // Matches the CLI's --run-id resolution: <output dir>/runs/<id>.
+  const runDir = safeRunDir(runId);
+  mkdirSync(runDir, { recursive: true });
+  const log = openSync(path.join(runDir, "trigger.log"), "a");
+
+  const args = ["kraftwerk", "run", "--yes", "--run-id", runId];
+  if (opts.sandbox) args.push("--sandbox");
+  if (opts.ssh) args.push("--ssh");
+  args.push(opts.workflowName, opts.request);
+
+  const child = spawn("npx", args, {
+    cwd: workspaceRoot(),
+    detached: true,
+    stdio: ["ignore", log, log],
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
+  child.unref();
+  closeSync(log);
+  launchers().set(runId, child);
+  // Detached, but as long as the inspector lives it still hears the exit:
+  // that is when the run's outcome goes to the bell (read from the trace,
+  // the exit code alone does not say whether a gate blocked). The exit
+  // code also lands in trigger.json, so a launcher that died before the
+  // framework wrote a trace (missing env var, npx failure) shows as failed
+  // instead of running until the stale timeout.
+  child.on("exit", (code, signal) => {
+    launchers().delete(runId);
+    try {
+      writeFileSync(
+        path.join(runDir, "trigger.json"),
+        JSON.stringify({ exitCode: code ?? 1, signal, finishedAt: new Date().toISOString() }, null, 2) + "\n"
+      );
+    } catch {
+      /* run dir removed meanwhile */
+    }
+    void getRun(runId)
+      .then((run) => {
+        const ok = run?.status === "ok";
+        const lastSummary = run?.phases.filter((p) => p.summary).at(-1)?.summary;
+        return pushNotification({
+          kind: ok ? "run_done" : "run_failed",
+          title: `${opts.workflowName} run ${ok ? "finished" : (run?.status ?? "failed")}`,
+          body: lastSummary ?? opts.request,
+          href: `/runs/${runId}`,
+          ...(ok ? {} : { diagnose: { kind: "run" as const, runId } }),
+        });
+      })
+      .catch(() => {});
+  });
+  return { runId };
+}
+
+export function stopRun(runId: string): boolean {
+  if (!RUN_ID_RE.test(runId)) return false;
+  // A local run this inspector launched: the launcher is detached into its
+  // own process group, so the negative pid ends npx and the framework under it.
+  const child = launchers().get(runId);
+  if (child?.pid && child.exitCode == null) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+      return true;
+    } catch {
+      /* group already gone — fall through to docker */
+    }
+  }
+  // Sandboxed runs run in container kw-<runId>; docker stop ends them.
+  return (
+    spawnSync("docker", ["stop", `kw-${runId}`], { stdio: "ignore", timeout: 30_000 }).status === 0
+  );
+}
