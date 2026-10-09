@@ -70,6 +70,13 @@ export interface ClientOptions {
   /** Where the server is; "" (the default) is the page's own origin. */
   baseUrl?: string;
   fetch?: typeof fetch;
+  /**
+   * A paired device's token (from `devices.pair`), sent as `Authorization:
+   * Bearer`. A browser needs none: pairing sets an HttpOnly cookie.
+   */
+  token?: string;
+  /** Called when the server says this device is not paired (401 `{pair: true}`) — show the pairing screen. */
+  onUnauthorized?: () => void;
 }
 
 export interface Client {
@@ -79,6 +86,8 @@ export interface Client {
   url<N extends ApiName>(name: N, ...input: InputArg<N>): string;
   /** Called after every change this client made (a non-GET route that went through). */
   onChange(fn: () => void): () => void;
+  /** The token the client was created with, if any (the socket sends it too). */
+  readonly token?: string;
 }
 
 export function createClient(opts: ClientOptions = {}): Client {
@@ -108,7 +117,11 @@ export function createClient(opts: ClientOptions = {}): Client {
       cache: "no-store",
       signal,
       keepalive,
-      headers: { ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}), ...headers },
+      headers: {
+        ...(body !== undefined && !raw ? { "content-type": "application/json" } : {}),
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        ...headers,
+      },
       body: body === undefined ? undefined : raw ? (body as BodyInit) : JSON.stringify(body),
     });
     const text = await res.text();
@@ -117,10 +130,12 @@ export function createClient(opts: ClientOptions = {}): Client {
       data = text ? JSON.parse(text) : undefined;
     } catch {}
     if (res.ok && method !== "GET") for (const fn of changeFns) fn();
+    if (res.status === 401 && (data as { pair?: unknown } | undefined)?.pair === true) opts.onUnauthorized?.();
     return res.ok ? { ok: true, status: res.status, data } : { ok: false, status: res.status, data, error: errorOf(data) };
   };
 
   return {
+    token: opts.token,
     onChange(fn) {
       changeFns.add(fn);
       return () => changeFns.delete(fn);

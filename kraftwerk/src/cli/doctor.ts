@@ -2,11 +2,12 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { cloudFor, ignoreEntryFor, isDir, publicHostFor, reposRootFor, resolveWorkspace, tunnelFor } from "../config.js";
+import { cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
 import { legacyFindings, versionLt } from "./doctor-legacy.js";
+import { listDevices } from "../core/devices.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -92,7 +93,7 @@ export async function runDoctor(cwd: string): Promise<void> {
   } else {
     const cfg = project.config as Record<string, unknown>;
     const keys = Object.keys(cfg);
-    // Blocks (git, repos, vibeables, projects, tunnel) print as their keys, not [object Object].
+    // Blocks (git, repos, vibeables, projects, cloud) print as their keys, not [object Object].
     const show = (v: unknown): string =>
       typeof v === "object" && v !== null
         ? Array.isArray(v)
@@ -125,7 +126,7 @@ export async function runDoctor(cwd: string): Promise<void> {
     const names = [...dotenv.applied, ...dotenv.kept.map((k) => `${k} (shell wins)`)];
     report("ok", `${DOTENV_FILE}: ${names.length} variable(s) loaded`, names.join(", ") || "empty");
   } else {
-    report("info", `no ${DOTENV_FILE}`, "variables for agents, workflows and the tunnel can live there — loaded on every start and restart");
+    report("info", `no ${DOTENV_FILE}`, "variables for agents and workflows can live there — loaded on every start and restart");
   }
 
   // Repositories: the clones root must stay out of the workspace git. git
@@ -140,28 +141,6 @@ export async function runDoctor(cwd: string): Promise<void> {
     else if (check.status === 0) report("ok", label, "git-ignored");
     else if (check.status === 1) report("warn", label, `${entry}/ is not git-ignored — clones would show up as untracked gitlinks; add it to .gitignore`);
     else report("ok", label, "not inside a git repository");
-  }
-
-  // Public hostname + Cloudflare Tunnel. The UI has no login of its own, so
-  // a tunnel without Access verification is worth a warning every time.
-  const publicHost = publicHostFor(project);
-  const tunnel = tunnelFor(project);
-  if (publicHost && !tunnel) report("info", `public: ${publicHost}`, "served when a tunnel or reverse proxy delivers that Host");
-  if (tunnel) {
-    const cloudflared = cliVersion("cloudflared");
-    if (cloudflared) report("ok", `cloudflared`, cloudflared);
-    else {
-      report("fail", "cloudflared missing", "needed by tunnel: — brew install cloudflared (or see developers.cloudflare.com)");
-      failures++;
-    }
-    if (tunnel.name) report("ok", `tunnel: ${tunnel.name} → ${publicHost}`, `cloudflared tunnel run --url http://127.0.0.1:${project.config.port ?? 1981} ${tunnel.name}`);
-    else if (process.env.TUNNEL_TOKEN) report("ok", `tunnel: dashboard-managed → ${publicHost}`, "TUNNEL_TOKEN is set");
-    else {
-      report("fail", "tunnel: nothing to run", "set tunnel.name (locally-managed) or the TUNNEL_TOKEN env var (dashboard-managed)");
-      failures++;
-    }
-    if (tunnel.access) report("ok", "tunnel.access", `tokens verified against ${tunnel.access.team}.cloudflareaccess.com`);
-    else report("warn", "tunnel without access", "the UI has no login of its own — put a Cloudflare Access policy on the hostname and set tunnel.access so a removed policy fails closed");
   }
 
   // Cloud manager: registration is best-effort at runtime, so doctor only says what would happen.
@@ -223,6 +202,12 @@ export async function runDoctor(cwd: string): Promise<void> {
     if (missing.length === 0) report("ok", `${e.workflow!.name}: requires satisfied`, requires.join(", "));
     else report("warn", `${e.workflow!.name}: env missing`, missing.join(", "));
   }
+
+  // Devices: who may use this machine's kraftwerk from elsewhere.
+  const devices = await listDevices();
+  if (process.env.KRAFTWERK_UI_TRUST_NETWORK === "1")
+    report("warn", "KRAFTWERK_UI_TRUST_NETWORK=1", "anyone who reaches the UI over the network uses it without pairing — unset it and pair devices instead (`kraftwerk devices pair`)");
+  report("info", devices.length ? `${devices.length} paired device(s)` : "no paired devices", devices.length ? devices.map((d) => d.name).join(", ") : "a phone or another computer can use kraftwerk once paired: `kraftwerk ui --lan`, then `kraftwerk devices pair`");
 
   // Legacy: what older versions left behind, and what still runs or is installed at one.
   for (const f of await legacyFindings(project, pkg.version)) report(f.level, f.label, f.detail);

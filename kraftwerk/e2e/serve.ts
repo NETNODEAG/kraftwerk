@@ -28,4 +28,6 @@ process.env.KRAFTWERK_ACP_ADAPTER = path.join(here, "../test/helpers/fake-acp-ag
 const { startInspector } = await import("../src/server/server.js");
 const port = Number(process.env.E2E_PORT || 19981);
 await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port, root: fx.root });
-console.log(`e2e inspector on http://127.0.0.1:${port} for ${fx.root}`);
+// The same workspace as a device on the network sees it: nothing without pairing (devices.spec.ts).
+await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port: port + 1, root: fx.root, trustLoopback: false });
+console.log(`e2e inspector on http://127.0.0.1:${port} (and as a remote device sees it: ${port + 1}) for ${fx.root}`);

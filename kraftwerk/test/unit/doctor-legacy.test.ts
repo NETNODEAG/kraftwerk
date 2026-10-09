@@ -12,7 +12,8 @@ import type { ResolvedWorkspace } from "../../src/config.js";
  * `kraftwerk doctor`'s legacy checks, each from a real leftover in a temp
  * home: a server answering with an older version, two installs on PATH at
  * different versions, the pre-0.49 registry folder, a pre-0.36 chat and a
- * run in the old location — and a clean setup that reports nothing.
+ * run in the old location, public:/tunnel: keys in kraftwerk.yml — and a
+ * clean setup that reports nothing.
  */
 describe("doctor legacy checks", () => {
   let base = "";
@@ -73,6 +74,14 @@ describe("doctor legacy checks", () => {
     assert.ok(byLabel(/1 chat\(s\) in the pre-0\.36 format/));
     assert.ok(byLabel(/1 run\(s\) in the old location/));
     assert.ok(!found.some((f) => f.label === "no legacy leftovers"));
+  });
+
+  it("names the public:/tunnel: keys the config loader ignored", async () => {
+    const { legacyFindings } = await import("../../src/cli/doctor-legacy.js");
+    const found = (await legacyFindings({ ...ws(), legacyKeys: ["public", "tunnel"] }, "0.64.0")).find((f) => f.label === "kraftwerk.yml still has public:/tunnel:");
+    assert.equal(found?.level, "info");
+    assert.match(found?.detail ?? "", /public:, tunnel: — the Cloudflare Tunnel was removed in 0\.65 and these keys are ignored; delete them/);
+    assert.ok(!(await legacy()).some((f) => f.label === "kraftwerk.yml still has public:/tunnel:"), "not without legacy keys");
   });
 
   it("only reads: a registered server that does not answer keeps its record", async () => {

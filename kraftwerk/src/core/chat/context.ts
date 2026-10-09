@@ -412,7 +412,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
  * Every chat renders in the inspector UI, so agents should know two things:
  * replies are markdown, and run artifacts are addressable over the
  * inspector's own file endpoint (relative URLs keep working wherever the
- * inspector is reachable — localhost, LAN, tunnel).
+ * inspector is reachable — localhost, LAN, a reverse proxy).
  */
 const RENDERING_BLOCK =
   `## Chat rendering\n` +

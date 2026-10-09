@@ -70,7 +70,8 @@ export interface RunningServer {
  * swapped before the server module loads, because the registry paths are
  * resolved at import time.
  */
-export async function startServer(fx: Fixture): Promise<RunningServer> {
+/** `trustLoopback: false`: this machine's requests count as remote — what a phone sees (pairing, tokens). */
+export async function startServer(fx: Fixture, opts: { trustLoopback?: boolean } = {}): Promise<RunningServer> {
   process.env.HOME = fx.home;
   // The cloud is on by default; a fixture must never register with the real one. A test that wants the client sets its own URL first.
   process.env.KRAFTWERK_CLOUD_URL ??= "off";
@@ -80,6 +81,7 @@ export async function startServer(fx: Fixture): Promise<RunningServer> {
     staticDir: fx.root,
     port: 0,
     root: fx.root,
+    ...(opts.trustLoopback === false ? { trustLoopback: false } : {}),
   });
   const { port } = server.address() as AddressInfo;
   return {

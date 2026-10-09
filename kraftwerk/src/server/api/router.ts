@@ -1,6 +1,7 @@
 import type http from "node:http";
 import * as z from "zod";
 import { touch } from "../live.js";
+import type { Trust } from "../trust.js";
 
 /**
  * The API's routing: every endpoint is one named route — an RPC-style name
@@ -28,13 +29,15 @@ export interface Ctx<B = Record<string, unknown>> {
   query: URLSearchParams;
   /** The JSON body (parsed by the route's schema when it has one); an empty body is `{}`, malformed JSON a 400. Read once. */
   body<T = B>(): Promise<T>;
+  /** Who is asking (see trust.ts). */
+  trust: Trust;
 }
 
-/** A result with a status other than 200 (201 created, 409 with a body, …). */
+/** A result with a status other than 200 (201 created, 409 with a body, …), and headers for HTTP (a cookie); the socket ignores them. */
 export class Reply<B> {
-  constructor(readonly status: number, readonly body: B) {}
+  constructor(readonly status: number, readonly body: B, readonly headers: Record<string, string> = {}) {}
 }
-export const reply = <B>(status: number, body: B): Reply<B> => new Reply(status, body);
+export const reply = <B>(status: number, body: B, headers?: Record<string, string>): Reply<B> => new Reply(status, body, headers);
 
 /** A refusal with a status; the body is `{error}` unless given. */
 export class ApiError extends Error {
@@ -60,6 +63,12 @@ export interface RouteDef<N extends string, P extends string = string, S extends
   upload?: boolean;
   /** The JSON body's schema: validated before the handler, typed for clients. */
   body?: S;
+  /**
+   * Who may call it. Default: anyone trusted (this machine, a paired
+   * device). `public`: also unpaired callers (pairing, the protocol).
+   * `local`: this machine only (managing devices).
+   */
+  access?: "public" | "local";
 }
 
 /** What `c.body()` returns: the schema's output, else a loose object. */
@@ -107,12 +116,22 @@ interface Compiled {
 
 export interface Router {
   routes: readonly Route[];
-  handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void>;
+  handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, trust: Trust): Promise<void>;
   /**
    * Run a route by name without HTTP (the socket): path parameters by name,
    * `query` and `body` beside them. Raw and upload routes are refused.
    */
-  invoke(name: string, input: Record<string, unknown>): Promise<{ status: number; data: unknown }>;
+  invoke(name: string, input: Record<string, unknown>, trust: Trust): Promise<{ status: number; data: unknown }>;
+  /** Why `trust` may not call route `name` ({status, error}), or undefined when it may. */
+  allowed(name: string, trust: Trust): { status: number; error: string } | undefined;
+}
+
+/** Why a caller may not use a route, or undefined when it may. */
+function refusal(route: Route, trust: Trust): ApiError | undefined {
+  if (route.access === "public") return undefined;
+  if (trust.kind === "none") return new ApiError(401, "pair this device first", { error: "pair this device first", pair: true });
+  if (route.access === "local" && trust.kind !== "local") return new ApiError(403, "only on the machine kraftwerk runs on");
+  return undefined;
 }
 
 /** What a thrown error becomes: an ApiError's status and body, else the route's mapping. */
@@ -122,10 +141,10 @@ function failure(route: Route, err: unknown): { status: number; data: unknown } 
   return { status: typeof route.errors === "function" ? route.errors(message) : (route.errors ?? 500), data: { error: message } };
 }
 
-export function json(res: http.ServerResponse, body: unknown, status = 200): void {
+export function json(res: http.ServerResponse, body: unknown, status = 200, headers: Record<string, string> = {}): void {
   // A late error on an SSE response must not try to write headers again.
   if (res.headersSent) return void res.end();
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -195,11 +214,14 @@ export function createRouter(routes: readonly Route[]): Router {
 
   return {
     routes,
-    async handle(req, res, url) {
+    async handle(req, res, url, trust) {
       const seg = url.pathname.split("/").filter(Boolean);
       const found = match(req.method ?? "GET", seg);
-      if (!found) return json(res, { error: "not found" }, 404);
+      // An unpaired caller learns nothing about which routes exist.
+      if (!found) return trust.kind === "none" ? json(res, { error: "pair this device first", pair: true }, 401) : json(res, { error: "not found" }, 404);
       const { route } = found;
+      const refused = refusal(route, trust);
+      if (refused) return json(res, refused.body, refused.status);
       let bodyRead: Promise<unknown> | undefined;
       try {
         const params = Object.fromEntries(Object.entries(found.params).map(([k, v]) => [k, decode(v)]));
@@ -208,6 +230,7 @@ export function createRouter(routes: readonly Route[]): Router {
           res,
           url,
           params,
+          trust,
           query: url.searchParams,
           body: <T>() =>
             (bodyRead ??= readBody(req).then((raw) => {
@@ -224,16 +247,24 @@ export function createRouter(routes: readonly Route[]): Router {
         const result = await route.handle(c);
         if (route.method !== "GET") touch();
         if (route.raw) return;
-        if (result instanceof Reply) return json(res, result.body, result.status);
+        if (result instanceof Reply) return json(res, result.body, result.status, result.headers);
         return json(res, result);
       } catch (err) {
         const f = failure(route, err);
         return json(res, f.data, f.status);
       }
     },
-    async invoke(name, input) {
+    allowed(name, trust) {
+      const route = byName.get(name);
+      if (!route) return { status: 404, error: `no route ${name}` };
+      const refused = refusal(route, trust);
+      return refused ? { status: refused.status, error: refused.message } : undefined;
+    },
+    async invoke(name, input, trust) {
       const route = byName.get(name);
       if (!route) return { status: 404, data: { error: `no route ${name}` } };
+      const refused = refusal(route, trust);
+      if (refused) return { status: refused.status, data: refused.body };
       if (route.raw || route.upload) return { status: 400, data: { error: `${name} is HTTP only` } };
       try {
         const params: Record<string, string> = {};
@@ -248,6 +279,7 @@ export function createRouter(routes: readonly Route[]): Router {
           url: new URL(`http://invoke${route.path}`),
           params,
           query,
+          trust,
           body: async <T>() => validate(route, input.body ?? {}) as T,
         };
         const result = await route.handle(c);

@@ -1,9 +1,7 @@
-import { existsSync, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { setDefaultWorkspace, Workspace } from "../core/workspace.js";
-import { publicHostFor, resolveWorkspace, tunnelFor, type AccessConfig } from "../config.js";
-import { ACCESS_HEADER, verifyAccessToken } from "./access.js";
 import { cloudGoodbye, startCloudSync, stopCloudSync } from "./cloud.js";
 import { disposeAllBackends } from "../core/chat/sessions.js";
 import { markWorkspaceStopped, registerInstance, registerWorkspace, unregisterInstance } from "../core/instances.js";
@@ -17,6 +15,7 @@ import { acceptWebSocket } from "./ws.js";
 import { json } from "./api/router.js";
 import { MIME } from "./api/mime.js";
 import { getPkgVersion, RESTART_EXIT_CODE } from "./version.js";
+import { trustOf, type TrustOptions } from "./trust.js";
 
 export { RESTART_EXIT_CODE };
 
@@ -30,33 +29,7 @@ export { RESTART_EXIT_CODE };
 
 type Res = http.ServerResponse;
 
-/**
- * Interface to bind. Loopback by default: the UI is unauthenticated and its
- * chat runs coding agents against the repo, so it must not appear on the LAN
- * because someone started it on a laptop in a café. Inside a container the
- * default flips to all interfaces — loopback there would make the published
- * port unreachable while the in-container health check keeps passing, and
- * the port mapping (compose publishes to 127.0.0.1) is the boundary anyway.
- * KRAFTWERK_UI_HOST overrides either way.
- */
-const IN_CONTAINER = existsSync("/.dockerenv") || existsSync("/run/.containerenv");
-const INSPECTOR_HOST = process.env.KRAFTWERK_UI_HOST || (IN_CONTAINER ? "0.0.0.0" : "127.0.0.1");
-const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const LOOPBACK_BIND = LOOPBACK_NAMES.has(INSPECTOR_HOST);
-
-/** Who may reach one server: read from its workspace's kraftwerk.yml at start. */
-interface Gate {
-  /**
-   * The hostname from kraftwerk.yml `public`, when set: the name a tunnel or
-   * reverse proxy delivers as Host. A Cloudflare Tunnel forwards the
-   * browser's Host untouched and sets no X-Forwarded-Host, so without this
-   * the loopback bind would refuse every request that came through it. A
-   * rebinding page cannot exploit it: the name is one the operator owns.
-   */
-  publicHost: string;
-  /** Access verification for requests arriving via the public hostname (kraftwerk.yml `tunnel.access`). */
-  access?: AccessConfig;
-}
+import { IN_CONTAINER, INSPECTOR_HOST, LOOPBACK_BIND, LOOPBACK_NAMES } from "./bind.js";
 
 /**
  * Whether the Host header names this server. A loopback bind alone does not
@@ -73,38 +46,13 @@ interface Gate {
  * browser only sends it after a CORS preflight, which this server never
  * answers, and a form post cannot set headers at all.
  */
-function hostAllowed(req: http.IncomingMessage, { publicHost }: Gate): boolean {
+function hostAllowed(req: http.IncomingMessage): boolean {
   if (!LOOPBACK_BIND) return true;
   if (forwardedHost(req)) return true;
   const host = req.headers.host;
   if (!host) return true;
   const name = hostnameOf(host);
-  return LOOPBACK_NAMES.has(name) || name.endsWith(".localhost") || (!!publicHost && name === publicHost);
-}
-
-/** Whether the browser addressed the public hostname (directly or, via a proxy, in X-Forwarded-Host). */
-function viaPublicHost(req: http.IncomingMessage, { publicHost }: Gate): boolean {
-  if (!publicHost) return false;
-  const host = forwardedHost(req) || req.headers.host;
-  return !!host && hostnameOf(host) === publicHost;
-}
-
-/**
- * The Access gate: a request that arrived via the public hostname must
- * carry a valid Cloudflare Access token when `tunnel.access` is configured.
- * Requests addressed to a loopback name are the operator's own browser on
- * this machine and pass; bound to loopback, only the tunnel (or a local
- * proxy) can deliver the public name in the first place. Returns the reason
- * to refuse, or undefined to proceed.
- */
-async function accessRefusal(req: http.IncomingMessage, gate: Gate): Promise<string | undefined> {
-  const { access } = gate;
-  if (!access || !viaPublicHost(req, gate)) return undefined;
-  const raw = req.headers[ACCESS_HEADER];
-  const token = Array.isArray(raw) ? raw[0] : raw;
-  if (!token) return "Cloudflare Access token missing";
-  const result = await verifyAccessToken(token, access);
-  return result.ok ? undefined : `Cloudflare Access token refused: ${result.reason}`;
+  return LOOPBACK_NAMES.has(name) || name.endsWith(".localhost");
 }
 
 /** First X-Forwarded-Host value, or undefined when no proxy set one. */
@@ -182,16 +130,24 @@ export interface InspectorOptions {
   port: number;
   /** The workspace root (where kraftwerk.yml lives); defaults to the parent of outputDir. */
   root?: string;
+  /**
+   * A loopback peer is this machine and needs no token (default true).
+   * False makes every request pair first — tests, or a hardened setup
+   * behind a local reverse proxy that serves the network.
+   */
+  trustLoopback?: boolean;
 }
+
+/** Other peers count as this machine inside a container (the port mapping is the boundary) or when asked to — the behaviour before devices. */
+const TRUST_NETWORK = IN_CONTAINER || process.env.KRAFTWERK_UI_TRUST_NETWORK === "1";
+/** Every request pairs, this machine's too — behind a local reverse proxy that does not send X-Forwarded-* headers. */
+const REQUIRE_PAIRING = process.env.KRAFTWERK_UI_REQUIRE_PAIRING === "1";
 
 /** Start the server; resolves once it listens. Runs until the process ends. */
 export async function startInspector(opts: InspectorOptions): Promise<http.Server> {
   // Every request, timer and listener below runs in this workspace (see workspace.ts).
   const ws = setDefaultWorkspace(new Workspace({ outputDir: opts.outputDir, root: opts.root }));
-  // Read once: like the port, the public hostname takes effect on restart.
-  const project = await resolveWorkspace(ws.root).catch(() => null);
-  // This server's own: several servers in one process each guard their own workspace.
-  const gate: Gate = { publicHost: (project && publicHostFor(project)) ?? "", access: project ? tunnelFor(project)?.access : undefined };
+  const trustOpts: TrustOptions = { trustLoopback: opts.trustLoopback !== false && !REQUIRE_PAIRING, trustNetwork: TRUST_NETWORK };
   ws.run(() => {
     startRoutineScheduler();
     startGitSync();
@@ -219,16 +175,19 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
   const serve = async (req: http.IncomingMessage, res: Res): Promise<void> => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
-      if (!hostAllowed(req, gate)) return json(res, { error: "unexpected Host header" }, 421);
-      const refusal = await accessRefusal(req, gate);
-      if (refusal) return json(res, { error: refusal }, 401);
+      if (!hostAllowed(req)) return json(res, { error: "unexpected Host header" }, 421);
+      const trust = await trustOf(req, url, trustOpts);
       if (url.pathname.startsWith("/api/")) {
         const method = req.method ?? "GET";
         if (method !== "GET" && method !== "HEAD" && !sameOrigin(req)) json(res, { error: "cross-origin request refused" }, 403);
-        else await apiRouter.handle(req, res, url);
+        else await apiRouter.handle(req, res, url, trust);
       }
-      // /vibeables/<slug>/… is an app's own files, served for the preview pane.
-      else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) await serveVibeable(req, res, url);
+      // /vibeables/<slug>/… is an app's own files, served for the preview pane — workspace data, so not for unpaired callers.
+      else if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) {
+        if (trust.kind === "none") json(res, { error: "pair this device first", pair: true }, 401);
+        else await serveVibeable(req, res, url);
+      }
+      // The web UI's shell is public: an unpaired browser needs it to show the pairing screen.
       else await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);
@@ -236,19 +195,18 @@ export async function startInspector(opts: InspectorOptions): Promise<http.Serve
   };
   // WebSocket upgrades: the control plane's socket (/api/ws), and a vibeable's dev server (HMR).
   server.on("upgrade", (req, socket, head) => {
-    if (!hostAllowed(req, gate)) return void socket.destroy();
+    if (!hostAllowed(req)) return void socket.destroy();
     ws.run(() =>
-      accessRefusal(req, gate).then(
-        async (refusal) => {
-          if (refusal) return void socket.destroy();
-          if (new URL(req.url ?? "/", "http://localhost").pathname !== "/api/ws") return proxyUpgrade(req, socket, head);
-          // A socket is not covered by CORS: a page from another site could open one, so the Origin must be ours.
-          if (!sameOrigin(req)) return void socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
-          const conn = acceptWebSocket(req, socket, head);
-          if (conn) serveSocket(conn, ws, await getPkgVersion());
-        },
-        () => socket.destroy()
-      )
+      (async () => {
+        const url = new URL(req.url ?? "/", "http://localhost");
+        const trust = await trustOf(req, url, trustOpts, true);
+        if (trust.kind === "none") return void socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n");
+        if (url.pathname !== "/api/ws") return proxyUpgrade(req, socket, head);
+        // A socket is not covered by CORS: a page from another site could open one, so the Origin must be ours.
+        if (!sameOrigin(req)) return void socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
+        const conn = acceptWebSocket(req, socket, head);
+        if (conn) serveSocket(conn, ws, await getPkgVersion(), trust, () => trustOf(req, url, trustOpts, true));
+      })().catch(() => socket.destroy())
     );
   });
   return new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ApiRequestError, createClient, createLive, type ApiName, type ApiResponse, type ApiResult, type CallInput } from "../../src/client";
 
 /**
@@ -7,7 +7,29 @@ import { ApiRequestError, createClient, createLive, type ApiName, type ApiRespon
  * { slug })` — and never build /api URLs or call fetch themselves; the
  * result types are the server handlers' own.
  */
-export const api = createClient();
+/* ---------- pairing ---------- */
+
+let unpaired = false;
+const pairingListeners = new Set<() => void>();
+
+/** True once the server said this browser is not a paired device (on the network, not on its machine): show the pairing screen. */
+export function usePairingNeeded(): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      pairingListeners.add(fn);
+      return () => pairingListeners.delete(fn);
+    },
+    () => unpaired,
+  );
+}
+
+export const api = createClient({
+  onUnauthorized: () => {
+    if (unpaired) return;
+    unpaired = true;
+    for (const fn of pairingListeners) fn();
+  },
+});
 /** The page's one socket: watched results and event streams (see src/client/live.ts). */
 export const live = createLive({ client: api });
 export { ApiRequestError };

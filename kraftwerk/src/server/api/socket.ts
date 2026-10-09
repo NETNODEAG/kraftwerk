@@ -2,6 +2,7 @@ import { subscribeChat } from "../../core/chat/sessions.js";
 import { watch } from "../live.js";
 import { resolveVibeable, subscribeVibeable } from "../../core/vibeables.js";
 import type { Workspace } from "../../core/workspace.js";
+import type { Trust } from "../trust.js";
 import type { Socket } from "../ws.js";
 import { apiRouter, PROTOCOL_VERSION, routes } from "./index.js";
 
@@ -26,6 +27,7 @@ import { apiRouter, PROTOCOL_VERSION, routes } from "./index.js";
  */
 
 const DEFAULT_INTERVAL = 5000;
+
 const GET_ROUTES = new Set(routes.filter((r) => r.method === "GET" && !r.raw).map((r) => r.name as string));
 
 type Message = {
@@ -42,7 +44,16 @@ type Message = {
   unsub?: unknown;
 };
 
-export function serveSocket(conn: Socket, workspace: Workspace, version: string): void {
+/** A device's standing is re-checked this often while its socket is open (and before each of its messages). */
+const RECHECK_MS = 5_000;
+
+/**
+ * `recheck` re-derives the connection's trust (a device's token may have
+ * been revoked since it connected): a device whose answer is no longer
+ * `device` is disconnected at once (close code 4401).
+ */
+export function serveSocket(conn: Socket, workspace: Workspace, version: string, trust: Trust, recheck: () => Promise<Trust>): void {
+  const trustKey = trust.kind === "device" ? `device:${trust.device.id}` : trust.kind;
   const stops = new Map<string, () => void>();
   const send = (msg: unknown) => conn.send(JSON.stringify(msg));
   const stop = (key: string) => {
@@ -80,22 +91,25 @@ export function serveSocket(conn: Socket, workspace: Workspace, version: string)
 
   async function handle(msg: Message): Promise<void> {
     if (typeof msg.call === "string") {
-      const r = await apiRouter.invoke(msg.call, objectOf(msg.input));
+      const r = await apiRouter.invoke(msg.call, objectOf(msg.input), trust);
       return send({ id: msg.id, status: r.status, data: r.data });
     }
     if (typeof msg.watch === "string") {
       const key = msg.watch;
       const name = String(msg.name ?? "");
       if (!GET_ROUTES.has(name)) return send({ watch: key, error: `${name} cannot be watched` });
+      const refused = apiRouter.allowed(name, trust);
+      if (refused) return send({ watch: key, error: refused.error });
       const input = objectOf(msg.input);
       const interval = typeof msg.interval === "number" && msg.interval > 0 ? msg.interval : DEFAULT_INTERVAL;
       stop(key);
       stops.set(
         key,
         watch(
-          `${name} ${JSON.stringify(input)}`,
+          // Shared by callers of the same standing only: a result may depend on who asks (devices.self).
+          `${trustKey} ${name} ${JSON.stringify(input)}`,
           async () => {
-            const r = await apiRouter.invoke(name, input);
+            const r = await apiRouter.invoke(name, input, trust);
             return { ok: r.status < 300, data: r.data };
           },
           interval,
@@ -115,6 +129,17 @@ export function serveSocket(conn: Socket, workspace: Workspace, version: string)
     send({ id: msg.id, error: "unknown message" });
   }
 
+  /** Still the device that connected? Otherwise unpaired: drop the connection. */
+  const stillPaired = async (): Promise<boolean> => {
+    if (trust.kind !== "device") return true;
+    const now = await recheck().catch((): Trust => ({ kind: "none" }));
+    if (now.kind === "device" && now.device.id === trust.device.id) return true;
+    conn.close(4401, "unpaired");
+    return false;
+  };
+  const watchdog = trust.kind === "device" ? setInterval(() => void stillPaired(), RECHECK_MS) : undefined;
+  watchdog?.unref?.();
+
   conn.onMessage((text) => {
     let msg: Message;
     try {
@@ -122,10 +147,15 @@ export function serveSocket(conn: Socket, workspace: Workspace, version: string)
     } catch {
       return send({ error: "invalid JSON" });
     }
-    // Every message runs in the connection's workspace, whatever started the read.
-    void workspace.run(() => handle(msg)).catch((err: Error) => send({ id: msg.id, error: err.message }));
+    // Every message runs in the connection's workspace, whatever started the read; a revoked device's message runs nowhere.
+    void workspace
+      .run(async () => {
+        if (await stillPaired()) await handle(msg);
+      })
+      .catch((err: Error) => send({ id: msg.id, error: err.message }));
   });
   conn.onClose(() => {
+    clearInterval(watchdog);
     for (const fn of stops.values()) fn();
     stops.clear();
   });

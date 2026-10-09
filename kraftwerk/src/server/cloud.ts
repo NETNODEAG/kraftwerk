@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { cloudFor, publicUrlFor, resolveWorkspace } from "../config.js";
+import { cloudFor, resolveWorkspace } from "../config.js";
 import { workspaceRoot } from "../core/context.js";
 import { listAgents, toSummary } from "../core/agents.js";
 import { listChannels, toChannelSummary } from "../core/channels.js";
@@ -149,7 +149,8 @@ async function register(): Promise<boolean> {
     platform: `${process.platform}-${process.arch}`,
     version: selfVersion,
     url: `http://localhost:${selfPort}`,
-    publicUrl: publicUrlFor(project) ?? "",
+    // Part of the cloud's register contract; always "" since the Cloudflare Tunnel was removed (0.65).
+    publicUrl: "",
     agents,
     channels,
     interval: cloud.interval,

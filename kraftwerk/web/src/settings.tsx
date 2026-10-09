@@ -1,3 +1,4 @@
+import { DevicesPanel } from "./devices";
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Icon } from "./shared";
@@ -522,6 +523,7 @@ export function SettingsScreen() {
       </Panel>
 
       <CloudPanel />
+      <DevicesPanel />
 
       <Panel
         title="paths & port"

@@ -66,7 +66,8 @@ export function createLive(opts: LiveOptions): Live {
 
   const socketUrl = (): string => {
     const base = opts.baseUrl ?? (typeof location === "undefined" ? "" : location.origin);
-    return `${base.replace(/^http/, "ws").replace(/\/+$/, "")}/api/ws`;
+    // A browser's socket carries the device cookie; other runtimes cannot send headers on a WebSocket, so the token rides in the query.
+    return `${base.replace(/^http/, "ws").replace(/\/+$/, "")}/api/ws${client.token ? `?token=${encodeURIComponent(client.token)}` : ""}`;
   };
   const send = (msg: unknown) => {
     if (connected) socket?.send(JSON.stringify(msg));

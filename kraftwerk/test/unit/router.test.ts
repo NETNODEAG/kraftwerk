@@ -32,7 +32,7 @@ describe("api router", () => {
     ),
   ]);
   let base = "";
-  const server = http.createServer((req, res) => void router.handle(req, res, new URL(req.url ?? "/", "http://localhost")));
+  const server = http.createServer((req, res) => void router.handle(req, res, new URL(req.url ?? "/", "http://localhost"), { kind: "local" }));
   before(async () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -71,8 +71,8 @@ describe("api router", () => {
   });
 
   it("validates bodies of routes run without HTTP too (the socket)", async () => {
-    assert.deepEqual(await router.invoke("things.typed", { slug: "x", body: { title: "a", count: 5 } }), { status: 200, data: { title: "A", count: 5 } });
-    assert.equal((await router.invoke("things.typed", { slug: "x", body: { title: 1 } })).status, 400);
+    assert.deepEqual(await router.invoke("things.typed", { slug: "x", body: { title: "a", count: 5 } }, { kind: "local" }), { status: 200, data: { title: "A", count: 5 } });
+    assert.equal((await router.invoke("things.typed", { slug: "x", body: { title: 1 } }, { kind: "local" })).status, 400);
   });
 
   it("answers 404 for an unknown path or method", async () => {

@@ -7,7 +7,7 @@ import { dockerStatus, stopRun, triggerRun } from "../../core/runner.js";
 import { deleteRun, getRun, listRuns, readRunFile, safeRunDir } from "../../core/runs.js";
 import { deleteWorkflow, getWorkflow, listWorkflows } from "../../core/workflows.js";
 import { MIME } from "./mime.js";
-import { ApiError, fail, reply, route } from "./router.js";
+import { ApiError, fail, route } from "./router.js";
 
 /** CSP for raw run files: same shape as the vibeable preview — scripts allowed, origin opaque. */
 const RUN_FILE_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";

@@ -4,10 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import chalk from "chalk";
-import { absolutePath, publicUrlFor, resolveWorkspace } from "../config.js";
-import { startTunnel } from "./tunnel.js";
+import { absolutePath, resolveWorkspace } from "../config.js";
 import { selfCommand } from "../core/self-command.js";
 import { RESTART_EXIT_CODE, startInspector } from "../server/server.js";
+import { networkUrls } from "../server/bind.js";
 
 /**
  * `kraftwerk ui` — start the inspector web UI pointed at the current
@@ -53,8 +53,10 @@ function ensureBuilt(): string {
   return dist;
 }
 
-export async function runUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
-  if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(cwd, opts);
+export async function runUi(cwd: string, opts: { port?: string; output?: string; lan?: boolean }): Promise<void> {
+  // The server reads its bind address when it starts — in the supervised child, which inherits this.
+  if (opts.lan) process.env.KRAFTWERK_UI_HOST ||= "0.0.0.0";
+  if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return superviseUi(opts);
 
   const staticDir = ensureBuilt();
   const project = await resolveWorkspace(cwd);
@@ -67,8 +69,11 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
     `${chalk.green("✔")} Kraftwerk UI: ${chalk.cyan(`http://localhost:${port}`)} ` +
       chalk.dim(`(output: ${outputDir})`)
   );
-  const publicUrl = publicUrlFor(project);
-  if (publicUrl) console.log(`${chalk.green("✔")} Public URL: ${chalk.cyan(publicUrl)}`);
+  const lan = networkUrls(port);
+  if (lan.length) {
+    console.log(`${chalk.green("✔")} On your network: ${lan.map((u) => chalk.cyan(u)).join(", ")}`);
+    console.log(chalk.dim("  Devices there get a pairing screen — `kraftwerk devices pair` (or settings → devices) makes the code."));
+  }
 }
 
 /**
@@ -80,25 +85,18 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string 
  * workspaces start` reports) takes the whole UI down; Ctrl-C signals the
  * foreground group and reaches both anyway.
  */
-async function superviseUi(cwd: string, opts: { port?: string; output?: string }): Promise<void> {
+async function superviseUi(opts: { port?: string; output?: string }): Promise<void> {
   const { cmd, args } = selfCommand([
     "ui",
     ...(opts.port ? ["--port", opts.port] : []),
     ...(opts.output ? ["--output", opts.output] : []),
   ]);
-  // The tunnel lives with the supervisor, not the server: a self-restart
-  // (new version) swaps the server process and the tunnel stays up.
-  const project = await resolveWorkspace(cwd).catch(() => null);
-  const tunnel = project ? startTunnel(project, opts.port ? Number(opts.port) : (project.config.port ?? 1981)) : undefined;
   for (;;) {
     const child = spawn(cmd, args, {
       stdio: "inherit",
       env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1" },
     });
-    const forward = (sig: NodeJS.Signals) => () => {
-      tunnel?.stop();
-      child.kill(sig);
-    };
+    const forward = (sig: NodeJS.Signals) => () => child.kill(sig);
     const handlers = { SIGTERM: forward("SIGTERM"), SIGINT: forward("SIGINT") };
     process.on("SIGTERM", handlers.SIGTERM);
     process.on("SIGINT", handlers.SIGINT);
@@ -108,7 +106,6 @@ async function superviseUi(cwd: string, opts: { port?: string; output?: string }
     process.off("SIGTERM", handlers.SIGTERM);
     process.off("SIGINT", handlers.SIGINT);
     if (result.code !== RESTART_EXIT_CODE) {
-      tunnel?.stop();
       // A signal-killed server is not a clean exit — say so in the exit code
       // (128 + signal, the shell convention) so callers can tell.
       if (result.signal) process.exit(128 + (os.constants.signals[result.signal] ?? 1));

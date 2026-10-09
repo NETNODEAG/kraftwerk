@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as z from "zod";
-import { publicUrlFor, resolveWorkspace } from "../../config.js";
+import { resolveWorkspace } from "../../config.js";
 import { disposeAllBackends } from "../../core/chat/sessions.js";
 import { cloudStatus } from "../cloud.js";
 import { workspaceRoot } from "../../core/context.js";
@@ -83,7 +83,8 @@ export const workspaceRoutes = [
       repos: (ws?.config.repos && ws.config.repos.enabled !== false) === true,
       vibeables: (ws?.config.vibeables && ws.config.vibeables.enabled !== false) === true,
       projects: (ws?.config.projects && ws.config.projects.enabled !== false) === true,
-      publicUrl: (ws && publicUrlFor(ws)) ?? "",
+      /** @deprecated Always "": the Cloudflare Tunnel that set it was removed in 0.65. Removed with protocol 2. */
+      publicUrl: "",
       cloud: cloudStatus(),
       switcher,
     };

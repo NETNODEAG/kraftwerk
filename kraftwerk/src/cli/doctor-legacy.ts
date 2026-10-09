@@ -92,14 +92,23 @@ async function oldRunFolders(outputDir: string): Promise<Finding[]> {
     : [];
 }
 
+/** kraftwerk.yml keys from the Cloudflare Tunnel (removed in 0.65): the loader ignores them (`legacyKeys`). */
+function oldConfigKeys(ws: ResolvedWorkspace): Finding[] {
+  const keys = ws.legacyKeys ?? [];
+  return keys.length
+    ? [{ level: "info", label: "kraftwerk.yml still has public:/tunnel:", detail: `${keys.map((k) => `${k}:`).join(", ")} — the Cloudflare Tunnel was removed in 0.65 and these keys are ignored; delete them` }]
+    : [];
+}
+
 export async function legacyFindings(ws: ResolvedWorkspace, version: string): Promise<Finding[]> {
   const output = existsSync(ws.outputDir) ? ws.outputDir : "";
   const found = [
     ...(await olderInstances(version)),
     ...installsOnPath(),
     ...(await oldRegistry()),
+    ...oldConfigKeys(ws),
     ...(output ? await oldChatScopes(output) : []),
     ...(output ? await oldRunFolders(output) : []),
   ];
-  return found.length ? found : [{ level: "ok", label: "no legacy leftovers", detail: "no older servers, installs, registry or data formats" }];
+  return found.length ? found : [{ level: "ok", label: "no legacy leftovers", detail: "no older servers, installs, registry, config keys or data formats" }];
 }

@@ -5,8 +5,8 @@ import path from "node:path";
  * The project's `.env`: KEY=VALUE lines next to kraftwerk.yml, loaded into
  * this process at CLI start (a commander preAction hook in kraftwerk.ts),
  * so every kraftwerk process sees them and everything it spawns inherits
- * them — the inspector, the chat agents and routines, workflow runs, the
- * tunnel (TUNNEL_TOKEN), `requires:` checks.
+ * them — the inspector, the chat agents and routines, workflow runs,
+ * `requires:` checks.
  *
  * A variable already set in the shell wins over the file, the dotenv
  * convention, with one exception that makes restarts work: a value this

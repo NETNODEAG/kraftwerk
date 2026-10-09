@@ -17,8 +17,8 @@ import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
 import { registerTrashCommands } from "./trash.js";
+import { registerDevicesCommands } from "./devices.js";
 import { registerJournalCommands } from "./journal.js";
-import { registerTunnelCommands } from "./tunnel.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveWorkspace } from "../config.js";
 import { registerRoutineCommands } from "./routines.js";
@@ -41,7 +41,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk journal <agent> [entry] an agent's memory across sessions: print it, add a line
  *   kraftwerk trash ...               what was deleted: list, restore, purge, empty
- *   kraftwerk tunnel [setup <host>]   Cloudflare Tunnel to the inspector: run it alone, or set one up
+ *   kraftwerk devices ...             paired devices: list, pair one, revoke one
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -326,15 +326,16 @@ registerProjectCommands(program);
 registerRepoCommands(program);
 registerVibeableCommands(program);
 registerTrashCommands(program);
+registerDevicesCommands(program);
 registerJournalCommands(program);
-registerTunnelCommands(program);
 
 program
   .command("ui")
   .description("Start the inspector web UI for this project's runs and workflows")
   .option("--port <port>", "Port for the web UI (default: kraftwerk.yml `port`, else 1981)")
   .option("--output <dir>", "Output directory to inspect (default: the project's output dir)")
-  .action(async (opts: { port?: string; output?: string }) => {
+  .option("--lan", "Listen on the network too, so paired devices (a phone) reach it — others get a pairing screen")
+  .action(async (opts: { port?: string; output?: string; lan?: boolean }) => {
     await runUi(process.cwd(), opts);
   });
 

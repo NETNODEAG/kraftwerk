@@ -37,12 +37,6 @@ import { parse } from "yaml";
   *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
  *   projects:                  # goal-scoped folders (brief, systems of record, links) that chats work in (absent = off, bare key = on)
  *     root: kraftwerk-data/projects   # one folder per project, part of the workspace. Default: kraftwerk-data/projects
- *   public: https://kw.example.com   # hostname the inspector is reached at through a tunnel or reverse proxy
- *   tunnel:                    # Cloudflare Tunnel run by `kraftwerk ui` (absent = off, bare key = on)
- *     name: kraftwerk          # locally-managed tunnel (cloudflared tunnel create); absent: TUNNEL_TOKEN env, dashboard-managed
- *     access:                  # verify the Cloudflare Access login on every request that arrives via `public`
- *       team: acme             # Zero Trust team name (https://<team>.cloudflareaccess.com)
- *       aud: 4714c135…         # Application Audience tag of the Access application
  *   cloud:                     # kraftwerk cloud manager — ON BY DEFAULT, `enabled: false` opts out
  *     url: https://srv.kraftwerk-cloud.netnode.cloud   # where the cloud answers (default). KRAFTWERK_CLOUD_URL env wins; "off" disables
  *     interval: 60             # seconds between heartbeats. Default: 60
@@ -165,41 +159,6 @@ export function projectsRootFor(project: ResolvedWorkspace): string | undefined 
 }
 
 /**
- * Cloudflare Access in front of the public hostname. Access puts a login
- * page on the hostname at Cloudflare's edge and hands the origin a signed
- * JWT per request (Cf-Access-Jwt-Assertion). With this block the inspector
- * verifies that token itself, so a removed or misconfigured Access policy
- * fails closed instead of exposing the UI, which has no login of its own.
- */
-export interface AccessConfig {
-  /** Zero Trust team name: the subdomain of https://<team>.cloudflareaccess.com */
-  team: string;
-  /** Application Audience (AUD) tag of the Access application, from its overview page. */
-  aud: string;
-}
-
-/**
- * Cloudflare Tunnel: `kraftwerk ui` runs cloudflared next to the inspector
- * so the loopback bind is reachable at `public` without an open port. The
- * tunnel itself is created once with cloudflared (or in the Zero Trust
- * dashboard); this block only says which one to run.
- */
-export interface TunnelConfig {
-  /** false keeps the block but turns the feature off. Default: true. */
-  enabled?: boolean;
-  /**
-   * Name of a locally-managed tunnel (`cloudflared tunnel create <name>`,
-   * `cloudflared tunnel route dns <name> <public host>`); cloudflared routes
-   * everything to the inspector port. Absent: a dashboard-managed tunnel,
-   * whose token comes from the TUNNEL_TOKEN environment variable and whose
-   * route to http://localhost:<port> is configured in the dashboard.
-   */
-  name?: string;
-  /** Verify the Cloudflare Access token on every request that arrives via `public`. */
-  access?: AccessConfig;
-}
-
-/**
  * Cloud manager: the kraftwerk cloud is ~/.kraftwerk made reachable over
  * the internet — a registry of instances across machines. Every inspector
  * registers on start and heartbeats while it runs, so the cloud's global
@@ -240,35 +199,6 @@ export function cloudFor(project: ResolvedWorkspace): CloudSettings | undefined 
     interval: c.interval ?? CLOUD_DEFAULT_INTERVAL,
     token: process.env.KRAFTWERK_CLOUD_TOKEN?.trim() || undefined,
   };
-}
-
-/** The public hostname (lowercase, no port) when `public` is set, undefined otherwise. */
-export function publicHostFor(project: ResolvedWorkspace): string | undefined {
-  return project.config.public ? parsePublic(project.config.public)?.hostname : undefined;
-}
-
-/** The public origin ("https://kw.example.com") when `public` is set, undefined otherwise. */
-export function publicUrlFor(project: ResolvedWorkspace): string | undefined {
-  return project.config.public ? parsePublic(project.config.public)?.origin : undefined;
-}
-
-/** The tunnel block when the feature is on, undefined otherwise. */
-export function tunnelFor(project: ResolvedWorkspace): TunnelConfig | undefined {
-  const t = project.config.tunnel;
-  if (!t || t.enabled === false) return undefined;
-  return t;
-}
-
-/** "kw.example.com" or "https://kw.example.com[:port]" → its URL; undefined when it is neither. */
-export function parsePublic(value: string): URL | undefined {
-  const text = value.trim();
-  try {
-    const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
-    if (!url.hostname || url.pathname !== "/" || url.search || url.hash || url.username) return undefined;
-    return url;
-  } catch {
-    return undefined;
-  }
 }
 
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
@@ -322,14 +252,6 @@ export interface WorkspaceConfig {
   vibeables?: VibeablesConfig;
   /** Projects: goal-scoped folders the chats work in. Absent = off. */
   projects?: ProjectsConfig;
-  /**
-   * Hostname the inspector is reached at through a tunnel or reverse proxy,
-   * e.g. "https://kw.example.com". The loopback bind then answers requests
-   * carrying that Host even without X-Forwarded-Host (cloudflared sends none).
-   */
-  public?: string;
-  /** Cloudflare Tunnel run alongside the inspector. Absent = off. */
-  tunnel?: TunnelConfig;
   /** kraftwerk cloud manager this instance registers with. Absent = on with defaults; `enabled: false` opts out. */
   cloud?: CloudConfig;
 }
@@ -345,6 +267,8 @@ export interface ResolvedWorkspace {
   workflowsRoot?: string;
   /** Absolute run-artifact directory (may not exist yet). */
   outputDir: string;
+  /** Keys in kraftwerk.yml that an older kraftwerk read and this one ignores (`public`, `tunnel`), for doctor. Absent when none. */
+  legacyKeys?: string[];
 }
 
 const exists = async (p: string): Promise<boolean> => !!(await stat(p).catch(() => null));
@@ -399,11 +323,12 @@ export async function resolveWorkspace(cwd: string): Promise<ResolvedWorkspace> 
     const configPath = await findConfigFile(dir);
     if (configPath) {
       // Above a bare candidate an unreadable kraftwerk.yml is someone else's problem.
-      const config = bare ? await loadConfig(configPath).catch(() => null) : await loadConfig(configPath);
-      if (!config) return bare!;
+      const loaded = bare ? await loadConfig(configPath).catch(() => null) : await loadConfig(configPath);
+      if (!loaded) return bare!;
+      const { config, legacyKeys } = loaded;
       const workflowsRoot = await findWorkflowsDir(dir, config.workflows);
       if (!bare || (workflowsRoot && path.resolve(workflowsRoot) === bare.workflowsRoot)) {
-        return { root: dir, config, configPath, workflowsRoot, outputDir: path.resolve(dir, config.output ?? "output") };
+        return { root: dir, config, configPath, workflowsRoot, outputDir: path.resolve(dir, config.output ?? "output"), ...(legacyKeys.length ? { legacyKeys } : {}) };
       }
       return bare;
     }
@@ -427,20 +352,30 @@ export type Project = ResolvedWorkspace;
 /** @deprecated Use `WorkspaceConfig`. */
 export type ProjectConfig = WorkspaceConfig;
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "public", "tunnel", "cloud"];
+const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
 
-async function loadConfig(configPath: string): Promise<WorkspaceConfig> {
+/**
+ * Keys an older kraftwerk understood and this one ignores, so the files
+ * that still carry them keep loading: `public:` and `tunnel:` (the
+ * Cloudflare Tunnel, removed in 0.65). Dropped before validation, so they
+ * never reach the rest of the code; doctor names them (`legacyKeys`).
+ */
+const LEGACY_KEYS = ["public", "tunnel"];
+
+async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig; legacyKeys: string[] }> {
   let raw: unknown;
   try {
     raw = parse(await readFile(configPath, "utf8"));
   } catch (err) {
     throw new Error(`${path.basename(configPath)}: unreadable YAML: ${(err as Error).message}`);
   }
-  if (raw === null || raw === undefined) return {};
+  if (raw === null || raw === undefined) return { config: {}, legacyKeys: [] };
   if (typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`${path.basename(configPath)}: expected a mapping (${KNOWN_KEYS.join(", ")})`);
   }
   const config = raw as Record<string, unknown>;
+  const legacyKeys = LEGACY_KEYS.filter((key) => key in config);
+  for (const key of legacyKeys) delete config[key];
   const known = KNOWN_KEYS;
   for (const key of Object.keys(config)) {
     if (!known.includes(key)) {
@@ -473,13 +408,6 @@ async function loadConfig(configPath: string): Promise<WorkspaceConfig> {
     } else if (key === "projects") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, "projects", config[key]);
-    } else if (key === "public") {
-      if (typeof config[key] !== "string" || !parsePublic(config[key] as string)) {
-        throw new Error(`${path.basename(configPath)}: public must be a hostname or https URL like "https://kw.example.com"`);
-      }
-    } else if (key === "tunnel") {
-      if (config[key] === null) config[key] = {};
-      validateTunnel(configPath, config[key]);
     } else if (key === "cloud") {
       if (config[key] === null) config[key] = {};
       validateCloud(configPath, config[key]);
@@ -487,50 +415,7 @@ async function loadConfig(configPath: string): Promise<WorkspaceConfig> {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }
   }
-  const tunnel = config.tunnel as TunnelConfig | undefined;
-  if (tunnel && tunnel.enabled !== false && !config.public) {
-    throw new Error(`${path.basename(configPath)}: tunnel needs public: the hostname the tunnel routes to`);
-  }
-  return config as WorkspaceConfig;
-}
-
-/** tunnel: { enabled?, name?, access?: { team, aud } } */
-function validateTunnel(configPath: string, value: unknown): void {
-  const file = path.basename(configPath);
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${file}: tunnel must be a mapping (enabled, name, access)`);
-  }
-  const t = value as Record<string, unknown>;
-  for (const key of Object.keys(t)) {
-    if (!["enabled", "name", "access"].includes(key)) {
-      throw new Error(`${file}: tunnel.${key} is unknown (allowed: enabled, name, access)`);
-    }
-  }
-  if (t.enabled !== undefined && typeof t.enabled !== "boolean") {
-    throw new Error(`${file}: tunnel.enabled must be true or false`);
-  }
-  // The name is handed to cloudflared as a positional argument.
-  if (t.name !== undefined && (typeof t.name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(t.name))) {
-    throw new Error(`${file}: tunnel.name must be a plain tunnel name (letters, digits, ".", "_", "-")`);
-  }
-  if (t.access !== undefined) {
-    if (typeof t.access !== "object" || t.access === null || Array.isArray(t.access)) {
-      throw new Error(`${file}: tunnel.access must be a mapping (team, aud)`);
-    }
-    const a = t.access as Record<string, unknown>;
-    for (const key of Object.keys(a)) {
-      if (!["team", "aud"].includes(key)) {
-        throw new Error(`${file}: tunnel.access.${key} is unknown (allowed: team, aud)`);
-      }
-    }
-    // The team becomes a hostname (<team>.cloudflareaccess.com).
-    if (typeof a.team !== "string" || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(a.team)) {
-      throw new Error(`${file}: tunnel.access.team must be the Zero Trust team name (the subdomain of cloudflareaccess.com)`);
-    }
-    if (typeof a.aud !== "string" || !/^[a-f0-9]{64}$/i.test(a.aud)) {
-      throw new Error(`${file}: tunnel.access.aud must be the 64-character Application Audience tag`);
-    }
-  }
+  return { config: config as WorkspaceConfig, legacyKeys };
 }
 
 /** cloud: { enabled?, url?, interval? } */

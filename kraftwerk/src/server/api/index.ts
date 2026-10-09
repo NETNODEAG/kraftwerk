@@ -3,6 +3,7 @@ import { agentRoutes } from "./agents.js";
 import { attentionRoutes } from "./attention.js";
 import { channelRoutes } from "./channels.js";
 import { chatRoutes } from "./chats.js";
+import { deviceRoutes } from "./devices.js";
 import { fileRoutes } from "./files.js";
 import { gitRoutes } from "./git.js";
 import { knowledgeRoutes } from "./knowledge.js";
@@ -34,6 +35,7 @@ const domainRoutes = [
   ...fileRoutes,
   ...gitRoutes,
   ...vibeableRoutes,
+  ...deviceRoutes,
 ];
 
 /** One line per route, for clients and people: what exists and how to reach it. */
@@ -50,7 +52,7 @@ export interface RouteInfo {
   body?: unknown;
 }
 
-const protocolRoute = route({ name: "protocol.get", method: "GET", path: "/api/protocol", summary: "the protocol version and every route" }, async () => ({
+const protocolRoute = route({ name: "protocol.get", method: "GET", path: "/api/protocol", summary: "the protocol version and every route", access: "public" }, async () => ({
   version: PROTOCOL_VERSION,
   routes: describe(),
 }));

@@ -28,7 +28,7 @@ describe("project .env", () => {
 
   it("reports a missing file and an unsatisfied requires", async () => {
     const r = await doctor({ DEMO_API_KEY: "" });
-    assert.match(r.stdout, /• no \.env — variables for agents, workflows and the tunnel can live there/);
+    assert.match(r.stdout, /• no \.env — variables for agents and workflows can live there/);
     assert.match(r.stdout, /⚠ needs-key: env missing — DEMO_API_KEY/);
   });
 
