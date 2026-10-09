@@ -108,6 +108,15 @@ The phone now sees your workspaces, each at `/w/<slug>/` on that address,
 and the workspace menu switches between them. One pairing covers all of them
 (see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
 
+**From anywhere** (mobile data, another Wi-Fi), with no port opened:
+
+1. `kraftwerk remote on`. The daemon connects to the kraftwerk relay.
+2. `kraftwerk remote pair`, or settings → devices → pair a device, which shows
+   a QR code. Open the link (scan the code) on the phone and tap *Pair*.
+
+The phone runs the same web UI, end to end encrypted through the relay
+(see [From anywhere: the relay](#from-anywhere-the-relay)).
+
 **What to do first in the inspector.** Talk to **Ralv**, the workspace's
 general chat, in plain words: it knows what is in the workspace and helps
 set up the rest. From there:
@@ -239,6 +248,7 @@ kraftwerk daemon                        # one kraftwerk for every open workspace
 kraftwerk daemon install                # start the daemon at login (macOS LaunchAgent); --lan, --port; `daemon uninstall` removes it
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
+kraftwerk remote on|off|pair            # reach this machine from anywhere through the relay, end to end encrypted
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
 kraftwerk journal <agent> ["<entry>"]   # an agent's memory across sessions: print it, add a line (--kind)
@@ -416,6 +426,35 @@ Behind a reverse proxy on the same machine, the proxy must send
 `X-Forwarded-For` (or `X-Forwarded-Host`), so its visitors pair like any
 other device. If it cannot, set `KRAFTWERK_UI_REQUIRE_PAIRING=1`, which
 makes every request pair, this machine's own included.
+
+### From anywhere: the relay
+
+`kraftwerk remote on` makes the daemon hold a connection to the kraftwerk
+relay (kraftwerk cloud; `--url` for another one). A paired device reaches the
+machine through it from any network: no port forwarding, no tunnel, and the
+machine needs no public address. `kraftwerk remote pair` (or settings →
+devices → pair a device, with a QR code) gives a link to the cloud's remote
+page. It carries this machine's key and a one-time code in its `#` part,
+which never reaches a server. The phone pairs, then runs the whole web UI
+through the relay. `kraftwerk remote off` disconnects, `kraftwerk remote`
+shows the state, and settings → devices has the same switch.
+
+Everything between the phone and the machine is end to end encrypted:
+
+- X25519 key agreement on the machine's long-lived key plus a fresh key on
+  each side per connection, then AES-256-GCM with counters as nonces.
+- The relay sees which machine, when and how much, never what. It cannot
+  forge or replay a message.
+- The phone checks the machine's key (the fingerprint `kraftwerk remote` shows
+  is on the pairing page), so nobody else can answer in its place.
+- Through the relay, a request counts as a network device's: it needs the
+  device's pairing like on your Wi-Fi, and unpairing ends it at once.
+- One trust remains: the remote page's code comes from the cloud that serves
+  it. A native app will remove that.
+
+The machine's key and its relay secret live in `~/.kraftwerk/relay.json`
+(owner only). The daemon must run (`kraftwerk daemon install`), and the Mac
+must be awake.
 
 For a client of your own, `@netnodeag/kraftwerk/client` takes the token:
 `createClient({ baseUrl, token })`.

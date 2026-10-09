@@ -1,6 +1,9 @@
 import * as z from "zod";
 import { createPairCode, listDevices, redeemPairCode, revokeDevice } from "../../core/devices.js";
 import { networkUrls } from "../bind.js";
+import { currentHub } from "../hub-context.js";
+import { applyRelay, keyFingerprint, readRelaySettings, relayStatus, remoteLink, setRelay } from "../relay.js";
+import { getPkgVersion } from "../version.js";
 import { DEVICE_COOKIE } from "../trust.js";
 import { ApiError, fail, reply, route } from "./router.js";
 
@@ -50,11 +53,45 @@ export const deviceRoutes = [
     ...(c.trust.kind === "device" ? { device: c.trust.device } : {}),
   })),
   route({ name: "devices.list", method: "GET", path: "/api/devices", summary: "every paired device", access: "local" }, async () => ({ devices: await listDevices() })),
-  // The code is shown once; the addresses are where a device on the network opens kraftwerk (none while bound to this machine only).
-  route({ name: "devices.code", method: "POST", path: "/api/devices/code", summary: "a one-time pairing code, valid 10 minutes", access: "local" }, async (c) => ({
-    ...(await createPairCode()),
-    urls: networkUrls(c.req?.socket.localPort ?? 0),
-  })),
+  // The code is shown once; the addresses are where a device on the network opens kraftwerk (none while bound to this machine only),
+  // and with the relay on, `remote` is the link that pairs a device from anywhere (code and machine key in its fragment).
+  route({ name: "devices.code", method: "POST", path: "/api/devices/code", summary: "a one-time pairing code, valid 10 minutes", access: "local" }, async (c) => {
+    const pair = await createPairCode();
+    const relay = await readRelaySettings();
+    return {
+      ...pair,
+      urls: networkUrls(c.req?.socket.localPort ?? 0),
+      ...(relay?.enabled ? { remote: remoteLink(relay.url, relay.publicKey, pair.code) } : {}),
+    };
+  }),
+  route({ name: "devices.relay", method: "GET", path: "/api/devices/relay", summary: "the relay: whether devices reach this machine from anywhere, and the link's state", access: "local" }, async () => {
+    const s = await readRelaySettings();
+    return {
+      enabled: s?.enabled === true,
+      url: s?.url ?? null,
+      fingerprint: s ? keyFingerprint(s.publicKey) : null,
+      daemon: currentHub().daemon === true,
+      ...relayStatus(),
+    };
+  }),
+  // Only the daemon holds the link; a standalone `kraftwerk ui` saves the setting for the daemon's next start.
+  route(
+    {
+      name: "devices.setRelay",
+      method: "POST",
+      path: "/api/devices/relay",
+      summary: "turn the relay on or off {enabled, url?}",
+      access: "local",
+      body: z.object({ enabled: z.boolean(), url: z.string().url().optional() }),
+    },
+    async (c) => {
+      const { enabled, url } = await c.body();
+      const s = await setRelay(enabled, url);
+      const hub = currentHub();
+      const status = hub.daemon ? await applyRelay(hub.port, await getPkgVersion(), (l) => console.log(l)) : relayStatus();
+      return { enabled: s.enabled, url: s.url, fingerprint: keyFingerprint(s.publicKey), daemon: hub.daemon === true, ...status };
+    },
+  ),
   route({ name: "devices.revoke", method: "DELETE", path: "/api/devices/:id", summary: "unpair a device: its token stops working at once", access: "local" }, async (c) =>
     (await revokeDevice(c.params.id)) ? { ok: true } : fail(404, "no such device"),
   ),

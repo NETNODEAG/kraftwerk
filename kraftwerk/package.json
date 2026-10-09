@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.70.0",
+  "version": "0.71.0",
   "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
@@ -33,7 +33,8 @@
     "dist",
     "runner",
     "schema",
-    "web/dist"
+    "web/dist",
+    "web/dist-remote"
   ],
   "exports": {
     ".": {
@@ -43,6 +44,10 @@
     "./client": {
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js"
+    },
+    "./relay": {
+      "types": "./dist/client/relay.d.ts",
+      "import": "./dist/client/relay.js"
     }
   },
   "scripts": {

@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import qrcode from "qrcode-generator";
 import { api, failure, useApi, usePairingNeeded } from "./api";
 import { fmtAgo, Icon } from "./shared";
 import { Button, EmptyState, Field, FormStack, Notice, Panel, PanelRow, PanelRows, TextField, Title } from "./ui";
@@ -77,12 +78,74 @@ export function PairingGate({ children }: { children: ReactNode }) {
   return usePairingNeeded() ? <PairScreen /> : <>{children}</>;
 }
 
+/** A QR code for `text`, drawn in the text colour so it reads in light and dark. */
+function QrCode({ text, size = 176 }: { text: string; size?: number }) {
+  const path = useMemo(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    let d = "";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + 4} ${r + 4}h1v1h-1z`;
+    return { d, n: n + 8 };
+  }, [text]);
+  return (
+    <svg viewBox={`0 0 ${path.n} ${path.n}`} width={size} height={size} role="img" aria-label="pairing QR code" className="rounded-lg bg-white text-black" shapeRendering="crispEdges">
+      <path d={path.d} fill="currentColor" />
+    </svg>
+  );
+}
+
+/**
+ * Remote access: the daemon holds a socket to the relay, and paired devices
+ * reach this machine from anywhere through it, end to end encrypted.
+ */
+function RemoteAccess({ onError }: { onError: (e: string) => void }) {
+  const relay = useApi("devices.relay", {}, { interval: 10_000 });
+  const [busy, setBusy] = useState(false);
+  if (!relay) return null;
+  const toggle = async () => {
+    setBusy(true);
+    const r = await api.request("devices.setRelay", { body: { enabled: !relay.enabled } }).catch(() => null);
+    setBusy(false);
+    if (r && !r.ok) onError(failure(r));
+  };
+  const state = !relay.enabled
+    ? "off — devices reach this machine on your network only"
+    : !relay.daemon
+      ? "on — the daemon connects it (this kraftwerk is not the daemon: `kraftwerk daemon`)"
+      : relay.state === "connected"
+        ? `connected${relay.clients ? ` · ${relay.clients} device${relay.clients === 1 ? "" : "s"} now` : ""}`
+        : relay.state === "error"
+          ? `not connected: ${relay.error ?? "unknown error"}`
+          : "connecting…";
+  return (
+    <PanelRows>
+      <PanelRow
+        icon={relay.enabled ? "public" : "public_off"}
+        title="reach this machine from anywhere"
+        data-relay={relay.enabled ? relay.state : "off"}
+        action={
+          <Button size="sm" busy={busy} variant={relay.enabled ? undefined : "primary"} onClick={() => void toggle()}>
+            {relay.enabled ? "turn off" : "turn on"}
+          </Button>
+        }
+      >
+        <span className="text-xs text-fg-2">
+          {state}
+          {relay.enabled && relay.fingerprint && <> · machine key <code>{relay.fingerprint}</code></>} — through the kraftwerk relay, end to end encrypted: it cannot read along
+        </span>
+      </PanelRow>
+    </PanelRows>
+  );
+}
+
 /** Settings → devices, on the machine kraftwerk runs on: who is paired, pair one more, unpair. */
 export function DevicesPanel() {
   const self = useApi("devices.self", {}, { interval: 60_000 });
   const local = self?.trust === "local";
   const list = useApi("devices.list", local ? {} : null, { interval: 15_000 });
-  const [pairing, setPairing] = useState<{ code: string; expiresAt: string; urls: string[] } | null>(null);
+  const [pairing, setPairing] = useState<{ code: string; expiresAt: string; urls: string[]; remote?: string } | null>(null);
   const [error, setError] = useState("");
 
   if (!self) return null;
@@ -119,18 +182,28 @@ export function DevicesPanel() {
             <span className="font-mono text-[22px] font-semibold tracking-widest text-fg" aria-label="pairing code">{pairing.code}</span>
             <span className="text-xs text-fg-2">once, until {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
           </div>
+          {pairing.remote && (
+            <div className="flex flex-wrap items-center gap-4">
+              <QrCode text={pairing.remote} />
+              <span className="max-w-[28ch] text-sm text-fg-2">
+                From anywhere: scan this with the phone's camera, or open <a href={pairing.remote} target="_blank" rel="noreferrer">the pairing link</a> on it. It
+                carries the code — treat it like a password.
+              </span>
+            </div>
+          )}
           {pairing.urls.length ? (
             <span className="text-sm text-fg-2">
               On the device, open {pairing.urls.map((u, i) => <span key={u}>{i > 0 && " or "}<code>{u}</code></span>)} and enter the code.
             </span>
-          ) : (
+          ) : pairing.remote ? null : (
             <span className="text-sm text-fg-2">
               This kraftwerk only listens on this machine. Restart it with <code>kraftwerk ui --lan</code> to reach it from your network (or use a tunnel), then enter
-              the code on the device.
+              the code on the device — or turn on “reach this machine from anywhere”.
             </span>
           )}
         </FormStack>
       )}
+      <RemoteAccess onError={setError} />
       {error && <div className="px-[18px] pt-3"><Notice tone="bad">{error}</Notice></div>}
       {list && list.devices.length === 0 && !pairing && <EmptyState icon="devices">no paired devices — a phone or another computer can use this kraftwerk once paired</EmptyState>}
       {list && list.devices.length > 0 && (

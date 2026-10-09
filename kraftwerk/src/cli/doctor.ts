@@ -11,6 +11,7 @@ import { listDevices } from "../core/devices.js";
 import { slugClashes } from "../core/instances.js";
 import { findDaemon } from "../core/daemon.js";
 import { daemonLoginItem } from "./daemon-login.js";
+import { readRelaySettings } from "../server/relay.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -230,6 +231,12 @@ export async function runDoctor(cwd: string): Promise<void> {
         : daemon
           ? undefined
           : "`kraftwerk daemon` serves every workspace in one process",
+  );
+  const relay = await readRelaySettings();
+  report(
+    "info",
+    relay?.enabled ? `remote access on through ${relay.url}` : "remote access off",
+    relay?.enabled ? (daemon ? "`kraftwerk remote` shows whether the daemon is connected" : "the daemon connects it once it runs") : "`kraftwerk remote on` reaches this machine from anywhere, end to end encrypted",
   );
 
   // Legacy: what older versions left behind, and what still runs or is installed at one.

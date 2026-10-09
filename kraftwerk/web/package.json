@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc --noEmit -p remote && vite build && vite build --config vite.remote.config.ts && vite build --config vite.remote.config.ts --mode sw",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -29,6 +29,7 @@
     "@material-symbols/font-400": "^0.47.1",
     "@mdxeditor/editor": "^4.2.3",
     "dompurify": "^3.4.14",
-    "marked": "^18.0.11"
+    "marked": "^18.0.11",
+    "qrcode-generator": "^2.0.4"
   }
 }

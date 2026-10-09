@@ -19,6 +19,7 @@ import { registerVibeableCommands } from "./vibeables.js";
 import { registerTrashCommands } from "./trash.js";
 import { registerDevicesCommands } from "./devices.js";
 import { registerDaemonCommand } from "./daemon.js";
+import { registerRemoteCommand } from "./remote.js";
 import { registerJournalCommands } from "./journal.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveWorkspace } from "../config.js";
@@ -330,6 +331,7 @@ registerVibeableCommands(program);
 registerTrashCommands(program);
 registerDevicesCommands(program);
 registerDaemonCommand(program);
+registerRemoteCommand(program);
 registerJournalCommands(program);
 
 program

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="kraftwerk" />
+    <title>kraftwerk remote</title>
+    <style>
+      :root { --bg: #f6f6f4; --card: #fff; --fg: #1d1d1b; --dim: #6b6b66; --line: #e3e3de; --accent: #2f6fde; --bad: #c0392b; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1e1e1c; --fg: #ececea; --dim: #9a9a94; --line: #30302d; --accent: #6b9cf0; --bad: #ef7a6a; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, sans-serif; }
+      main { max-width: 32rem; margin: 0 auto; padding: max(24px, env(safe-area-inset-top)) 16px 32px; }
+      h1 { font-size: 22px; margin: 8px 0 4px; }
+      p { margin: 8px 0; }
+      .dim { color: var(--dim); font-size: 14px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 16px 0; }
+      label { display: block; font-size: 14px; color: var(--dim); margin: 12px 0 4px; }
+      input { width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+      button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; margin-top: 14px; width: 100%; }
+      button.quiet { background: transparent; color: var(--dim); font-weight: 400; width: auto; padding: 6px 0; margin: 0; }
+      button:disabled { opacity: .6; }
+      .machine { display: flex; align-items: center; gap: 12px; }
+      .machine a { flex: 1; color: var(--fg); text-decoration: none; font-weight: 600; }
+      .err { color: var(--bad); }
+      code { font: 13px ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <main id="app"><p class="dim">Loading…</p></main>
+    <script type="module" src="./page.ts"></script>
+  </body>
+</html>
