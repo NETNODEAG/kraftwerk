@@ -1,10 +1,11 @@
 import path from "node:path";
 import * as z from "zod";
-import { resolveWorkspace, slugFromFolder, workspaceSlug } from "../../config.js";
+import { absolutePath, resolveWorkspace, slugFromFolder, workspaceSlug } from "../../config.js";
 import { disposeAllBackends } from "../../core/chat/sessions.js";
 import { cloudStatus } from "../cloud.js";
 import { workspaceRoot } from "../../core/context.js";
-import { discoverWorkspaces, forgetWorkspace, listWorkspacesDetailed, startWorkspace, stopWorkspace, tildify } from "../../core/instances.js";
+import { discoverWorkspaces, forgetWorkspace, listWorkspacesDetailed, startWorkspace, stopWorkspace, tildify, type StartResult, type WorkspaceEntry } from "../../core/instances.js";
+import { currentHub } from "../hub-context.js";
 import { searchAgents } from "../../core/search.js";
 import { getSettings, saveSettings, type SaveSettingsInput } from "../../core/settings.js";
 import { canSelfUpdate, startUpdate, updateStatus } from "../../core/update.js";
@@ -35,6 +36,27 @@ const SettingsFields = z.looseObject({
   projects: RootBlock.optional(),
 });
 
+/** A start's answer; `here` (with its slug) when the hub answering serves it now. */
+type StartReply = StartResult & { slug?: string; here?: true };
+
+/**
+ * Mark the workspaces the hub answering this request serves — or, a daemon,
+ * would serve once started (it opens a stopped one next to the others, at
+ * <slug>.localhost:<its port>) — as `here`. The UI links those in the form
+ * the page itself was reached by: a paired phone on the network cannot
+ * resolve <slug>.localhost, so it gets /w/<slug>/ on the address it used.
+ */
+function placeInHub<T extends Pick<WorkspaceEntry, "url" | "root" | "slug" | "live" | "exists">>(entries: T[]): (T & { here?: true })[] {
+  const hub = currentHub();
+  const served = new Set(hub.list().map((o) => o.root));
+  return entries.map((e) => {
+    if (!e.root || !e.slug) return e;
+    if (served.has(e.root)) return { ...e, here: true };
+    if (hub.daemon && !e.live && e.exists !== false) return { ...e, here: true, url: `http://${e.slug}.localhost:${hub.port}` };
+    return e;
+  });
+}
+
 /** The workspace itself: identity and features, settings, the other workspaces, updates. */
 export const workspaceRoutes = [
   // ?probe=1 marks a discovery probe from another instance: answer identity
@@ -45,7 +67,7 @@ export const workspaceRoutes = [
     const name = ws?.config.name ?? (ws ? path.basename(ws.root) : "");
     const root = ws?.root ?? workspaceRoot();
     const manual = ws?.config.switcher ?? [];
-    const discovered = c.query.get("probe") === "1" ? [] : await discoverWorkspaces();
+    const discovered = c.query.get("probe") === "1" ? [] : placeInHub(await discoverWorkspaces());
     // Manual switcher entries keep their configured name/icon; discovered
     // workspaces that duplicate one (same url, running) only contribute
     // the live flag. Stopped workspaces never collide — they carry a root,
@@ -97,18 +119,35 @@ export const workspaceRoutes = [
   ),
 
   route({ name: "workspaces.list", method: "GET", path: "/api/workspaces", summary: "every known workspace incl. this one, with state and counts" }, async () =>
-    listWorkspacesDetailed(),
+    placeInHub(await listWorkspacesDetailed()),
   ),
   // Launches `kraftwerk ui` for a known workspace as a detached process (the switcher's Start button).
   route({ name: "workspaces.start", method: "POST", path: "/api/workspaces/start", summary: "start a known workspace {root}", errors: 400, body: z.object({ root: z.string().optional() }) }, async (c) => {
     const { root } = await c.body();
     if (!root) fail(400, "root required");
-    const result = await startWorkspace(root);
+    // A daemon opens it itself, next to the workspace asking.
+    const hub = currentHub();
+    if (hub.daemon) {
+      try {
+        const o = await hub.open(absolutePath(root));
+        return reply(200, { ok: true, url: o.url, slug: o.slug, here: true, live: true, pid: process.pid } as StartReply);
+      } catch (err) {
+        return reply(409, { ok: false, error: (err as Error).message } as StartReply);
+      }
+    }
+    const result: StartReply = await startWorkspace(root);
     return reply(result.ok ? 200 : 409, result);
   }),
   route({ name: "workspaces.stop", method: "POST", path: "/api/workspaces/stop", summary: "stop a running workspace's server {root | url}", errors: 400, body: z.object({ root: z.string().optional(), url: z.string().optional() }) }, async (c) => {
     const target = await c.body();
     if (!target.root && !target.url) fail(400, "root or url required");
+    // One the hub answering serves (not the one asking): closed right here.
+    const hub = currentHub();
+    const open = target.root ? hub.list().find((o) => o.root === absolutePath(target.root!)) : undefined;
+    if (hub.daemon && open && open.root !== workspaceRoot()) {
+      await hub.close(open.root);
+      return reply(200, { ok: true } as { ok: boolean; error?: string });
+    }
     const result = await stopWorkspace(target);
     return reply(result.ok ? 200 : 409, result);
   }),
@@ -119,7 +158,7 @@ export const workspaceRoutes = [
   }),
 
   route({ name: "search.agents", method: "GET", path: "/api/search/agents", summary: "active agents and channels of every reachable workspace (⌘K)" }, async () =>
-    searchAgents(),
+    searchAgents().then((r) => ({ workspaces: placeInHub(r.workspaces) })),
   ),
 
   route({ name: "update.check", method: "GET", path: "/api/update-check", summary: "the latest version on the npm registry" }, async () => {

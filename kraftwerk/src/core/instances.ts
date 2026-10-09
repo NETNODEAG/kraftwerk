@@ -105,6 +105,8 @@ export interface WorkspaceEntry {
   color?: string;
   /** True when the name comes from kraftwerk.yml, false when it is just the folder name. */
   named?: boolean;
+  /** Its slug (kraftwerk.yml `slug`, else the folder name): how a daemon addresses it. */
+  slug?: string;
   live: boolean;
   root?: string;
   /** Root with ~ for the home dir — what the UI prints. */
@@ -443,8 +445,8 @@ export async function forgetWorkspace(root: string): Promise<boolean> {
  */
 async function describeRoot(
   root: string
-): Promise<{ name: string; icon?: string; color?: string; named: boolean; port: number; exists: boolean }> {
-  const fallback = { name: path.basename(root), named: false, port: 1981, exists: false };
+): Promise<{ name: string; icon?: string; color?: string; named: boolean; slug: string; port: number; exists: boolean }> {
+  const fallback = { name: path.basename(root), named: false, slug: slugFromFolder(path.basename(root)), port: 1981, exists: false };
   if (!(await isDir(root))) return fallback;
   try {
     const project = await resolveWorkspace(root);
@@ -452,6 +454,7 @@ async function describeRoot(
     return {
       name: project.config.name ?? path.basename(project.root),
       named: !!project.config.name,
+      slug: workspaceSlug(project),
       icon: project.config.icon || undefined,
       color: project.config.color || undefined,
       port: project.config.port ?? 1981,
@@ -505,11 +508,12 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
               icon: running.icon,
               color: running.color ?? d?.color,
               named: running.named ?? d?.named,
+              slug: running.slug ?? recordSlug(p),
               live: true,
               exists: true,
             };
           }
-          return { ...base, name: d!.name, url: `http://localhost:${d!.port}`, icon: d!.icon, color: d!.color, named: d!.named, live: false, exists: d!.exists };
+          return { ...base, name: d!.name, url: `http://localhost:${d!.port}`, icon: d!.icon, color: d!.color, named: d!.named, slug: d!.slug, live: false, exists: d!.exists };
         })
     )
   ).concat(
@@ -522,6 +526,7 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
           icon: i.icon,
           color: i.color,
           named: i.named,
+          slug: i.slug,
           live: true,
           root: i.root,
           rootLabel: i.root ? tildify(i.root) : undefined,
@@ -593,6 +598,7 @@ export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
       icon: d.icon,
       color: d.color,
       named: d.named,
+      slug: d.slug,
       url: mine.url,
       live: true,
       root: me,

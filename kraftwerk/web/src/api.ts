@@ -24,7 +24,7 @@ export function usePairingNeeded(): boolean {
 }
 
 /** The workspace this page is for when it is served under `/w/<slug>/` (the path form); the host or port names it otherwise. */
-const workspaceInPath = /^\/w\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\//.exec(location.pathname)?.[1];
+export const workspaceInPath = /^\/w\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\//.exec(location.pathname)?.[1];
 
 export const api = createClient({
   workspace: workspaceInPath,

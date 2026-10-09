@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { setDefaultWorkspace, Workspace } from "../core/workspace.js";
 import { cloudGoodbye, cloudGoodbyeAll, startCloudSync, stopCloudSync } from "./cloud.js";
@@ -235,8 +236,15 @@ function installExitHandlers(): void {
   });
 }
 
-const listen = (server: http.Server, port: number): Promise<number> =>
-  new Promise((resolve, reject) => {
+/**
+ * Listen on `port`. On the default bind (127.0.0.1) the same port on ::1
+ * feeds the same server: macOS resolves localhost and <slug>.localhost to
+ * ::1 first, and a client that does not fall back to IPv4 (a native app's
+ * HTTP library) would find nothing there. Best effort — without IPv6, or
+ * with ::1:port taken, it stays IPv4 only, as before.
+ */
+async function listen(server: http.Server, port: number): Promise<number> {
+  const bound = await new Promise<number>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, INSPECTOR_HOST, () => {
       server.off("error", reject);
@@ -244,12 +252,35 @@ const listen = (server: http.Server, port: number): Promise<number> =>
       resolve(typeof addr === "object" && addr ? addr.port : port);
     });
   });
+  if (INSPECTOR_HOST !== "127.0.0.1") return bound;
+  const twin = net.createServer((socket) => server.emit("connection", socket));
+  const ok = await new Promise<boolean>((resolve) => {
+    twin.once("error", () => resolve(false));
+    twin.listen(bound, "::1", () => resolve(true));
+  });
+  if (!ok) return bound;
+  twin.on("error", () => {});
+  // Closing the server stops the twin from taking connections at once (its "close" event waits for open ones).
+  const close = server.close.bind(server);
+  server.close = ((cb?: (err?: Error) => void) => {
+    twin.close();
+    return close(cb);
+  }) as typeof server.close;
+  return bound;
+}
 
-/** A small page at a daemon's own address: the open workspaces, each a link. */
-function hubPage(res: Res, open: OpenWorkspace[]): void {
+/**
+ * A small page at a daemon's own address: the open workspaces, each a link —
+ * <slug>.localhost on this machine, the path form on the address a paired
+ * device used (it cannot resolve <slug>.localhost).
+ */
+function hubPage(req: http.IncomingMessage, res: Res, open: OpenWorkspace[]): void {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  // Behind a proxy on this machine the browser's name is the forwarded one.
+  const host = hostnameOf(forwardedHost(req) ?? req.headers.host ?? "");
+  const local = LOOPBACK_NAMES.has(host) || host.endsWith(".localhost");
   const rows = open.length
-    ? open.map((o) => `<li><a href="${esc(o.url)}/">${esc(o.name)}</a> <code>${esc(o.slug)}</code></li>`).join("")
+    ? open.map((o) => `<li><a href="${esc(local ? `${o.url}/` : `/w/${o.slug}/`)}">${esc(o.name)}</a> <code>${esc(o.slug)}</code></li>`).join("")
     : "<li>No workspace is open. Run <code>kraftwerk ui</code> in a workspace folder.</li>";
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
   res.end(`<!doctype html><meta charset="utf-8"><title>kraftwerk</title><style>body{font:15px/1.6 system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;color:#1b1b1f}code{color:#46464f}</style><h1>kraftwerk</h1><ul>${rows}</ul>`);
@@ -294,7 +325,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         return await run(() => serveVibeable(req, res, url));
       }
       // A daemon's own address lists its workspaces; anywhere else, the web UI's shell (public: an unpaired browser needs it to pair).
-      if (!open && (url.pathname === "/" || url.pathname === "/index.html")) return hubPage(res, [...bySlug.values()]);
+      if (!open && (url.pathname === "/" || url.pathname === "/index.html")) return hubPage(req, res, [...bySlug.values()]);
       await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);

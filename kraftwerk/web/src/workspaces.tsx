@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, failure } from "./api";
-import { fmtAgo, Icon, WorkspaceTile } from "./shared";
+import { fmtAgo, Icon, WorkspaceTile, workspaceHref } from "./shared";
 import { Button, buttonClass, cn, EmptyState, Notice, Page, PageHeader, Panel } from "./ui";
 
 /**
@@ -178,7 +178,7 @@ export function WorkspacesScreen() {
               <div className="flex min-w-0 flex-col gap-[3px]">
                 <div className="flex flex-wrap items-center gap-2.5">
                   {w.live && !w.current ? (
-                    <a href={w.url} className={cn(nameCls, "no-underline hover:underline")}>{w.name}</a>
+                    <a href={workspaceHref(w)} className={cn(nameCls, "no-underline hover:underline")}>{w.name}</a>
                   ) : (
                     <span className={nameCls}>{w.name}</span>
                   )}
@@ -211,7 +211,7 @@ export function WorkspacesScreen() {
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {w.live && !w.current && (
-                  <a className={buttonClass("secondary", "sm")} href={w.url} title="Open this workspace">
+                  <a className={buttonClass("secondary", "sm")} href={workspaceHref(w)} title="Open this workspace">
                     <Icon name="open_in_new" className="ms-sm" /> open
                   </a>
                 )}

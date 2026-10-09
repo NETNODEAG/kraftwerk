@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { makeProject, type Fixture } from "../helpers/project.js";
@@ -211,6 +212,59 @@ describe("hub: one kraftwerk, several workspaces", () => {
     assert.equal(((await r.json()) as { workspaceSlug: string }).workspaceSlug, "gamma", "no slug needed on its own port");
     assert.equal(await hub.close(g.root), true);
     await assert.rejects(fetch(`http://127.0.0.1:${aliasPort}/api/meta`), "the alias closes with the workspace");
+  });
+
+  it("the switcher: what this daemon serves, or would open, is `here`; starting and stopping act in place", async () => {
+    // Gamma ran (the alias test) and is closed: a known workspace, stopped.
+    type Entry = { root?: string; slug?: string; url: string; live: boolean; here?: boolean; current?: boolean };
+    const sw = (await get("/w/alpha/api/meta")).body.switcher as Entry[];
+    const at = (list: Entry[], root: string) => list.find((e) => e.root === root);
+    assert.ok(!at(sw, a.root), "not itself");
+    assert.deepEqual(at(sw, b.root) && [at(sw, b.root)!.slug, at(sw, b.root)!.here, at(sw, b.root)!.live, at(sw, b.root)!.url], ["beta", true, true, `http://beta.localhost:${hub.port}`]);
+    assert.deepEqual(
+      at(sw, g.root) && [at(sw, g.root)!.slug, at(sw, g.root)!.here, at(sw, g.root)!.live, at(sw, g.root)!.url],
+      ["gamma", true, false, `http://gamma.localhost:${hub.port}`],
+      "a stopped one would open here, at its slug — not on its old port",
+    );
+    const all = (await get("/w/alpha/api/workspaces")).body as unknown as Entry[];
+    assert.deepEqual([at(all, a.root)?.current, at(all, a.root)?.here, at(all, a.root)?.slug], [true, true, "alpha"]);
+    const search = (await get("/w/alpha/api/search/agents")).body.workspaces as Entry[];
+    assert.deepEqual([at(search, b.root)?.slug, at(search, b.root)?.here], ["beta", true], "⌘K links the same way");
+
+    const started = await post("/w/alpha/api/workspaces/start", { root: g.root });
+    assert.equal(started.status, 200);
+    assert.deepEqual(await started.json(), { ok: true, url: `http://gamma.localhost:${hub.port}`, slug: "gamma", here: true, live: true, pid: process.pid });
+    assert.ok(hub.list().some((o) => o.slug === "gamma"), "opened in this daemon, no process spawned");
+    const stopped = await post("/w/alpha/api/workspaces/stop", { root: g.root });
+    assert.deepEqual([stopped.status, await stopped.json()], [200, { ok: true }]);
+    assert.ok(!hub.list().some((o) => o.slug === "gamma"));
+    const self = await post("/w/alpha/api/workspaces/stop", { root: a.root });
+    assert.equal(self.status, 409, "a workspace does not close itself from its own page");
+    assert.match(((await self.json()) as { error: string }).error, /this workspace/);
+  });
+
+  it("its own page links each workspace by host on this machine, by path for a device on the network", async () => {
+    const page = (headers: http.OutgoingHttpHeaders) =>
+      new Promise<string>((resolve, reject) => {
+        http
+          .get({ host: "127.0.0.1", port: hub.port, path: "/", headers }, (res) => {
+            let body = "";
+            res.on("data", (c) => (body += c));
+            res.on("end", () => resolve(body));
+          })
+          .on("error", reject);
+      });
+    assert.match(await page({ host: `localhost:${hub.port}` }), new RegExp(`href="http://beta\\.localhost:${hub.port}/"`));
+    const remote = await page({ host: `localhost:${hub.port}`, "x-forwarded-host": "mac.example" });
+    assert.match(remote, /href="\/w\/beta\/"/);
+    assert.doesNotMatch(remote, /\.localhost/);
+  });
+
+  it("answers on ::1 too, where this platform resolves localhost and <slug>.localhost first", async (t) => {
+    const v6 = Object.values(os.networkInterfaces()).flat().some((i) => i?.internal && i.address === "::1");
+    if (!v6) return t.skip("no IPv6 loopback here");
+    const r = await fetch(`http://[::1]:${hub.port}/w/beta/api/meta?probe=1`);
+    assert.equal(((await r.json()) as { workspaceSlug: string }).workspaceSlug, "beta");
   });
 
   it("refuses a second workspace with a slug it already serves", async () => {

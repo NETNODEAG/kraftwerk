@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSummary, AgentSearch, ChannelSummary, ProjectHit, WorkspaceAgents } from "./types";
 import { api } from "./api";
-import { Icon, navigate, startWorkspace } from "./shared";
+import { Icon, navigate, startWorkspace, workspaceHref } from "./shared";
 import { cn, Kbd } from "./ui";
 
 /**
@@ -92,7 +92,7 @@ function group(hits: Hit[]): { ws: WorkspaceAgents; hits: Hit[] }[] {
 async function openHit(hit: Hit): Promise<void> {
   const target = hrefOf(hit);
   if (hit.ws.current) return navigate(target);
-  const url = hit.ws.live || !hit.ws.root ? hit.ws.url : await startWorkspace(hit.ws.root);
+  const url = hit.ws.live || !hit.ws.root ? workspaceHref(hit.ws) : await startWorkspace(hit.ws.root);
   window.location.assign(`${url.replace(/\/+$/, "")}/#${target}`);
 }
 

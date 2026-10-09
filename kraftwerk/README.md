@@ -87,7 +87,10 @@ reaches the same workspace. `http://localhost:1980` lists what is open.
 A workspace with a `port:` of its own is served there too, so old links
 keep working. The daemon remembers what was open and opens it again when it
 starts (after a reboot or an update). Each workspace still runs on its own
-inside it, with its own `.env`, routines, git sync and chats.
+inside it, with its own `.env`, routines, git sync and chats. The
+workspace menu in the header switches between them, and starts a stopped
+one right in the daemon. The Kraftwerk desktop app starts the daemon for
+you when it opens.
 `kraftwerk ui` hands the workspace to the daemon whenever one is running;
 `kraftwerk ui --standalone` starts a server of its own anyway.
 
@@ -95,7 +98,9 @@ inside it, with its own `.env`, routines, git sync and chats.
 or `kraftwerk daemon --lan`) and kraftwerk also listens on your network.
 Anyone who opens it there gets a pairing screen, nothing else, until you
 pair that device: `kraftwerk devices pair` on this machine prints a
-one-time code (see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
+one-time code. A paired device reaches the daemon's workspaces at
+`/w/<slug>/` on the address it used, and the workspace menu links them
+that way (see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
 
 **What to do first in the inspector.** Talk to **Ralv**, the workspace's
 general chat, in plain words: it knows what is in the workspace and helps
@@ -286,8 +291,14 @@ workspace's inspector gets its own `.env`, not the other one's. The file is
 never synced (it is on the workspace git's deny list and in the .gitignore
 `kraftwerk init` writes); `kraftwerk doctor` lists the names it loaded.
 
-`switcher:` links other kraftwerk workspaces from the inspector header. The
-workspace name becomes a dropdown listing them:
+The workspace name in the inspector header is the **workspace menu**. It
+lists every workspace this machine knows. Running ones open with a click,
+and a stopped one starts from its row (in the daemon, when one runs). Each
+link uses the address you opened this page with: `<slug>.localhost` on this
+machine, `/w/<slug>/` from a paired device on the network, the path form
+when you are in it.
+`switcher:` adds workspaces kraftwerk cannot discover, such as one on
+another machine:
 
 ```yaml
 switcher:
@@ -371,8 +382,12 @@ follows to author the workflow folder and validate and smoke it with this CLI.
 
 ### Inspector on your phone (paired devices)
 
-`kraftwerk ui --lan` also listens on your network and prints the addresses
-(for example `http://192.168.1.20:1981`). Anyone who opens one gets a
+`kraftwerk ui --lan` (or `kraftwerk daemon --lan`) also listens on your
+network and prints the addresses (for example `http://192.168.1.20:1981`).
+On the daemon, a device opens a workspace at `/w/<slug>/` on that address
+(`http://192.168.1.20:1980/w/team-blau/`), because `<slug>.localhost` only
+works on this machine. The daemon's own address lists them, and the
+workspace menu links the others the same way. Anyone who opens one gets a
 pairing screen, nothing else. To let a device in, make a one-time code on
 the machine kraftwerk runs on, with `kraftwerk devices pair` or settings →
 devices → pair a device, and enter it on the device. The code works once,

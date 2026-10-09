@@ -19,8 +19,8 @@ kraftwerk ui                           # start it, then open http://localhost:19
 
 Needs Node 20+ and at least one agent harness (Claude Code, Codex, or Pi).
 Several workspaces run in one kraftwerk with `kraftwerk daemon`, each at
-`http://<slug>.localhost:1980`; your phone joins with `--lan` and a pairing
-code. [Start and use kraftwerk](kraftwerk/README.md#start-and-use-kraftwerk)
+`http://<slug>.localhost:1980`, and the workspace menu in the header
+switches between them. Your phone joins with `--lan` and a pairing code. [Start and use kraftwerk](kraftwerk/README.md#start-and-use-kraftwerk)
 explains all three; [Install](#install) has the details.
 
 ## Why teams need it

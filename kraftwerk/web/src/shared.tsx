@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 // cn straight from its module: ui/ imports this file, the index would be a cycle.
 import { cn } from "./ui/cn";
-import { api, failure } from "./api";
+import { api, failure, workspaceInPath } from "./api";
 
 /* ---------- icons ---------- */
 
@@ -95,6 +95,30 @@ export function navigate(to: string, opts?: { replace?: boolean }): void {
   else window.location.hash = to;
 }
 
+/** What a link to another workspace needs: where it answers, and whether the hub serving this page serves it too. */
+export interface WorkspaceLink {
+  url: string;
+  slug?: string;
+  /** Served (or, started, opened) by the hub that serves this page. */
+  here?: boolean;
+}
+
+/**
+ * The address to open another workspace at. One the same hub serves is
+ * linked in the form this page was reached by: the path form stays in it,
+ * <slug>.localhost keeps this page's port, and a device on the network
+ * (which cannot resolve <slug>.localhost) gets /w/<slug>/ on the address it
+ * used. Anything else is its own server: its url as it is.
+ */
+export function workspaceHref(w: WorkspaceLink): string {
+  if (!w.here || !w.slug) return w.url;
+  const { protocol, hostname, port } = window.location;
+  if (workspaceInPath) return `/w/${w.slug}/`;
+  if (hostname.endsWith(".localhost")) return `${protocol}//${w.slug}.localhost${port ? `:${port}` : ""}/`;
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") return w.url;
+  return `/w/${w.slug}/`;
+}
+
 /**
  * Ask this instance to spawn `kraftwerk ui` for a stopped workspace and
  * resolve with its URL once the new inspector answers. The target is
@@ -105,14 +129,14 @@ export async function startWorkspace(root: string): Promise<string> {
   const r = await api.request("workspaces.start", { body: { root } });
   if (!r.ok) throw new Error(failure(r));
   const d = r.data;
-  if (d.live && d.url) return d.url;
+  if (d.live && d.url) return workspaceHref({ url: d.url, slug: d.slug, here: d.here });
   for (let i = 0; i < 12; i++) {
     await new Promise((res) => setTimeout(res, 1_000));
     try {
       const m = await api.call("meta.get");
       // Manual entries carry no root or live flag; only discovered ones match.
-      const hit = (m.switcher as { root?: string; live?: boolean; url: string }[]).find((e) => e.root === root && e.live);
-      if (hit) return hit.url;
+      const hit = (m.switcher as (WorkspaceLink & { root?: string; live?: boolean })[]).find((e) => e.root === root && e.live);
+      if (hit) return workspaceHref(hit);
     } catch {}
   }
   throw new Error("started, but the UI did not answer yet — see ~/.kraftwerk/logs");

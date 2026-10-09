@@ -20,6 +20,8 @@ export interface WorkspaceAgents {
   icon?: string;
   /** Where the workspace's UI lives — hits link to `${url}/#/agents/<slug>`. */
   url: string;
+  /** Its slug: how a daemon addresses it. */
+  slug?: string;
   /** Project root (what /api/projects/start takes for a stopped workspace). */
   root?: string;
   /** The instance answering this request: hits navigate in place. */
@@ -56,6 +58,7 @@ export async function searchAgents(): Promise<AgentSearch> {
       name: w.name,
       icon: w.icon,
       url: w.url,
+      slug: w.slug,
       root: w.root,
       current: false,
       live: w.live,

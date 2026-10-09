@@ -4,7 +4,7 @@ import { api, useApi, type ApiResponse, type ApiResult } from "./api";
 import { NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
-import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures } from "./shared";
+import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures, workspaceHref } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { DashboardScreen } from "./dashboard";
@@ -325,6 +325,9 @@ interface SwitcherEntry {
   rootLabel?: string;
   /** false when the root folder is gone (start impossible). */
   exists?: boolean;
+  /** Its slug, and whether the hub serving this page serves it too (see workspaceHref). */
+  slug?: string;
+  here?: boolean;
 }
 
 /** "localhost:2027" → ":2027"; anything else keeps its host. */
@@ -445,7 +448,7 @@ function LinkedWorkspace({ entry, ambiguous }: { entry: SwitcherEntry; ambiguous
     <a
       className={cn(ROW, "hover:bg-surface-2 active:bg-surface-2")}
       role="menuitem"
-      href={entry.url}
+      href={workspaceHref(entry)}
       style={{ "--ws-c": workspaceColor(entry.color, seed) } as CSSProperties}
     >
       <WorkspaceTile icon={entry.icon} name={entry.name} color={entry.color} seed={seed} ambiguous={ambiguous} />
