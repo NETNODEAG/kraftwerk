@@ -109,7 +109,7 @@ describe("hub: one kraftwerk, several workspaces", () => {
       ["beta", `http://beta.localhost:${hub.port}`, b.root],
     ]);
     const page = await fetch(base() + "/");
-    assert.match(await page.text(), /href="http:\/\/alpha\.localhost:\d+\/">Alpha<\/a>[\s\S]*Beta/);
+    assert.match(await page.text(), /href="http:\/\/alpha\.localhost:\d+\/">Alpha <code>alpha<\/code><\/a>[\s\S]*Beta/);
     const meta = await get("/api/meta");
     assert.equal(meta.status, 404, "an API call at the daemon's address must name a workspace");
     assert.deepEqual((meta.body as { workspaces: string[] }).workspaces, ["alpha", "beta"]);
@@ -243,7 +243,7 @@ describe("hub: one kraftwerk, several workspaces", () => {
     assert.match(((await self.json()) as { error: string }).error, /this workspace/);
   });
 
-  it("its own page links each workspace by host on this machine, by path for a device on the network", async () => {
+  it("its own page links each workspace by host on this machine, by path for a paired device on the network; an unpaired one gets a pairing form", async () => {
     const page = (headers: http.OutgoingHttpHeaders) =>
       new Promise<string>((resolve, reject) => {
         http
@@ -255,9 +255,16 @@ describe("hub: one kraftwerk, several workspaces", () => {
           .on("error", reject);
       });
     assert.match(await page({ host: `localhost:${hub.port}` }), new RegExp(`href="http://beta\\.localhost:${hub.port}/"`));
-    const remote = await page({ host: `localhost:${hub.port}`, "x-forwarded-host": "mac.example" });
+    const { createPairCode, redeemPairCode } = await import("../../src/core/devices.js");
+    const { token } = await redeemPairCode((await createPairCode()).code, "phone");
+    const remote = await page({ host: `localhost:${hub.port}`, "x-forwarded-host": "mac.example", authorization: `Bearer ${token}` });
     assert.match(remote, /href="\/w\/beta\/"/);
     assert.doesNotMatch(remote, /\.localhost/);
+    // Not paired yet: a form for the code, and nothing about the workspaces.
+    const stranger = await page({ host: `localhost:${hub.port}`, "x-forwarded-host": "mac.example" });
+    assert.match(stranger, /<form id="pair">/);
+    assert.match(stranger, /fetch\("\/api\/pair"/);
+    assert.doesNotMatch(stranger, /Beta|beta|Alpha|alpha/);
   });
 
   it("answers on ::1 too, where this platform resolves localhost and <slug>.localhost first", async (t) => {

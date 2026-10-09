@@ -79,6 +79,15 @@ describe("kraftwerk daemon install", { skip: process.platform !== "darwin" && "a
     }
   });
 
+  it("--lan puts the daemon on the network too", async () => {
+    await rm(path.join(home, "launchctl.log"), { force: true });
+    const r = await run(["daemon", "install", "--lan"]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.stdout, /devices pair/);
+    const json = JSON.parse(spawnSync("plutil", ["-convert", "json", "-o", "-", plist()], { encoding: "utf8" }).stdout) as { ProgramArguments: string[] };
+    assert.deepEqual(json.ProgramArguments.slice(2), ["daemon", "--lan"]);
+  });
+
   it("uninstall unloads and removes it; again, there is nothing to remove", async () => {
     await rm(path.join(home, "launchctl.log"), { force: true });
     const r = await run(["daemon", "uninstall"]);

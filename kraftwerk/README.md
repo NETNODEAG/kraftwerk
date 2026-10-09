@@ -95,13 +95,18 @@ you when it opens.
 `kraftwerk ui` hands the workspace to the daemon whenever one is running;
 `kraftwerk ui --standalone` starts a server of its own anyway.
 
-**From your phone or another computer.** Add `--lan` (`kraftwerk ui --lan`,
-or `kraftwerk daemon --lan`) and kraftwerk also listens on your network.
-Anyone who opens it there gets a pairing screen, nothing else, until you
-pair that device: `kraftwerk devices pair` on this machine prints a
-one-time code. A paired device reaches the daemon's workspaces at
-`/w/<slug>/` on the address it used, and the workspace menu links them
-that way (see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
+**From your phone or another computer** on the same network:
+
+1. Let the daemon listen on your network: `kraftwerk daemon install --lan`
+   (or run `kraftwerk daemon --lan`). It prints the address, for example
+   `http://192.168.1.20:1980`.
+2. Open that address on the phone. It shows a pairing form, nothing else.
+3. On this computer, run `kraftwerk devices pair` (or settings → devices →
+   pair a device) and type the code on the phone.
+
+The phone now sees your workspaces, each at `/w/<slug>/` on that address,
+and the workspace menu switches between them. One pairing covers all of them
+(see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
 
 **What to do first in the inspector.** Talk to **Ralv**, the workspace's
 general chat, in plain words: it knows what is in the workspace and helps
@@ -231,7 +236,7 @@ kraftwerk runs                          # past runs from output/*/trace.jsonl; r
 kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # start this workspace: http://localhost:1981 (or open it in the daemon); --port, --lan, --standalone
 kraftwerk daemon                        # one kraftwerk for every open workspace: http://<slug>.localhost:1980; --port, --lan
-kraftwerk daemon install                # start the daemon at login (macOS LaunchAgent); `daemon uninstall` removes it
+kraftwerk daemon install                # start the daemon at login (macOS LaunchAgent); --lan, --port; `daemon uninstall` removes it
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
@@ -384,13 +389,15 @@ follows to author the workflow folder and validate and smoke it with this CLI.
 
 ### Inspector on your phone (paired devices)
 
-`kraftwerk ui --lan` (or `kraftwerk daemon --lan`) also listens on your
-network and prints the addresses (for example `http://192.168.1.20:1981`).
-On the daemon, a device opens a workspace at `/w/<slug>/` on that address
+`kraftwerk ui --lan` (or `kraftwerk daemon --lan`, `kraftwerk daemon install
+--lan` for the login item) also listens on your network and prints the
+addresses (for example `http://192.168.1.20:1981`). On the daemon, a device
+opens a workspace at `/w/<slug>/` on that address
 (`http://192.168.1.20:1980/w/team-blau/`), because `<slug>.localhost` only
-works on this machine. The daemon's own address lists them, and the
-workspace menu links the others the same way. Anyone who opens one gets a
-pairing screen, nothing else. To let a device in, make a one-time code on
+works on this machine. The daemon's own address lists them once the device
+is paired, and pairs it when it is not, and the workspace menu links the
+others the same way. Anyone who opens one gets a pairing screen, nothing
+else. To let a device in, make a one-time code on
 the machine kraftwerk runs on, with `kraftwerk devices pair` or settings →
 devices → pair a device, and enter it on the device. The code works once,
 for 10 minutes. The device stays paired until you unpair it in the same

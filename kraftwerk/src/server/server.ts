@@ -19,7 +19,7 @@ import { acceptWebSocket } from "./ws.js";
 import { json } from "./api/router.js";
 import { MIME } from "./api/mime.js";
 import { getPkgVersion, RESTART_EXIT_CODE } from "./version.js";
-import { trustOf, type TrustOptions } from "./trust.js";
+import { trustOf, type Trust, type TrustOptions } from "./trust.js";
 import type { Duplex } from "node:stream";
 import { targetOf, type Target } from "./target.js";
 import { isDir, resolveWorkspace, workspaceSlug } from "../config.js";
@@ -239,8 +239,8 @@ function installExitHandlers(): void {
 }
 
 /**
- * Listen on `port`. On the default bind (127.0.0.1) the same port on ::1
- * feeds the same server: macOS resolves localhost and <slug>.localhost to
+ * Listen on `port`. On the default bind (127.0.0.1), and on 0.0.0.0
+ * (`--lan`, IPv4 only), the same port on ::1 feeds the same server: macOS resolves localhost and <slug>.localhost to
  * ::1 first, and a client that does not fall back to IPv4 (a native app's
  * HTTP library) would find nothing there. Best effort — without IPv6, or
  * with ::1:port taken, it stays IPv4 only, as before.
@@ -254,7 +254,7 @@ async function listen(server: http.Server, port: number): Promise<number> {
       resolve(typeof addr === "object" && addr ? addr.port : port);
     });
   });
-  if (INSPECTOR_HOST !== "127.0.0.1") return bound;
+  if (INSPECTOR_HOST !== "127.0.0.1" && INSPECTOR_HOST !== "0.0.0.0") return bound;
   const twin = net.createServer((socket) => server.emit("connection", socket));
   const ok = await new Promise<boolean>((resolve) => {
     twin.once("error", () => resolve(false));
@@ -274,18 +274,38 @@ async function listen(server: http.Server, port: number): Promise<number> {
 /**
  * A small page at a daemon's own address: the open workspaces, each a link —
  * <slug>.localhost on this machine, the path form on the address a paired
- * device used (it cannot resolve <slug>.localhost).
+ * device used (it cannot resolve <slug>.localhost). A device that is not
+ * paired yet gets a pairing form instead, and no workspace names: the code
+ * comes from this machine (`kraftwerk devices pair`), and the cookie it earns
+ * covers every workspace on this address.
  */
-function hubPage(req: http.IncomingMessage, res: Res, open: OpenWorkspace[]): void {
+function hubPage(req: http.IncomingMessage, res: Res, open: OpenWorkspace[], trust: Trust): void {
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   // Behind a proxy on this machine the browser's name is the forwarded one.
   const host = hostnameOf(forwardedHost(req) ?? req.headers.host ?? "");
   const local = LOOPBACK_NAMES.has(host) || host.endsWith(".localhost");
-  const rows = open.length
-    ? open.map((o) => `<li><a href="${esc(local ? `${o.url}/` : `/w/${o.slug}/`)}">${esc(o.name)}</a> <code>${esc(o.slug)}</code></li>`).join("")
-    : "<li>No workspace is open. Run <code>kraftwerk ui</code> in a workspace folder.</li>";
+  const head =
+    `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>kraftwerk</title>` +
+    `<style>:root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 16px}` +
+    `code{opacity:.7;font-size:13px}ul{list-style:none;padding:0}li{border-bottom:1px solid #8884}li a{display:block;padding:12px 0;font-weight:600;text-decoration:none;color:inherit}` +
+    `input,button{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid #8888;width:100%;box-sizing:border-box;margin:6px 0}` +
+    `input[name=code]{letter-spacing:.2em;text-transform:uppercase}button{background:#5b4bd5;color:#fff;border:0;font-weight:600}#err{color:#c62828}</style><h1>kraftwerk</h1>`;
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-  res.end(`<!doctype html><meta charset="utf-8"><title>kraftwerk</title><style>body{font:15px/1.6 system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;color:#1b1b1f}code{color:#46464f}</style><h1>kraftwerk</h1><ul>${rows}</ul>`);
+  if (trust.kind === "none") {
+    return void res.end(
+      head +
+        `<p>Pair this device to use kraftwerk on this computer. On the computer, run <code>kraftwerk devices pair</code> (or settings → devices → pair a device) and enter the code here.</p>` +
+        `<form id="pair"><input name="code" placeholder="code" autocomplete="one-time-code" autocapitalize="characters" required>` +
+        `<input name="name" placeholder="this device's name, e.g. Lukas' iPhone"><button>pair</button><p id="err"></p></form>` +
+        `<script>document.getElementById("pair").onsubmit=async(e)=>{e.preventDefault();const f=new FormData(e.target);` +
+        `const r=await fetch("/api/pair",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:String(f.get("code")).trim(),name:String(f.get("name")||navigator.platform||"device")})});` +
+        `if(r.ok)location.reload();else document.getElementById("err").textContent=(await r.json().catch(()=>({}))).error||"pairing failed"}</script>`,
+    );
+  }
+  const rows = open.length
+    ? open.map((o) => `<li><a href="${esc(local ? `${o.url}/` : `/w/${o.slug}/`)}">${esc(o.name)} <code>${esc(o.slug)}</code></a></li>`).join("")
+    : "<li>No workspace is open. Run <code>kraftwerk ui</code> in a workspace folder.</li>";
+  res.end(`${head}<ul>${rows}</ul>`);
 }
 
 export async function startHub(opts: HubOptions): Promise<Hub> {
@@ -327,7 +347,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         return await run(() => serveVibeable(req, res, url));
       }
       // A daemon's own address lists its workspaces; anywhere else, the web UI's shell (public: an unpaired browser needs it to pair).
-      if (!open && (url.pathname === "/" || url.pathname === "/index.html")) return hubPage(req, res, [...bySlug.values()]);
+      if (!open && (url.pathname === "/" || url.pathname === "/index.html")) return hubPage(req, res, [...bySlug.values()], trust);
       await serveStatic(res, opts.staticDir, url.pathname);
     } catch (err) {
       json(res, { error: (err as Error).message }, 500);

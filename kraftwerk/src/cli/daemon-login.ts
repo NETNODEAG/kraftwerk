@@ -67,9 +67,9 @@ function requireMac(): void {
   }
 }
 
-export async function installDaemon(opts: { port?: string }): Promise<void> {
+export async function installDaemon(opts: { port?: string; lan?: boolean }): Promise<void> {
   requireMac();
-  const { cmd, args } = selfCommand(["daemon", ...(opts.port ? ["--port", opts.port] : [])]);
+  const { cmd, args } = selfCommand(["daemon", ...(opts.port ? ["--port", opts.port] : []), ...(opts.lan ? ["--lan"] : [])]);
   const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
   if (process.env.KRAFTWERK_DAEMON_PORT && !opts.port) env.KRAFTWERK_DAEMON_PORT = process.env.KRAFTWERK_DAEMON_PORT;
   const file = plistPath();
@@ -93,6 +93,7 @@ export async function installDaemon(opts: { port?: string }): Promise<void> {
     process.exit(1);
   }
   console.log(`${chalk.green("✔")} login item installed and started: ${chalk.dim(tildify(file))}`);
+  if (opts.lan) console.log(chalk.dim("  on your network too: devices pair first (`kraftwerk devices pair`)"));
   console.log(chalk.dim(`  log: ${tildify(logPath())} · \`kraftwerk daemon uninstall\` removes it`));
 }
 

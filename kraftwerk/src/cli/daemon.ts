@@ -60,9 +60,11 @@ export function registerDaemonCommand(program: Command): void {
     .command("install")
     .description("Start the daemon at login (macOS LaunchAgent), and now unless one runs")
     .option("--port <port>", `Port (default: KRAFTWERK_DAEMON_PORT, else ${DAEMON_PORT})`)
-    .action(async (opts: { port?: string }) => {
-      // `--port` after `install` is taken by `daemon` itself, which has the same option.
-      await installDaemon({ port: opts.port ?? (daemon.opts() as { port?: string }).port });
+    .option("--lan", "Listen on the network too, for paired devices (a phone on the same Wi-Fi)")
+    .action(async (opts: { port?: string; lan?: boolean }) => {
+      // `--port`/`--lan` after `install` are taken by `daemon` itself, which has the same options.
+      const parent = daemon.opts() as { port?: string; lan?: boolean };
+      await installDaemon({ port: opts.port ?? parent.port, lan: opts.lan ?? parent.lan });
     });
   daemon
     .command("uninstall")
