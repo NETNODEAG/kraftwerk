@@ -5,6 +5,7 @@ import { tildify } from "../core/instances.js";
 import { networkUrls } from "../server/bind.js";
 import { startHub } from "../server/server.js";
 import { ensureBuilt, supervise } from "./ui.js";
+import { installDaemon, uninstallDaemon } from "./daemon-login.js";
 
 /**
  * `kraftwerk daemon` — the machine's kraftwerk: one process serving every
@@ -47,12 +48,26 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
 }
 
 export function registerDaemonCommand(program: Command): void {
-  program
+  const daemon = program
     .command("daemon")
-    .description("Run the machine's kraftwerk: one process serving every open workspace at <slug>.localhost")
+    .description("Run the machine's kraftwerk: one process serving every open workspace at <slug>.localhost; install it as a login item")
     .option("--port <port>", `Port (default: KRAFTWERK_DAEMON_PORT, else ${DAEMON_PORT})`)
     .option("--lan", "Listen on the network too, for paired devices")
     .action(async (opts: { port?: string; lan?: boolean }) => {
       await runDaemon(opts);
+    });
+  daemon
+    .command("install")
+    .description("Start the daemon at login (macOS LaunchAgent), and now unless one runs")
+    .option("--port <port>", `Port (default: KRAFTWERK_DAEMON_PORT, else ${DAEMON_PORT})`)
+    .action(async (opts: { port?: string }) => {
+      // `--port` after `install` is taken by `daemon` itself, which has the same option.
+      await installDaemon({ port: opts.port ?? (daemon.opts() as { port?: string }).port });
+    });
+  daemon
+    .command("uninstall")
+    .description("Remove the login item (stops a daemon launchd started)")
+    .action(async () => {
+      await uninstallDaemon();
     });
 }

@@ -160,6 +160,8 @@ export interface OpenWorkspace {
   /** Its own port too (kraftwerk.yml `port`), when the hub listens there for it — old links keep working. */
   aliasPort?: number;
   ws: Workspace;
+  /** Its instance file being written (see openNow): closing waits for it, so no file lands after the close. */
+  registered?: Promise<void>;
 }
 
 /**
@@ -443,7 +445,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         startRoutineScheduler();
         startGitSync();
         // Best-effort, in the background: none of them may hold up (or, failing, break) the open.
-        void registerInstance(entry.aliasPort ?? port, abs, opts.daemon ? { hub: true, slug, url: entry.url } : {}).catch(() => {});
+        entry.registered = registerInstance(entry.aliasPort ?? port, abs, opts.daemon ? { hub: true, slug, url: entry.url } : {}).catch(() => {});
         void registerWorkspace(abs).catch(() => {});
         void startCloudSync(entry.url, version).catch(() => {});
       }),
@@ -474,6 +476,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         stopCloudSync();
       }),
     );
+    await entry.registered;
     unregisterInstance(abs);
     markWorkspaceStopped(abs);
     entry.ws.close();

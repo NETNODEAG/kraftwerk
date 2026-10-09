@@ -387,7 +387,9 @@ describe("hub: one kraftwerk, several workspaces", () => {
     assert.equal(stopped, "stopped");
     await assert.rejects(fetch(base() + "/api/hub"));
     const files = await readdir(path.join(a.home, ".kraftwerk", "instances")).catch(() => [] as string[]);
-    assert.deepEqual(files.filter((f) => f.startsWith(`${process.pid}-`)), []);
+    const left = files.filter((f) => f.startsWith(`${process.pid}-`));
+    const what = await Promise.all(left.map((f) => readFile(path.join(a.home, ".kraftwerk", "instances", f), "utf8").catch(() => "(gone)")));
+    assert.deepEqual(left, [], `left behind: ${what.join(" | ")} (alpha ${a.root}, beta ${b.root}, gamma ${g.root})`);
     for (const root of [a.root, b.root]) {
       const rec = (await listWorkspaceRecords()).find((r) => r.root === root);
       assert.ok(rec?.lastStopped && rec.lastStopped >= rec.lastStarted, `${root} stamped as stopped`);

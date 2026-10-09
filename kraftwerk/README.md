@@ -65,11 +65,12 @@ foreground; Ctrl-C stops it. That is all most people need.
 
 **Several workspaces: `kraftwerk daemon`.** With more than one workspace,
 run one kraftwerk for all of them instead of a server and a port each.
-Start the daemon once and leave it running (a terminal tab, or a login
-item):
+Start the daemon once and leave it running, or let your Mac start it at
+login:
 
 ```bash
 kraftwerk daemon                       # the machine's kraftwerk, on http://localhost:1980
+kraftwerk daemon install               # or: start it at login from now on (macOS; `uninstall` undoes it)
 
 cd ~/work/team-blau && kraftwerk ui    # opens this workspace in the daemon:
                                        #   http://team-blau.localhost:1980
@@ -230,6 +231,7 @@ kraftwerk runs                          # past runs from output/*/trace.jsonl; r
 kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/verify/search/...)
 kraftwerk ui                            # start this workspace: http://localhost:1981 (or open it in the daemon); --port, --lan, --standalone
 kraftwerk daemon                        # one kraftwerk for every open workspace: http://<slug>.localhost:1980; --port, --lan
+kraftwerk daemon install                # start the daemon at login (macOS LaunchAgent); `daemon uninstall` removes it
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove

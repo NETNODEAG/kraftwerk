@@ -9,6 +9,8 @@ import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
 import { legacyFindings, versionLt } from "./doctor-legacy.js";
 import { listDevices } from "../core/devices.js";
 import { slugClashes } from "../core/instances.js";
+import { findDaemon } from "../core/daemon.js";
+import { daemonLoginItem } from "./daemon-login.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -214,6 +216,21 @@ export async function runDoctor(cwd: string): Promise<void> {
   if (process.env.KRAFTWERK_UI_TRUST_NETWORK === "1")
     report("warn", "KRAFTWERK_UI_TRUST_NETWORK=1", "anyone who reaches the UI over the network uses it without pairing — unset it and pair devices instead (`kraftwerk devices pair`)");
   report("info", devices.length ? `${devices.length} paired device(s)` : "no paired devices", devices.length ? devices.map((d) => d.name).join(", ") : "a phone or another computer can use kraftwerk once paired: `kraftwerk ui --lan`, then `kraftwerk devices pair`");
+
+  // The daemon: whether one runs, and whether it starts at login.
+  const daemon = await findDaemon();
+  const loginItem = daemonLoginItem();
+  report(
+    "info",
+    daemon ? `kraftwerk daemon running on :${daemon.port}` : "no kraftwerk daemon running",
+    loginItem
+      ? "starts at login (`kraftwerk daemon uninstall` removes that)"
+      : process.platform === "darwin"
+        ? "`kraftwerk daemon install` starts it at login"
+        : daemon
+          ? undefined
+          : "`kraftwerk daemon` serves every workspace in one process",
+  );
 
   // Legacy: what older versions left behind, and what still runs or is installed at one.
   for (const f of await legacyFindings(project, pkg.version)) report(f.level, f.label, f.detail);
