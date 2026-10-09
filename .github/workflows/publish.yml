@@ -41,15 +41,23 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # The registry needs a moment to serve a fresh version — retry before
-      # declaring the publish broken.
+      # The registry needs a while to serve a fresh version — 0.71.0 took over
+      # 10 minutes. Ask it directly (no npm cache in between) for up to 30
+      # minutes before declaring the publish broken; `npm publish` already
+      # succeeded, so a timeout here means "slow", rarely "missing".
       - name: Verify
+        timeout-minutes: 35
         run: |
-          spec="$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")"
-          for i in $(seq 1 30); do
-            npm view "$spec" version && exit 0
-            echo "Not visible yet (attempt $i/30), retrying in 20s ..."
-            sleep 20
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          for i in $(seq 1 60); do
+            if curl -sf -H 'cache-control: no-cache' "https://registry.npmjs.org/${name}/${version}" >/dev/null \
+              && npm view "${name}@${version}" version --prefer-online >/dev/null 2>&1; then
+              echo "${name}@${version} is on the registry"
+              exit 0
+            fi
+            echo "Not visible yet (attempt $i/60), retrying in 30s ..."
+            sleep 30
           done
-          echo "::error::$spec not visible on the registry after publish"
+          echo "::error::${name}@${version} not visible on the registry 30 minutes after publish"
           exit 1
