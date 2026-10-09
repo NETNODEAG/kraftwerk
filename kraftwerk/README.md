@@ -7,16 +7,18 @@ happened to set them up, and every result is checked before anyone relies on
 it.
 
 ```bash
-npm install -g @netnodeag/kraftwerk
+npm install -g @netnodeag/kraftwerk    # once per machine
 
-cd your-project
-kraftwerk init                         # scaffold the workspace
-kraftwerk doctor                       # check harnesses, docker, workflows, env vars, legacy leftovers
-kraftwerk ui                           # open it at http://localhost:1981
+cd your-project                        # any folder: a repo, a team folder, an empty one
+kraftwerk init                         # make it a workspace: kraftwerk.yml + kraftwerk-data/
+kraftwerk doctor                       # check that the agents (Claude Code, Codex, Pi) are there
+kraftwerk ui                           # start it, then open http://localhost:1981
 ```
 
 Needs Node 20+ and at least one agent harness (Claude Code, Codex, or Pi).
-Details in [Install](#install).
+[Start and use kraftwerk](#start-and-use-kraftwerk) explains the ways to
+run it (one workspace, several at once, from your phone);
+[Install](#install) has the details.
 
 **Why teams need it.** AI work today lives in individual silos. Personal
 prompts, Claude Code sessions, one-off scripts. What one person figures out
@@ -47,6 +49,68 @@ becomes shared practice.
 
 This README is the reference for the framework and CLI. For the overview,
 start at the [project README](https://github.com/NETNODEAG/kraftwerk#readme).
+
+## Start and use kraftwerk
+
+A **workspace** is a folder with a `kraftwerk.yml`: its agents, knowledge,
+workflows, projects and chats live in it (under `kraftwerk-data/`), and git
+can share it with your team. `kraftwerk init` makes any folder one.
+kraftwerk is then used in the browser, the **inspector**, which a kraftwerk
+process serves from your machine. There are three ways to run that process.
+
+**One workspace: `kraftwerk ui`.** In the workspace folder, `kraftwerk ui`
+starts a server for it and prints the address, `http://localhost:1981`
+(`port:` in kraftwerk.yml, or `--port`, sets another). It runs in the
+foreground; Ctrl-C stops it. That is all most people need.
+
+**Several workspaces: `kraftwerk daemon`.** With more than one workspace,
+run one kraftwerk for all of them instead of a server and a port each.
+Start the daemon once and leave it running (a terminal tab, or a login
+item):
+
+```bash
+kraftwerk daemon                       # the machine's kraftwerk, on http://localhost:1980
+
+cd ~/work/team-blau && kraftwerk ui    # opens this workspace in the daemon:
+                                       #   http://team-blau.localhost:1980
+cd ~/work/relaunch && kraftwerk ui     #   http://relaunch.localhost:1980
+kraftwerk workspaces                   # every workspace on this machine, running or not
+kraftwerk workspaces stop team-blau    # close one; the daemon and the others keep running
+```
+
+Each workspace is addressed by its **slug**: the folder name, or `slug:` in
+kraftwerk.yml (the `name:` is only the title and can change freely).
+Browsers resolve `<slug>.localhost` to your machine by themselves, so there
+is nothing to set up, and each workspace keeps its own browser origin.
+Where a host name per workspace is not possible, `http://localhost:1980/w/<slug>/`
+reaches the same workspace. `http://localhost:1980` lists what is open.
+A workspace with a `port:` of its own is served there too, so old links
+keep working. The daemon remembers what was open and opens it again when it
+starts (after a reboot or an update). Each workspace still runs on its own
+inside it, with its own `.env`, routines, git sync and chats.
+`kraftwerk ui` hands the workspace to the daemon whenever one is running;
+`kraftwerk ui --standalone` starts a server of its own anyway.
+
+**From your phone or another computer.** Add `--lan` (`kraftwerk ui --lan`,
+or `kraftwerk daemon --lan`) and kraftwerk also listens on your network.
+Anyone who opens it there gets a pairing screen, nothing else, until you
+pair that device: `kraftwerk devices pair` on this machine prints a
+one-time code (see [Inspector on your phone](#inspector-on-your-phone-paired-devices)).
+
+**What to do first in the inspector.** Talk to **Ralv**, the workspace's
+general chat, in plain words: it knows what is in the workspace and helps
+set up the rest. From there:
+
+- **Agents** are persistent coworkers with a role, a memory and routines.
+  Open one and chat with it; its sessions continue where they ended.
+- **Projects** gather a goal, a brief and links; every chat in a project
+  starts with that context.
+- **Workflows** are repeatable processes with checked results; run one from
+  its page or with `kraftwerk run <workflow> "<request>"`.
+- **Knowledge** is the shared, human-verified context agents read.
+
+Everything you see in the inspector is files in the workspace folder, so
+the CLI (`kraftwerk --help`) and git work on the same things.
 
 ## Under the hood
 
@@ -112,7 +176,7 @@ cd your-project
 kraftwerk init                     # scaffold kraftwerk.yml + kraftwerk-data/ (workflow, agent, knowledge)
 kraftwerk doctor                   # preflight: harness CLIs, docker, workflows, declared env vars, legacy leftovers
 kraftwerk run hello "Was ist kraftwerk?"
-kraftwerk ui                       # inspector on http://localhost:1981
+kraftwerk ui                       # inspector on http://localhost:1981 (see Start and use kraftwerk)
 ```
 
 The same without a global install:
@@ -159,8 +223,10 @@ kraftwerk run tagline "https://..."     # run; --yes, --verbose
 kraftwerk run                           # interactive: pick workflow, type the request
 kraftwerk runs                          # past runs from output/*/trace.jsonl; runs show <id> for detail
 kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/verify/search/...)
-kraftwerk ui                            # inspector web UI on http://localhost:1981; --port, --output
+kraftwerk ui                            # start this workspace: http://localhost:1981 (or open it in the daemon); --port, --lan, --standalone
+kraftwerk daemon                        # one kraftwerk for every open workspace: http://<slug>.localhost:1980; --port, --lan
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
+kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
 kraftwerk journal <agent> ["<entry>"]   # an agent's memory across sessions: print it, add a line (--kind)
@@ -182,19 +248,18 @@ The **trash** screen (`#/trash`) or `kraftwerk trash restore <id>` puts an entry
 back where it came from. Deleting it there, or `kraftwerk trash empty`, makes it
 final. A chat's agent transcripts are only removed then, so a restored chat can resume.
 
-The inspector binds `127.0.0.1` — it has no authentication of its own and
-its chat runs coding agents against the repo, so it stays off the LAN, and
-while bound there it only answers requests whose `Host` is a loopback name
-(so a page on another site cannot reach it by re-pointing its own DNS at
-127.0.0.1). Inside a container it binds all interfaces instead, because the
-port mapping is the boundary there (`deploy-starter/` publishes to
-localhost, and its traefik override adds basic-auth). `KRAFTWERK_UI_HOST`
-overrides the default either way. A reverse proxy in front of it must set
-`X-Forwarded-Host` to the host the browser addressed (Caddy and traefik do
-by default; nginx needs `proxy_set_header X-Forwarded-Host $host;`): the
-loopback bind answers a non-loopback `Host` only when that header is
-present, and state-changing requests are refused when `Origin` names a
-different host.
+The inspector binds `127.0.0.1`: its chat runs coding agents against the
+repo, so it stays off the network unless you ask (`--lan`), and there only
+paired devices get in. While bound to loopback it only answers requests
+whose `Host` is a loopback name or `<slug>.localhost` (so a page on another
+site cannot reach it by re-pointing its own DNS at 127.0.0.1). Inside a
+container it binds all interfaces instead, because the port mapping is the
+boundary there (`deploy-starter/` publishes to localhost, and its traefik
+override adds basic-auth). `KRAFTWERK_UI_HOST` overrides the default either
+way. A reverse proxy in front of it must set `X-Forwarded-Host` to the host
+the browser addressed (Caddy and traefik do by default; nginx needs
+`proxy_set_header X-Forwarded-Host $host;`), and its visitors pair like any
+other device.
 
 ### The kraftwerk.yml project config
 
@@ -203,9 +268,14 @@ fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
-`cloud:`
-tunes (or turns off) the registration with the
+`cloud:` tunes (or turns off) the registration with the
 [kraftwerk cloud](#inspector-in-the-kraftwerk-cloud), which is on by default.
+
+`name:` is the title shown in the UI and can change freely. `slug:` is the
+workspace's address on this machine. It defaults to the folder name
+(`~/Sites/team-blau` becomes `team-blau`). It must be lowercase letters,
+digits and dashes, and unique among the workspaces on the machine.
+`kraftwerk ui` and `kraftwerk doctor` warn when two workspaces share one.
 
 A `.env` next to kraftwerk.yml (`KEY=value` lines, `#` comments, quotes)
 is loaded into every kraftwerk process at start: `kraftwerk ui` and the

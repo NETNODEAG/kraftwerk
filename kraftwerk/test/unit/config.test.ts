@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { resolveWorkspace } from "../../src/config.js";
+import { resolveWorkspace, slugFromFolder, workspaceSlug } from "../../src/config.js";
 
 /**
  * kraftwerk.yml keys an older kraftwerk read: `public:` and `tunnel:` (the
@@ -39,5 +39,35 @@ describe("kraftwerk.yml legacy keys", () => {
   it("other unknown keys still fail", async () => {
     await writeFile(path.join(dir, "kraftwerk.yml"), "name: x\nfunnel: yes\n");
     await assert.rejects(resolveWorkspace(dir), /unknown key "funnel"/);
+  });
+});
+
+/** The slug: the workspace's address on this machine — the folder name unless kraftwerk.yml says otherwise. */
+describe("workspace slug", () => {
+  let dir = "";
+  before(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "kraftwerk-test-"));
+  });
+  after(() => rm(dir, { recursive: true, force: true }));
+
+  it("makes a folder name into a DNS label", () => {
+    assert.equal(slugFromFolder("Team Blau (2024)"), "team-blau-2024");
+    assert.equal(slugFromFolder("Ünïcödé"), "unicode");
+    assert.equal(slugFromFolder("---"), "workspace");
+    assert.equal(slugFromFolder("a".repeat(80)).length, 63);
+  });
+
+  it("takes kraftwerk.yml slug over the folder name, and the name never", async () => {
+    await writeFile(path.join(dir, "kraftwerk.yml"), "name: Team Blau\n");
+    assert.equal(workspaceSlug(await resolveWorkspace(dir)), slugFromFolder(path.basename(dir)));
+    await writeFile(path.join(dir, "kraftwerk.yml"), "name: Team Blau\nslug: blau\n");
+    assert.equal(workspaceSlug(await resolveWorkspace(dir)), "blau");
+  });
+
+  it("refuses a slug that is not a DNS label", async () => {
+    for (const bad of ["Blau", "-blau", "blau-", "blau_team", '"a b"']) {
+      await writeFile(path.join(dir, "kraftwerk.yml"), `slug: ${bad}\n`);
+      await assert.rejects(resolveWorkspace(dir), /slug must be lowercase/, bad);
+    }
   });
 });

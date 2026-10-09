@@ -2,10 +2,11 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, openSync, closeSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { workspaceRoot } from "./context.js";
-import { perWorkspace } from "./workspace.js";
+import { perWorkspace, workspaceOpen } from "./workspace.js";
 import { RUN_ID_RE, getRun, safeRunDir } from "./runs.js";
 import { pushNotification } from "./notifications.js";
 import { newRunId } from "../workflow.js";
+import { workspaceEnv } from "./env.js";
 
 /**
  * Workflow trigger for the web UI. The inspector stays decoupled from the
@@ -61,7 +62,7 @@ export function triggerRun(opts: {
     cwd: workspaceRoot(),
     detached: true,
     stdio: ["ignore", log, log],
-    env: { ...process.env, FORCE_COLOR: "0" },
+    env: { ...workspaceEnv(), FORCE_COLOR: "0" },
   });
   child.unref();
   closeSync(log);
@@ -73,7 +74,6 @@ export function triggerRun(opts: {
   // framework wrote a trace (missing env var, npx failure) shows as failed
   // instead of running until the stale timeout.
   child.on("exit", (code, signal) => {
-    launchers().delete(runId);
     try {
       writeFileSync(
         path.join(runDir, "trigger.json"),
@@ -82,6 +82,9 @@ export function triggerRun(opts: {
     } catch {
       /* run dir removed meanwhile */
     }
+    // A run outlives its workspace closing (it is detached): the file above is all it leaves then.
+    if (!workspaceOpen()) return;
+    launchers().delete(runId);
     void getRun(runId)
       .then((run) => {
         const ok = run?.status === "ok";

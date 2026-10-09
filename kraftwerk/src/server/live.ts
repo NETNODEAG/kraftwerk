@@ -99,6 +99,15 @@ export function watch(key: string, evaluate: Watch["evaluate"], interval: number
   };
 }
 
+/** The current workspace closes: its watches stop re-evaluating (their sockets close with it). */
+export function closeWatches(): void {
+  const s = state();
+  for (const w of s.watches.values()) clearTimeout(w.timer);
+  s.watches.clear();
+  clearTimeout(s.touchTimer);
+  s.touchTimer = undefined;
+}
+
 /** Something changed: re-evaluate every watch of this workspace soon (debounced). */
 export function touch(): void {
   // Outside any workspace (a unit test, a CLI command) nobody can be watching.

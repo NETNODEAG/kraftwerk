@@ -30,4 +30,8 @@ const port = Number(process.env.E2E_PORT || 19981);
 await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port, root: fx.root });
 // The same workspace as a device on the network sees it: nothing without pairing (devices.spec.ts).
 await startInspector({ outputDir: path.join(fx.root, "output"), staticDir: dist, port: port + 1, root: fx.root, trustLoopback: false });
-console.log(`e2e inspector on http://127.0.0.1:${port} (and as a remote device sees it: ${port + 1}) for ${fx.root}`);
+// The same workspace served by a daemon, by its slug (project.localhost — the fixture's folder is project/): daemon.spec.ts.
+const { startHub } = await import("../src/server/server.js");
+const daemon = await startHub({ port: port + 2, staticDir: dist, daemon: true });
+await daemon.open(fx.root);
+console.log(`e2e inspector on http://127.0.0.1:${port} (as a remote device sees it: ${port + 1}; by a daemon: ${port + 2}) for ${fx.root}`);

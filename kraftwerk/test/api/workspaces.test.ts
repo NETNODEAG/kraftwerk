@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -70,6 +70,20 @@ describe("/api/workspaces", () => {
     const stored = await roots();
     assert.ok(stored.includes(fx.root), `expected ${fx.root} in ${stored.join(", ")}`);
     assert.ok(stored.every((r) => path.isAbsolute(r)));
+  });
+
+  it("records the workspace's slug — the folder name by default — and finds another workspace using it", async () => {
+    await roots();
+    const { recordSlug, slugClashes, listWorkspaceRecords, workspaceRecordName } = await import("../../src/core/instances.js");
+    const own = (await listWorkspaceRecords()).find((r) => r.root === fx.root);
+    assert.equal(own?.slug, "project", "makeProject's root folder is project/");
+    assert.equal(((await (await fetch(srv.url + "/api/meta?probe=1")).json()) as { workspaceSlug: string }).workspaceSlug, "project");
+    assert.deepEqual(await slugClashes("project", fx.root), []);
+    // Another folder named project/ elsewhere would take the same address.
+    const twin = path.join(fx.home, "elsewhere", "project");
+    await writeFile(path.join(fx.home, ".kraftwerk", "workspaces", workspaceRecordName(twin)), JSON.stringify({ root: twin, firstSeen: "2026-01-01T00:00:00.000Z", lastStarted: "2026-01-01T00:00:00.000Z", startCount: 1 }));
+    assert.deepEqual((await slugClashes("project", fx.root)).map(recordSlug), ["project"], "a record from before slugs counts by its folder name");
+    await rm(path.join(fx.home, ".kraftwerk", "workspaces", workspaceRecordName(twin)));
   });
 
   it("moves records from the pre-0.49 ~/.kraftwerk/projects into the workspaces registry", async () => {

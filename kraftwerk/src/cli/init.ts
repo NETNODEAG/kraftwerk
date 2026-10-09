@@ -19,6 +19,7 @@ const configTemplate = (name: string) => `# yaml-language-server: $schema=${CONF
 # kraftwerk project config — also marks the project root for the CLI.
 # All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
 name: ${JSON.stringify(name)}   # display name, shown in the inspector header + browser tab
+# slug: my-team   # this workspace's address on this machine (my-team.localhost); default: the folder name
 icon: "⚡"   # emoji shown as the inspector favicon
 port: 1981   # port \`kraftwerk ui\` listens on
 workflows: ${DATA_DIR}/workflows   # where workflows live

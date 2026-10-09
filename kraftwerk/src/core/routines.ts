@@ -369,3 +369,16 @@ export function startRoutineScheduler(): void {
   s.timer = setInterval(() => void tick().catch(() => {}), 20_000);
   s.timer.unref?.();
 }
+
+/** Stop the current workspace's scheduler (the workspace closes): no routine of it fires any more. */
+export function stopRoutineScheduler(): void {
+  const s = scheduler();
+  if (s.timer) clearInterval(s.timer);
+  s.timer = null;
+}
+
+/** Whether the current workspace's scheduler runs (tests, the hub's view). */
+export const routineSchedulerRunning = (): boolean => scheduler().timer !== null;
+
+/** The current workspace's scheduler timer, or null — for tests that check it really stops (a cleared slot would read null either way). */
+export const routineSchedulerTimer = (): ReturnType<typeof setInterval> | null => scheduler().timer;

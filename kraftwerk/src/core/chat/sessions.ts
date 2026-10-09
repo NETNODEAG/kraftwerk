@@ -15,7 +15,7 @@ import { expandSkillInvocation, scopeContext } from "./context.js";
 import { ensureBackend } from "./seats.js";
 import { MAIN, type Seat, chatLabel, chatStates, dropBackend, dropSeat, emit, forgetFailedResume, isBusy, isUnattended, lastEventText, loadState, mainSeat, newSeat, ownerLabel, routineRef } from "./state.js";
 export { agentFilesContext, agentJournalContext, agentVibeablesContext, vibeableContext } from "./context.js";
-export { disposeAllBackends } from "./state.js";
+export { disposeAllBackends, disposeWorkspaceBackends } from "./state.js";
 
 /**
  * Chats: what the API does with them — create, post, steer, answer, fork,

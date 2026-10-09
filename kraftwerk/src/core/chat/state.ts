@@ -181,6 +181,11 @@ export function disposeAllBackends(): void {
   for (const [ws, states] of chatStates.entries()) ws.run(() => states.forEach((state) => dropBackend(state)));
 }
 
+/** The current workspace's agent processes end (the workspace closes); transcripts stay on disk. */
+export function disposeWorkspaceBackends(): void {
+  for (const state of chatStates().values()) dropBackend(state);
+}
+
 export async function loadState(id: string): Promise<ChatState | null> {
   const existing = chatStates().get(id);
   if (existing) return existing;

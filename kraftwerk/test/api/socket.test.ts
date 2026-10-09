@@ -132,13 +132,19 @@ describe("socket", () => {
     assert.equal((await fetch(srv.url + "/api/vibeables", { method: "POST", headers: json, body: JSON.stringify({ name: "twice" }) })).status, 201);
     conn.send({ sub: "v", topic: "vibeable.twice" });
     conn.send({ sub: "v", topic: "vibeable.twice" });
-    // Let both set up (the file watcher starts with the first listener).
+    // A control subscribed once: the file system may report one write as more than one change (macOS does),
+    // so "once" means as often as a single subscription hears it.
+    conn.send({ sub: "control", topic: "vibeable.twice" });
+    // Let them set up (the file watcher starts with the first listener).
     await new Promise((r) => setTimeout(r, 300));
     await fx.write("kraftwerk-data/vibeables/twice/index.html", "<h1>once</h1>\n");
-    await conn.next((m) => m.event === "v" && (m.data as { type: string }).type === "change");
+    const changes = (key: string) => conn.pending((m) => m.event === key && (m.data as { type: string }).type === "change");
+    for (const until = Date.now() + 5000; changes("control") === 0 && Date.now() < until; ) await new Promise((r) => setTimeout(r, 50));
     await new Promise((r) => setTimeout(r, 600));
-    assert.equal(conn.pending((m) => m.event === "v" && (m.data as { type: string }).type === "change"), 0, "the superseded subscription let go");
+    assert.ok(changes("control") >= 1);
+    assert.equal(changes("v"), changes("control"), "the superseded subscription let go: no event twice");
     conn.send({ unsub: "v" });
+    conn.send({ unsub: "control" });
   });
 
   it("refuses a socket opened by a page from another origin", async () => {

@@ -6,9 +6,10 @@ import path from "node:path";
 import { parse } from "yaml";
 import { resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace } from "../config.js";
 import { workspaceRoot } from "./context.js";
-import { perWorkspace } from "./workspace.js";
+import { perWorkspace, workspaceOpen } from "./workspace.js";
 import { moveToTrash } from "./trash.js";
 import { newestMtime } from "./mtime.js";
+import { workspaceEnv } from "./env.js";
 
 /**
  * Vibeables: small applications built live in a chat. The agent edits the
@@ -473,7 +474,7 @@ async function startDevNow(slug: string): Promise<VibeableStatus> {
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
+      ...workspaceEnv(),
       PORT: String(port),
       BASE_PATH: basePath,
       PUBLIC_URL: basePath,
@@ -491,19 +492,20 @@ async function startDevNow(slug: string): Promise<VibeableStatus> {
     pushLog(d, Buffer.from(`spawn failed: ${err.message}\n`));
     d.exitCode = null;
     d.ready = false;
-    broadcast(slug, { type: "dev", dev: devView(slug)! });
+    if (workspaceOpen()) broadcast(slug, { type: "dev", dev: devView(slug)! });
   });
   child.on("exit", (code) => {
     d.exitCode = code;
     d.ready = false;
     pushLog(d, Buffer.from(`[exited with ${code ?? "signal"}]\n`));
-    broadcast(slug, { type: "dev", dev: devView(slug)! });
+    // Closing the workspace ends its dev servers: their exit then has nobody to tell.
+    if (workspaceOpen()) broadcast(slug, { type: "dev", dev: devView(slug)! });
   });
   broadcast(slug, { type: "dev", dev: devView(slug)! });
   // Readiness runs in the background; the pane follows the dev events.
   void (async () => {
     const until = Date.now() + READY_TIMEOUT;
-    while (Date.now() < until && d.exitCode === undefined && devs().get(slug) === d) {
+    while (Date.now() < until && d.exitCode === undefined && workspaceOpen() && devs().get(slug) === d) {
       if (await probe(port)) {
         d.ready = true;
         broadcast(slug, { type: "dev", dev: devView(slug)! });
@@ -546,4 +548,10 @@ export async function stopDev(slug: string): Promise<VibeableStatus> {
 /** Server shutdown: no dev server may outlive the inspector. */
 export function disposeAllDevs(): void {
   for (const [, table] of devs.entries()) for (const d of table.values()) if (d.exitCode === undefined) killGroup(d, "SIGTERM");
+}
+
+/** The current workspace's dev servers and file watchers end (the workspace closes). */
+export function disposeWorkspaceDevs(): void {
+  for (const d of devs().values()) if (d.exitCode === undefined) killGroup(d, "SIGTERM");
+  for (const slug of [...channels().keys()]) dropChannel(slug);
 }

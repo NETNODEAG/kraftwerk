@@ -4,6 +4,7 @@ import { attentionRoutes } from "./attention.js";
 import { channelRoutes } from "./channels.js";
 import { chatRoutes } from "./chats.js";
 import { deviceRoutes } from "./devices.js";
+import { hubRoutes } from "./hub.js";
 import { fileRoutes } from "./files.js";
 import { gitRoutes } from "./git.js";
 import { knowledgeRoutes } from "./knowledge.js";
@@ -36,6 +37,7 @@ const domainRoutes = [
   ...gitRoutes,
   ...vibeableRoutes,
   ...deviceRoutes,
+  ...hubRoutes,
 ];
 
 /** One line per route, for clients and people: what exists and how to reach it. */

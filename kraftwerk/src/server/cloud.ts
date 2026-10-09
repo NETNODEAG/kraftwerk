@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { cloudFor, resolveWorkspace } from "../config.js";
 import { workspaceRoot } from "../core/context.js";
+import { perWorkspace, workspaceOpen } from "../core/workspace.js";
 import { listAgents, toSummary } from "../core/agents.js";
 import { listChannels, toChannelSummary } from "../core/channels.js";
 import { tildify } from "../core/instances.js";
@@ -71,16 +72,20 @@ const claimUrlFor = (url: string, code: string | null | undefined): string | nul
 const REQUEST_TIMEOUT_MS = 8_000;
 const GOODBYE_TIMEOUT_MS = 800;
 
-let status: CloudStatus = { url: "", state: "off" };
-let identity: Identity | null = null;
-let timer: NodeJS.Timeout | null = null;
-let stopped = false;
-let lastRoster = "";
-let selfPort = 0;
-let selfVersion = "";
-const startedAt = new Date().toISOString();
+/** The client's state, one per workspace: each served workspace registers and heartbeats on its own. */
+const client = perWorkspace(() => ({
+  status: { url: "", state: "off" } as CloudStatus,
+  identity: null as Identity | null,
+  timer: null as NodeJS.Timeout | null,
+  stopped: false,
+  lastRoster: "",
+  /** Where this workspace is reached on this machine, as the cloud lists it. */
+  selfUrl: "",
+  selfVersion: "",
+  startedAt: new Date().toISOString(),
+}));
 
-export const cloudStatus = (): CloudStatus => status;
+export const cloudStatus = (): CloudStatus => client().status;
 
 const cloudDir = (): string => path.join(os.homedir(), ".kraftwerk", "cloud");
 const identityFile = (url: string, root: string): string =>
@@ -112,9 +117,10 @@ async function roster(): Promise<{ agents: unknown[]; channels: unknown[] }> {
 }
 
 async function post<T>(url: string, body: unknown, timeout = REQUEST_TIMEOUT_MS): Promise<T> {
+  const c = client();
   const r = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": `kraftwerk/${selfVersion}` },
+    headers: { "content-type": "application/json", "user-agent": `kraftwerk/${c.selfVersion}` },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeout),
   });
@@ -131,15 +137,16 @@ async function post<T>(url: string, body: unknown, timeout = REQUEST_TIMEOUT_MS)
 
 /** Register (or re-register) this instance. Returns false when the cloud refused or is unreachable. */
 async function register(): Promise<boolean> {
+  const c = client();
   const project = await resolveWorkspace(workspaceRoot()).catch(() => null);
   const cloud = project ? cloudFor(project) : undefined;
   if (!project || !cloud) return false;
   const file = identityFile(cloud.url, project.root);
-  identity ??= await readIdentity(file);
+  c.identity ??= await readIdentity(file);
   const { agents, channels } = await roster();
-  lastRoster = JSON.stringify({ agents, channels });
+  c.lastRoster = JSON.stringify({ agents, channels });
   const body = {
-    ...(identity ?? {}),
+    ...(c.identity ?? {}),
     name: project.config.name ?? path.basename(project.root),
     icon: project.config.icon ?? "",
     color: project.config.color ?? "",
@@ -147,73 +154,78 @@ async function register(): Promise<boolean> {
     rootLabel: tildify(project.root),
     hostname: os.hostname(),
     platform: `${process.platform}-${process.arch}`,
-    version: selfVersion,
-    url: `http://localhost:${selfPort}`,
+    version: c.selfVersion,
+    url: c.selfUrl,
     // Part of the cloud's register contract; always "" since the Cloudflare Tunnel was removed (0.65).
     publicUrl: "",
     agents,
     channels,
     interval: cloud.interval,
-    startedAt,
+    startedAt: c.startedAt,
     ...(cloud.token ? { accountToken: cloud.token } : {}),
   };
   try {
     const r = await post<RegisterResponse>(`${cloud.url}/api/instances/register`, body);
-    if (!identity || identity.id !== r.id || identity.secret !== r.secret) {
-      identity = { id: r.id, secret: r.secret };
-      await writeIdentity(file, cloud.url, project.root, identity);
+    if (!c.identity || c.identity.id !== r.id || c.identity.secret !== r.secret) {
+      c.identity = { id: r.id, secret: r.secret };
+      await writeIdentity(file, cloud.url, project.root, c.identity);
     }
-    status = {
+    c.status = {
       url: cloud.url, state: "connected", id: r.id, account: r.account, interval: r.interval, lastSeen: new Date().toISOString(),
       claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(cloud.url, r.claimCode),
     };
     return true;
   } catch (err) {
-    status = { url: cloud.url, state: "error", error: (err as Error).message, ...(identity ? { id: identity.id } : {}) };
+    c.status = { url: cloud.url, state: "error", error: (err as Error).message, ...(c.identity ? { id: c.identity.id } : {}) };
     return false;
   }
 }
 
 async function heartbeat(): Promise<void> {
-  if (!identity || status.state === "off") return;
+  const c = client();
+  if (!c.identity || c.status.state === "off") return;
   const { agents, channels } = await roster();
   const rosterNow = JSON.stringify({ agents, channels });
   const body = {
-    ...identity,
-    version: selfVersion,
-    ...(rosterNow !== lastRoster ? { agents, channels } : {}),
+    ...c.identity,
+    version: c.selfVersion,
+    ...(rosterNow !== c.lastRoster ? { agents, channels } : {}),
   };
   try {
-    const r = await post<HeartbeatResponse>(`${status.url}/api/instances/heartbeat`, body);
-    lastRoster = rosterNow;
-    status = {
-      ...status, state: "connected", error: undefined, interval: r.interval, lastSeen: new Date().toISOString(),
+    const r = await post<HeartbeatResponse>(`${c.status.url}/api/instances/heartbeat`, body);
+    c.lastRoster = rosterNow;
+    c.status = {
+      ...c.status, state: "connected", error: undefined, interval: r.interval, lastSeen: new Date().toISOString(),
       ...(r.account !== undefined ? { account: r.account } : {}),
-      ...(r.claimCode !== undefined ? { claimCode: r.claimCode, claimUrl: claimUrlFor(status.url, r.claimCode) } : {}),
+      ...(r.claimCode !== undefined ? { claimCode: r.claimCode, claimUrl: claimUrlFor(c.status.url, r.claimCode) } : {}),
     };
   } catch (err) {
     const message = (err as Error).message;
-    status = { ...status, state: "error", error: message };
+    c.status = { ...c.status, state: "error", error: message };
     // An unknown identity (the cloud lost it) is fixed by registering again, which hands out a new one.
     if (/unknown instance|wrong instance secret|id and secret required/.test(message)) {
-      identity = null;
-      await register();
+      c.identity = null;
+      // Not after a goodbye: a stopped client registers nothing again.
+      if (!c.stopped && workspaceOpen()) await register();
     }
   }
 }
 
 /** Schedule the next tick after the effective interval; a failed cloud is retried at the same cadence. */
 function schedule(): void {
-  if (stopped) return;
-  const seconds = status.interval && status.interval > 0 ? status.interval : 60;
-  timer = setTimeout(async () => {
-    if (status.state === "connected" || status.state === "error") {
-      if (identity) await heartbeat();
+  const c = client();
+  if (c.stopped) return;
+  const seconds = c.status.interval && c.status.interval > 0 ? c.status.interval : 60;
+  c.timer = setTimeout(async () => {
+    // Stopped (or the workspace closed) while this timer waited, or while the call below ran: no next round.
+    if (c.stopped || !workspaceOpen()) return;
+    if (c.status.state === "connected" || c.status.state === "error") {
+      if (c.identity) await heartbeat();
       else await register();
     }
-    schedule();
+    if (!c.stopped && workspaceOpen()) schedule();
   }, seconds * 1000);
-  timer.unref();
+  c.timer.unref();
 }
 
 /**
@@ -221,28 +233,33 @@ function schedule(): void {
  * registration attempt (success or not); the heartbeat loop runs on its
  * own afterwards.
  */
-export async function startCloudSync(port: number, version: string): Promise<void> {
-  selfPort = port;
-  selfVersion = version;
-  stopped = false;
+export async function startCloudSync(url: string, version: string): Promise<void> {
+  const c = client();
+  c.selfUrl = url;
+  c.selfVersion = version;
+  c.stopped = false;
   const project = await resolveWorkspace(workspaceRoot()).catch(() => null);
   const cloud = project ? cloudFor(project) : undefined;
   if (!cloud) {
-    status = { url: "", state: "off" };
+    c.status = { url: "", state: "off" };
     return;
   }
-  status = { url: cloud.url, state: "connecting", interval: cloud.interval };
+  // The workspace may close (or the client stop) while this waits: then it does not register or schedule at all.
+  if (c.stopped || !workspaceOpen()) return;
+  c.status = { url: cloud.url, state: "connecting", interval: cloud.interval };
   await register();
+  if (c.stopped || !workspaceOpen()) return;
   // Until the cloud answers, retry at the configured cadence; once it does, at what it asked for.
-  if (status.state !== "connected") status.interval = cloud.interval;
+  if (c.status.state !== "connected") c.status.interval = cloud.interval;
   schedule();
 }
 
 /** Stop the heartbeat loop (server close, tests). */
 export function stopCloudSync(): void {
-  stopped = true;
-  if (timer) clearTimeout(timer);
-  timer = null;
+  const c = client();
+  c.stopped = true;
+  if (c.timer) clearTimeout(c.timer);
+  c.timer = null;
 }
 
 /**
@@ -251,9 +268,20 @@ export function stopCloudSync(): void {
  * this, and a slow cloud must not hold the process.
  */
 export async function cloudGoodbye(): Promise<void> {
+  const c = client();
   stopCloudSync();
-  if (!identity || status.state === "off" || !status.url) return;
+  if (!c.identity || c.status.state === "off" || !c.status.url) return;
   try {
-    await post(`${status.url}/api/instances/goodbye`, identity, GOODBYE_TIMEOUT_MS);
+    await post(`${c.status.url}/api/instances/goodbye`, c.identity, GOODBYE_TIMEOUT_MS);
   } catch {}
+}
+
+/** Every served workspace: stop its heartbeat (the server closes). */
+export function stopAllCloudSync(): void {
+  for (const [ws] of client.entries()) ws.run(stopCloudSync);
+}
+
+/** Every served workspace says goodbye, in parallel (still bounded per workspace). */
+export async function cloudGoodbyeAll(): Promise<void> {
+  await Promise.all(client.entries().map(([ws]) => ws.run(cloudGoodbye)));
 }

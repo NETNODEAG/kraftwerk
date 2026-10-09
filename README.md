@@ -9,16 +9,19 @@ happened to set them up, and every result is checked before anyone relies on
 it.
 
 ```bash
-npm install -g @netnodeag/kraftwerk
+npm install -g @netnodeag/kraftwerk    # once per machine
 
-cd your-project
-kraftwerk init                         # scaffold the workspace
-kraftwerk doctor                       # check harnesses, docker, workflows, env vars
-kraftwerk ui                           # open it at http://localhost:1981
+cd your-project                        # any folder: a repo, a team folder, an empty one
+kraftwerk init                         # make it a workspace: kraftwerk.yml + kraftwerk-data/
+kraftwerk doctor                       # check that the agents (Claude Code, Codex, Pi) are there
+kraftwerk ui                           # start it, then open http://localhost:1981
 ```
 
 Needs Node 20+ and at least one agent harness (Claude Code, Codex, or Pi).
-Details in [Install](#install).
+Several workspaces run in one kraftwerk with `kraftwerk daemon`, each at
+`http://<slug>.localhost:1980`; your phone joins with `--lan` and a pairing
+code. [Start and use kraftwerk](kraftwerk/README.md#start-and-use-kraftwerk)
+explains all three; [Install](#install) has the details.
 
 ## Why teams need it
 

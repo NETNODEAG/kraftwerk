@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import fsSync, { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { absolutePath, isDir, resolveWorkspace } from "../config.js";
+import { absolutePath, isDir, resolveWorkspace, slugFromFolder, workspaceSlug } from "../config.js";
 import { selfCommand } from "./self-command.js";
+import { DAEMON_PORT, daemonCall, findDaemon } from "./daemon.js";
+import { currentWorkspace } from "./workspace.js";
 import type { AgentSummary } from "./agents.js";
 import type { ChannelSummary } from "./channels.js";
 import type { ProjectHit } from "./projects.js";
@@ -43,11 +45,19 @@ interface InstanceFile {
   startedAt: string;
   /** Absolute project root this instance serves (absent in pre-0.33 files). */
   root?: string;
+  /** Where it answers, when not plain localhost:port (a daemon's workspace: <slug>.localhost:<port>). */
+  url?: string;
+  /** Its slug, when served by a daemon (probed at /w/<slug>/…). */
+  slug?: string;
+  /** Served by a daemon next to other workspaces: stopping it closes it there, never the process. */
+  hub?: boolean;
 }
 
 /** Durable per-project record. The root is the key; everything else derives from it. */
 export interface WorkspaceRecord {
   root: string;
+  /** The workspace's address on this machine (kraftwerk.yml `slug`, else its folder name), as of its last start. */
+  slug?: string;
   firstSeen: string;
   lastStarted: string;
   /** Set on clean shutdown; older than lastStarted means the last run died. */
@@ -72,10 +82,14 @@ export interface DiscoveredInstance {
   named?: boolean;
   live: true;
   root?: string;
-  /** Server process id (what to signal to stop it). */
+  /** Server process id (what to signal to stop it — unless `hub`). */
   pid: number;
   /** The kraftwerk version the instance runs. */
   version?: string;
+  /** Its slug, when a daemon serves it. */
+  slug?: string;
+  /** Served by a daemon next to other workspaces: stopped by closing it there. */
+  hub?: boolean;
 }
 
 /**
@@ -101,10 +115,22 @@ export interface WorkspaceEntry {
   lastStopped?: string;
 }
 
-const selfFile = (): string => path.join(instancesDir(), `${process.pid}.json`);
+/** What this process serves, by root: one workspace for `kraftwerk ui`, several for the daemon. */
+interface OwnInstance {
+  port: number;
+  url: string;
+  file: string;
+}
+const own = new Map<string, OwnInstance>();
 
-let selfPort: number | null = null;
-let selfRoot: string | null = null;
+/** The workspace the caller runs in (a request, a timer), or null outside any. */
+function currentRoot(): string | null {
+  try {
+    return currentWorkspace().root;
+  } catch {
+    return null;
+  }
+}
 
 /** File name of a root's record: a hash of the absolute root, the same under the old and the new directory. */
 export const workspaceRecordName = (root: string): string =>
@@ -120,25 +146,42 @@ export const tildify = (p: string): string => {
 
 /* ---------- instances (ephemeral) ---------- */
 
-/** Write this instance's registry file (call once the server listens). */
-export async function registerInstance(port: number, root: string): Promise<void> {
-  selfPort = port;
-  selfRoot = absolutePath(root);
+/**
+ * Write a served workspace's registry file (call once the server listens).
+ * A daemon's workspaces carry their slug and address and get a file each;
+ * a standalone server keeps the one `<pid>.json` it always had.
+ */
+export async function registerInstance(port: number, root: string, opts: { url?: string; slug?: string; hub?: boolean } = {}): Promise<void> {
+  const abs = absolutePath(root);
+  const file = path.join(instancesDir(), opts.hub ? `${process.pid}-${workspaceRecordName(abs)}` : `${process.pid}.json`);
+  const url = opts.url ?? `http://localhost:${port}`;
+  const mine: OwnInstance = { port, url, file };
+  own.set(abs, mine);
   try {
     await fs.mkdir(instancesDir(), { recursive: true });
-    const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString(), root: selfRoot };
-    await fs.writeFile(selfFile(), JSON.stringify(rec));
+    const rec: InstanceFile = { pid: process.pid, port, startedAt: new Date().toISOString(), root: abs, ...(opts.hub ? { url, slug: opts.slug, hub: true } : {}) };
+    await fs.writeFile(file, JSON.stringify(rec));
+    // Closed while this wrote (an open and a close in quick succession): the file must not outlive it.
+    if (own.get(abs) !== mine) await fs.unlink(file).catch(() => {});
   } catch {} // best-effort — without it discovery just won't see us
+  cache = null;
+  wsCache.clear();
 }
 
-/** Where this instance answers, as the switcher links it (null before listen). */
-export const currentInstanceUrl = (): string | null => (selfPort ? `http://localhost:${selfPort}` : null);
+/** Where the current workspace answers, as the switcher links it (null before listen). */
+export const currentInstanceUrl = (): string | null => own.get(currentRoot() ?? "")?.url ?? null;
 
-/** Remove this instance's registry file. Sync so exit handlers can call it. */
-export function unregisterInstance(): void {
-  try {
-    fsSync.unlinkSync(selfFile());
-  } catch {}
+/** Remove a served workspace's registry file — every one this process wrote when no root is given. Sync so exit handlers can call it. */
+export function unregisterInstance(root?: string): void {
+  const roots = root ? [absolutePath(root)] : [...own.keys()];
+  for (const r of roots) {
+    try {
+      fsSync.unlinkSync(own.get(r)?.file ?? "");
+    } catch {}
+    own.delete(r);
+  }
+  cache = null;
+  wsCache.clear();
 }
 
 /**
@@ -146,18 +189,19 @@ export function unregisterInstance(): void {
  * tells the other side to skip its own discovery — two instances probing
  * each other's /api/meta must not recurse.
  */
-async function probe(port: number): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
+async function probe(port: number, slug?: string): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
   // `listen(port, "localhost")` binds one address family, whichever the
   // resolver returns first (::1 on this platform), so an instance started
   // with KRAFTWERK_UI_HOST=localhost or ::1 is not on 127.0.0.1. A refused
   // connection returns at once, so the second try costs nothing when the
   // first one answers.
-  return (await probeAt("127.0.0.1", port)) ?? (await probeAt("[::1]", port));
+  return (await probeAt("127.0.0.1", port, slug)) ?? (await probeAt("[::1]", port, slug));
 }
 
-async function probeAt(host: string, port: number): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
+async function probeAt(host: string, port: number, slug?: string): Promise<Omit<DiscoveredInstance, "root" | "pid"> | null> {
   try {
-    const r = await fetch(`http://${host}:${port}/api/meta?probe=1`, {
+    // A daemon's workspace answers under its slug; the path form needs no name resolution.
+    const r = await fetch(`http://${host}:${port}${slug ? `/w/${slug}` : ""}/api/meta?probe=1`, {
       signal: AbortSignal.timeout(400),
     });
     if (!r.ok) return null;
@@ -197,7 +241,7 @@ let cache: { at: number; entries: DiscoveredInstance[] } | null = null;
  * did not answer in place (doctor: a busy server is not a dead one).
  */
 export async function discoverInstances(opts: { fresh?: boolean; readOnly?: boolean } = {}): Promise<DiscoveredInstance[]> {
-  if (!opts.fresh && cache && Date.now() - cache.at < 5_000) return cache.entries;
+  if (!opts.fresh && cache && Date.now() - cache.at < 5_000) return notSelf(cache.entries);
   let files: string[];
   try {
     files = await fs.readdir(instancesDir());
@@ -214,20 +258,26 @@ export async function discoverInstances(opts: { fresh?: boolean; readOnly?: bool
         } catch {
           return null;
         }
-        if (rec.pid === process.pid || rec.port === selfPort) return null;
-        const found = await probe(rec.port);
+        const found = await probe(rec.port, rec.hub ? rec.slug : undefined);
         if (!found) {
           if (!opts.readOnly) await fs.unlink(path.join(instancesDir(), f)).catch(() => {}); // stale — prune
           return null;
         }
-        return { ...found, root: rec.root, pid: rec.pid } as DiscoveredInstance;
+        return { ...found, root: rec.root, pid: rec.pid, ...(rec.hub ? { url: rec.url ?? found.url, slug: rec.slug, hub: true } : {}) } as DiscoveredInstance;
       })
   );
   const entries = probed
     .filter((e): e is DiscoveredInstance => e != null)
     .sort((a, b) => a.name.localeCompare(b.name));
   cache = { at: Date.now(), entries };
-  return entries;
+  return notSelf(entries);
+}
+
+/** Leave out the asking workspace itself (an older instance file without a root: by this process and port). */
+function notSelf(entries: DiscoveredInstance[]): DiscoveredInstance[] {
+  const me = currentRoot();
+  const port = me ? own.get(me)?.port : undefined;
+  return entries.filter((e) => (e.root ? e.root !== me : !(e.pid === process.pid && e.url === `http://localhost:${port}`)));
 }
 
 /* ---------- workspaces (durable) ---------- */
@@ -267,6 +317,7 @@ async function readRecord(file: string): Promise<WorkspaceRecord | null> {
     if (typeof rec.root !== "string") return null;
     return {
       root: rec.root,
+      ...(typeof rec.slug === "string" ? { slug: rec.slug } : {}),
       firstSeen: rec.firstSeen ?? rec.lastStarted ?? "",
       lastStarted: rec.lastStarted ?? rec.firstSeen ?? "",
       lastStopped: rec.lastStopped,
@@ -282,14 +333,19 @@ async function readRecord(file: string): Promise<WorkspaceRecord | null> {
 
 /** Upsert the project record for a root (call on every inspector start). */
 export async function registerWorkspace(root: string): Promise<void> {
-  await migrateRegistry();
   const abs = absolutePath(root);
+  // Where it goes is decided now: the registry of the home this was called in, whatever HOME is by the time it writes.
+  const dir = workspacesDir();
+  const file = path.join(dir, workspaceRecordName(abs));
+  await migrateRegistry();
   const now = new Date().toISOString();
   try {
-    await fs.mkdir(workspacesDir(), { recursive: true });
-    const prev = await readRecord(recordFile(abs));
+    await fs.mkdir(dir, { recursive: true });
+    const prev = await readRecord(file);
+    const slug = await resolveWorkspace(abs).then(workspaceSlug, () => slugFromFolder(path.basename(abs)));
     const rec: WorkspaceRecord = {
       root: abs,
+      slug,
       firstSeen: prev?.firstSeen || now,
       lastStarted: now,
       startCount: (prev?.startCount ?? 0) + 1,
@@ -297,7 +353,7 @@ export async function registerWorkspace(root: string): Promise<void> {
       ...(prev?.channels ? { channels: prev.channels } : {}),
       ...(prev?.projects ? { projects: prev.projects } : {}),
     };
-    await fs.writeFile(recordFile(abs), JSON.stringify(rec, null, 2));
+    await fs.writeFile(file, JSON.stringify(rec, null, 2));
   } catch {} // best-effort, like the instance file
 }
 
@@ -326,15 +382,16 @@ export const syncWorkspaceAgents = (root: string, agents: AgentSummary[]): Promi
 export const syncWorkspaceChannels = (root: string, channels: ChannelSummary[]): Promise<void> => syncWorkspaceList(root, "channels", channels);
 export const syncWorkspaceProjects = (root: string, projects: ProjectHit[]): Promise<void> => syncWorkspaceList(root, "projects", projects);
 
-/** Stamp lastStopped on clean shutdown. Sync so exit handlers can call it. */
-export function markWorkspaceStopped(): void {
-  if (!selfRoot) return;
-  try {
-    const file = recordFile(selfRoot);
-    const rec = JSON.parse(fsSync.readFileSync(file, "utf8")) as WorkspaceRecord;
-    rec.lastStopped = new Date().toISOString();
-    fsSync.writeFileSync(file, JSON.stringify(rec, null, 2));
-  } catch {}
+/** Stamp lastStopped on a clean stop — every workspace this process serves when no root is given. Sync so exit handlers can call it. */
+export function markWorkspaceStopped(root?: string): void {
+  for (const r of root ? [absolutePath(root)] : [...own.keys()]) {
+    try {
+      const file = recordFile(r);
+      const rec = JSON.parse(fsSync.readFileSync(file, "utf8")) as WorkspaceRecord;
+      rec.lastStopped = new Date().toISOString();
+      fsSync.writeFileSync(file, JSON.stringify(rec, null, 2));
+    } catch {}
+  }
 }
 
 /** All known workspaces, most recently started first. */
@@ -352,6 +409,15 @@ export async function listWorkspaceRecords(): Promise<WorkspaceRecord[]> {
   return recs
     .filter((r): r is WorkspaceRecord => r != null)
     .sort((a, b) => b.lastStarted.localeCompare(a.lastStarted));
+}
+
+/** A record's slug: as registered, or (records from before 0.66) its folder name made into one. */
+export const recordSlug = (r: WorkspaceRecord): string => r.slug ?? slugFromFolder(path.basename(r.root));
+
+/** Other registered workspaces with this slug — two workspaces cannot share an address. */
+export async function slugClashes(slug: string, root: string): Promise<WorkspaceRecord[]> {
+  const abs = absolutePath(root);
+  return (await listWorkspaceRecords()).filter((r) => r.root !== abs && recordSlug(r) === slug);
 }
 
 /** Drop a workspace record (the root itself is untouched) — from the legacy directory too, see migrateRegistry. */
@@ -396,7 +462,8 @@ async function describeRoot(
   }
 }
 
-let wsCache: { at: number; entries: WorkspaceEntry[] } | null = null;
+/** Per asking workspace: each leaves itself out of its list. */
+const wsCache = new Map<string, { at: number; entries: WorkspaceEntry[] }>();
 
 /**
  * The switcher's view: every known project joined with the live instances,
@@ -405,7 +472,9 @@ let wsCache: { at: number; entries: WorkspaceEntry[] } | null = null;
  * discoverInstances — /api/meta is polled and this stats every root.
  */
 export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
-  if (wsCache && Date.now() - wsCache.at < 5_000) return wsCache.entries;
+  const me = currentRoot() ?? "";
+  const hit = wsCache.get(me);
+  if (hit && Date.now() - hit.at < 5_000) return hit.entries;
   const [projects, live] = await Promise.all([listWorkspaceRecords(), discoverInstances()]);
   const liveByRoot = new Map(live.filter((i) => i.root).map((i) => [i.root!, i]));
   const consumed = new Set<DiscoveredInstance>();
@@ -413,7 +482,7 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
   const entries = (
     await Promise.all(
       projects
-        .filter((p) => p.root !== selfRoot)
+        .filter((p) => p.root !== me)
         .map(async (p): Promise<WorkspaceEntry> => {
           const base = { root: p.root, rootLabel: tildify(p.root), lastStarted: p.lastStarted, lastStopped: p.lastStopped };
           let running = liveByRoot.get(p.root);
@@ -464,7 +533,7 @@ export async function discoverWorkspaces(): Promise<WorkspaceEntry[]> {
     if (a.live !== b.live) return a.live ? -1 : 1;
     return (b.lastStarted ?? "").localeCompare(a.lastStarted ?? "") || a.name.localeCompare(b.name);
   });
-  wsCache = { at: Date.now(), entries };
+  wsCache.set(me, { at: Date.now(), entries });
   return entries;
 }
 
@@ -514,18 +583,20 @@ const countEntries = async (dir: string): Promise<number> => {
 export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
   const others = await discoverWorkspaces();
   const all: WorkspaceEntry[] = [...others];
-  if (selfRoot && selfPort) {
-    const d = await describeRoot(selfRoot);
-    const rec = await readRecord(recordFile(selfRoot));
+  const me = currentRoot();
+  const mine = me ? own.get(me) : undefined;
+  if (me && mine) {
+    const d = await describeRoot(me);
+    const rec = await readRecord(recordFile(me));
     all.unshift({
       name: d.name,
       icon: d.icon,
       color: d.color,
       named: d.named,
-      url: `http://localhost:${selfPort}`,
+      url: mine.url,
       live: true,
-      root: selfRoot,
-      rootLabel: tildify(selfRoot),
+      root: me,
+      rootLabel: tildify(me),
       exists: true,
       lastStarted: rec?.lastStarted,
       lastStopped: rec?.lastStopped,
@@ -533,7 +604,7 @@ export async function listWorkspacesDetailed(): Promise<WorkspaceDetail[]> {
   }
   return Promise.all(
     all.map(async (e): Promise<WorkspaceDetail> => {
-      const current = !!selfRoot && e.root === selfRoot;
+      const current = !!me && e.root === me;
       const base: WorkspaceDetail = { ...e, current, state: e.live ? "running" : "stopped" };
       if (!e.root) return base;
       const rec = await readRecord(recordFile(e.root));
@@ -596,14 +667,26 @@ export async function startWorkspace(root: string): Promise<StartResult> {
   const { name, port, exists } = await describeRoot(abs);
   if (!exists) return { ok: false, error: `not a project directory (missing or moved): ${abs}` };
   const url = `http://localhost:${port}`;
-  if (abs === selfRoot) return { ok: false, url, live: true, error: "that is this workspace" };
+  if (abs === currentRoot()) return { ok: false, url, live: true, error: "that is this workspace" };
 
   // Already running, or the port is taken by another kraftwerk?
-  cache = wsCache = null;
+  cache = null;
+  wsCache.clear();
   const live = await discoverInstances();
   const byRoot = live.find((i) => i.root === abs);
   if (byRoot) return { ok: true, url: byRoot.url, live: true };
-  if (port === selfPort) return { ok: false, url, error: `port ${port} is used by this workspace` };
+
+  // The machine runs a daemon: it serves this workspace next to the others.
+  const daemon = await findDaemon();
+  if (daemon) {
+    const r = await daemonCall<{ url?: string }>(daemon.port, "open", abs).catch((err: Error) => ({ ok: false, status: 0, data: { error: err.message } as { url?: string; error?: string } }));
+    cache = null;
+    wsCache.clear();
+    return r.ok ? { ok: true, url: r.data.url, live: true, pid: daemon.pid } : { ok: false, error: r.data.error ?? `the daemon refused (${r.status})` };
+  }
+
+  const mine = own.get(currentRoot() ?? "");
+  if (mine && port === mine.port) return { ok: false, url, error: `port ${port} is used by this workspace` };
   const byPort = live.find((i) => i.url === url);
   if (byPort) return { ok: false, url, error: `port ${port} is used by "${byPort.name}"` };
 
@@ -642,7 +725,8 @@ export async function startWorkspace(root: string): Promise<StartResult> {
     await new Promise((r) => setTimeout(r, 300));
     if (exited) return { ok: false, url, pid: child.pid, log, error: `kraftwerk ui ${exited}` };
     if (await probe(port)) {
-      cache = wsCache = null;
+      cache = null;
+      wsCache.clear();
       return { ok: true, url, live: true, pid: child.pid, log };
     }
   }
@@ -652,19 +736,29 @@ export async function startWorkspace(root: string): Promise<StartResult> {
 /* ---------- stop a project ---------- */
 
 /**
- * Stop a running workspace: SIGTERM to its server process, which
- * unregisters, stamps lastStopped and exits; the `kraftwerk ui` supervisor
- * follows. Matched by root, or by url for instances from older versions
- * that registered no root. Waits up to ~5s for the port to go quiet.
+ * Stop a running workspace. A daemon's workspace is closed there — the
+ * daemon and every other workspace in it keep running. A standalone one
+ * gets SIGTERM to its server process, which unregisters, stamps
+ * lastStopped and exits; the `kraftwerk ui` supervisor follows. Matched by
+ * root, or by url for instances from older versions that registered no
+ * root. Waits up to ~5s for it to go quiet.
  */
 export async function stopWorkspace(target: { root?: string; url?: string }): Promise<{ ok: boolean; error?: string }> {
-  if (target.root && absolutePath(target.root) === selfRoot) {
+  if (target.root && absolutePath(target.root) === currentRoot()) {
     return { ok: false, error: "that is this workspace — stop it from its own terminal or pid" };
   }
-  cache = wsCache = null;
+  cache = null;
+  wsCache.clear();
   const live = await discoverInstances();
   const inst = live.find((i) => (target.root && i.root === absolutePath(target.root)) || (target.url && i.url === target.url));
   if (!inst) return { ok: false, error: "not running" };
+  if (inst.hub && inst.root) {
+    const port = Number(new URL(inst.url).port) || DAEMON_PORT;
+    const r = await daemonCall(port, "close", inst.root).catch((err: Error) => ({ ok: false, status: 0, data: { error: err.message } }));
+    cache = null;
+    wsCache.clear();
+    return r.ok ? { ok: true } : { ok: false, error: r.data.error ?? `the daemon refused (${r.status})` };
+  }
   try {
     process.kill(inst.pid, "SIGTERM");
   } catch (err) {
@@ -675,7 +769,8 @@ export async function stopWorkspace(target: { root?: string; url?: string }): Pr
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 250));
     if (!(await probe(port))) {
-      cache = wsCache = null;
+      cache = null;
+      wsCache.clear();
       return { ok: true };
     }
   }

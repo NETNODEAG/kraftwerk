@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, failure, live } from "./api";
+import { api, failure, live, withBase } from "./api";
 import { fmtAgo, Icon, navigate, useExpertMode } from "./shared";
 import { Button, cn, Dot, EmptyState, Hint, IconButton, ListRow, Notice, Select, SideHead, SideList, SideNote, SideSearch, Tag, TextField, Title, type DotTone } from "./ui";
 import type { ChatAgentId, ChatMeta, VibeableInfo, VibeablesView, VibeableStatus } from "./types";
@@ -105,7 +105,7 @@ export function VibePane({
   // Both modes go through the inspector's own origin: static files served
   // directly, a running dev server proxied under the same prefix. That is
   // what a container or reverse proxy exposes; a random host port is not.
-  const src = status ? `${status.url}?v=${tick}` : "";
+  const src = status ? `${withBase(status.url)}?v=${tick}` : "";
 
   const reload = () => setTick((t) => t + 1);
 
@@ -181,7 +181,7 @@ export function VibePane({
           />
         )}
         <IconButton icon="refresh" label="reload preview" title="Reload the preview" onClick={reload} />
-        <IconButton icon="open_in_new" label="open in new tab" title="Open in a new tab" onClick={() => window.open(status?.url ?? "", "_blank", "noopener")} disabled={!status} />
+        <IconButton icon="open_in_new" label="open in new tab" title="Open in a new tab" onClick={() => window.open(status ? withBase(status.url) : "", "_blank", "noopener")} disabled={!status} />
         {chatId && onClosed && (
           <IconButton
             icon={busy === "close" ? "progress_activity" : "close"}

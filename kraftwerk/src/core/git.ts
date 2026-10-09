@@ -4,7 +4,8 @@ import path from "node:path";
 import { projectsRootFor, reposRootFor, resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, workspaceRoot } from "./context.js";
-import { perWorkspace } from "./workspace.js";
+import { perWorkspace, workspaceOpen } from "./workspace.js";
+import { workspaceEnv } from "./env.js";
 
 /**
  * Workspace git sync. Several people run kraftwerk against one git repo, so
@@ -139,7 +140,7 @@ const MAX_BLOCKED = 200;
  * terminal read that never returns, and the inspector hangs with it.
  */
 const gitEnv = (extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
-  ...process.env,
+  ...workspaceEnv(),
   GIT_TERMINAL_PROMPT: "0",
   GIT_ASKPASS: "",
   SSH_ASKPASS: "",
@@ -408,6 +409,8 @@ const gitState = perWorkspace(() => ({
   timer: null as ReturnType<typeof setTimeout> | null,
   ticking: false,
   lastRun: 0,
+  /** Set when the workspace closes: a tick in flight does not schedule the next one. */
+  stopped: false,
 }));
 
 /** Invalidate the status cache after anything that changes the repo. */
@@ -719,8 +722,17 @@ const RECHECK_MS = 60_000;
  * out) before the next one starts, or a short interval piles up processes.
  */
 export function startGitSync(): void {
+  gitState().stopped = false;
   if (gitState().timer || gitState().ticking) return;
   schedule(0);
+}
+
+/** Stop the current workspace's background sync (the workspace closes). A tick in flight finishes, then stops. */
+export function stopGitSync(): void {
+  const s = gitState();
+  s.stopped = true;
+  if (s.timer) clearTimeout(s.timer);
+  s.timer = null;
 }
 
 function schedule(ms: number): void {
@@ -746,8 +758,11 @@ async function tick(): Promise<void> {
   } catch {
     // A failed tick is retried at the next one; the status carries lastError.
   } finally {
-    gitState().ticking = false;
-    schedule(next);
+    // The workspace may have closed while git ran: then its state is gone and nothing is scheduled.
+    if (workspaceOpen()) {
+      gitState().ticking = false;
+      if (!gitState().stopped) schedule(next);
+    }
   }
 }
 

@@ -23,13 +23,20 @@ export function usePairingNeeded(): boolean {
   );
 }
 
+/** The workspace this page is for when it is served under `/w/<slug>/` (the path form); the host or port names it otherwise. */
+const workspaceInPath = /^\/w\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\//.exec(location.pathname)?.[1];
+
 export const api = createClient({
+  workspace: workspaceInPath,
   onUnauthorized: () => {
     if (unpaired) return;
     unpaired = true;
     for (const fn of pairingListeners) fn();
   },
 });
+/** A server-relative URL from a route's result (an app preview's `/vibeables/<app>/`), under this page's workspace prefix. */
+export const withBase = (url: string): string => (url.startsWith("/") ? api.baseUrl + url : url);
+
 /** The page's one socket: watched results and event streams (see src/client/live.ts). */
 export const live = createLive({ client: api });
 export { ApiRequestError };

@@ -107,7 +107,8 @@ export async function serveVibeable(req: http.IncomingMessage, res: http.ServerR
   let st = await fs.stat(abs).catch(() => null);
   if (st?.isDirectory()) {
     if (!url.pathname.endsWith("/")) {
-      res.writeHead(302, { location: `${url.pathname}/${url.search}`, "cache-control": "no-store" });
+      // Relative, so it holds under a /w/<slug> prefix too.
+      res.writeHead(302, { location: `${url.pathname.split("/").pop()}/${url.search}`, "cache-control": "no-store" });
       return void res.end();
     }
     abs = path.join(abs, "index.html");

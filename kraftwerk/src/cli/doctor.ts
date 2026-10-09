@@ -2,12 +2,13 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace } from "../config.js";
+import { cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
 import { legacyFindings, versionLt } from "./doctor-legacy.js";
 import { listDevices } from "../core/devices.js";
+import { slugClashes } from "../core/instances.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -85,6 +86,11 @@ export async function runDoctor(cwd: string): Promise<void> {
     process.exit(1);
   }
   report("info", `Project root: ${project.root}`, project.configPath ? path.basename(project.configPath) : "no kraftwerk.yml (fallback: workflows folder or .git)");
+  // The slug is the workspace's address on this machine; two workspaces cannot share one.
+  const slug = workspaceSlug(project);
+  const clash = await slugClashes(slug, project.root);
+  if (clash.length) report("warn", `slug: ${slug}`, `also used by ${clash.map((r) => r.root).join(", ")} — set \`slug:\` in one kraftwerk.yml`);
+  else report("ok", `slug: ${slug}`, project.config.slug ? "from kraftwerk.yml" : "the folder name — `slug:` in kraftwerk.yml sets another");
 
   // Project config: well-formed (guaranteed by the parse above) and the
   // configured paths actually exist.

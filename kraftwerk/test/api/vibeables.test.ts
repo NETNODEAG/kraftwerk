@@ -110,7 +110,8 @@ describe("vibeables API", () => {
 
     const noSlash = await fetch(`${srv.url}/vibeables/hello`, { redirect: "manual" });
     assert.equal(noSlash.status, 302);
-    assert.equal(noSlash.headers.get("location"), "/vibeables/hello/");
+    // Relative, so it also holds under a /w/<slug> prefix: from /vibeables/hello it resolves to /vibeables/hello/.
+    assert.equal(new URL(noSlash.headers.get("location") ?? "", `${srv.url}/vibeables/hello`).pathname, "/vibeables/hello/");
 
     assert.equal((await fetch(`${srv.url}/vibeables/hello/missing.js`)).status, 404);
     await writeFile(path.join(appDir(), "index.html.bak"), await readFile(path.join(appDir(), "index.html")));

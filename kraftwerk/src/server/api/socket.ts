@@ -2,6 +2,8 @@ import { subscribeChat } from "../../core/chat/sessions.js";
 import { watch } from "../live.js";
 import { resolveVibeable, subscribeVibeable } from "../../core/vibeables.js";
 import type { Workspace } from "../../core/workspace.js";
+import { MACHINE_ROUTES, runInHub } from "../hub-context.js";
+import type { Hub } from "../server.js";
 import type { Trust } from "../trust.js";
 import type { Socket } from "../ws.js";
 import { apiRouter, PROTOCOL_VERSION, routes } from "./index.js";
@@ -31,6 +33,8 @@ const DEFAULT_INTERVAL = 5000;
 const GET_ROUTES = new Set(routes.filter((r) => r.method === "GET" && !r.raw).map((r) => r.name as string));
 
 type Message = {
+  /** The workspace the message is for (its slug); absent: the connection's own. */
+  ws?: unknown;
   id?: unknown;
   call?: unknown;
   input?: unknown;
@@ -52,7 +56,21 @@ const RECHECK_MS = 5_000;
  * been revoked since it connected): a device whose answer is no longer
  * `device` is disconnected at once (close code 4401).
  */
-export function serveSocket(conn: Socket, workspace: Workspace, version: string, trust: Trust, recheck: () => Promise<Trust>): void {
+/**
+ * `workspaceOf` finds the workspace a message is for: its `ws` (a slug), or
+ * the connection's own (the one the socket was opened for) when it names
+ * none. A daemon's socket opened at its root has no workspace of its own:
+ * there, a message without `ws` reaches only the machine's routes (hub,
+ * devices, protocol).
+ */
+export function serveSocket(
+  conn: Socket,
+  workspaceOf: (slug?: string) => Workspace | undefined,
+  version: string,
+  trust: Trust,
+  recheck: () => Promise<Trust>,
+  hub: Hub,
+): void {
   const trustKey = trust.kind === "device" ? `device:${trust.device.id}` : trust.kind;
   const stops = new Map<string, () => void>();
   const send = (msg: unknown) => conn.send(JSON.stringify(msg));
@@ -88,6 +106,10 @@ export function serveSocket(conn: Socket, workspace: Workspace, version: string,
     if (!conn.open || stops.get(key) !== placeholder) return unsubscribe();
     stops.set(key, unsubscribe);
   }
+
+  /** A refusal answered the way the message expects one (its id, watch or sub key). */
+  const refuse = (msg: Message, status: number, error: string) =>
+    send({ id: msg.id, ...(typeof msg.watch === "string" ? { watch: msg.watch } : {}), ...(typeof msg.sub === "string" ? { sub: msg.sub } : {}), status, data: { error }, error });
 
   async function handle(msg: Message): Promise<void> {
     if (typeof msg.call === "string") {
@@ -148,15 +170,23 @@ export function serveSocket(conn: Socket, workspace: Workspace, version: string,
       return send({ error: "invalid JSON" });
     }
     // Every message runs in the connection's workspace, whatever started the read; a revoked device's message runs nowhere.
-    void workspace
-      .run(async () => {
-        if (await stillPaired()) await handle(msg);
-      })
-      .catch((err: Error) => send({ id: msg.id, error: err.message }));
+    const slug = typeof msg.ws === "string" ? msg.ws : undefined;
+    const ws = workspaceOf(slug);
+    if (msg.ws !== undefined && !ws) return refuse(msg, 404, `no workspace "${String(msg.ws)}" here`);
+    if (!ws && !(typeof msg.call === "string" && MACHINE_ROUTES.test(msg.call))) return refuse(msg, 404, "name a workspace: `ws` on the message");
+    const run = (fn: () => Promise<void>) => runInHub(hub, () => (ws ? ws.run(fn) : fn()));
+    void run(async () => {
+      if (await stillPaired()) await handle(msg);
+    }).catch((err: Error) => send({ id: msg.id, error: err.message }));
   });
   conn.onClose(() => {
     clearInterval(watchdog);
-    for (const fn of stops.values()) fn();
+    // A subscription of a workspace that closed meanwhile has nothing left to let go of.
+    for (const fn of stops.values()) {
+      try {
+        fn();
+      } catch {}
+    }
     stops.clear();
   });
   send({ hello: { protocol: PROTOCOL_VERSION, version } });

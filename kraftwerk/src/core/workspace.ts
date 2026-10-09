@@ -21,12 +21,18 @@ import path from "node:path";
 export class Workspace {
   readonly root: string;
   readonly outputDir: string;
+  /** Its address on this machine (kraftwerk.yml `slug`, else the folder name), when known. */
+  readonly slug?: string;
+  /** Its `.env` (parsed, not applied — see env.ts); {} when none was given. */
+  readonly env: Record<string, string>;
   private readonly slots = new Map<object, unknown>();
 
   /** `root` defaults to the parent of the output dir (wrong for nested output dirs — pass it when known). */
-  constructor(opts: { outputDir: string; root?: string }) {
+  constructor(opts: { outputDir: string; root?: string; slug?: string; env?: Record<string, string> }) {
     this.outputDir = path.resolve(opts.outputDir);
     this.root = opts.root ? path.resolve(opts.root) : path.dirname(this.outputDir);
+    this.slug = opts.slug;
+    this.env = opts.env ?? {};
     known.add(this);
   }
 
@@ -35,9 +41,24 @@ export class Workspace {
     return storage.run(this, fn);
   }
 
+  /** Closed (no longer served): its state is gone and may not come back — see close(). */
+  get closed(): boolean {
+    return this.isClosed;
+  }
+  private isClosed = false;
+
   slot<T>(key: object, init: () => T): T {
+    // Something still running for a closed workspace (a fetch in flight, a heartbeat) must not bring its state back.
+    if (this.isClosed) throw new Error("workspace closed");
     if (!this.slots.has(key)) this.slots.set(key, init());
     return this.slots.get(key) as T;
+  }
+
+  /** No longer served: sweeps over all workspaces (shutdown, the idle reaper) skip it. Its slots are dropped. */
+  close(): void {
+    this.isClosed = true;
+    known.delete(this);
+    this.slots.clear();
   }
 
   peek<T>(key: object): T | undefined {
@@ -53,6 +74,12 @@ let fallback: Workspace | null = null;
 export function setDefaultWorkspace(ws: Workspace): Workspace {
   fallback = ws;
   return ws;
+}
+
+/** Whether the caller's workspace is still served (a background loop checks before its next round); true outside any. */
+export function workspaceOpen(): boolean {
+  const ws = storage.getStore() ?? fallback;
+  return !ws?.closed;
 }
 
 export function currentWorkspace(): Workspace {

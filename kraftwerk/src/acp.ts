@@ -11,6 +11,7 @@ import {
   type SessionModeState,
 } from "@agentclientprotocol/sdk";
 import type { McpServerConfig } from "./harness.js";
+import { workspaceEnv } from "./core/env.js";
 
 /**
  * Agent Client Protocol plumbing shared by the inspector's chats and the
@@ -45,7 +46,8 @@ const CLAUDE_THINKING_BUDGET: Record<string, number> = {
  * the session config it hands to `codex app-server`.
  */
 export function adapterEnv(agent: AcpAgent, tuning: { model?: string; effort?: string }): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  // The workspace's environment when a server runs this (one per workspace, see core/env.ts); a CLI run has none and gets process.env.
+  const env: NodeJS.ProcessEnv = workspaceEnv();
   if (agent === "claude" && tuning.effort && CLAUDE_THINKING_BUDGET[tuning.effort]) {
     env.MAX_THINKING_TOKENS = String(CLAUDE_THINKING_BUDGET[tuning.effort]);
   }

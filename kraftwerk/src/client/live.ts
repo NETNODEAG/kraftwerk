@@ -27,9 +27,8 @@ export interface Live {
 }
 
 export interface LiveOptions {
-  /** The HTTP client for fallbacks; its baseUrl is the server. */
+  /** The HTTP client: its baseUrl (workspace prefix included) is where the socket connects too. */
   client: Client;
-  baseUrl?: string;
   WebSocket?: typeof WebSocket;
   EventSource?: typeof EventSource;
 }
@@ -65,7 +64,8 @@ export function createLive(opts: LiveOptions): Live {
   let counter = 0;
 
   const socketUrl = (): string => {
-    const base = opts.baseUrl ?? (typeof location === "undefined" ? "" : location.origin);
+    // The client's base carries the workspace prefix; a relative one is on this page's origin.
+    const base = /^https?:/.test(client.baseUrl) ? client.baseUrl : (typeof location === "undefined" ? "" : location.origin) + client.baseUrl;
     // A browser's socket carries the device cookie; other runtimes cannot send headers on a WebSocket, so the token rides in the query.
     return `${base.replace(/^http/, "ws").replace(/\/+$/, "")}/api/ws${client.token ? `?token=${encodeURIComponent(client.token)}` : ""}`;
   };

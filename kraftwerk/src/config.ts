@@ -17,6 +17,7 @@ import { parse } from "yaml";
  *   name: my-project           # display name (inspector header, "environment")
  *   icon: "⚡"                  # emoji shown as inspector favicon
  *   color: "#c2410c"           # accent for this workspace in the switcher (default: derived from the root)
+ *   slug: team-blau            # this workspace's address (team-blau.localhost); default: the folder name
  *   port: 1981                 # port `kraftwerk ui` listens on
  *   workflows: src/workflows   # workflows root, relative to the file
  *   output: output             # run-artifact directory, relative to the file
@@ -226,6 +227,12 @@ export interface SwitcherEntry {
 export interface WorkspaceConfig {
   /** Display name of the project ("environment"), shown in the inspector header. */
   name?: string;
+  /**
+   * The workspace's address on this machine: `<slug>.localhost`, `/w/<slug>/`.
+   * Unique per machine. Default: the folder name (see workspaceSlug). The
+   * name above may change freely; the slug only when you mean to move it.
+   */
+  slug?: string;
   /** Emoji used as the inspector favicon (browser-tab icon). */
   icon?: string;
   /** Accent colour (#rgb / #rrggbb) for this workspace in the switcher. Default: derived from the root path. */
@@ -352,7 +359,28 @@ export type Project = ResolvedWorkspace;
 /** @deprecated Use `WorkspaceConfig`. */
 export type ProjectConfig = WorkspaceConfig;
 
-const KNOWN_KEYS = ["name", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
+/** A workspace slug: a DNS label, so `<slug>.localhost` is a valid host name. */
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** A folder name as a slug: "Team Blau (2024)" → "team-blau-2024". */
+export function slugFromFolder(folder: string): string {
+  const s = folder
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63)
+    .replace(/-+$/, "");
+  return s || "workspace";
+}
+
+/** The workspace's slug: kraftwerk.yml `slug`, else its folder name made into one. */
+export function workspaceSlug(ws: { root: string; config: { slug?: string } }): string {
+  return ws.config.slug ?? slugFromFolder(path.basename(ws.root));
+}
+
+const KNOWN_KEYS = ["name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -382,6 +410,9 @@ async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig
       throw new Error(
         `${path.basename(configPath)}: unknown key "${key}" (allowed: ${known.join(", ")})`
       );
+    }
+    if (key === "slug" && (typeof config[key] !== "string" || !SLUG_RE.test(config[key] as string))) {
+      throw new Error(`${path.basename(configPath)}: slug must be lowercase letters, digits and dashes, starting with a letter or digit (at most 63)`);
     }
     if (key === "port") {
       if (typeof config[key] !== "number" || !Number.isInteger(config[key])) {

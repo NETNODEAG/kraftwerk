@@ -62,7 +62,7 @@ describe("client", () => {
   });
 
   it("live: a watch gets the current result, then the change, over the socket", async () => {
-    const live = createLive({ client: api, baseUrl: srv.url });
+    const live = createLive({ client: api });
     try {
       const seen: string[] = [];
       const stop = live.watch("knowledge.list", undefined, { interval: 60_000 }, (d) => seen.push(JSON.stringify(d)));
@@ -77,7 +77,7 @@ describe("client", () => {
 
   it("live: without a socket a watch polls over HTTP", async () => {
     // A runtime whose socket cannot connect at all.
-    const none = createLive({ client: api, baseUrl: srv.url, WebSocket: class { constructor() { throw new Error("no socket here"); } } as never });
+    const none = createLive({ client: api, WebSocket: class { constructor() { throw new Error("no socket here"); } } as never });
     try {
       let n = 0;
       const stop = none.watch("meta.get", { query: { probe: true } }, { interval: 50 }, () => n++);

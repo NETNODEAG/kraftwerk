@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as z from "zod";
-import { resolveWorkspace } from "../../config.js";
+import { resolveWorkspace, slugFromFolder, workspaceSlug } from "../../config.js";
 import { disposeAllBackends } from "../../core/chat/sessions.js";
 import { cloudStatus } from "../cloud.js";
 import { workspaceRoot } from "../../core/context.js";
@@ -59,6 +59,7 @@ export const workspaceRoutes = [
     ];
     const identity = {
       workspaceName: name,
+      workspaceSlug: ws ? workspaceSlug(ws) : slugFromFolder(path.basename(root)),
       workspaceIcon: ws?.config.icon ?? "",
       workspaceColor: ws?.config.color ?? "",
       workspaceNamed: !!ws?.config.name,

@@ -10,6 +10,11 @@
       "type": "string",
       "description": "Display name of the project (\"environment\"), shown in the inspector header and browser tab"
     },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+      "description": "This workspace's address on this machine (<slug>.localhost, /w/<slug>/). Unique per machine. Default: the folder name. Unlike name, it changes only when you mean to move the workspace."
+    },
     "icon": {
       "type": "string",
       "description": "Emoji used as the inspector favicon (browser-tab icon), e.g. \"⚡\""

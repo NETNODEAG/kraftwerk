@@ -69,6 +69,12 @@ export function errorOf(body: unknown): string | undefined {
 export interface ClientOptions {
   /** Where the server is; "" (the default) is the page's own origin. */
   baseUrl?: string;
+  /**
+   * The workspace (its slug) to talk to, through the `/w/<slug>` path form.
+   * Leave it out when the address already names one (`<slug>.localhost`, or
+   * a server's own port).
+   */
+  workspace?: string;
   fetch?: typeof fetch;
   /**
    * A paired device's token (from `devices.pair`), sent as `Authorization:
@@ -88,10 +94,12 @@ export interface Client {
   onChange(fn: () => void): () => void;
   /** The token the client was created with, if any (the socket sends it too). */
   readonly token?: string;
+  /** Where routes live: baseUrl plus the workspace's `/w/<slug>` prefix. */
+  readonly baseUrl: string;
 }
 
 export function createClient(opts: ClientOptions = {}): Client {
-  const base = (opts.baseUrl ?? "").replace(/\/+$/, "");
+  const base = (opts.baseUrl ?? "").replace(/\/+$/, "") + (opts.workspace ? `/w/${encodeURIComponent(opts.workspace)}` : "");
   const doFetch = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const changeFns = new Set<() => void>();
 
@@ -136,6 +144,7 @@ export function createClient(opts: ClientOptions = {}): Client {
 
   return {
     token: opts.token,
+    baseUrl: base,
     onChange(fn) {
       changeFns.add(fn);
       return () => changeFns.delete(fn);

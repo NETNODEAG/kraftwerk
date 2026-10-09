@@ -18,6 +18,7 @@ import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
 import { registerTrashCommands } from "./trash.js";
 import { registerDevicesCommands } from "./devices.js";
+import { registerDaemonCommand } from "./daemon.js";
 import { registerJournalCommands } from "./journal.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveWorkspace } from "../config.js";
@@ -42,6 +43,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk journal <agent> [entry] an agent's memory across sessions: print it, add a line
  *   kraftwerk trash ...               what was deleted: list, restore, purge, empty
  *   kraftwerk devices ...             paired devices: list, pair one, revoke one
+ *   kraftwerk daemon                  the machine's kraftwerk: every open workspace at <slug>.localhost
  *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -327,6 +329,7 @@ registerRepoCommands(program);
 registerVibeableCommands(program);
 registerTrashCommands(program);
 registerDevicesCommands(program);
+registerDaemonCommand(program);
 registerJournalCommands(program);
 
 program
@@ -335,7 +338,8 @@ program
   .option("--port <port>", "Port for the web UI (default: kraftwerk.yml `port`, else 1981)")
   .option("--output <dir>", "Output directory to inspect (default: the project's output dir)")
   .option("--lan", "Listen on the network too, so paired devices (a phone) reach it — others get a pairing screen")
-  .action(async (opts: { port?: string; output?: string; lan?: boolean }) => {
+  .option("--standalone", "Run a server of its own even when the kraftwerk daemon runs")
+  .action(async (opts: { port?: string; output?: string; lan?: boolean; standalone?: boolean }) => {
     await runUi(process.cwd(), opts);
   });
 

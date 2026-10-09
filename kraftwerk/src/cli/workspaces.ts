@@ -58,7 +58,9 @@ async function resolveRef(ref: string, needRoot = true): Promise<WorkspaceEntry>
       e.root === ref ||
       e.name === ref ||
       (e.root && path.basename(e.root) === ref) ||
-      e.url === port
+      e.url === port ||
+      // A daemon's workspace by its slug: <slug>.localhost.
+      e.url.startsWith(`http://${ref}.localhost:`)
   );
   if (hits.length === 1) return hits[0];
   if (hits.length === 0) {
@@ -129,8 +131,8 @@ export function registerWorkspaceCommands(program: Command): void {
 
   workspaces
     .command("stop")
-    .description("Stop a running UI (SIGTERM to its server; works for terminal-started ones too)")
-    .argument("<ref>", "Workspace name, folder name, root path, or port")
+    .description("Stop a running UI (closes it in the kraftwerk daemon, or SIGTERM to a server of its own)")
+    .argument("<ref>", "Workspace name, slug, folder name, root path, or port")
     .action(async (ref: string) => {
       const entry = await resolveRef(ref, false);
       if (!entry.live) {
