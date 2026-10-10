@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { createPairCode, listDevices, redeemPairCode, revokeDevice } from "../../core/devices.js";
+import { createPairCode, listDevices, redeemPairCode, revokeDevice, setDevicePush } from "../../core/devices.js";
 import { networkUrls } from "../bind.js";
 import { currentHub } from "../hub-context.js";
 import { applyRelay, keyFingerprint, readRelaySettings, relayStatus, remoteLink, setRelay } from "../relay.js";
@@ -52,6 +52,32 @@ export const deviceRoutes = [
     trust: c.trust.kind,
     ...(c.trust.kind === "device" ? { device: c.trust.device } : {}),
   })),
+  // A paired device's app says where its push notifications go (and the key it seals them with); see server/push.ts.
+  route(
+    {
+      name: "devices.setPush",
+      method: "POST",
+      path: "/api/devices/push",
+      summary: "this device's push notifications {token, environment, key}",
+      errors: 400,
+      body: z.object({
+        token: z.string().regex(/^[0-9a-fA-F]{32,200}$/),
+        environment: z.enum(["sandbox", "production"]),
+        key: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
+      }),
+    },
+    async (c) => {
+      if (c.trust.kind !== "device") fail(400, "only a paired device gets push notifications");
+      const { token, environment, key } = await c.body();
+      await setDevicePush(c.trust.device.id, { token: token.toLowerCase(), environment, key });
+      return { ok: true };
+    },
+  ),
+  route({ name: "devices.dropPush", method: "DELETE", path: "/api/devices/push", summary: "no more push notifications for this device", errors: 400 }, async (c) => {
+    if (c.trust.kind !== "device") fail(400, "only a paired device gets push notifications");
+    await setDevicePush(c.trust.device.id, null);
+    return { ok: true };
+  }),
   route({ name: "devices.list", method: "GET", path: "/api/devices", summary: "every paired device", access: "local" }, async () => ({ devices: await listDevices() })),
   // The code is shown once; the addresses are where a device on the network opens kraftwerk (none while bound to this machine only),
   // and with the relay on, `remote` is the link that pairs a device from anywhere (code and machine key in its fragment).

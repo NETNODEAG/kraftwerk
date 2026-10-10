@@ -164,6 +164,16 @@ describe("relay: a device reaches the daemon from anywhere", { timeout: 60_000 }
     assert.equal(b.status, 200);
   });
 
+  it("hands push notifications to the relay, sealed as they come", async () => {
+    const before = relay.seen.length;
+    assert.equal(link.push([{ token: "ab".repeat(32), environment: "sandbox", sealed: "c2VhbGVk", badge: 2, thread: "ws" }]), true);
+    const until = Date.now() + 5000;
+    while (!relay.seen.slice(before).some((m) => m.includes('"t":"push"')) && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+    const msg = JSON.parse(relay.seen.slice(before).find((m) => m.includes('"t":"push"'))!) as { pushes: Array<{ sealed: string; badge: number }> };
+    assert.deepEqual(msg.pushes.map((p) => [p.sealed, p.badge]), [["c2VhbGVk", 2]]);
+    assert.equal(link.push([]), false, "nothing to send");
+  });
+
   it("the relay carried nothing readable after the handshake", () => {
     const after = relay.seen.filter((m) => !m.startsWith("{"));
     assert.ok(after.length > 4, "traffic went through the relay");

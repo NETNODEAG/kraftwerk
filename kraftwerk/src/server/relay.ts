@@ -19,6 +19,8 @@ import {
   type TunnelToDaemon,
 } from "../client/relay.js";
 import { CLOUD_DEFAULT_URL } from "../config.js";
+import { dropPushToken } from "../core/devices.js";
+import type { PushMessage } from "./push.js";
 
 /**
  * The daemon's end of the relay (see src/client/relay.ts for the protocol):
@@ -138,6 +140,8 @@ interface Conn {
 
 export interface RelayLink {
   status(): RelayStatus;
+  /** Hand push notifications to the relay (server/push.ts); false while not connected. */
+  push(pushes: PushMessage[]): boolean;
   stop(): void;
 }
 
@@ -316,6 +320,10 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         const d = msg.d;
         conn.queue = conn.queue.then(() => onClientMessage(c, conn, d)).catch(() => {});
       } else if (msg.t === "close" && msg.c) dropConn(msg.c);
+      else if (msg.t === "push_invalid" && typeof (msg as { token?: unknown }).token === "string") {
+        // Apple no longer knows the token (the app was deleted, or pushes turned off): stop sending to it.
+        void dropPushToken((msg as { token: string }).token).catch(() => {});
+      }
     });
     socket.addEventListener("close", (ev: CloseEvent) => {
       clearTimeout(handshake);
@@ -352,6 +360,12 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
   connect();
   return {
     status: () => ({ ...status }),
+    push(pushes) {
+      if (status.state !== "connected" || !pushes.length) return false;
+      // At most 100 per message: a burst (a routine failing in every workspace) stays well under the relay's message limit.
+      for (let i = 0; i < pushes.length; i += 100) send({ t: "push", pushes: pushes.slice(i, i + 100) });
+      return true;
+    },
     stop() {
       stopped = true;
       if (retry) clearTimeout(retry);
@@ -383,6 +397,9 @@ export async function applyRelay(port: number, version: string, log?: (line: str
   if (settings?.enabled) link = await startRelay({ port, settings, version, log });
   return relayStatus();
 }
+
+/** Hand push notifications to this daemon's relay link; false without one. */
+export const relayPush = (pushes: PushMessage[]): boolean => link?.push(pushes) ?? false;
 
 /** The link's state; "off" when this process holds none (not the daemon, or the relay is off). */
 export const relayStatus = (): RelayStatus => link?.status() ?? { state: "off", clients: 0 };

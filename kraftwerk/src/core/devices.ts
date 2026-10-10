@@ -21,10 +21,24 @@ export interface Device {
   name: string;
   createdAt: string;
   lastSeenAt?: string;
+  /** Whether the device gets push notifications (its app registered for them). */
+  push?: boolean;
+}
+
+/**
+ * Where a device's push notifications go: its APNs token and environment, and
+ * the key (32 bytes, base64) the device made for this machine — what is pushed
+ * is sealed with it, so the relay and Apple carry it without reading it.
+ */
+export interface PushTarget {
+  token: string;
+  environment: "sandbox" | "production";
+  key: string;
 }
 
 interface StoredDevice extends Device {
   tokenHash: string;
+  pushTarget?: PushTarget;
 }
 
 interface PairCode {
@@ -121,7 +135,7 @@ function update<T>(change: (store: Store) => T): Promise<T> {
   return run;
 }
 
-const view = ({ tokenHash: _h, ...d }: StoredDevice): Device => d;
+const view = ({ tokenHash: _h, pushTarget, ...d }: StoredDevice): Device => ({ ...d, ...(pushTarget ? { push: true } : {}) });
 
 /** A new one-time pairing code, valid for PAIR_CODE_TTL_MS. Shown once; the store keeps its hash. */
 export async function createPairCode(): Promise<{ code: string; expiresAt: string }> {
@@ -184,5 +198,28 @@ export async function revokeDevice(id: string): Promise<boolean> {
     const before = store.devices.length;
     store.devices = store.devices.filter((d) => d.id !== id);
     return store.devices.length < before;
+  });
+}
+
+/** Register (or, with null, drop) where a device's push notifications go. */
+export async function setDevicePush(id: string, target: PushTarget | null): Promise<boolean> {
+  return update((store) => {
+    const d = store.devices.find((x) => x.id === id);
+    if (!d) return false;
+    if (target) d.pushTarget = target;
+    else delete d.pushTarget;
+    return true;
+  });
+}
+
+/** Every device that gets push notifications, with where they go. */
+export async function pushTargets(): Promise<Array<{ id: string; name: string } & PushTarget>> {
+  return (await read()).devices.filter((d) => d.pushTarget).map((d) => ({ id: d.id, name: d.name, ...d.pushTarget! }));
+}
+
+/** Apple says a token is gone (the app was deleted): stop pushing to it. */
+export async function dropPushToken(token: string): Promise<void> {
+  await update((store) => {
+    for (const d of store.devices) if (d.pushTarget?.token === token) delete d.pushTarget;
   });
 }

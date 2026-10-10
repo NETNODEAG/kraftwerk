@@ -452,6 +452,13 @@ Everything between the phone and the machine is end to end encrypted:
 - One trust remains: the remote page's code comes from the cloud that serves
   it. A native app will remove that.
 
+**Push notifications.** The kraftwerk iOS app gets a notification when
+something new needs you: an approval, a question from an agent, a failed run
+or routine. Each paired phone gives the machine a key of its own, and the
+machine seals every notification with it. The relay and Apple pass along only
+"Something needs you" and the badge count. The app opens the sealed text on
+the phone. Turning notifications off on the phone, or unpairing it, stops them.
+
 The machine's key and its relay secret live in `~/.kraftwerk/relay.json`
 (owner only). The daemon must run (`kraftwerk daemon install`), and the Mac
 must be awake.
