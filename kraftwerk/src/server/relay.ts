@@ -148,6 +148,8 @@ export interface RelayOptions {
   version: string;
   /** Opens the relay socket (default: Node's global WebSocket) — tests pass their own. */
   connect?: (url: string) => WebSocket;
+  /** Give up on a connection the relay has not accepted (`ok`) within this long, and try again (default 15 s). */
+  handshakeTimeoutMs?: number;
   log?: (line: string) => void;
 }
 
@@ -270,6 +272,20 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
       return schedule();
     }
     ws = socket;
+    // A relay that restarts can leave a new socket hanging half-open, neither opening nor
+    // closing: without this, the link would wait for it forever.
+    const handshake = setTimeout(() => {
+      if (ws !== socket || status.state === "connected") return;
+      ws = null;
+      try {
+        socket.close();
+      } catch {}
+      status.state = "error";
+      status.error = "the relay did not answer";
+      log("relay: no answer from the relay — trying again");
+      schedule();
+    }, opts.handshakeTimeoutMs ?? 15_000);
+    handshake.unref?.();
     socket.addEventListener("open", () => {
       lastHeard = Date.now();
       socket.send(JSON.stringify({ t: "auth", id, key: opts.settings.publicKey, secret: opts.settings.secret, version: opts.version }));
@@ -283,6 +299,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         return;
       }
       if (msg.t === "ok") {
+        clearTimeout(handshake);
         attempt = 0;
         status.state = "connected";
         status.error = undefined;
@@ -301,10 +318,12 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
       } else if (msg.t === "close" && msg.c) dropConn(msg.c);
     });
     socket.addEventListener("close", (ev: CloseEvent) => {
+      clearTimeout(handshake);
       if (ws !== socket) return;
       ws = null;
       for (const c of [...conns.keys()]) dropConn(c);
       if (stopped) return;
+      if (status.state === "connected") log("relay: connection lost — reconnecting");
       status.state = "error";
       status.error = ev.code === 4401 ? `the relay refused this machine: ${ev.reason || "wrong secret"}` : ev.reason || "the relay connection closed";
       if (ev.code === 4401) log(`relay: ${status.error}`);

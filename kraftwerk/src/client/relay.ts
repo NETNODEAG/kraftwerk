@@ -251,8 +251,9 @@ const OPEN = 1;
 export async function connectTunnel(opts: ConnectOptions): Promise<Tunnel> {
   const id = await relayId(opts.publicKey);
   const url = `${opts.relayUrl}${opts.relayUrl.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}`;
-  const ws = opts.connect ? opts.connect(url) : (new WebSocket(url) as unknown as RelaySocket);
+  // The keys first: once the socket exists, its events may fire at any await — the listeners below must already be there.
   const hs = await clientHandshake(opts.publicKey);
+  const ws = opts.connect ? opts.connect(url) : (new WebSocket(url) as unknown as RelaySocket);
 
   let channel: Channel | null = null;
   let closedWhy = "";

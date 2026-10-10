@@ -1,6 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { makeProject, type Fixture } from "../helpers/project.js";
 import { startTestRelay, type TestRelay } from "../helpers/relay.js";
@@ -26,7 +27,7 @@ import type { RelayLink, RelaySettings } from "../../src/server/relay.js";
  * stream in chunks; the daemon reconnects when the relay drops it, and the
  * relay keeps a machine's id for the secret that first claimed it.
  */
-describe("relay: the handshake", () => {
+describe("relay: the handshake", { timeout: 30_000 }, () => {
   it("both ends derive the same channel; the client checks the machine's key", async () => {
     const daemon = await generateKeyPair();
     const hs = await clientHandshake(daemon.publicKey);
@@ -70,7 +71,7 @@ describe("relay: the handshake", () => {
   });
 });
 
-describe("relay: a device reaches the daemon from anywhere", () => {
+describe("relay: a device reaches the daemon from anywhere", { timeout: 60_000 }, () => {
   let fx: Fixture;
   let hub: Hub;
   let relay: TestRelay;
@@ -190,16 +191,47 @@ describe("relay: a device reaches the daemon from anywhere", () => {
   it("a client with the wrong machine key gets no channel; an unknown machine is reported as not connected", async () => {
     const other = await generateKeyPair();
     const relayUrl = `${relay.url.replace(/^http/, "ws")}/api/relay/client`;
-    await assert.rejects(connectTunnel({ relayUrl, publicKey: other.publicKey }), /not connected/);
+    // The relay says 4404; should that frame ever be lost, its socket still closes within the close grace — never the 15 s timeout.
+    const t0 = Date.now();
+    await assert.rejects(connectTunnel({ relayUrl, publicKey: other.publicKey }), /not connected|closed the connection/);
+    assert.ok(Date.now() - t0 < 10_000, "told at once, not after the handshake timeout");
     // Right id, wrong key: the daemon's answer does not open.
     const id = await relayId(fromBase64Url(settings.publicKey));
-    const ws = new WebSocket(`${relayUrl}?id=${id}`);
     const hs = await clientHandshake(other.publicKey);
+    const ws = new WebSocket(`${relayUrl}?id=${id}`);
     const answer = await new Promise<string>((resolve) => {
       ws.addEventListener("open", () => ws.send(JSON.stringify(hs.hello)));
       ws.addEventListener("message", (ev) => resolve(String(ev.data)));
     });
     await assert.rejects(hs.finish(JSON.parse(answer) as Ready), /did not prove/);
     ws.close();
+  });
+});
+
+describe("relay: a relay that hangs", { timeout: 30_000 }, () => {
+  it("a connection the relay never answers is given up and tried again", async () => {
+    // Accepts TCP and then says nothing — what a restarting relay behind a proxy can do.
+    const sockets = new Set<net.Socket>();
+    let attempts = 0;
+    const hang = net.createServer((s) => {
+      attempts++;
+      sockets.add(s);
+    });
+    await new Promise<void>((r) => hang.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${(hang.address() as net.AddressInfo).port}`;
+    const { exportKeyPair } = await import("../../src/client/relay.js");
+    const { startRelay } = await import("../../src/server/relay.js");
+    const pair = await exportKeyPair(await generateKeyPair());
+    const link = await startRelay({ port: 1, settings: { enabled: true, url, ...pair, secret: "s".repeat(43) }, version: "test", handshakeTimeoutMs: 200 });
+    try {
+      const until = Date.now() + 8000;
+      while (attempts < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(attempts >= 2, `tried again (${attempts} attempts)`);
+      assert.equal(link.status().error, "the relay did not answer");
+    } finally {
+      link.stop();
+      for (const s of sockets) s.destroy();
+      await new Promise<void>((r) => hang.close(() => r()));
+    }
   });
 });

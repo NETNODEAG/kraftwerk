@@ -33,8 +33,12 @@ export async function startTestRelay(): Promise<TestRelay> {
   const clients = new Map<string, { id: string; ws: Socket }>();
   const seen: string[] = [];
   const server = http.createServer((_req, res) => res.writeHead(404).end());
+  /** Upgraded sockets: closing the server waits for them, and a client may never finish its half of the close. */
+  const raw = new Set<import("node:stream").Duplex>();
 
   server.on("upgrade", (req, socket, head) => {
+    raw.add(socket);
+    socket.once("close", () => raw.delete(socket));
     const url = new URL(req.url ?? "/", "http://relay");
     if (url.pathname === "/api/relay/server") {
       const ws = acceptWebSocket(req, socket, head);
@@ -101,6 +105,7 @@ export async function startTestRelay(): Promise<TestRelay> {
       new Promise<void>((r) => {
         for (const s of servers.values()) s.close();
         for (const c of clients.values()) c.ws.close();
+        for (const s of raw) s.destroy();
         server.close(() => r());
         server.closeAllConnections?.();
       }),

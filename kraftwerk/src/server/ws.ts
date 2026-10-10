@@ -13,6 +13,7 @@ const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 /** One message (all its fragments) may not exceed this. */
 const MAX_MESSAGE = 4_000_000;
 const PING_MS = 25_000;
+const CLOSE_GRACE_MS = 2_000;
 
 export interface Socket {
   send(text: string): void;
@@ -67,6 +68,8 @@ export function acceptWebSocket(req: http.IncomingMessage, socket: Duplex, head:
     payload.writeUInt16BE(code, 0);
     payload.write(reason, 2);
     socket.end(frame(0x8, payload));
+    // The peer should close its side now; one that does not (or never saw the frame) must not keep the connection — or us — waiting.
+    setTimeout(() => socket.destroy(), CLOSE_GRACE_MS).unref?.();
     finish();
   };
 
