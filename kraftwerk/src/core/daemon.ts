@@ -15,10 +15,13 @@ import path from "node:path";
 
 export const DAEMON_PORT = 1980;
 
-interface DaemonFile {
+export interface DaemonFile {
   pid: number;
   port: number;
   startedAt: string;
+  /** The supervisor around it (`kraftwerk daemon stop` signals that one, so it does not start the daemon again). */
+  supervisor?: number;
+  version?: string;
   /** The roots it serves — reopened when the daemon starts again (a restart, a self-update). */
   open?: string[];
 }
@@ -27,10 +30,20 @@ const daemonFile = (): string => path.join(os.homedir(), ".kraftwerk", "daemon.j
 
 const startedAt = new Date().toISOString();
 
+let version: string | undefined;
+/** The version the running daemon writes into its file (status shows it: the install may be newer than what runs). */
+export const setDaemonVersion = (v: string): void => {
+  version = v;
+};
+
+/** Where a daemon in the background (`kraftwerk daemon start`, the login item) writes what it says. */
+export const daemonLogPath = (): string => path.join(os.homedir(), ".kraftwerk", "logs", "daemon.log");
+
 export async function writeDaemonFile(port: number, open: string[]): Promise<void> {
   await fs.mkdir(path.dirname(daemonFile()), { recursive: true });
   const tmp = `${daemonFile()}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ pid: process.pid, port, startedAt, open } satisfies DaemonFile));
+  const supervisor = Number(process.env.KRAFTWERK_SUPERVISOR_PID) || undefined;
+  await fs.writeFile(tmp, JSON.stringify({ pid: process.pid, port, startedAt, open, ...(supervisor ? { supervisor } : {}), ...(version ? { version } : {}) } satisfies DaemonFile));
   await fs.rename(tmp, daemonFile());
 }
 
@@ -41,6 +54,15 @@ export async function lastOpenRoots(): Promise<string[]> {
     return Array.isArray(rec.open) ? rec.open.filter((r) => typeof r === "string") : [];
   } catch {
     return [];
+  }
+}
+
+/** The daemon file as the last daemon left it; null without one. */
+export async function readDaemonFile(): Promise<DaemonFile | null> {
+  try {
+    return JSON.parse(await fs.readFile(daemonFile(), "utf8")) as DaemonFile;
+  } catch {
+    return null;
   }
 }
 

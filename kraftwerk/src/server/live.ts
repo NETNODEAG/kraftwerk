@@ -1,5 +1,5 @@
 import { onChanged } from "../core/changes.js";
-import { perWorkspace } from "../core/workspace.js";
+import { currentWorkspace, perWorkspace } from "../core/workspace.js";
 
 /**
  * Live data for watching clients: a watch is a route result some client
@@ -12,8 +12,10 @@ import { perWorkspace } from "../core/workspace.js";
  * - and on the watch's interval, for changes nobody announces (an agent
  *   writing files, a run progressing on disk).
  *
- * Evaluation runs in the watch's workspace. This module knows nothing about
- * routes: the socket hands it an `evaluate` closure.
+ * Evaluation runs in the watch's workspace — bound when the watch is made,
+ * so a re-evaluation whatever triggers it (a timer, a change elsewhere)
+ * never runs without one. This module knows nothing about routes: the
+ * socket hands it an `evaluate` closure.
  */
 
 interface Watcher {
@@ -82,7 +84,8 @@ export function watch(key: string, evaluate: Watch["evaluate"], interval: number
   const { watches } = state();
   let w = watches.get(key);
   if (!w) {
-    w = { evaluate, watchers: new Set() };
+    const ws = currentWorkspace();
+    w = { evaluate: () => ws.run(evaluate), watchers: new Set() };
     watches.set(key, w);
   }
   const watcher: Watcher = { interval, push };

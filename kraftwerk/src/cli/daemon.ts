@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
-import { DAEMON_PORT, findDaemon, lastOpenRoots, writeDaemonFile } from "../core/daemon.js";
+import { DAEMON_PORT, findDaemon, lastOpenRoots, setDaemonVersion, writeDaemonFile } from "../core/daemon.js";
 import { tildify } from "../core/instances.js";
 import { networkUrls } from "../server/bind.js";
 import { startPushWatcher } from "../server/push.js";
@@ -9,6 +9,7 @@ import { startHub } from "../server/server.js";
 import { getPkgVersion } from "../server/version.js";
 import { ensureBuilt, supervise } from "./ui.js";
 import { installDaemon, uninstallDaemon } from "./daemon-login.js";
+import { daemonLogs, daemonStatus, restartDaemon, startDaemon, stopDaemon } from "./daemon-control.js";
 
 /**
  * `kraftwerk daemon` — the machine's kraftwerk: one process serving every
@@ -28,6 +29,7 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
     process.exit(1);
   }
   const port = Number(opts.port ?? process.env.KRAFTWERK_DAEMON_PORT ?? DAEMON_PORT);
+  setDaemonVersion(await getPkgVersion());
   const reopen = await lastOpenRoots();
   const hub = await startHub({
     port,
@@ -43,7 +45,7 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
       console.log(`${chalk.yellow("⚠")} not reopened: ${tildify(root)} — ${(err as Error).message}`);
     }
   }
-  console.log(`${chalk.green("✔")} kraftwerk daemon on ${chalk.cyan(`http://localhost:${hub.port}`)} ${chalk.dim(`(pid ${process.pid})`)}`);
+  console.log(`${chalk.green("✔")} kraftwerk daemon on ${chalk.cyan(`http://localhost:${hub.port}`)} ${chalk.dim(`(pid ${process.pid}, ${new Date().toISOString()})`)}`);
   for (const o of hub.list()) console.log(`  ${chalk.cyan(o.url)} ${chalk.dim(o.name)}${o.aliasPort ? chalk.dim(` · also :${o.aliasPort}`) : ""}`);
   if (!hub.list().length) console.log(chalk.dim("  no workspace open yet — `kraftwerk ui` in a workspace folder opens it here"));
   // The relay (`kraftwerk remote on`): devices reach this machine from anywhere, end to end encrypted.
@@ -61,8 +63,54 @@ export function registerDaemonCommand(program: Command): void {
     .description("Run the machine's kraftwerk: one process serving every open workspace at <slug>.localhost; install it as a login item")
     .option("--port <port>", `Port (default: KRAFTWERK_DAEMON_PORT, else ${DAEMON_PORT})`)
     .option("--lan", "Listen on the network too, for paired devices")
-    .action(async (opts: { port?: string; lan?: boolean }) => {
+    .option("-d, --detach", "Run in the background (same as `kraftwerk daemon start`)")
+    .addHelpText(
+      "after",
+      `
+In the background:
+  kraftwerk daemon start        start it (the login item when installed), output to the daemon log
+  kraftwerk daemon status       whether it runs: pid, uptime, version, workspaces, remote access
+  kraftwerk daemon logs -f      its log, followed
+  kraftwerk daemon restart      relaunch it with the current install
+  kraftwerk daemon stop         stop it`,
+    )
+    .action(async (opts: { port?: string; lan?: boolean; detach?: boolean }) => {
+      if (opts.detach) return startDaemon(opts);
       await runDaemon(opts);
+    });
+  daemon
+    .command("status")
+    .description("Whether the daemon runs: pid, uptime, version, workspaces, remote access (exit 3 when not)")
+    .option("--json", "As JSON")
+    .action(async (opts: { json?: boolean }) => {
+      await daemonStatus(opts);
+    });
+  daemon
+    .command("start")
+    .description("Start the daemon in the background (the login item when installed), writing to the daemon log")
+    .option("--port <port>", `Port (default: KRAFTWERK_DAEMON_PORT, else ${DAEMON_PORT})`)
+    .action(async (opts: { port?: string }) => {
+      await startDaemon({ port: opts.port ?? (daemon.opts() as { port?: string }).port });
+    });
+  daemon
+    .command("stop")
+    .description("Stop the running daemon")
+    .action(async () => {
+      await stopDaemon();
+    });
+  daemon
+    .command("restart")
+    .description("Relaunch the daemon with the current install (starts one when none runs)")
+    .action(async () => {
+      await restartDaemon({});
+    });
+  daemon
+    .command("logs")
+    .description("Show the daemon log (a daemon in the background writes it)")
+    .option("-n, --lines <n>", "How many lines", "50")
+    .option("-f, --follow", "Keep following it (Ctrl-C ends)")
+    .action(async (opts: { lines?: string; follow?: boolean }) => {
+      await daemonLogs(opts);
     });
   daemon
     .command("install")

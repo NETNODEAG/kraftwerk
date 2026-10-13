@@ -3,7 +3,7 @@ import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import chalk from "chalk";
-import { findDaemon } from "../core/daemon.js";
+import { daemonLogPath, findDaemon } from "../core/daemon.js";
 import { selfCommand } from "../core/self-command.js";
 import { tildify } from "../core/instances.js";
 
@@ -20,7 +20,7 @@ import { tildify } from "../core/instances.js";
 export const LAUNCH_LABEL = "ch.netnode.kraftwerk.daemon";
 
 const plistPath = (): string => path.join(os.homedir(), "Library", "LaunchAgents", `${LAUNCH_LABEL}.plist`);
-const logPath = (): string => path.join(os.homedir(), ".kraftwerk", "logs", "daemon.log");
+const logPath = daemonLogPath;
 /** A stand-in launchctl (tests); the real one otherwise. */
 const launchctl = (): string => process.env.KRAFTWERK_LAUNCHCTL || "launchctl";
 const domain = (): string => `gui/${os.userInfo().uid}`;
@@ -108,6 +108,13 @@ export async function uninstallDaemon(): Promise<void> {
   spawnSync(launchctl(), ["bootout", `${domain()}/${LAUNCH_LABEL}`], { stdio: "ignore" });
   await fs.rm(file, { force: true });
   console.log(`${chalk.green("✔")} login item removed ${chalk.dim(`(${tildify(file)})`)}`);
+}
+
+/** Start the login item's daemon now (`kraftwerk daemon start`): load the item, or kick it when loaded; false when launchctl refused. */
+export function startLoginItem(): boolean {
+  const kick = spawnSync(launchctl(), ["kickstart", `${domain()}/${LAUNCH_LABEL}`], { stdio: "ignore" });
+  if (kick.status === 0) return true;
+  return spawnSync(launchctl(), ["bootstrap", domain(), plistPath()], { stdio: "ignore" }).status === 0;
 }
 
 /** For doctor: whether the login item is installed. */

@@ -106,8 +106,9 @@ export async function runUi(cwd: string, opts: { port?: string; output?: string;
 /**
  * Respawn loop around the real server. Spawns this same bin script via the
  * current node (selfCommand) — works identically for global installs,
- * local node_modules, npx, and a file: dev checkout. Any exit other than
- * RESTART_EXIT_CODE ends the loop. A SIGTERM/SIGINT to the supervisor is
+ * local node_modules, npx, and a file: dev checkout. RESTART_EXIT_CODE
+ * relaunches; so does a crash once the server was up (with a growing
+ * pause); any other exit ends the loop. A SIGTERM/SIGINT to the supervisor is
  * forwarded to the server, so `kill <supervisor pid>` (what `kraftwerk
  * workspaces start` reports) takes the whole UI down; Ctrl-C signals the
  * foreground group and reaches both anyway.
@@ -119,12 +120,18 @@ async function superviseUi(opts: { port?: string; output?: string }): Promise<vo
 /** The respawn loop for any long-running kraftwerk process (`ui`, `daemon`): see superviseUi. */
 export async function supervise(argv: string[], what: string): Promise<void> {
   const { cmd, args } = selfCommand(argv);
+  let backoff = 1000;
   for (;;) {
+    const started = Date.now();
     const child = spawn(cmd, args, {
       stdio: "inherit",
-      env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1" },
+      env: { ...process.env, KRAFTWERK_UI_SUPERVISED: "1", KRAFTWERK_SUPERVISOR_PID: String(process.pid) },
     });
-    const forward = (sig: NodeJS.Signals) => () => child.kill(sig);
+    let stopping = false;
+    const forward = (sig: NodeJS.Signals) => () => {
+      stopping = true;
+      child.kill(sig);
+    };
     const handlers = { SIGTERM: forward("SIGTERM"), SIGINT: forward("SIGINT") };
     process.on("SIGTERM", handlers.SIGTERM);
     process.on("SIGINT", handlers.SIGINT);
@@ -133,12 +140,26 @@ export async function supervise(argv: string[], what: string): Promise<void> {
     });
     process.off("SIGTERM", handlers.SIGTERM);
     process.off("SIGINT", handlers.SIGINT);
-    if (result.code !== RESTART_EXIT_CODE) {
-      // A signal-killed server is not a clean exit — say so in the exit code
-      // (128 + signal, the shell convention) so callers can tell.
-      if (result.signal) process.exit(128 + (os.constants.signals[result.signal] ?? 1));
-      process.exit(result.code ?? 1);
+    if (result.code === RESTART_EXIT_CODE) {
+      console.log(chalk.dim(`↻ relaunching ${what} with the current install ...`));
+      backoff = 1000;
+      continue;
     }
-    console.log(chalk.dim(`↻ relaunching ${what} with the current install ...`));
+    // A crash after it was up (not asked to stop, not a clean exit): start it again, waiting longer each time it keeps crashing.
+    // One that fails right at start (a taken port, a second daemon) would only fail again — that exits, as before.
+    const ran = Date.now() - started;
+    const crashed = !stopping && result.code !== 0 && ran >= Number(process.env.KRAFTWERK_RESTART_AFTER_MS ?? 10_000);
+    if (crashed) {
+      if (ran > 120_000) backoff = 1000;
+      const how = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
+      console.error(chalk.yellow(`↻ ${new Date().toISOString()} ${what} stopped unexpectedly (${how}) — starting it again in ${backoff / 1000}s`));
+      await new Promise((r) => setTimeout(r, backoff));
+      backoff = Math.min(backoff * 2, 60_000);
+      continue;
+    }
+    // A signal-killed server is not a clean exit — say so in the exit code
+    // (128 + signal, the shell convention) so callers can tell.
+    if (result.signal) process.exit(128 + (os.constants.signals[result.signal] ?? 1));
+    process.exit(result.code ?? 1);
   }
 }

@@ -208,13 +208,14 @@ function installExitHandlers(): void {
   // Something still running for a workspace that was closed (a late callback) finds its state gone and throws
   // "workspace closed". That must not take the other workspaces down with it; anything else still crashes, as by default.
   const closedOnly = (err: unknown): boolean => err instanceof Error && err.message === "workspace closed";
+  // Logged with the time, so `kraftwerk daemon logs` says when; the supervisor starts the server again.
   process.on("unhandledRejection", (err) => {
     if (closedOnly(err)) return;
     throw err;
   });
   process.on("uncaughtException", (err) => {
     if (closedOnly(err)) return;
-    console.error(err);
+    console.error(`✖ ${new Date().toISOString()} crashed:`, err);
     process.exit(1);
   });
   // Chat agent subprocesses must die with the server — signals bypass "exit" handlers, so hook the signals themselves.

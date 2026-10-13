@@ -122,10 +122,12 @@ export async function listAgentSkills(slug: string): Promise<SkillInfo[]> {
  * shadows project shadows user (global).
  */
 export async function listSkills(agent?: string): Promise<SkillInfo[]> {
+  // First, before anything starts: outside a workspace this throws here, not in one of the reads below with the others left unhandled.
+  const root = workspaceRoot();
   const [own, workspace, project, user] = await Promise.all([
     agent ? listAgentSkills(agent).catch(() => [] as SkillInfo[]) : [],
-    skillsRoot().then((root) => scanRoot(root, "workspace")),
-    scanRoot(path.join(workspaceRoot(), ".claude", "skills"), "project"),
+    skillsRoot().then((r) => scanRoot(r, "workspace")),
+    scanRoot(path.join(root, ".claude", "skills"), "project"),
     scanRoot(path.join(os.homedir(), ".claude", "skills"), "user"),
   ]);
   const out = [...own];

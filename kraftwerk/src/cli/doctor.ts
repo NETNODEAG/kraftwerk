@@ -225,7 +225,9 @@ export async function runDoctor(cwd: string): Promise<void> {
     "info",
     daemon ? `kraftwerk daemon running on :${daemon.port}` : "no kraftwerk daemon running",
     loginItem
-      ? "starts at login (`kraftwerk daemon uninstall` removes that)"
+      ? daemon
+        ? "starts at login · `kraftwerk daemon status` for more"
+        : "starts at login, but not running now · `kraftwerk daemon start`, `kraftwerk daemon logs` says why it stopped"
       : process.platform === "darwin"
         ? "`kraftwerk daemon install` starts it at login"
         : daemon

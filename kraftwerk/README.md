@@ -70,7 +70,12 @@ login:
 
 ```bash
 kraftwerk daemon                       # the machine's kraftwerk, on http://localhost:1980
+kraftwerk daemon start                 # or in the background (`kraftwerk daemon -d`)
 kraftwerk daemon install               # or: start it at login from now on (macOS; `uninstall` undoes it)
+
+kraftwerk daemon status                # does it run? pid, uptime, version, workspaces, remote access
+kraftwerk daemon logs -f               # what it says (a daemon in the background writes ~/.kraftwerk/logs/daemon.log)
+kraftwerk daemon restart               # relaunch it with the current install; `daemon stop` stops it
 
 cd ~/work/team-blau && kraftwerk ui    # opens this workspace in the daemon:
                                        #   http://team-blau.localhost:1980
@@ -246,6 +251,7 @@ kraftwerk knowledge                     # Knowledge: OKF bundles (list/get/put/v
 kraftwerk ui                            # start this workspace: http://localhost:1981 (or open it in the daemon); --port, --lan, --standalone
 kraftwerk daemon                        # one kraftwerk for every open workspace: http://<slug>.localhost:1980; --port, --lan
 kraftwerk daemon install                # start the daemon at login (macOS LaunchAgent); --lan, --port; `daemon uninstall` removes it
+kraftwerk daemon status                 # whether it runs (exit 3 when not; --json); daemon start|stop|restart; daemon logs [-n N] [-f]
 kraftwerk workspaces                    # every workspace on this machine; workspaces start|stop|forget <ref>
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk remote on|off|pair            # reach this machine from anywhere through the relay, end to end encrypted
