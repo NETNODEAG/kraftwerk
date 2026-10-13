@@ -41,6 +41,7 @@ export const ROUTES = {
   "chats.permission": ["POST", "/api/chats/:id/permission"],
   "chats.rename": ["PATCH", "/api/chats/:id"],
   "chats.resetSession": ["POST", "/api/chats/:id/reset-session"],
+  "chats.setProject": ["POST", "/api/chats/:id/project"],
   "chats.setVibeable": ["POST", "/api/chats/:id/vibeable"],
   "chats.steer": ["POST", "/api/chats/:id/steer"],
   "chats.stopTask": ["POST", "/api/chats/:id/task-stop"],

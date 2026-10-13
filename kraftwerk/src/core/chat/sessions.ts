@@ -48,6 +48,8 @@ export async function createChat(opts: {
   title?: string;
   /** Continue one of the agent's own sessions (from listAgentSessionsFor) instead of starting fresh. */
   resume?: string;
+  /** The project an agent's chat works in (meta.project); the caller checks that it exists. */
+  project?: string;
 }): Promise<ChatMeta> {
   const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
@@ -57,6 +59,7 @@ export async function createChat(opts: {
     title: opts.title ?? "",
     cwd,
     scope: opts.scope,
+    ...(opts.project && opts.scope.kind === "agent" ? { project: opts.project } : {}),
     ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
     createdAt: now,
     updatedAt: now,
@@ -493,6 +496,23 @@ export async function renameChat(id: string, title: unknown): Promise<{ meta?: C
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   state.meta.title = title.replace(/\s+/g, " ").trim().slice(0, 80);
+  await writeMeta(state.meta);
+  return { meta: state.meta };
+}
+
+/**
+ * File an agent's chat under a project, or under none (`null`). The chat is
+ * then listed with the project, and the agent reads the project's context
+ * with its next message. Project chats and channels belong where
+ * their scope says and cannot move; the caller checks that the project exists.
+ */
+export async function setChatProject(id: string, project: string | null): Promise<{ meta?: ChatMeta; error?: string; status?: number }> {
+  const state = await loadState(id);
+  if (!state) return { error: "not found", status: 404 };
+  if (state.meta.scope.kind !== "agent") return { error: "only an agent's chat can be filed under a project", status: 409 };
+  if (project) state.meta.project = project;
+  else delete state.meta.project;
+  for (const seat of state.seats.values()) seat.needsContext = true;
   await writeMeta(state.meta);
   return { meta: state.meta };
 }

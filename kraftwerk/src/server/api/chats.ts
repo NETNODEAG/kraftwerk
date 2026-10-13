@@ -16,6 +16,7 @@ import {
   resetSession,
   resolvePermission,
   setChatConfig,
+  setChatProject,
   setChatVibeable,
   steerChat,
   stopChatTask,
@@ -50,6 +51,8 @@ const NewChat = z.object({
   agent: z.string().optional(),
   scope: z.object({ kind: z.string(), runId: z.string().optional(), bundle: z.string().optional(), slug: z.string().optional() }).optional(),
   resume: z.string().optional(),
+  /** An agent's chat started in a project: listed with the project (meta.project). */
+  project: z.string().optional(),
 });
 
 /** An action on a running chat: `{ok}` when it went through, 409 with the reason when the chat refused. */
@@ -94,16 +97,27 @@ async function scopeOf(body: z.output<typeof NewChat>): Promise<{ agent: string;
   return { agent, scope: { kind: "general" } };
 }
 
+/** The slug of an existing project, else a 404 (or the error reading it). */
+async function projectSlug(slug: string): Promise<string> {
+  const found = await getProject(slug).catch((err: Error) => {
+    throw new ApiError(projectErrors(err.message), err.message);
+  });
+  if (!found) fail(404, "project not found");
+  return found.slug;
+}
+
 /** Chats: ACP sessions with a coding agent, their event stream, and what a person does in them. */
 export const chatRoutes = [
   route({ name: "chats.list", method: "GET", path: "/api/chats", summary: "every chat with its live state" }, async () => ({ chats: await listChats() })),
-  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?}", body: NewChat }, async (c) => {
+  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?}", body: NewChat }, async (c) => {
     // `resume` continues one of the agent's own sessions (see agents.sessions).
     const body = await c.body();
     const { agent, scope } = await scopeOf(body);
     if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, or pi");
+    if (body.project && scope.kind !== "agent") fail(400, "only an agent's chat takes a project");
+    const project = body.project ? await projectSlug(body.project) : undefined;
     try {
-      return await createChat({ agent: agent as ChatAgentId, scope, ...(body.resume ? { resume: body.resume } : {}) });
+      return await createChat({ agent: agent as ChatAgentId, scope, ...(project ? { project } : {}), ...(body.resume ? { resume: body.resume } : {}) });
     } catch (err) {
       throw new ApiError(400, (err as Error).message);
     }
@@ -123,6 +137,21 @@ export const chatRoutes = [
     const result = await validChat(renameChat(c.params.id, title), "invalid chat id or body");
     return reply(result.error ? (result.error === "not found" ? 404 : 400) : 200, result);
   }),
+  route(
+    {
+      name: "chats.setProject",
+      method: "POST",
+      path: "/api/chats/:id/project",
+      summary: "file an agent's chat under a project {project}, or under none {project: null}",
+      errors: 400,
+      body: z.object({ project: z.string().nullable() }),
+    },
+    async (c) => {
+      const { project } = await c.body();
+      const slug = project ? await projectSlug(project) : null;
+      return metaOf(await validChat(setChatProject(c.params.id, slug)));
+    },
+  ),
   // Replays from ?after=N, then streams new events as they happen.
   route({ name: "chats.events", method: "GET", path: "/api/chats/:id/events", summary: "SSE: the chat's events from ?after=N", raw: true }, async ({ req, res, params, query }) => {
     const afterSeq = Number(query.get("after") ?? "0") || 0;

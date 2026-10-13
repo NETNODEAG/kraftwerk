@@ -42,10 +42,46 @@ describe("chats API: approval state", () => {
   });
 
   /**
-   * Forking needs a session the agent already holds; refusing early keeps
-   * these cases from spawning an agent. A chat the agent never answered
-   * in has nothing to fork, and pi has no session to fork at all.
+   * An agent's chat names no project in its scope, so one started in a
+   * project (or moved there later) carries it in meta.project, and is
+   * listed with that project.
    */
+  it("files an agent's chat under a project at the start and later; other chats and unknown projects are refused", async () => {
+    const on = await fetch(srv.url + "/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json", origin: new URL(srv.url).origin },
+      body: JSON.stringify({ projects: { enabled: true, root: "kraftwerk-data/projects" } }),
+    });
+    assert.equal(on.status, 200, await on.text());
+    assert.equal((await post("/api/agents", { name: "Crm", emoji: "💼", harness: "claude", system: "crm" })).status, 200);
+    for (const title of ["Pistor", "Webinars"]) assert.equal((await post("/api/projects", { title })).status, 201);
+    const row = async (id: string) => ((await (await fetch(srv.url + "/api/chats")).json()) as { chats: ChatRow[] }).chats.find((c) => c.id === id);
+
+    const started = await post("/api/chats", { agent: "claude", scope: { kind: "agent", slug: "crm" }, project: "pistor" });
+    assert.equal(started.status, 200);
+    const meta = (await started.json()) as ChatMeta;
+    assert.equal(meta.project, "pistor");
+    assert.equal((await row(meta.id))?.project, "pistor", "listed with the project");
+
+    const plain = (await (await post("/api/chats", { agent: "claude", scope: { kind: "agent", slug: "crm" } })).json()) as ChatMeta;
+    assert.equal(plain.project, undefined);
+    assert.equal((await post("/api/chats", { agent: "claude", scope: { kind: "agent", slug: "crm" }, project: "nope" })).status, 404);
+    assert.equal((await post("/api/chats", { agent: "claude", scope: { kind: "general" }, project: "pistor" })).status, 400);
+
+    let r = await post(`/api/chats/${plain.id}/project`, { project: "webinars" });
+    assert.equal(r.status, 200);
+    assert.equal(((await r.json()) as ChatMeta).project, "webinars");
+    assert.equal((await row(plain.id))?.project, "webinars");
+    r = await post(`/api/chats/${plain.id}/project`, { project: null });
+    assert.equal(r.status, 200);
+    assert.equal((await row(plain.id))?.project, undefined, "under no project again");
+
+    assert.equal((await post(`/api/chats/${plain.id}/project`, { project: "nope" })).status, 404);
+    assert.equal((await post("/api/chats/chat-2026-01-01-0000-00-zzzz/project", { project: "pistor" })).status, 404);
+    const general = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
+    assert.equal((await post(`/api/chats/${general.id}/project`, { project: "pistor" })).status, 409);
+  });
+
   it("renames a chat; an empty name, an unknown chat and a cross-origin rename are refused", async () => {
     const meta = (await (await post("/api/chats", { agent: "claude", scope: { kind: "general" } })).json()) as ChatMeta;
     const patch = (id: string, body: unknown, origin = new URL(srv.url).origin) =>
@@ -62,6 +98,11 @@ describe("chats API: approval state", () => {
     assert.equal((await patch(meta.id, { title: "evil" }, "https://evil.example")).status, 403);
   });
 
+  /**
+   * Forking needs a session the agent already holds; refusing early keeps
+   * these cases from spawning an agent. A chat the agent never answered
+   * in has nothing to fork, and pi has no session to fork at all.
+   */
   it("refuses to fork a chat without a session, a pi chat, and an unknown chat", async () => {
     const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
     const meta = (await created.json()) as ChatMeta;

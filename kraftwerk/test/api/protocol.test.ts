@@ -100,6 +100,7 @@ const ROUTES = [
   "POST /api/chats/:id/fork chats.fork",
   "POST /api/chats/:id/message chats.message",
   "POST /api/chats/:id/permission chats.permission",
+  "POST /api/chats/:id/project chats.setProject",
   "POST /api/chats/:id/reset-session chats.resetSession",
   "POST /api/chats/:id/steer chats.steer",
   "POST /api/chats/:id/task-stop chats.stopTask",
