@@ -57,7 +57,7 @@ const runsOn = (p: { harness: ChatAgentId; model?: string; effort?: string }): s
   [p.harness, p.model, p.effort ? `effort ${p.effort}` : ""].filter(Boolean).join(" · ");
 
 type ProjectChat = ChatMeta & { busy: boolean; awaitingApproval?: boolean };
-/** The project's own chats, plus the channels that started as one of them (meta.project). */
+/** The project's own chats, plus the channels that started as one of them and the agents' chats filed under it (meta.project). */
 const chatsOf = (chats: ProjectChat[] | undefined, slug: string): ProjectChat[] =>
   (chats ?? []).filter((c) => (c.scope.kind === "project" && c.scope.slug === slug) || c.project === slug);
 /** Every chat of a project opens here — a channel session too; it just renders in channel mode. */
@@ -293,6 +293,10 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
     };
   }, [slug]);
   const harness = HARNESSES.find((h) => h.id === project?.harness) ?? HARNESSES[0];
+  const agents = useApi("agents.list", {});
+  // The project's agents: a chat with one of them is filed under the project and works in its context.
+  const team = (project?.links.agents ?? []).flatMap((l) => agents?.agents.filter((a) => a.slug === l.slug) ?? []);
+  const [starting, setStarting] = useState<string | null>(null);
   return (
     <Page width="narrow">
       <Title size="lg">
@@ -319,6 +323,32 @@ function NewProjectChat({ slug, title }: { slug: string; title: string }) {
           the <Link href={`/projects/${encodeURIComponent(slug)}/info`}>project page</Link>, like an agent's.
         </Hint>
       </Panel>
+      {team.length > 0 && (
+        <Panel title="or with an agent of the project">
+          <div className="flex flex-col gap-2 p-4">
+            {team.map((a) => (
+              <button
+                key={a.slug}
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-card border border-line bg-transparent px-3.5 py-2.5 text-left text-fg transition-colors hover:enabled:bg-surface-2 disabled:cursor-default disabled:opacity-60"
+                disabled={starting !== null}
+                onClick={async () => {
+                  setStarting(a.slug);
+                  await createChatAndOpen("claude", { kind: "agent", slug: a.slug }, undefined, slug);
+                  setStarting(null);
+                }}
+              >
+                <span className="text-lg">{a.emoji || "🤖"}</span>
+                <span className="flex min-w-0 flex-col">
+                  <b className="text-base font-medium">{starting === a.slug ? "starting…" : a.name}</b>
+                  {a.description && <span className="truncate text-xs text-fg-2">{a.description}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
+          <Hint className="px-[18px] pb-3.5">The agent works with its own instructions and the project's context; the chat is listed here and with the agent.</Hint>
+        </Panel>
+      )}
     </Page>
   );
 }
@@ -344,8 +374,9 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
     };
   }, [chatId, gen]);
   const channelSlug = scope?.kind === "channel" ? scope.slug : undefined;
+  const agentSlug = scope?.kind === "agent" ? scope.slug : undefined;
   const channels = useApi("channels.list", channelSlug ? {} : null, { interval: 4000 });
-  const agents = useApi("agents.list", channelSlug ? {} : null, { interval: 8000 });
+  const agents = useApi("agents.list", channelSlug || agentSlug ? {} : null, { interval: 8000 });
   if (gone) return <EmptyState icon="chat_error">chat not found</EmptyState>;
   if (!scope) return <EmptyState>loading…</EmptyState>;
   if (channelSlug) {
@@ -353,6 +384,12 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
     if (!channels) return <EmptyState>loading…</EmptyState>;
     if (!channel) return <EmptyState icon="forum">channel #{channelSlug} is gone — its definition under channels/ was removed</EmptyState>;
     return <ChatThread key={`${chatId}:channel`} id={chatId} channel={channel} agents={agents?.agents ?? []} />;
+  }
+  if (agentSlug) {
+    // An agent's chat filed under the project: the agent speaks, the project is around it.
+    const a = agents?.agents.find((x) => x.slug === agentSlug);
+    if (!agents) return <EmptyState>loading…</EmptyState>;
+    return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={a ? `${a.emoji || "🤖"} ${a.name}` : agentSlug} agentDescription={a?.description} onConverted={() => setGen((g) => g + 1)} />;
   }
   return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={title} agentDescription={goal} onConverted={() => setGen((g) => g + 1)} />;
 }
@@ -362,6 +399,11 @@ function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
   const [creating, setCreating] = useState(false);
   const filter = useCallback((chats: Session[]) => chatsOf(chats, slug), [slug]);
   const hrefOf = useCallback((c: Session) => chatHref(c, slug), [slug]);
+  const agents = useApi("agents.list", {}, { interval: 30_000 });
+  const agentLabel = (s: string) => {
+    const a = agents?.agents.find((x) => x.slug === s);
+    return a ? `${a.emoji || "🤖"} ${a.name}` : s;
+  };
   return (
     <SessionsPane
       storeKey={`project:${slug}`}
@@ -371,7 +413,7 @@ function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
       filter={filter}
       hrefOf={hrefOf}
       closeHref={`/projects/${encodeURIComponent(slug)}/chat/new`}
-      subOf={(c) => (c.scope.kind === "channel" ? `with coworkers · #${c.scope.slug}` : c.agent)}
+      subOf={(c) => (c.scope.kind === "channel" ? `with coworkers · #${c.scope.slug}` : c.scope.kind === "agent" ? `with ${agentLabel(c.scope.slug)}` : c.agent)}
       actions={
         <NewTabButton
           busy={creating}

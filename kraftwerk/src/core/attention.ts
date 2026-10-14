@@ -65,7 +65,11 @@ export async function listAttention(): Promise<AttentionView> {
   const waiting: AttentionItem[] = waitingRequests().map((w) => {
     const { scope } = w.meta;
     const owner: AttentionOwner = {};
-    if (scope.kind === "agent") owner.agent = agentOf(scope.slug);
+    if (scope.kind === "agent") {
+      owner.agent = agentOf(scope.slug);
+      // An agent's chat filed under a project waits for you in that project too.
+      if (w.meta.project) owner.project = projectOf(w.meta.project);
+    }
     if (scope.kind === "project") owner.project = projectOf(scope.slug);
     if (scope.kind === "channel") {
       owner.channel = scope.slug;

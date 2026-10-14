@@ -11,16 +11,20 @@ const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
   { id: "pi", label: "pi", hint: "pi coding agent" },
 ];
 
+/** Start a chat and open it; `project` files an agent's chat under that project (it opens there, with the project around it). */
 export async function createChatAndOpen(
   agent: ChatAgentId,
   scope: { kind: string; runId?: string; bundle?: string; slug?: string },
-  resume?: string
+  resume?: string,
+  project?: string
 ): Promise<void> {
-  const r = await api.request("chats.create", { body: { agent, scope, ...(resume ? { resume } : {}) } });
+  const r = await api.request("chats.create", { body: { agent, scope, ...(resume ? { resume } : {}), ...(project ? { project } : {}) } });
   const meta = r.ok ? r.data : null;
   if (meta?.id) {
     navigate(
-      meta.scope?.kind === "agent"
+      meta.project
+        ? `/projects/${encodeURIComponent(meta.project)}/chat/${meta.id}`
+        : meta.scope?.kind === "agent"
         ? `/agents/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`
         : meta.scope?.kind === "project"
           ? `/projects/${encodeURIComponent(meta.scope.slug)}/chat/${meta.id}`

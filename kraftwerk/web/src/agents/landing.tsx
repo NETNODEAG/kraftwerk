@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Agent } from "../types";
 import { NewChat, createChatAndOpen } from "../chat";
-import { api } from "../api";
+import { api, useApi } from "../api";
 import { navigate, useExpertMode } from "../shared";
 import { NewTabButton, SessionsPane, type Session } from "../sessions";
 import { Button, EmptyState, Page, Panel, Title } from "../ui";
@@ -100,6 +100,8 @@ export function AgentSessions({ slug, chatId }: { slug: string; chatId?: string 
   const [creating, setCreating] = useState(false);
   const filter = useCallback((chats: Session[]) => chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === slug), [slug]);
   const hrefOf = useCallback((c: Session) => `/agents/${encodeURIComponent(slug)}/chat/${c.id}`, [slug]);
+  const projects = useApi("projects.list", {}, { interval: 60_000 });
+  const projectTitle = (p: string) => projects?.projects.find((x) => x.slug === p)?.title ?? p;
   return (
     <SessionsPane
       storeKey={`agent:${slug}`}
@@ -109,6 +111,7 @@ export function AgentSessions({ slug, chatId }: { slug: string; chatId?: string 
       filter={filter}
       hrefOf={hrefOf}
       closeHref={`/agents/${encodeURIComponent(slug)}/chat/new`}
+      subOf={(c) => (c.project ? `📁 ${projectTitle(c.project)}` : c.agent)}
       actions={
         <NewTabButton
           busy={creating}

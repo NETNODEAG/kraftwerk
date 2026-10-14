@@ -103,6 +103,15 @@ describe("attention API", () => {
     assert.equal(bell.items.filter((n) => n.kind === "approval").length, 0);
   });
 
+  it("an agent's chat filed under a project: owned by the agent and the project", async () => {
+    const chat = (await (await send("/api/chats", "POST", { agent: "claude", scope: { kind: "agent", slug: "lisa" }, project: "relaunch" })).json()) as { id: string };
+    assert.equal((await send(`/api/chats/${chat.id}/message`, "POST", { text: "install the deps" })).status, 200);
+    const [item] = await until(attention, (xs) => xs.length === 1, "the approval");
+    assert.deepEqual(item.owner, { agent: { slug: "lisa", name: "Lisa", emoji: "🦊" }, project: { slug: "relaunch", title: "Relaunch netnode.ch" } });
+    assert.equal((await send(`/api/chats/${chat.id}/permission`, "POST", { requestId: item.id, optionId: "allow" })).status, 200);
+    await until(attention, (xs) => xs.length === 0, "the approval to clear");
+  });
+
   it("an unread failure needs you until it is read", async () => {
     const { pushNotification } = await import("../../src/core/notifications.js");
     const n = await pushNotification({

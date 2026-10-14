@@ -43,7 +43,8 @@ function chatOwner(c: ChatMeta, agents: Agent[], projectTitle: (slug: string) =>
     case "agent": {
       const slug = c.scope.slug;
       const a = agents.find((m) => m.slug === slug);
-      return a ? `${a.emoji || "🤖"} ${a.name}` : slug;
+      const who = a ? `${a.emoji || "🤖"} ${a.name}` : slug;
+      return c.project ? `📁 ${projectTitle(c.project)} · ${who}` : who;
     }
     case "project": return `📁 ${projectTitle(c.scope.slug)}`;
     case "channel": return c.project ? `📁 ${projectTitle(c.project)} · #${c.scope.slug}` : `#${c.scope.slug}`;

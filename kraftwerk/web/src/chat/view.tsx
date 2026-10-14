@@ -3,11 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Agent, Channel, ChatMeta, StoredChatEvent } from "../types";
 import { api, live as socket, useApi } from "../api";
-import { Link, navigate, setPageTitle, useExpertMode, useFeatures } from "../shared";
+import { Icon, Link, navigate, setPageTitle, useExpertMode, useFeatures } from "../shared";
 import { VIBE_SLOT_ID, VibeOffNote, VibePane, announceVibeable } from "../vibeables";
 import { AddCoworkerDialog } from "../channels";
 import { StripEnd } from "../sessions";
-import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, Tag, Title } from "../ui";
+import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, Select, Tag, Title } from "../ui";
 import { agentActivity, liveState, mainSpeaker, SpeakerContext, stopAgent } from "./helpers";
 import { Thread } from "./thread";
 import { Composer } from "./composer";
@@ -244,6 +244,11 @@ export function ChatThread({
   return (
     <>
     <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
+      {meta.scope.kind === "agent" && !meta.scope.routine && (
+        <StripEnd>
+          <ChatProject id={id} project={meta.project} onFiled={(project) => setMeta((m) => (m ? { ...m, project } : m))} />
+        </StripEnd>
+      )}
       {canCoworker && (
         <StripEnd>
           <IconButton
@@ -327,5 +332,42 @@ function TagLink({ href, children }: { href: string; children: React.ReactNode }
     <Link href={href} className="no-underline hover:opacity-80">
       <Tag>{children}</Tag>
     </Link>
+  );
+}
+
+/**
+ * Which project an agent's chat is filed under: the agent reads that
+ * project's context from its next message on, and the chat is listed with
+ * the project. Nothing to pick while the workspace has no projects.
+ */
+function ChatProject({ id, project, onFiled }: { id: string; project?: string; onFiled: (project: string | undefined) => void }) {
+  const projects = useApi("projects.list", {}, { interval: 60_000 });
+  const [saving, setSaving] = useState(false);
+  const list = projects?.enabled === false ? [] : (projects?.projects ?? []);
+  if (!list.length && !project) return null;
+  return (
+    <label className="inline-flex items-center gap-1 text-fg-2" title="file this chat under a project: the agent works in its context">
+      <Icon name="folder" className="ms-sm" />
+      <Select
+        aria-label="project"
+        className="h-7 w-auto max-w-[180px] py-0 pl-2 text-sm"
+        value={project ?? ""}
+        disabled={saving}
+        onChange={async (e) => {
+          const next = e.target.value || null;
+          setSaving(true);
+          const r = await api.request("chats.setProject", { id, body: { project: next } }).catch(() => null);
+          setSaving(false);
+          if (r?.ok) onFiled(next ?? undefined);
+        }}
+      >
+        <option value="">no project</option>
+        {list.map((p) => (
+          <option key={p.slug} value={p.slug}>
+            {p.title}
+          </option>
+        ))}
+      </Select>
+    </label>
   );
 }
