@@ -108,7 +108,9 @@ export async function daemonStatus(opts: { json?: boolean }): Promise<void> {
     if (s.remote) {
       const ok = s.remote.state === "connected";
       const devices = ok ? chalk.dim(` · ${s.remote.clients} device connection${s.remote.clients === 1 ? "" : "s"} now`) : "";
-      console.log(`  remote access: ${ok ? chalk.green("connected") : chalk.yellow(s.remote.state)}${s.remote.url ? chalk.dim(` through ${s.remote.url}`) : ""}${devices}`);
+      // Just started, the link reports "off" until it has dialled the relay.
+      const state = s.remote.state === "off" ? "connecting …" : s.remote.state;
+      console.log(`  remote access: ${ok ? chalk.green("connected") : chalk.yellow(state)}${s.remote.url ? chalk.dim(` through ${s.remote.url}`) : ""}${devices}`);
     }
   } else {
     console.log(`${chalk.red("○")} kraftwerk daemon ${chalk.red("not running")}`);
