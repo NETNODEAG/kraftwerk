@@ -3,6 +3,7 @@ import { agentRoutes } from "./agents.js";
 import { attentionRoutes } from "./attention.js";
 import { channelRoutes } from "./channels.js";
 import { chatRoutes } from "./chats.js";
+import { cloudRoutes } from "./cloud.js";
 import { deviceRoutes } from "./devices.js";
 import { hubRoutes } from "./hub.js";
 import { fileRoutes } from "./files.js";
@@ -37,6 +38,7 @@ const domainRoutes = [
   ...gitRoutes,
   ...vibeableRoutes,
   ...deviceRoutes,
+  ...cloudRoutes,
   ...hubRoutes,
 ];
 

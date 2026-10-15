@@ -40,11 +40,10 @@ import { parse } from "yaml";
   *     root: apps               # one folder per app, part of the workspace. Default: kraftwerk-data/vibeables
  *   projects:                  # goal-scoped folders (brief, systems of record, links) that chats work in (absent = off, bare key = on)
  *     root: kraftwerk-data/projects   # one folder per project, part of the workspace. Default: kraftwerk-data/projects
- *   cloud:                     # kraftwerk cloud manager — ON BY DEFAULT, `enabled: false` opts out
- *     url: https://srv.kraftwerk-cloud.netnode.cloud   # where the cloud answers (default). KRAFTWERK_CLOUD_URL env wins; "off" disables
- *     interval: 60             # seconds between heartbeats. Default: 60
- *   # No key here: the cloud hands the instance its identity and a claim code (Settings → Cloud in the UI);
- *   # a server that should register under an account unattended puts KRAFTWERK_CLOUD_TOKEN into .env.
+ *   cloud:                     # the machine's kraftwerk cloud record lists this workspace — `enabled: false` leaves it out
+ *     enabled: false           # a per-workspace veto; the machine's switch is `kraftwerk cloud on|off` (~/.kraftwerk/cloud.json)
+ *   # No key here: the daemon registers the MACHINE (its relay id) and `kraftwerk login` claims it.
+ *   # `url` and `interval` are deprecated: the cloud's origin is the machine's (cloud.json / KRAFTWERK_CLOUD_URL).
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -162,47 +161,24 @@ export function projectsRootFor(project: ResolvedWorkspace): string | undefined 
 }
 
 /**
- * Cloud manager: the kraftwerk cloud is ~/.kraftwerk made reachable over
- * the internet — a registry of instances across machines. Every inspector
- * registers on start and heartbeats while it runs, so the cloud's global
- * view shows this workspace, where it runs, and whether it is live; the
- * user claims it into their account with the code the UI shows. On by
- * default: an absent block is the same as a bare one, `enabled: false`
- * opts out, and so does KRAFTWERK_CLOUD_URL=off in the environment (what
- * the tests and CI set). No credential lives in kraftwerk.yml — the
- * identity comes from the cloud, and an account token for unattended
- * servers is KRAFTWERK_CLOUD_TOKEN in .env.
+ * kraftwerk.yml `cloud:` — since the cloud knows machines (core/cloud.ts,
+ * server/cloud.ts), this block only vetoes: `enabled: false` leaves the
+ * workspace out of the machine's reports. The machine's switch and the
+ * cloud's origin are ~/.kraftwerk/cloud.json (`kraftwerk cloud on|off`) and
+ * KRAFTWERK_CLOUD_URL. `url` is still honored for one release (with a
+ * warning) when the machine names none; `interval` is ignored — the cloud
+ * sets the cadence.
  */
 export interface CloudConfig {
-  /** false turns the feature off. Default: true. */
+  /** false leaves this workspace out of the machine's cloud record. Default: true. */
   enabled?: boolean;
-  /** Origin of the cloud manager. Default: https://srv.kraftwerk-cloud.netnode.cloud */
+  /** @deprecated The machine's (cloud.json / KRAFTWERK_CLOUD_URL); used only when the machine names none. */
   url?: string;
-  /** Seconds between heartbeats. Default: 60 (the cloud may raise it). */
+  /** @deprecated Ignored: the cloud sets the heartbeat interval. */
   interval?: number;
 }
 
 export const CLOUD_DEFAULT_URL = "https://srv.kraftwerk-cloud.netnode.cloud";
-export const CLOUD_DEFAULT_INTERVAL = 60;
-
-export interface CloudSettings {
-  url: string;
-  interval: number;
-  /** KRAFTWERK_CLOUD_TOKEN from the environment (.env), when set. */
-  token?: string;
-}
-
-/** The effective cloud settings when the feature is on; undefined when kraftwerk.yml or the environment turned it off. */
-export function cloudFor(project: ResolvedWorkspace): CloudSettings | undefined {
-  const c = project.config.cloud ?? {};
-  const envUrl = process.env.KRAFTWERK_CLOUD_URL?.trim();
-  if (c.enabled === false || envUrl?.toLowerCase() === "off") return undefined;
-  return {
-    url: (envUrl || c.url || CLOUD_DEFAULT_URL).replace(/\/+$/, ""),
-    interval: c.interval ?? CLOUD_DEFAULT_INTERVAL,
-    token: process.env.KRAFTWERK_CLOUD_TOKEN?.trim() || undefined,
-  };
-}
 
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
 export function ignoreEntryFor(projectRoot: string, dir: string): string | undefined {
@@ -267,7 +243,7 @@ export interface WorkspaceConfig {
   vibeables?: VibeablesConfig;
   /** Projects: goal-scoped folders the chats work in. Absent = off. */
   projects?: ProjectsConfig;
-  /** kraftwerk cloud manager this instance registers with. Absent = on with defaults; `enabled: false` opts out. */
+  /** The machine's cloud record lists this workspace. Absent = listed; `enabled: false` leaves it out. */
   cloud?: CloudConfig;
 }
 
@@ -502,7 +478,7 @@ function validateCloud(configPath: string, value: unknown): void {
   const c = value as Record<string, unknown>;
   for (const key of Object.keys(c)) {
     if (key === "token") {
-      throw new Error(`${file}: cloud.token does not belong in kraftwerk.yml — put KRAFTWERK_CLOUD_TOKEN into .env (and only for unattended servers; a workspace with a UI is claimed with its code)`);
+      throw new Error(`${file}: cloud.token does not belong in kraftwerk.yml — the cloud knows the machine, and \`kraftwerk login\` claims it`);
     }
     if (!["enabled", "url", "interval"].includes(key)) {
       throw new Error(`${file}: cloud.${key} is unknown (allowed: enabled, url, interval)`);

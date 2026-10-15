@@ -177,21 +177,21 @@
         "null"
       ],
       "additionalProperties": false,
-      "description": "kraftwerk cloud manager — ~/.kraftwerk made reachable over the internet. ON BY DEFAULT: every `kraftwerk ui` registers on start and heartbeats while it runs (name, icon, colour, root, machine, version, agent and channel roster). `enabled: false` opts out. No credential belongs here: the cloud hands the instance its identity and a claim code (Settings → Cloud), and an unattended server uses KRAFTWERK_CLOUD_TOKEN in .env.",
+      "description": "kraftwerk cloud: the daemon registers this MACHINE (its relay id) once, and the workspaces it serves ride along. This block only vetoes: `enabled: false` leaves this workspace out of the machine's record. The machine's switch and the cloud's origin are ~/.kraftwerk/cloud.json (`kraftwerk cloud on|off`) and KRAFTWERK_CLOUD_URL; `kraftwerk login` claims the machine.",
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "false opts out of the cloud. Default: true"
+          "description": "false leaves this workspace out of the machine's cloud record. Default: true"
         },
         "url": {
           "type": "string",
           "pattern": "^https?://",
-          "description": "Origin of the cloud manager. Default: https://srv.kraftwerk-cloud.netnode.cloud (the KRAFTWERK_CLOUD_URL environment variable wins; \"off\" disables)"
+          "description": "Deprecated: the cloud's origin is the machine's (~/.kraftwerk/cloud.json, KRAFTWERK_CLOUD_URL). Still used, with a warning, when the machine names none."
         },
         "interval": {
           "type": "integer",
           "minimum": 1,
-          "description": "Seconds between heartbeats. Default: 60 (the cloud may raise it)"
+          "description": "Deprecated and ignored: the cloud sets the heartbeat interval."
         }
       }
     }

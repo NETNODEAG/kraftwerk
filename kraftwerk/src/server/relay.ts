@@ -11,6 +11,7 @@ import {
   relayId,
   toBase64,
   fromBase64,
+  fromBase64Url,
   toBase64Url,
   type Channel,
   type Hello,
@@ -98,6 +99,33 @@ export async function setRelay(enabled: boolean, url?: string): Promise<RelaySet
   s = { ...s, enabled, ...(url ? { url: url.replace(/\/+$/, "") } : {}) };
   await writeRelaySettings(s);
   return s;
+}
+
+/**
+ * The machine's key pair and secret, created (with the relay staying off)
+ * when relay.json is missing: the daemon's first start, `kraftwerk login`.
+ * The cloud knows the machine by the same id and secret the relay does; a
+ * damaged file is refused, never overwritten (it holds the id).
+ */
+export async function ensureRelayKeys(): Promise<RelaySettings> {
+  const s = await readRelaySettings();
+  if (s) return s;
+  try {
+    await fs.access(settingsFile());
+    throw new Error(`${settingsFile()} is damaged — fix it or remove it (removing gives this machine a new id)`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  const pair = await exportKeyPair(await generateKeyPair());
+  const fresh: RelaySettings = { enabled: false, url: CLOUD_DEFAULT_URL, ...pair, secret: randomBytes(32).toString("base64url") };
+  await writeRelaySettings(fresh);
+  return fresh;
+}
+
+/** The machine's id (its relay id), public key and secret: what the cloud knows it by. */
+export async function machineCredentials(): Promise<{ id: string; key: string; secret: string }> {
+  const s = await ensureRelayKeys();
+  return { id: await relayId(fromBase64Url(s.publicKey)), key: s.publicKey, secret: s.secret };
 }
 
 /** wss://host/api/relay/<role> for a cloud URL. */

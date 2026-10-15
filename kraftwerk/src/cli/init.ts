@@ -34,8 +34,8 @@ skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packag
 #   root: ${DATA_DIR}/repos       # clones land here (git-ignored); a bare \`repos:\` uses repos/ instead
 # vibeables:                      # small apps built live in a chat with a preview pane (uncomment to enable; one folder per app under ${DATA_DIR}/vibeables, versioned with the workspace)
 # projects:                       # goal-scoped folders — brief, systems of record, links to knowledge/vibeables/repos/workflows/agents — that chats work in (uncomment to enable; one folder per project under ${DATA_DIR}/projects)
-# cloud:                          # the kraftwerk cloud is ON BY DEFAULT: \`kraftwerk ui\` registers this workspace there and shows a claim code under Settings → Cloud
-#   enabled: false                # uncomment both lines to keep this workspace out of the cloud (or set KRAFTWERK_CLOUD_URL=off for the whole machine)
+# cloud:                          # the daemon registers this MACHINE with the kraftwerk cloud and lists this workspace (\`kraftwerk login\` claims the machine)
+#   enabled: false                # uncomment both lines to leave this workspace out (\`kraftwerk cloud off\` turns the cloud off for the whole machine)
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}

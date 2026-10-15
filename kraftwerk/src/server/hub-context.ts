@@ -16,7 +16,7 @@ export function currentHub(): Hub {
   return hub;
 }
 
-/** API paths that need no workspace: the machine's own (the hub, devices and pairing, the protocol, the socket). */
-export const MACHINE_PATHS = /^\/api\/(hub(\/|$)|pair$|devices(\/|$)|protocol$|ws$)/;
+/** API paths that need no workspace: the machine's own (the hub, devices and pairing, the cloud record, the protocol, the socket). */
+export const MACHINE_PATHS = /^\/api\/(hub(\/|$)|pair$|devices(\/|$)|cloud(\/|$)|protocol$|ws$)/;
 /** Route names callable over the socket without a workspace. */
-export const MACHINE_ROUTES = /^(hub|devices|protocol)\./;
+export const MACHINE_ROUTES = /^(hub|devices|cloud|protocol)\./;

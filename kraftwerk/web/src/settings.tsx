@@ -93,8 +93,15 @@ function projectsForm(d: SettingsData): ReposForm {
 interface CloudMeta {
   url: string;
   state: "off" | "connecting" | "connected" | "error";
+  /** Why it is off, when it is (cloud.json, KRAFTWERK_CLOUD_URL=off, a server that is not the daemon). */
+  reason?: string;
   error?: string;
+  /** The machine's id in the cloud. */
   id?: string;
+  /** This machine's handle@machine. */
+  machine?: string;
+  /** false: this workspace is left out (cloud.enabled: false in kraftwerk.yml). */
+  included?: boolean;
   account?: string | null;
   interval?: number;
   lastSeen?: string;
@@ -103,11 +110,12 @@ interface CloudMeta {
 }
 
 /**
- * The cloud panel: this instance registers with the kraftwerk cloud on
- * start; here the user sees whether that worked, and — until claimed —
- * the code (and link) that puts the workspace under their account. Polled
- * while the screen is open, because the claim happens in the cloud and
- * reaches this instance with the next heartbeat.
+ * The cloud panel: the daemon registers this MACHINE with the kraftwerk
+ * cloud, its open workspaces as children; here the user sees whether that
+ * worked, whether this workspace is listed, and — until claimed — the code
+ * (and link) that puts the machine under their account. Polled while the
+ * screen is open, because the claim happens in the cloud and reaches the
+ * daemon with the next heartbeat.
  */
 function CloudPanel() {
   const [cloud, setCloud] = useState<CloudMeta | null>(null);
@@ -147,8 +155,8 @@ function CloudPanel() {
       <FormStack>
         {cloud.state === "off" && (
           <Hint>
-            Off — <code>cloud.enabled: false</code> in kraftwerk.yml or <code>KRAFTWERK_CLOUD_URL=off</code> in the environment. Every other
-            <code> kraftwerk ui</code> registers with the kraftwerk cloud on start, so its owner can see it running from anywhere.
+            Off — {cloud.reason ?? "turned off for this machine"}. The daemon registers the machine with the kraftwerk cloud, so its owner sees its
+            workspaces running from anywhere; <code>kraftwerk cloud on</code> and <code>kraftwerk login</code> in a terminal turn it on and claim it.
           </Hint>
         )}
         {cloud.state === "connecting" && <Hint>Registering with {cloud.url} …</Hint>}
@@ -159,15 +167,15 @@ function CloudPanel() {
         )}
         {cloud.state === "connected" && cloud.account && (
           <Hint>
-            This workspace is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
+            This machine{cloud.machine ? <> (<code>{cloud.machine}</code>)</> : null} is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
             Last heartbeat {cloud.lastSeen ? new Date(cloud.lastSeen).toLocaleTimeString() : "pending"}.
           </Hint>
         )}
         {cloud.state === "connected" && !cloud.account && (
           <>
             <Hint>
-              Registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a>, not yet under an account. Sign in there and enter this
-              code — or open the link — and the workspace shows up under <em>My instances</em>:
+              This machine is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a>, not yet under an account (no folder
+              paths are sent until it is). Sign in there and enter this code — or open the link, or run <code>kraftwerk login</code>:
             </Hint>
             <div className="flex flex-wrap items-center gap-2.5">
               <code className="rounded-control border border-line bg-surface-2 px-3 py-1.5 font-mono text-lg tracking-[0.12em] text-fg">{cloud.claimCode ?? "…"}</code>
@@ -191,10 +199,15 @@ function CloudPanel() {
               )}
             </div>
             <Hint>
-              A claim made there reaches this instance with the next heartbeat (every {cloud.interval ?? 60}s). To keep this workspace out of the
+              A claim made there reaches this machine with the next heartbeat (every {cloud.interval ?? 60}s). To keep this workspace out of the
               cloud, set <code>cloud.enabled: false</code> in kraftwerk.yml.
             </Hint>
           </>
+        )}
+        {cloud.state !== "off" && cloud.included === false && (
+          <Hint>
+            This workspace is left out of the machine's record: <code>cloud.enabled: false</code> in kraftwerk.yml.
+          </Hint>
         )}
       </FormStack>
     </Panel>

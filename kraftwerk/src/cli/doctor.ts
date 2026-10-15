@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { addWorkspaceId, cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
+import { machineCloud } from "../core/cloud.js";
+import { addWorkspaceId, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
@@ -186,14 +187,20 @@ export async function runDoctor(cwd: string, opts: { fix?: boolean } = {}): Prom
     }
   }
 
-  // Cloud manager: registration is best-effort at runtime, so doctor only says what would happen.
-  const cloud = cloudFor(project);
-  if (cloud) {
-    report("ok", `cloud: ${cloud.url}`, cloud.token
-      ? `registers under your kraftwerk account (KRAFTWERK_CLOUD_TOKEN), heartbeat every ${cloud.interval}s`
-      : `on by default — the UI shows a claim code under Settings → Cloud; opt out with cloud.enabled: false`);
+  // The kraftwerk cloud: the daemon registers the machine; doctor only says what would happen to this workspace.
+  const ymlCloud = project.config.cloud;
+  const cloud = await machineCloud(ymlCloud?.url ? [ymlCloud.url] : []);
+  if (ymlCloud?.enabled === false) {
+    report("info", "cloud: this workspace is left out", "cloud.enabled: false in kraftwerk.yml — the machine's cloud record does not list it");
+  } else if (!cloud.enabled) {
+    report("info", "cloud: off", cloud.reason ?? "");
   } else {
-    report("info", "cloud: off", process.env.KRAFTWERK_CLOUD_URL?.trim().toLowerCase() === "off" ? "KRAFTWERK_CLOUD_URL=off" : "cloud.enabled: false in kraftwerk.yml");
+    report("ok", `cloud: ${cloud.url}`, "the daemon registers this machine and lists this workspace; `kraftwerk login` claims it, `kraftwerk cloud off` opts out");
+  }
+  if (ymlCloud?.url) {
+    report("warn", "kraftwerk.yml cloud.url is deprecated", cloud.source === "kraftwerk.yml"
+      ? `the cloud is the machine's now — \`kraftwerk cloud on --url ${ymlCloud.url}\`, then remove it from kraftwerk.yml`
+      : `ignored: the machine's cloud is ${cloud.url} (${cloud.source}) — remove it from kraftwerk.yml`);
   }
 
   const found = project.workflowsRoot ? await discoverWorkflows(cwd) : [];

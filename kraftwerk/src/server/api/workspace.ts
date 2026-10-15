@@ -109,7 +109,8 @@ export const workspaceRoutes = [
       projects: (ws?.config.projects && ws.config.projects.enabled !== false) === true,
       /** @deprecated Always "": the Cloudflare Tunnel that set it was removed in 0.65. Removed with protocol 2. */
       publicUrl: "",
-      cloud: cloudStatus(),
+      // The machine's cloud record (only the daemon registers one); `included`: this workspace rides along (no cloud.enabled: false veto).
+      cloud: { ...cloudStatus(), included: ws?.config.cloud?.enabled !== false },
       switcher,
     };
   }),

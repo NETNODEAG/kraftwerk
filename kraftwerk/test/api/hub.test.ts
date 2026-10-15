@@ -6,14 +6,15 @@ import http from "node:http";
 import os from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
+import { startStubCloud, type StubCloud } from "../helpers/cloud.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
 import type { Hub, OpenWorkspace } from "../../src/server/server.js";
 
 /**
  * One kraftwerk serving several workspaces (the daemon's hub), in-process:
  * each open workspace is reached by its slug only, keeps its data, `.env`,
- * background jobs, live updates, cloud registration and registry entry to
- * itself, and closing one leaves the others running. Opening, closing,
+ * background jobs, live updates and registry entry to itself (the cloud
+ * knows the machine, with every open workspace as a child), and closing one leaves the others running. Opening, closing,
  * starting and stopping go through the hub (and the daemon file), never by
  * killing the process.
  */
@@ -35,8 +36,7 @@ describe("hub: one kraftwerk, several workspaces", () => {
   let alpha: OpenWorkspace;
   let beta: OpenWorkspace;
   let aliasPort = 0;
-  let cloud: http.Server;
-  const registered: Array<Record<string, unknown>> = [];
+  let cloud: StubCloud;
   const prevEnv = { HOME: process.env.HOME, KRAFTWERK_CLOUD_URL: process.env.KRAFTWERK_CLOUD_URL, SHELL_WINS: process.env.SHELL_WINS };
 
   const base = () => `http://127.0.0.1:${hub.port}`;
@@ -64,18 +64,8 @@ describe("hub: one kraftwerk, several workspaces", () => {
   };
 
   before(async () => {
-    cloud = http.createServer((req, res) => {
-      let text = "";
-      req.on("data", (c) => (text += c));
-      req.on("end", () => {
-        const body = JSON.parse(text || "{}") as Record<string, unknown>;
-        if (req.url === "/api/instances/register") registered.push(body);
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(req.url === "/api/instances/register" ? { id: `id-${String(body.root).length}-${registered.length}`, secret: "s", interval: 60, account: null } : { ok: true, interval: 60 }));
-      });
-    });
-    await new Promise<void>((r) => cloud.listen(0, "127.0.0.1", r));
-    process.env.KRAFTWERK_CLOUD_URL = `http://127.0.0.1:${(cloud.address() as AddressInfo).port}`;
+    cloud = await startStubCloud({ interval: 60 });
+    process.env.KRAFTWERK_CLOUD_URL = cloud.url;
 
     aliasPort = await freePort();
     a = await makeProject("name: Alpha\nslug: alpha\ngit:\n  interval: 0\n");
@@ -94,7 +84,7 @@ describe("hub: one kraftwerk, several workspaces", () => {
   });
   after(async () => {
     await hub?.stop();
-    await new Promise<void>((r) => cloud.close(() => r()));
+    await cloud.close();
     for (const [k, v] of Object.entries(prevEnv)) if (v === undefined) delete process.env[k];
     else process.env[k] = v;
     for (const f of [a, b, g, clash]) await f?.cleanup();
@@ -141,15 +131,19 @@ describe("hub: one kraftwerk, several workspaces", () => {
     assert.equal(process.env.TEAM, undefined, "the daemon's own environment stays clean");
   });
 
-  it("runs each workspace's background jobs and registers each with the cloud under its own address", async () => {
+  it("runs each workspace's background jobs; the machine registers once with both as its workspaces", async () => {
     const { routineSchedulerRunning } = await import("../../src/core/routines.js");
     assert.equal(alpha.ws.run(routineSchedulerRunning), true);
     assert.equal(beta.ws.run(routineSchedulerRunning), true);
-    await waitFor(() => registered.length >= 2);
-    assert.deepEqual(registered.map((r) => [r.root, r.url]).sort(), [
-      [a.root, `http://alpha.localhost:${hub.port}`],
-      [b.root, `http://beta.localhost:${hub.port}`],
-    ].sort());
+    assert.equal(cloud.hits.length, 0, "opening a workspace registers nothing; the daemon's machine client does");
+    const { startMachineCloud } = await import("../../src/server/cloud.js");
+    await startMachineCloud({ version: "test", workspaces: () => hub.list(), owner: hub });
+    const regs = cloud.calls("register");
+    assert.equal(regs.length, 1);
+    assert.deepEqual((regs[0].body.workspaces as Array<{ slug: string; root?: string }>).map((w) => [w.slug, w.root]), [
+      ["alpha", undefined],
+      ["beta", undefined],
+    ]);
     const cloudOf = async (slug: string) => ((await get(`/w/${slug}/api/meta?probe=1`)).body.cloud as { state: string }).state;
     assert.equal(await cloudOf("alpha"), "connected");
     assert.equal(await cloudOf("beta"), "connected");

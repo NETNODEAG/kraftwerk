@@ -296,8 +296,8 @@ fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
 `agents/`). `repos:` turns on the [repositories](#repositories) folder.
-`cloud:` tunes (or turns off) the registration with the
-[kraftwerk cloud](#inspector-in-the-kraftwerk-cloud), which is on by default.
+`cloud: { enabled: false }` leaves the workspace out of this machine's
+record in the [kraftwerk cloud](#this-machine-in-the-kraftwerk-cloud).
 
 `name:` is the title shown in the UI and can change freely. `slug:` is the
 workspace's address on this machine. It defaults to the folder name
@@ -486,38 +486,44 @@ repo. Agent logins made inside the container persist in the `agent-home`
 volume. This is a different image from the `kraftwerk-runner` sandbox
 (`runner/Dockerfile`) used by `run --sandbox`.
 
-### Inspector in the kraftwerk cloud
+### This machine in the kraftwerk cloud
 
 The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the
-internet: every `kraftwerk ui` registers there when it starts and sends a
-heartbeat while it runs, so you can see from anywhere which of your
-workspaces are up, on which machine, with which agents — and an admin sees
-every instance at once. **This is on by default.** The record carries the
-workspace name, icon and colour, the machine, the root, the version, and
-the agent and channel roster. Registration
-is best-effort: a cloud that is down never affects the UI.
+internet: the daemon (`kraftwerk daemon`) registers **this machine** once
+when it starts and sends a heartbeat while it runs; the workspaces it serves
+ride along as children of that record, so you can see from anywhere which
+of your workspaces are up, and where. **This is on by default.** A
+standalone `kraftwerk ui` never registers. Registration is best-effort: a
+cloud that is down never affects the UI.
 
-No key goes into kraftwerk.yml. The cloud hands the instance an identity
-(kept under `~/.kraftwerk/cloud/`, so a restart updates the record) and a
-**claim code**, shown under Settings → Cloud in the UI. Sign in at the
-cloud, type the code (or follow the "claim in the cloud" link), and the
-workspace appears under *My instances*; the instance learns about the claim
-with its next heartbeat.
+The machine's id is its relay id (the key in `~/.kraftwerk/relay.json`,
+created at the daemon's first start with the relay still off), proven with
+the relay secret. Until someone claims the machine it registers
+anonymously: workspace names, slugs and ids only, no paths. Claiming
+happens in the browser — no password passes through the CLI:
+
+```bash
+kraftwerk login --open    # prints (and opens) the claim link and code, waits for the claim
+kraftwerk cloud           # registered? claimed? url, machine id, last heartbeat
+kraftwerk logout          # release the machine; a fresh claim code follows
+kraftwerk cloud off       # turn it off for this machine (the daemon says goodbye); `on [--url]` back on
+```
+
+The claim code is also shown under Settings → Cloud. The switch and the
+cloud's origin live in `~/.kraftwerk/cloud.json` (`{ "enabled": false,
+"url": "…" }`); `KRAFTWERK_CLOUD_URL` in the environment wins (`off` turns
+the feature off — what the test suites set). In kraftwerk.yml, `cloud:` is
+a per-workspace veto only:
 
 ```yaml
 cloud:
-  url: https://srv.kraftwerk-cloud.netnode.cloud   # default
-  interval: 60                                     # seconds between heartbeats (default 60)
-  enabled: false                                   # opt out of the cloud for this workspace
+  enabled: false   # leave this workspace out of the machine's record
 ```
 
-`KRAFTWERK_CLOUD_URL` in the environment wins over the file (`off` turns the
-feature off everywhere — what the test suites set). A server that starts
-unattended and should register under an account without a claim puts an
-account token from the cloud UI into `.env` as `KRAFTWERK_CLOUD_TOKEN`; a
-`token:` key in kraftwerk.yml is refused. `/api/meta` reports the
-connection state and the claim code; `kraftwerk doctor` prints what the
-block will do.
+(`cloud.url` there is deprecated — honored with a warning when the machine
+names no origin — and `cloud.interval` is ignored: the cloud sets the
+cadence.) `/api/meta` and `/api/cloud` report the machine's state and claim
+code; `kraftwerk doctor` prints what happens to the workspace.
 
 ## Projects
 

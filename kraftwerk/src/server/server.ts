@@ -3,7 +3,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { setDefaultWorkspace, Workspace } from "../core/workspace.js";
-import { cloudGoodbye, cloudGoodbyeAll, startCloudSync, stopCloudSync } from "./cloud.js";
+import { stopMachineCloud } from "./cloud.js";
 import { disposeAllBackends, disposeWorkspaceBackends } from "../core/chat/sessions.js";
 import { markWorkspaceStopped, registerInstance, registerWorkspace, unregisterInstance } from "../core/instances.js";
 import { startGitSync, stopGitSync } from "../core/git.js";
@@ -170,8 +170,9 @@ export interface OpenWorkspace {
  * a standalone `kraftwerk ui` exactly one — its default, also reached
  * without a slug, as before. Each open workspace runs in its own Workspace
  * (core/workspace.ts) with its own .env, background jobs (routines, git
- * sync, cloud), registry entry and live state; closing one ends all of that
- * and leaves the others running.
+ * sync), registry entry and live state; closing one ends all of that
+ * and leaves the others running. The daemon's hub also carries the
+ * machine's cloud record (server/cloud.ts), which lists the open workspaces.
  */
 export interface Hub {
   readonly server: http.Server;
@@ -226,8 +227,8 @@ function installExitHandlers(): void {
       // Stamp first: unregistering forgets which workspaces this process served.
       markWorkspaceStopped();
       unregisterInstance();
-      // The cloud goodbye is bounded and a no-op without cloud:, so the exit stays prompt.
-      void cloudGoodbyeAll().finally(() => process.exit(sig === "SIGINT" ? 130 : 143));
+      // The machine's cloud goodbye is bounded and a no-op outside the daemon, so the exit stays prompt.
+      void stopMachineCloud().finally(() => process.exit(sig === "SIGINT" ? 130 : 143));
     });
   }
   process.once("exit", (code) => {
@@ -409,6 +410,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       for (const o of [...bySlug.values()]) await hub.close(o.root);
       opts.onChange = notify;
       hubs.delete(hub);
+      // The daemon's machine client (started by `kraftwerk daemon`) says goodbye with the hub it reports.
+      if (opts.daemon) await stopMachineCloud(hub);
       // A connected browser tab (its socket, a keep-alive connection) must not hold the stop open.
       for (const s of [...sockets]) s.close();
       const closing = new Promise<void>((r) => server.close(() => r()));
@@ -468,7 +471,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         // Best-effort, in the background: none of them may hold up (or, failing, break) the open.
         entry.registered = registerInstance(entry.aliasPort ?? port, abs, opts.daemon ? { hub: true, slug, url: entry.url } : {}).catch(() => {});
         void registerWorkspace(abs).catch(() => {});
-        void startCloudSync(entry.url, version).catch(() => {});
       }),
     );
     await noteChange();
@@ -493,8 +495,6 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         closeWatches();
         disposeWorkspaceBackends();
         disposeWorkspaceDevs();
-        await cloudGoodbye();
-        stopCloudSync();
       }),
     );
     await entry.registered;
