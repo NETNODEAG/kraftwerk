@@ -5,6 +5,7 @@ import chalk from "chalk";
 import { daemonLogPath, daemonState, findDaemon, readDaemonFile } from "../core/daemon.js";
 import { tildify } from "../core/instances.js";
 import { selfCommand } from "../core/self-command.js";
+import { localIdentity } from "../core/identity.js";
 import { getPkgVersion } from "../server/version.js";
 import { daemonLoginItem, startLoginItem } from "./daemon-login.js";
 
@@ -73,11 +74,13 @@ interface Status {
   remote?: { state: string; url?: string; clients?: number };
   loginItem: boolean;
   log: string;
+  /** This machine's handle@machine: the runner routines name in runs_on. */
+  identity: string;
 }
 
 async function status(): Promise<Status> {
-  const [found, rec, installed] = await Promise.all([daemonState(), readDaemonFile(), getPkgVersion()]);
-  const base = { installed, loginItem: daemonLoginItem() !== null, log: daemonLogPath() };
+  const [found, rec, installed, identity] = await Promise.all([daemonState(), readDaemonFile(), getPkgVersion(), localIdentity()]);
+  const base = { installed, loginItem: daemonLoginItem() !== null, log: daemonLogPath(), identity };
   if (found.state === "stopped") return { running: false, ...base };
   const running = found;
   if (found.state === "busy") {
@@ -129,6 +132,7 @@ export async function daemonStatus(opts: { json?: boolean }): Promise<void> {
     if (crash) console.log(chalk.dim(`  last trouble in the log: ${crash.trim().slice(0, 200)}`));
     console.log(chalk.dim("  `kraftwerk daemon start` starts it in the background"));
   }
+  console.log(chalk.dim(`  identity: ${s.identity} · routines with runs_on: ${s.identity} fire here (\`kraftwerk whoami\`)`));
   console.log(chalk.dim(`  login item: ${s.loginItem ? "starts at login" : "not installed (`kraftwerk daemon install` starts it at login)"}`));
   console.log(chalk.dim(`  log: ${tildify(s.log)} · \`kraftwerk daemon logs -f\` follows it`));
   if (!s.running) process.exit(NOT_RUNNING);

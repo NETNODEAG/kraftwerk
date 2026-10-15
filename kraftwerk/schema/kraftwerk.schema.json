@@ -6,6 +6,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^ws_[a-z0-9]{10}$",
+      "description": "The workspace's identity on every machine and clone: ws_ followed by 10 lowercase base36 characters. Committed with kraftwerk.yml; `kraftwerk init` writes it, `kraftwerk doctor --fix` adds a missing one."
+    },
     "name": {
       "type": "string",
       "description": "Display name of the project (\"environment\"), shown in the inspector header and browser tab"

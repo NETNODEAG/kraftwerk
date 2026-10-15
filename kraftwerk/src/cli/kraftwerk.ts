@@ -21,6 +21,7 @@ import { registerDevicesCommands } from "./devices.js";
 import { registerDaemonCommand } from "./daemon.js";
 import { registerRemoteCommand } from "./remote.js";
 import { registerJournalCommands } from "./journal.js";
+import { registerWhoamiCommand } from "./whoami.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveWorkspace } from "../config.js";
 import { registerRoutineCommands } from "./routines.js";
@@ -35,7 +36,8 @@ import { runUi } from "./ui.js";
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
  *   kraftwerk knowledge ...           Knowledge: OKF bundles (list/get/put/verify/...)
- *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run)
+ *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run/adopt)
+ *   kraftwerk whoami                  this machine's identity (handle@machine), the runner routines name
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk workspaces ...          known workspaces on this machine (list/start/stop/forget)
  *   kraftwerk projects ...            goal-scoped project folders (list/create/show/link/log/remove)
@@ -45,7 +47,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk trash ...               what was deleted: list, restore, purge, empty
  *   kraftwerk devices ...             paired devices: list, pair one, revoke one
  *   kraftwerk daemon                  the machine's kraftwerk: every open workspace at <slug>.localhost
- *   kraftwerk doctor                  preflight: harness CLIs, docker, workflows, env
+ *   kraftwerk doctor [--fix]          preflight: harness CLIs, docker, workflows, env, routine runners
  *   kraftwerk validate [paths...]     validate without executing
  *
  * Workflows are auto-discovered under src/workflows/ (or workflows/), from
@@ -296,9 +298,10 @@ program
 
 program
   .command("doctor")
-  .description("Preflight: harness CLIs, docker, workflows, declared environment variables")
-  .action(async () => {
-    await runDoctor(process.cwd());
+  .description("Preflight: harness CLIs, docker, workflows, declared environment variables, routine runners, workspace id")
+  .option("--fix", "Apply the fixes doctor offers: run unassigned routines here, move routines off a retired identity (both committed), add a workspace id")
+  .action(async (opts: { fix?: boolean }) => {
+    await runDoctor(process.cwd(), { fix: !!opts.fix });
   });
 
 const runs = program
@@ -333,6 +336,7 @@ registerDevicesCommands(program);
 registerDaemonCommand(program);
 registerRemoteCommand(program);
 registerJournalCommands(program);
+registerWhoamiCommand(program);
 
 program
   .command("ui")

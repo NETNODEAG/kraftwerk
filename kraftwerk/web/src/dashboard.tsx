@@ -8,7 +8,7 @@ import type {
 } from "./types";
 import { useApi } from "./api";
 import { Icon, Link, fmtAgo, useExpertMode, useHashPath } from "./shared";
-import { nextItem, openAttention, ownerText, useAttention } from "./attention";
+import { attentionLabel, nextItem, openAttention, ownerText, useAttention } from "./attention";
 import { Button, cn, Dot, Eyebrow, ListRow, Panel, Tag } from "./ui";
 
 /**
@@ -457,7 +457,7 @@ function Today({
                 onClick={() => openAttention(i)}
                 over={ownerText(i.owner)}
                 title={i.title}
-                meta={<span className="font-semibold text-bad">{i.kind === "approval" ? "needs approval" : i.kind === "question" ? "asks you" : "failed"} · {fmtAgo(i.since)}</span>}
+                meta={<span className="font-semibold text-bad">{attentionLabel(i.kind)} · {fmtAgo(i.since)}</span>}
               />
             ))}
           </div>

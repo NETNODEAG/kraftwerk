@@ -41,6 +41,7 @@ describe("kraftwerk init / list / doctor", () => {
     assert.match(gitignore, /^kraftwerk-data\/output\/$/m);
     assert.match(gitignore, /^kraftwerk-data\/repos\/$/m, "the repos root is ignored before the first clone");
     assert.match(await readFile(path.join(dir.root, "kraftwerk.yml"), "utf8"), /^name: "project"/m);
+    assert.match(await readFile(path.join(dir.root, "kraftwerk.yml"), "utf8"), /^id: ws_[a-z0-9]{10} /m, "a new workspace gets its id");
   });
 
   it("init is idempotent: a second run touches nothing", async () => {
@@ -69,6 +70,7 @@ describe("kraftwerk init / list / doctor", () => {
     // project checks do not.
     assert.match(r.stdout, /✔ kraftwerk\.yml well-formed/);
     assert.match(r.stdout, /✔ 1 workflow\(s\) valid, 0 broken/);
+    assert.match(r.stdout, /✔ workspace id: ws_[a-z0-9]{10}/);
     assert.doesNotMatch(r.stdout, /configured directory does not exist/);
   });
 

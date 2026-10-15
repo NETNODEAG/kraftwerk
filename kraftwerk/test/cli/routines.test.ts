@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -37,6 +37,8 @@ describe("kraftwerk routines", () => {
     assert.equal(all.max[0].prompt, "Triage the inbox.");
     assert.ok(all.max[0].nextRunAt, "an enabled routine has a next run");
     assert.match(await file(), /morning-triage/);
+    assert.match(await file(), /^ {2}runs_on: [a-z0-9._-]+@[a-z0-9._-]+$/m, "a new routine runs on this machine");
+    assert.match((await run([])).stdout, /runs here/);
   });
 
   it("add with the same id updates, stdin supplies the prompt", async () => {
@@ -79,5 +81,27 @@ describe("kraftwerk routines", () => {
     const r = await run(["run", "max", "anything", "--port", "1"]);
     assert.equal(r.code, 2);
     assert.match(r.stderr, /Inspector not reachable on localhost:1/);
+  });
+
+  it("adopt makes this machine the runner of every unassigned routine; outside git it says it did not commit", async () => {
+    await writeFile(
+      path.join(dir.root, "kraftwerk-data", "agents", "max", "routines.yml"),
+      "- id: loose\n  name: Loose\n  schedule: \"@daily\"\n  prompt: p\n  enabled: true\n  private: false\n" +
+        "- id: theirs\n  name: Theirs\n  schedule: \"@daily\"\n  prompt: p\n  enabled: true\n  runs_on: anna@laptop\n",
+    );
+    const listed = await run([]);
+    assert.match(listed.stdout, /loose .*unassigned/);
+    assert.match(listed.stdout, /theirs .*runs on anna@laptop/);
+    assert.equal(json<Record<string, Status[]>>(await run(["list", "--json"])).max.find((r) => r.id === "loose")?.nextRunAt, undefined, "unassigned: no next run");
+
+    const r = await run(["adopt"]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.stdout, /✔ max\/loose runs on [a-z0-9._-]+@[a-z0-9._-]+/);
+    assert.doesNotMatch(r.stdout, /theirs/, "another machine's routine stays its own");
+    assert.match(r.stdout, /written, not committed: the workspace is not a git repository — commit kraftwerk-data\/agents\/max\/routines\.yml yourself/);
+    const yml = await file();
+    assert.match(yml, /id: loose[\s\S]*private: false\n {2}runs_on: |id: loose[\s\S]*runs_on: [^\n]+\n {2}private: false/, "private survives the rewrite");
+    assert.match(yml, /runs_on: anna@laptop/);
+    assert.match((await run(["adopt"])).stdout, /nothing to adopt/);
   });
 });

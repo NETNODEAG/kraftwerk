@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import * as z from "zod";
 import { getOutputDir } from "../../core/context.js";
 import { decide } from "../../core/decisions.js";
-import { allRoutines } from "../../core/routines.js";
+import { adoptUnassigned, allRoutines } from "../../core/routines.js";
 import { dockerStatus, stopRun, triggerRun } from "../../core/runner.js";
 import { deleteRun, getRun, listRuns, readRunFile, safeRunDir } from "../../core/runs.js";
 import { deleteWorkflow, getWorkflow, listWorkflows } from "../../core/workflows.js";
@@ -64,6 +64,17 @@ export const runRoutes = [
   route({ name: "routines.list", method: "GET", path: "/api/routines", summary: "every agent's routines with run state and the workflows each one names" }, async () => ({
     routines: await allRoutines((await listWorkflows()).workflows),
   })),
+  route(
+    {
+      name: "routines.adopt",
+      method: "POST",
+      path: "/api/routines/adopt",
+      summary: "run these here: every enabled routine without runs_on (and, with {retired: true}, those naming a retired identity) gets this machine; routines.yml committed",
+      errors: 400,
+      body: z.object({ retired: z.boolean().default(false) }),
+    },
+    async (c) => adoptUnassigned({ retired: (await c.body()).retired }),
+  ),
 
   route({ name: "runs.list", method: "GET", path: "/api/runs", summary: "every run in the output dir" }, async () => ({ outputDir: getOutputDir(), runs: await listRuns() })),
   route({ name: "runs.get", method: "GET", path: "/api/runs/:id", summary: "one run: phases, gates, files" }, async (c) =>

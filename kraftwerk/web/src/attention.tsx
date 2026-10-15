@@ -56,6 +56,12 @@ export const attentionFor = {
   general: (xs: AttentionItem[]) => xs.filter((i) => i.owner.general),
 };
 
+/** An item's icon and its short label ("needs approval", "no runner"), the same wherever the list is shown. */
+export const attentionIcon = (kind: AttentionItem["kind"]): string =>
+  kind === "approval" ? "front_hand" : kind === "question" ? "help" : kind === "runner" ? "event_busy" : "error";
+export const attentionLabel = (kind: AttentionItem["kind"]): string =>
+  kind === "approval" ? "needs approval" : kind === "question" ? "asks you" : kind === "runner" ? "no runner" : "failed";
+
 /** "📁 Relaunch · 🦊 Lisa", "🦊 Lisa", "#launch · 🐻 Max", "Ralv", "website-check run". */
 export function ownerText(o: AttentionOwner): string {
   const agent = o.agent ? `${o.agent.emoji ? `${o.agent.emoji} ` : ""}${o.agent.name}` : "";

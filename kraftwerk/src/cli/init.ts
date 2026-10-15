@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { CONFIG_SCHEMA_URL, gitignoreHas, SCHEMA_URL } from "../config.js";
+import { CONFIG_SCHEMA_URL, gitignoreHas, newWorkspaceId, SCHEMA_URL } from "../config.js";
 import { DOTENV_FILE } from "../dotenv.js";
 import { initBundle, writeConcept } from "../okf.js";
 
@@ -10,7 +10,9 @@ import { initBundle, writeConcept } from "../okf.js";
  * command: kraftwerk.yml (root marker + config), a kraftwerk-data/ tree with
  * a runnable example workflow, a starter agent ("max"), a demo
  * knowledge bundle, and an output ignore entry. Everything is idempotent:
- * existing files are left untouched and reported.
+ * existing files are left untouched and reported. A new kraftwerk.yml gets
+ * a fresh workspace id (`id: ws_…`); an existing one is not touched —
+ * `kraftwerk doctor --fix` adds an id to a file that has none.
  */
 
 const DATA_DIR = "kraftwerk-data";
@@ -18,6 +20,7 @@ const DATA_DIR = "kraftwerk-data";
 const configTemplate = (name: string) => `# yaml-language-server: $schema=${CONFIG_SCHEMA_URL}
 # kraftwerk project config — also marks the project root for the CLI.
 # All fields optional. Docs: https://github.com/NETNODEAG/kraftwerk
+id: ${newWorkspaceId()}   # this workspace's identity on every machine and clone — commit it, keep it (a copy of this workspace needs a new one)
 name: ${JSON.stringify(name)}   # display name, shown in the inspector header + browser tab
 # slug: my-team   # this workspace's address on this machine (my-team.localhost); default: the folder name
 icon: "⚡"   # emoji shown as the inspector favicon

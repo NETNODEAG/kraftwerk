@@ -1,11 +1,13 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, realpathSync } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
-import { getOutputDir } from "./context.js";
+import { getOutputDir, workspaceRoot } from "./context.js";
 import { perWorkspace } from "./workspace.js";
 import { getAgent, listAgents, safeAgentSlug, agentsRoot } from "./agents.js";
 import { chatAwaitingApproval, createChat, postMessage } from "./chat/sessions.js";
 import { pushNotification } from "./notifications.js";
+import { isIdentityString, localIdentity, readIdentity, identityString } from "./identity.js";
+import { gitCommit, repoRootFor } from "./git.js";
 
 /**
  * Routines: per-agent scheduled prompts — "message your agent every
@@ -19,6 +21,15 @@ import { pushNotification } from "./notifications.js";
  * session (chat) for the agent and posts the prompt — the run shows up in
  * the agent's sessions sidebar like any conversation. Schedules use
  * standard 5-field cron in the server's local time.
+ *
+ * The definitions travel with the workspace's git, the state does not, so a
+ * workspace cloned on three machines would fire every routine three times.
+ * Each routine therefore names its runner, `runs_on: <handle>@<machine>`
+ * (see identity.ts), and the scheduler is strict: a routine fires only where
+ * runs_on is exactly this machine's identity. No runs_on, no runner — an
+ * unassigned routine fires nowhere until someone adopts it ("run these
+ * here"), which writes runs_on and commits routines.yml so the other clones
+ * learn who runs it. `private:` is stored and round-tripped; nothing reads it yet.
  */
 
 export interface Routine {
@@ -28,9 +39,23 @@ export interface Routine {
   schedule: string;
   prompt: string;
   enabled: boolean;
+  /** The one identity (`handle@machine`) that fires it. Absent: unassigned, fires nowhere. */
+  runsOn?: string;
+  /** Stored as given; no behaviour yet. */
+  private?: boolean;
 }
 
+/**
+ * Who fires a routine, seen from this machine: here, on another identity,
+ * or nobody (no runs_on).
+ */
+export type RoutineRunner = "here" | "elsewhere" | "unassigned";
+
 export interface RoutineStatus extends Routine {
+  runner: RoutineRunner;
+  /** runs_on names an identity this machine had before (identity.json `previous`): a rename left it behind. */
+  retired?: boolean;
+  /** Only for an enabled routine that fires here. */
   nextRunAt?: string;
   lastRunAt?: string;
   lastChatId?: string;
@@ -141,7 +166,27 @@ function normalizeRoutine(raw: Record<string, unknown>): Routine | null {
     schedule: String(raw.schedule ?? ""),
     prompt: String(raw.prompt ?? ""),
     enabled: raw.enabled !== false,
+    ...(typeof raw.runs_on === "string" && raw.runs_on.trim() ? { runsOn: raw.runs_on.trim() } : {}),
+    ...(typeof raw.private === "boolean" ? { private: raw.private } : {}),
   };
+}
+
+/** The file's own spelling: snake_case `runs_on`, optional keys only when set. */
+function serializeRoutine(r: Routine): Record<string, unknown> {
+  return {
+    id: r.id,
+    name: r.name,
+    schedule: r.schedule,
+    prompt: r.prompt,
+    enabled: r.enabled,
+    ...(r.runsOn ? { runs_on: r.runsOn } : {}),
+    ...(r.private !== undefined ? { private: r.private } : {}),
+  };
+}
+
+/** Why a runs_on value is refused, or undefined. */
+function runsOnError(value: string): string | undefined {
+  return isIdentityString(value) ? undefined : `runs_on must be <handle>@<machine> (lowercase letters, digits, ".", "_", "-"), got "${value}"`;
 }
 
 export async function listRoutines(slug: string): Promise<Routine[]> {
@@ -158,7 +203,7 @@ export async function listRoutines(slug: string): Promise<Routine[]> {
 }
 
 async function writeRoutines(slug: string, routines: Routine[]): Promise<void> {
-  await fs.writeFile(await routinesFile(slug), stringify(routines));
+  await fs.writeFile(await routinesFile(slug), stringify(routines.map(serializeRoutine)));
 }
 
 export interface SaveRoutineInput {
@@ -167,6 +212,9 @@ export interface SaveRoutineInput {
   schedule: string;
   prompt: string;
   enabled?: boolean;
+  /** Absent: kept as it is (a new routine gets this machine's identity). null or "": unassigned. */
+  runsOn?: string | null;
+  private?: boolean;
 }
 
 export async function saveRoutine(slug: string, input: SaveRoutineInput): Promise<Routine> {
@@ -182,16 +230,26 @@ export async function saveRoutine(slug: string, input: SaveRoutineInput): Promis
       .replace(/^-+|-+$/g, "")
       .slice(0, 48);
   if (!id) throw new Error("name must contain at least one letter or digit");
+  const given = typeof input.runsOn === "string" ? input.runsOn.trim() : input.runsOn;
+  if (given) {
+    const err = runsOnError(given);
+    if (err) throw new Error(err);
+  }
 
+  const routines = await listRoutines(slug);
+  const i = routines.findIndex((r) => r.id === id);
+  const existing = i >= 0 ? routines[i] : undefined;
+  const runsOn = given === undefined ? (existing ? existing.runsOn : await localIdentity()) : given || undefined;
+  const priv = input.private ?? existing?.private;
   const routine: Routine = {
     id,
     name,
     schedule: input.schedule.trim(),
     prompt: input.prompt,
     enabled: input.enabled !== false,
+    ...(runsOn ? { runsOn } : {}),
+    ...(priv !== undefined ? { private: priv } : {}),
   };
-  const routines = await listRoutines(slug);
-  const i = routines.findIndex((r) => r.id === id);
   if (i >= 0) routines[i] = routine;
   else routines.push(routine);
   await writeRoutines(slug, routines);
@@ -256,13 +314,20 @@ export async function allRoutines(workflows: { slug: string; name?: string }[]):
   return per.flat();
 }
 
+/** Whether a routine fires on the machine whose identity is `me`: enabled and runs_on exactly that. */
+export const firesHere = (r: Routine, me: string): boolean => r.enabled && r.runsOn === me;
+
 export async function routineStatuses(slug: string): Promise<RoutineStatus[]> {
-  const [routines, state] = await Promise.all([listRoutines(slug), readState()]);
+  const [routines, state, id] = await Promise.all([listRoutines(slug), readState(), readIdentity()]);
+  const me = identityString(id);
   return routines.map((r) => {
     const s = state[`${slug}/${r.id}`] ?? {};
+    const runner: RoutineRunner = !r.runsOn ? "unassigned" : r.runsOn === me ? "here" : "elsewhere";
     return {
       ...r,
-      ...(r.enabled ? { nextRunAt: nextRun(r.schedule) } : {}),
+      runner,
+      ...(r.runsOn && id.previous.includes(r.runsOn) ? { retired: true } : {}),
+      ...(firesHere(r, me) ? { nextRunAt: nextRun(r.schedule) } : {}),
       ...(s.lastRunAt ? { lastRunAt: s.lastRunAt } : {}),
       ...(s.lastChatId ? { lastChatId: s.lastChatId } : {}),
       ...(s.lastChatId && chatAwaitingApproval(s.lastChatId) ? { awaitingApproval: true } : {}),
@@ -322,44 +387,173 @@ export async function runRoutineNow(slug: string, id: string): Promise<{ chatId:
 /** The scheduler's timer, one per workspace. */
 const scheduler = perWorkspace(() => ({ timer: null as ReturnType<typeof setInterval> | null }));
 
+/**
+ * The routines due at `now` that fire on this machine: enabled, runs_on
+ * exactly this identity, cron matching. Everything else — unassigned,
+ * another machine's, a retired identity's — is never due here.
+ */
+export async function dueRoutines(now: Date, me?: string): Promise<{ slug: string; routine: Routine }[]> {
+  const identity = me ?? (await localIdentity());
+  const out: { slug: string; routine: Routine }[] = [];
+  for (const m of await listAgents()) {
+    for (const r of await listRoutines(m.slug).catch(() => [] as Routine[])) {
+      if (!firesHere(r, identity)) continue;
+      try {
+        if (cronMatches(parseCron(r.schedule), now)) out.push({ slug: m.slug, routine: r });
+      } catch {
+        // invalid schedule — surfaced by validation on save, skip here
+      }
+    }
+  }
+  return out;
+}
+
 async function tick(): Promise<void> {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   const minuteKey = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}T${p(now.getHours())}:${p(now.getMinutes())}`;
 
-  let agents;
+  let due;
   try {
-    agents = await listAgents();
+    due = await dueRoutines(now);
   } catch {
     return;
   }
+  if (!due.length) return;
   const state = await readState();
   let dirty = false;
 
-  for (const m of agents) {
-    for (const r of await listRoutines(m.slug).catch(() => [] as Routine[])) {
-      if (!r.enabled) continue;
-      let due = false;
-      try {
-        due = cronMatches(parseCron(r.schedule), now);
-      } catch {
-        continue; // invalid schedule — surfaced by validation on save, skip here
-      }
-      const key = `${m.slug}/${r.id}`;
-      if (!due || state[key]?.lastMinute === minuteKey) continue;
-      state[key] = { ...state[key], lastMinute: minuteKey };
-      dirty = true;
-      try {
-        const chatId = await fireRoutine(m.slug, r);
-        state[key] = { ...state[key], lastRunAt: now.toISOString(), lastChatId: chatId };
-        delete state[key].lastError;
-      } catch (err) {
-        state[key] = { ...state[key], lastError: (err as Error).message };
-        void notifyRoutineFailed(m.slug, r, (err as Error).message);
-      }
+  for (const { slug, routine: r } of due) {
+    const key = `${slug}/${r.id}`;
+    if (state[key]?.lastMinute === minuteKey) continue;
+    state[key] = { ...state[key], lastMinute: minuteKey };
+    dirty = true;
+    try {
+      const chatId = await fireRoutine(slug, r);
+      state[key] = { ...state[key], lastRunAt: now.toISOString(), lastChatId: chatId };
+      delete state[key].lastError;
+    } catch (err) {
+      state[key] = { ...state[key], lastError: (err as Error).message };
+      void notifyRoutineFailed(slug, r, (err as Error).message);
     }
   }
   if (dirty) await writeState(state);
+}
+
+/* ---------- runners: who fires what (runs_on) ---------- */
+
+export interface RunnerRef {
+  agent: string;
+  id: string;
+  name: string;
+  /** What runs_on said before (absent: unassigned). */
+  from?: string;
+}
+
+export interface RunnerFindings {
+  /** Enabled routines without runs_on: they fire nowhere. */
+  unassigned: RunnerRef[];
+  /** Routines whose runs_on is one of this machine's retired identities. */
+  retired: RunnerRef[];
+  /** Newest change to a routines.yml involved, ISO (the attention item's "since"). */
+  since?: string;
+}
+
+/** Every routine in the workspace that has no runner, or names a retired identity of this machine. */
+export async function runnerFindings(): Promise<RunnerFindings> {
+  const id = await readIdentity();
+  const out: RunnerFindings = { unassigned: [], retired: [] };
+  let since = 0;
+  // Archived agents included: the scheduler fires their routines too.
+  for (const a of await listAgents()) {
+    const routines = await listRoutines(a.slug).catch(() => [] as Routine[]);
+    let hit = false;
+    for (const r of routines) {
+      if (!r.runsOn && r.enabled) {
+        out.unassigned.push({ agent: a.slug, id: r.id, name: r.name });
+        hit = true;
+      } else if (r.runsOn && id.previous.includes(r.runsOn)) {
+        out.retired.push({ agent: a.slug, id: r.id, name: r.name, from: r.runsOn });
+        hit = true;
+      }
+    }
+    if (hit) {
+      const st = await fs.stat(await routinesFile(a.slug)).catch(() => null);
+      if (st && st.mtimeMs > since) since = st.mtimeMs;
+    }
+  }
+  if (since) out.since = new Date(since).toISOString();
+  return out;
+}
+
+export interface AdoptResult {
+  /** This machine's identity, now the runner of every routine listed. */
+  runsOn: string;
+  adopted: RunnerRef[];
+  /** routines.yml files written, relative to the workspace root. */
+  files: string[];
+  /** The git commit of those files; null when nothing changed. Not ok: written, but not committed (why in `error`). */
+  commit: { ok: boolean; error?: string; committed?: number } | null;
+}
+
+/**
+ * "Run these here": make this machine the runner of the routines `pick`
+ * selects, write routines.yml and commit just the files it touched — the
+ * commit is what tells the other clones who runs them. A workspace without
+ * git sync, or a commit that fails, keeps the written files and says why.
+ */
+export async function adoptRoutines(pick: (agent: string, r: Routine, previous: string[]) => boolean, message?: string): Promise<AdoptResult> {
+  const id = await readIdentity();
+  const me = identityString(id);
+  const adopted: RunnerRef[] = [];
+  const written: string[] = [];
+  for (const a of await listAgents()) {
+    const routines = await listRoutines(a.slug).catch(() => [] as Routine[]);
+    let changed = false;
+    for (const r of routines) {
+      if (r.runsOn === me || !pick(a.slug, r, id.previous)) continue;
+      adopted.push({ agent: a.slug, id: r.id, name: r.name, ...(r.runsOn ? { from: r.runsOn } : {}) });
+      r.runsOn = me;
+      changed = true;
+    }
+    if (changed) {
+      await writeRoutines(a.slug, routines);
+      written.push(await routinesFile(a.slug));
+    }
+  }
+  const root = workspaceRoot();
+  const files = written.map((f) => path.relative(root, f).split(path.sep).join("/"));
+  if (!written.length) return { runsOn: me, adopted, files, commit: null };
+  return { runsOn: me, adopted, files, commit: await commitFiles(written, message ?? `Routines run on ${me}: ${adopted.map((x) => `${x.agent}/${x.id}`).join(", ")}`) };
+}
+
+async function commitFiles(abs: string[], message: string): Promise<{ ok: boolean; error?: string; committed?: number }> {
+  const repoRoot = await repoRootFor(path.dirname(abs[0]));
+  if (!repoRoot) return { ok: false, error: "the workspace is not a git repository" };
+  // rev-parse answers with symlinks resolved (/var → /private/var on macOS); the files must be spelled the same way.
+  const real = (p: string): string => {
+    try {
+      return realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const rel = abs.map((f) => path.relative(repoRoot, real(f)).split(path.sep).join("/"));
+  return gitCommit(rel, message);
+}
+
+/** Adopt one routine (whatever its runs_on said). */
+export async function adoptRoutine(slug: string, id: string): Promise<AdoptResult & { routine: RoutineStatus }> {
+  const safe = safeAgentSlug(slug);
+  if (!(await listRoutines(safe)).some((r) => r.id === id)) throw new Error("routine not found");
+  const result = await adoptRoutines((agent, r) => agent === safe && r.id === id);
+  const routine = (await routineStatuses(safe)).find((r) => r.id === id)!;
+  return { ...result, routine };
+}
+
+/** Adopt every enabled routine without runs_on — and, with `retired`, every one naming a retired identity of this machine. */
+export function adoptUnassigned(opts: { retired?: boolean } = {}): Promise<AdoptResult> {
+  return adoptRoutines((_agent, r, previous) => (!r.runsOn && r.enabled) || (!!opts.retired && !!r.runsOn && previous.includes(r.runsOn)));
 }
 
 /** Start the current workspace's scheduler; safe to call more than once. Ticks run in that workspace. */

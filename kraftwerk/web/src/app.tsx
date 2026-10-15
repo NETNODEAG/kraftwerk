@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
 import { api, useApi, type ApiResponse, type ApiResult } from "./api";
-import { NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
+import { attentionIcon, attentionLabel, NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
 import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures, workspaceHref } from "./shared";
@@ -878,9 +878,9 @@ function NotificationBell() {
                             setOpen(false);
                             openAttention(i);
                           }}
-                          leading={<Icon name={i.kind === "approval" ? "front_hand" : i.kind === "question" ? "help" : "error"} className="ms-sm text-bad" />}
+                          leading={<Icon name={attentionIcon(i.kind)} className="ms-sm text-bad" />}
                           title={i.title}
-                          sub={`${i.kind === "approval" ? "needs approval" : i.kind === "question" ? "asks you" : "failed"}${i.chatTitle ? ` · in ${i.chatTitle}` : ""}`}
+                          sub={`${attentionLabel(i.kind)}${i.chatTitle ? ` · in ${i.chatTitle}` : ""}`}
                           meta={fmtAgo(i.since)}
                           actionsAlways
                           actions={n?.diagnose ? <DiagnoseButton busy={diagnosing === n.id} onClick={() => void diagnose(n)} /> : undefined}

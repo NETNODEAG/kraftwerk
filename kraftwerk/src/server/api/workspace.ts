@@ -11,6 +11,7 @@ import { getSettings, saveSettings, type SaveSettingsInput } from "../../core/se
 import { canSelfUpdate, startUpdate, updateStatus } from "../../core/update.js";
 import { getDiskVersion, getPkgName, getPkgVersion, RESTART_EXIT_CODE, supervised } from "../version.js";
 import { disposeAllDevs } from "../../core/vibeables.js";
+import { identityString, readIdentity } from "../../core/identity.js";
 import { fail, reply, route } from "./router.js";
 
 /** A feature block with a folder (repos, vibeables, projects); saveSettings checks the root. Nested blocks are plain objects: saveSettings reads only these fields. */
@@ -111,6 +112,11 @@ export const workspaceRoutes = [
       cloud: cloudStatus(),
       switcher,
     };
+  }),
+
+  route({ name: "identity.get", method: "GET", path: "/api/identity", summary: "this machine's identity (handle@machine) — what routines name in runs_on" }, async () => {
+    const id = await readIdentity();
+    return { handle: id.handle, machine: id.machine, identity: identityString(id), previous: id.previous };
   }),
 
   route({ name: "settings.get", method: "GET", path: "/api/settings", summary: "kraftwerk.yml, parsed, with resolved paths" }, async () => getSettings()),

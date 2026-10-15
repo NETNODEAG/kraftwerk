@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import { api, failure, useApi } from "./api";
 import { Icon, fmtAgo } from "./shared";
 import { Button, ListRow, Notice, Section, TextField } from "./ui";
-import { attentionFor, openAttention, useAttention } from "./attention";
+import { attentionFor, attentionIcon, attentionLabel, openAttention, useAttention } from "./attention";
 import { filesHref } from "./files";
 import { statusLine } from "../../src/core/status-line";
 import type { Agent, AgentDetail, AgentStatus, AttentionItem, ChannelView, ProjectDetail } from "./types";
@@ -55,9 +55,9 @@ function NeedsYou({ items }: { items: AttentionItem[] }) {
         <ListRow
           key={i.id}
           onClick={() => openAttention(i)}
-          leading={<Icon name={i.kind === "approval" ? "front_hand" : i.kind === "question" ? "help" : "error"} className="ms-sm text-bad" />}
+          leading={<Icon name={attentionIcon(i.kind)} className="ms-sm text-bad" />}
           title={i.title}
-          sub={`${i.owner.agent ? `${i.owner.agent.emoji ?? ""} ${i.owner.agent.name} · ` : ""}${i.kind === "approval" ? "needs approval" : i.kind === "question" ? "asks you" : "failed"} · ${fmtAgo(i.since)}`}
+          sub={`${i.owner.agent ? `${i.owner.agent.emoji ?? ""} ${i.owner.agent.name} · ` : ""}${attentionLabel(i.kind)} · ${fmtAgo(i.since)}`}
         />
       ))}
     </Section>

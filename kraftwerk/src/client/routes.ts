@@ -2,6 +2,7 @@
 /** Route name → [method, path pattern, and "raw" (answers a stream or a file) or "upload" (sends file bytes): both HTTP only]. */
 export const ROUTES = {
   "agents.addJournal": ["POST", "/api/agents/:slug/journal"],
+  "agents.adoptRoutine": ["POST", "/api/agents/:slug/routines/:id/adopt"],
   "agents.archive": ["POST", "/api/agents/:slug/archive"],
   "agents.create": ["POST", "/api/agents"],
   "agents.delete": ["DELETE", "/api/agents/:slug"],
@@ -71,6 +72,7 @@ export const ROUTES = {
   "hub.close": ["POST", "/api/hub/close"],
   "hub.list": ["GET", "/api/hub"],
   "hub.open": ["POST", "/api/hub/open"],
+  "identity.get": ["GET", "/api/identity"],
   "knowledge.concept": ["GET", "/api/knowledge/:bundle/concept"],
   "knowledge.create": ["POST", "/api/knowledge"],
   "knowledge.delete": ["DELETE", "/api/knowledge/:bundle"],
@@ -99,6 +101,7 @@ export const ROUTES = {
   "repos.list": ["GET", "/api/repos"],
   "repos.remove": ["DELETE", "/api/repos/:slug"],
   "repos.update": ["POST", "/api/repos/:slug/update"],
+  "routines.adopt": ["POST", "/api/routines/adopt"],
   "routines.list": ["GET", "/api/routines"],
   "runs.decide": ["POST", "/api/runs/:id/decision"],
   "runs.delete": ["DELETE", "/api/runs/:id"],

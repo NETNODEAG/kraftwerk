@@ -1,6 +1,6 @@
 import { DevicesPanel } from "./devices";
 import { useEffect, useState } from "react";
-import { api } from "./api";
+import { api, useApi } from "./api";
 import { Icon } from "./shared";
 import { Button, buttonClass, Checkbox, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
 
@@ -217,6 +217,7 @@ export function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const identity = useApi("identity.get", {}, { interval: 60_000 });
 
   useEffect(() => {
     api
@@ -299,6 +300,7 @@ export function SettingsScreen() {
   if (!data) return <EmptyState>{error || "loading…"}</EmptyState>;
 
   const paths: [string, string | undefined, string][] = [
+    ["identity", identity?.identity ?? "…", "this machine — the runner routines name in runs_on (kraftwerk whoami to rename)"],
     ["port", String(data.resolved.port), "kraftwerk ui listens here (CLI --port wins)"],
     ["workflows", data.resolved.workflowsRoot ?? "— none found", "workflow definitions"],
     ["output", data.resolved.outputDir, "run artifacts"],

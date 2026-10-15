@@ -46,7 +46,9 @@ export type { GitFile, GitStatus, GitDiff } from "../../src/core/git";
 export type { AgentSearch, WorkspaceAgents } from "../../src/core/search";
 export type {
   Routine,
+  RoutineRunner,
   RoutineStatus,
+  RunnerRef,
 } from "../../src/core/routines";
 export type {
   BundleInfo,

@@ -5,6 +5,7 @@ import type { Command } from "commander";
 import { resolveWorkspace } from "../config.js";
 import { setDefaultWorkspace, Workspace } from "../core/workspace.js";
 import {
+  adoptUnassigned,
   deleteRoutine,
   listRoutines,
   routineStatuses,
@@ -17,7 +18,8 @@ import { getAgent, listAgents } from "../core/agents.js";
  * `kraftwerk routines` — CLI surface over per-agent scheduled prompts
  * (agents/<slug>/routines.yml). Definition CRUD works directly on the
  * files; `run` fires through the running inspector server, because the
- * session (chat) and the scheduler live there.
+ * session (chat) and the scheduler live there. `adopt` makes this machine
+ * the runner (runs_on) of every unassigned routine and commits routines.yml.
  */
 
 /** Point the inspector context at this project so agent/routine paths resolve. */
@@ -48,12 +50,19 @@ const fmtTime = (iso?: string): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 
+function runnerLabel(r: RoutineStatus): string {
+  if (r.runner === "here") return chalk.green("runs here");
+  if (r.runner === "unassigned") return chalk.yellow("unassigned");
+  return r.retired ? chalk.yellow(`runs on ${r.runsOn} (retired)`) : chalk.dim(`runs on ${r.runsOn}`);
+}
+
 function routineLine(r: RoutineStatus): string {
   const state = r.enabled ? chalk.green("on ") : chalk.dim("off");
   const flags = r.lastError ? ` ${chalk.red(`error: ${r.lastError}`)}` : "";
   return (
     `  ${chalk.cyan(r.id.padEnd(24))} ${state} ${r.schedule.padEnd(14)} ` +
     chalk.dim(`next ${fmtTime(r.nextRunAt).padEnd(17)} last ${fmtTime(r.lastRunAt)}`) +
+    ` ${runnerLabel(r)}` +
     flags
   );
 }
@@ -97,9 +106,10 @@ export function registerRoutineCommands(program: Command): void {
     .option("--file <path>", "Read the prompt from a file")
     .option("--id <id>", "Routine id (default: derived from the name)")
     .option("--disabled", "Create it switched off")
+    .option("--runs-on <identity>", "The machine that fires it, handle@machine (default: this one for a new routine, unchanged for an update)")
     .action(async (
       agent: string,
-      opts: { name: string; schedule: string; prompt?: string; file?: string; id?: string; disabled?: boolean }
+      opts: { name: string; schedule: string; prompt?: string; file?: string; id?: string; disabled?: boolean; runsOn?: string }
     ) => {
       await initContext();
       await requireAgent(agent);
@@ -118,14 +128,17 @@ export function registerRoutineCommands(program: Command): void {
           schedule: opts.schedule,
           prompt,
           enabled: !opts.disabled,
+          ...(opts.runsOn !== undefined ? { runsOn: opts.runsOn } : {}),
         });
         const verb = existing.has(routine.id) ? "updated" : "created";
         console.log(
           `${chalk.green("✔")} ${verb} ${chalk.cyan(`${agent}/${routine.id}`)} ` +
             chalk.dim(`(${routine.schedule}${routine.enabled ? "" : ", disabled"})`)
         );
-        if (routine.enabled) {
-          console.log(chalk.dim("  fires from the inspector server — make sure `kraftwerk ui` is running."));
+        if (!routine.runsOn) {
+          console.log(chalk.yellow("  unassigned: it fires nowhere until a machine runs it (`kraftwerk routines adopt`)."));
+        } else if (routine.enabled) {
+          console.log(chalk.dim(`  fires from the inspector server on ${routine.runsOn} — make sure \`kraftwerk ui\` runs there.`));
         }
       } catch (err) {
         console.error(chalk.red((err as Error).message));
@@ -166,6 +179,26 @@ export function registerRoutineCommands(program: Command): void {
         console.log(`${chalk.green("✔")} ${chalk.cyan(`${agent}/${id}`)} ${verb}d`);
       });
   }
+
+  routines
+    .command("adopt")
+    .description("Run these here: every enabled routine without runs_on gets this machine's identity; routines.yml is committed")
+    .option("--retired", "Also move routines that name a retired identity of this machine (see `kraftwerk whoami`)")
+    .option("--json", "Machine-readable output")
+    .action(async (opts: { retired?: boolean; json?: boolean }) => {
+      await initContext();
+      const r = await adoptUnassigned({ retired: !!opts.retired });
+      if (opts.json) return void console.log(JSON.stringify(r, null, 2));
+      if (!r.adopted.length) {
+        console.log(`${chalk.green("✔")} nothing to adopt — every enabled routine has a runner ${chalk.dim(`(this machine: ${r.runsOn})`)}`);
+        return;
+      }
+      for (const a of r.adopted) {
+        console.log(`${chalk.green("✔")} ${chalk.cyan(`${a.agent}/${a.id}`)} runs on ${r.runsOn}${a.from ? chalk.dim(` (was ${a.from})`) : ""}`);
+      }
+      if (r.commit?.ok) console.log(chalk.dim(`  committed ${r.files.join(", ")} — push so the other clones see it`));
+      else console.log(chalk.yellow(`  written, not committed: ${r.commit?.error ?? "unknown error"} — commit ${r.files.join(", ")} yourself`));
+    });
 
   routines
     .command("run")

@@ -2,7 +2,7 @@ import * as z from "zod";
 import { agentsRoot, deleteAgent, getAgent, listAgents, saveAgent, setAgentArchived, type SaveAgentInput } from "../../core/agents.js";
 import { appendJournal, readJournal } from "../../core/journal.js";
 import { UI_ACTOR } from "../../core/knowledge.js";
-import { deleteRoutine, routineStatuses, runRoutineNow, saveRoutine, type SaveRoutineInput } from "../../core/routines.js";
+import { adoptRoutine, deleteRoutine, listRoutines, routineStatuses, runRoutineNow, saveRoutine, type SaveRoutineInput } from "../../core/routines.js";
 import { deleteAgentSkill, listAgentSkills, readSkill, saveAgentSkill } from "../../core/skills.js";
 import { fail, route } from "./router.js";
 
@@ -23,13 +23,19 @@ const AgentFields = z.looseObject({
   system: z.string().optional(),
 });
 
-/** A routine: every field saveRoutine stores (it builds the routine from these alone), so a strict object loses nothing. saveRoutine checks name, prompt and the cron schedule. */
+/**
+ * A routine: every field saveRoutine stores (it builds the routine from these alone), so a strict object loses nothing.
+ * saveRoutine checks name, prompt, the cron schedule and runsOn. runsOn absent keeps the stored runner (a new routine:
+ * this machine); null or "" unassigns it.
+ */
 const RoutineFields = z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   schedule: z.string().optional(),
   prompt: z.string().optional(),
   enabled: z.boolean().optional(),
+  runsOn: z.string().nullable().optional(),
+  private: z.boolean().optional(),
 });
 
 /** Agents (team members): definition, own skills, journal, routines. */
@@ -112,6 +118,19 @@ export const agentRoutes = [
     await deleteRoutine(c.params.slug, c.params.id);
     return { ok: true };
   }),
+  route(
+    {
+      name: "agents.adoptRoutine",
+      method: "POST",
+      path: "/api/agents/:slug/routines/:id/adopt",
+      summary: "run this routine here: runs_on = this machine's identity, routines.yml committed",
+      errors: 400,
+    },
+    async (c) => {
+      if (!(await listRoutines(c.params.slug)).some((r) => r.id === c.params.id)) fail(404, "routine not found");
+      return adoptRoutine(c.params.slug, c.params.id);
+    },
+  ),
   route({ name: "agents.runRoutine", method: "POST", path: "/api/agents/:slug/routines/:id/run", summary: "run a routine now", errors: 400 }, async (c) =>
     runRoutineNow(c.params.slug, c.params.id),
   ),

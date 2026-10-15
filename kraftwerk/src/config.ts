@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { randomInt } from "node:crypto";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
@@ -14,6 +15,7 @@ import { parse } from "yaml";
  *
  * All fields are optional — a valid kraftwerk.yml may be empty:
  *
+ *   id: ws_k3f9x2m7q1          # the workspace's identity across machines and clones (committed; `kraftwerk init` writes it)
  *   name: my-project           # display name (inspector header, "environment")
  *   icon: "⚡"                  # emoji shown as inspector favicon
  *   color: "#c2410c"           # accent for this workspace in the switcher (default: derived from the root)
@@ -225,6 +227,12 @@ export interface SwitcherEntry {
 }
 
 export interface WorkspaceConfig {
+  /**
+   * The workspace's identity wherever it is cloned: `ws_` + 10 base36
+   * characters, committed with kraftwerk.yml. Unlike the slug (an address on
+   * one machine) it is the same on every clone. Nothing reads it yet.
+   */
+  id?: string;
   /** Display name of the project ("environment"), shown in the inspector header. */
   name?: string;
   /**
@@ -270,6 +278,8 @@ export interface ResolvedWorkspace {
   config: WorkspaceConfig;
   /** Absolute path of the config file, if one exists. */
   configPath?: string;
+  /** kraftwerk.yml `id`, when set. */
+  id?: string;
   /** Absolute workflows root, if one exists. */
   workflowsRoot?: string;
   /** Absolute run-artifact directory (may not exist yet). */
@@ -335,7 +345,7 @@ export async function resolveWorkspace(cwd: string): Promise<ResolvedWorkspace> 
       const { config, legacyKeys } = loaded;
       const workflowsRoot = await findWorkflowsDir(dir, config.workflows);
       if (!bare || (workflowsRoot && path.resolve(workflowsRoot) === bare.workflowsRoot)) {
-        return { root: dir, config, configPath, workflowsRoot, outputDir: path.resolve(dir, config.output ?? "output"), ...(legacyKeys.length ? { legacyKeys } : {}) };
+        return { root: dir, config, configPath, ...(config.id ? { id: config.id } : {}), workflowsRoot, outputDir: path.resolve(dir, config.output ?? "output"), ...(legacyKeys.length ? { legacyKeys } : {}) };
       }
       return bare;
     }
@@ -380,7 +390,38 @@ export function workspaceSlug(ws: { root: string; config: { slug?: string } }): 
   return ws.config.slug ?? slugFromFolder(path.basename(ws.root));
 }
 
-const KNOWN_KEYS = ["name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
+/** A workspace id: `ws_` and 10 lowercase base36 characters. */
+export const WORKSPACE_ID_RE = /^ws_[a-z0-9]{10}$/;
+
+/** A fresh workspace id for kraftwerk.yml. */
+export function newWorkspaceId(): string {
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  let id = "ws_";
+  for (let i = 0; i < 10; i++) id += alphabet[randomInt(alphabet.length)];
+  return id;
+}
+
+/**
+ * Give an existing kraftwerk.yml an id, textually: one line inserted after
+ * the leading comments, the rest of the file byte for byte as it was (a
+ * re-serialised YAML document would lose the comments people keep there).
+ * Returns the id, or the one already there.
+ */
+export async function addWorkspaceId(configPath: string): Promise<string> {
+  const text = await readFile(configPath, "utf8");
+  const existing = /^id:\s*["']?(ws_[a-z0-9]{10})["']?\s*(#.*)?$/m.exec(text);
+  if (existing) return existing[1];
+  const id = newWorkspaceId();
+  const line = `id: ${id}   # this workspace's identity on every machine and clone — commit it, keep it`;
+  const lines = text.split("\n");
+  const first = lines.findIndex((l) => !/^\s*(#|$)/.test(l));
+  // Nothing but comments (or nothing at all): the id goes at the end.
+  const out = first === -1 ? `${text.replace(/\n*$/, text.trim() ? "\n" : "")}${line}\n` : [...lines.slice(0, first), line, ...lines.slice(first)].join("\n");
+  await writeFile(configPath, out);
+  return id;
+}
+
+const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -410,6 +451,9 @@ async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig
       throw new Error(
         `${path.basename(configPath)}: unknown key "${key}" (allowed: ${known.join(", ")})`
       );
+    }
+    if (key === "id" && (typeof config[key] !== "string" || !WORKSPACE_ID_RE.test(config[key] as string))) {
+      throw new Error(`${path.basename(configPath)}: id must be "ws_" followed by 10 lowercase letters or digits (like ws_k3f9x2m7q1), got ${JSON.stringify(config[key])} — delete the line and run \`kraftwerk doctor --fix\` for a fresh one`);
     }
     if (key === "slug" && (typeof config[key] !== "string" || !SLUG_RE.test(config[key] as string))) {
       throw new Error(`${path.basename(configPath)}: slug must be lowercase letters, digits and dashes, starting with a letter or digit (at most 63)`);

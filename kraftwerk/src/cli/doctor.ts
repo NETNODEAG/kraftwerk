@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
-import { cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
+import { addWorkspaceId, cloudFor, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
@@ -12,6 +12,9 @@ import { slugClashes } from "../core/instances.js";
 import { daemonState } from "../core/daemon.js";
 import { daemonLoginItem } from "./daemon-login.js";
 import { readRelaySettings } from "../server/relay.js";
+import { readIdentity, identityString } from "../core/identity.js";
+import { adoptUnassigned, runnerFindings } from "../core/routines.js";
+import { setDefaultWorkspace, Workspace } from "../core/workspace.js";
 
 /**
  * `kraftwerk doctor` — preflight for the machine and the project: are the
@@ -19,6 +22,12 @@ import { readRelaySettings } from "../server/relay.js";
  * docker there for --sandbox, are the workflows valid, are declared env
  * vars set, and what older kraftwerk versions left behind (legacy). One
  * failed hard check → exit 1; legacy findings never fail it.
+ *
+ * Some findings come with a fix doctor applies itself under `--fix`: a
+ * kraftwerk.yml without a workspace id gets one, and routines that fire
+ * nowhere — no runs_on, or one naming a retired identity of this machine —
+ * get this machine as their runner, committed like `kraftwerk routines adopt`.
+ * Without the flag doctor only says what --fix would do.
  */
 
 type Level = "ok" | "warn" | "fail" | "info";
@@ -54,7 +63,7 @@ function cliVersion(command: string): string | undefined {
   return (r.stdout || r.stderr).trim().split("\n")[0];
 }
 
-export async function runDoctor(cwd: string): Promise<void> {
+export async function runDoctor(cwd: string, opts: { fix?: boolean } = {}): Promise<void> {
   let failures = 0;
 
   // Runtime.
@@ -115,6 +124,9 @@ export async function runDoctor(cwd: string): Promise<void> {
       keys.length ? keys.map((k) => `${k}: ${show(cfg[k])}`).join(", ") : "empty — defaults apply"
     );
     if (!cfg.name) report("info", "name not set in kraftwerk.yml", "inspector header falls back to the folder name");
+    if (cfg.id) report("ok", `workspace id: ${cfg.id as string}`);
+    else if (opts.fix) report("ok", `workspace id: ${await addWorkspaceId(project.configPath)}`, `added to ${path.basename(project.configPath)} — commit it`);
+    else report("warn", "no workspace id in kraftwerk.yml", "the same workspace on every clone is known by it — `kraftwerk doctor --fix` adds one");
     for (const key of ["workflows", "knowledge", "agents", "output"] as const) {
       const value = cfg[key] as string | undefined;
       if (!value) continue;
@@ -150,6 +162,28 @@ export async function runDoctor(cwd: string): Promise<void> {
     else if (check.status === 0) report("ok", label, "git-ignored");
     else if (check.status === 1) report("warn", label, `${entry}/ is not git-ignored — clones would show up as untracked gitlinks; add it to .gitignore`);
     else report("ok", label, "not inside a git repository");
+  }
+
+  // Routine runners: a routine fires only on the machine its runs_on names.
+  setDefaultWorkspace(new Workspace({ root: project.root, outputDir: project.outputDir }));
+  const me = identityString(await readIdentity());
+  const runners = await runnerFindings().catch(() => ({ unassigned: [], retired: [] }));
+  const names = (rs: { agent: string; id: string }[]) => rs.map((r) => `${r.agent}/${r.id}`).join(", ");
+  if (!runners.unassigned.length && !runners.retired.length) {
+    report("ok", `routines: runner identity ${me}`, "every enabled routine names its runner");
+  } else if (opts.fix) {
+    const r = await adoptUnassigned({ retired: true });
+    report("ok", `${r.adopted.length} routine(s) now run here (${me})`, names(r.adopted));
+    if (r.commit?.ok) report("ok", `committed ${r.files.join(", ")}`, "push so the other clones see who runs them");
+    else if (r.commit) report("warn", `written, not committed: ${r.commit.error}`, `commit ${r.files.join(", ")} yourself`);
+  } else {
+    if (runners.unassigned.length) {
+      report("warn", `${runners.unassigned.length} enabled routine(s) have no runner — they fire nowhere`, `${names(runners.unassigned)} · \`kraftwerk doctor --fix\` (or \`kraftwerk routines adopt\`) runs them here: ${me}`);
+    }
+    for (const old of [...new Set(runners.retired.map((r) => r.from!))]) {
+      const these = runners.retired.filter((r) => r.from === old);
+      report("warn", `${these.length} routine(s) name the retired identity ${old}`, `${names(these)} · \`kraftwerk doctor --fix\` moves them to ${me} and commits`);
+    }
   }
 
   // Cloud manager: registration is best-effort at runtime, so doctor only says what would happen.
