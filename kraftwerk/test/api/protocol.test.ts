@@ -109,6 +109,7 @@ const ROUTES = [
   "POST /api/chats/:id/task-stop chats.stopTask",
   "POST /api/chats/:id/vibeable chats.setVibeable",
   "POST /api/cloud cloud.set",
+  "POST /api/cloud/invite cloud.invite",
   "POST /api/cloud/sync cloud.sync",
   "POST /api/cloud/unlink cloud.unlink",
   "POST /api/devices/code devices.code",

@@ -1,5 +1,6 @@
 import type http from "node:http";
 import { deviceForToken, type Device } from "../core/devices.js";
+import { MEMBER_HEADER, memberSession, type Member } from "./members.js";
 
 /**
  * Who is asking. Every request and socket gets one of:
@@ -18,10 +19,24 @@ import { deviceForToken, type Device } from "../core/devices.js";
  * - `device`: a paired device's token — `Authorization: Bearer` (apps),
  *   the `kw_device` cookie (a phone's browser, set on pairing), or `?token=`
  *   on the socket for runtimes whose WebSocket cannot send headers.
+ *   `relay`: the request came through the relay (server/relay.ts marks
+ *   it) — a remote caller, who does not see private routines' chats.
+ * - `member`: a remote member of ONE workspace, over the relay: the relay
+ *   verified their member token with the cloud (server/members.ts) and
+ *   tags each request with the session's random id, which only this
+ *   process knows. Scoped to that workspace: server.ts refuses every other
+ *   address, router.ts every machine-level route.
  * - `none`: anyone else. Gets the web UI's shell (to show the pairing
  *   screen), the protocol description and the pairing route — nothing else.
  */
-export type Trust = { kind: "local" } | { kind: "device"; device: Device } | { kind: "none" };
+export type Trust =
+  | { kind: "local" }
+  | { kind: "device"; device: Device; relay?: true }
+  | { kind: "member"; member: Member; workspaceId: string; slug: string }
+  | { kind: "none" };
+
+/** A caller from afar: a member session, or a paired device over the relay. Private routines' chats are not theirs to see. */
+export const remoteCaller = (t: Trust): boolean => t.kind === "member" || (t.kind === "device" && t.relay === true);
 
 export const DEVICE_COOKIE = "kw_device";
 
@@ -64,8 +79,15 @@ export interface TrustOptions {
 /** The request's trust: this machine (or a trusted network), else a paired device's token, else none. */
 export async function trustOf(req: http.IncomingMessage, url: URL, opts: TrustOptions, allowQueryToken = false): Promise<Trust> {
   const peer = req.socket.remoteAddress ?? "";
+  // A member session's tag wins over anything else the request says: its scope must hold whatever token rides along.
+  const tag = req.headers[MEMBER_HEADER];
+  if (typeof tag === "string" && tag) {
+    const s = memberSession(tag);
+    return s ? { kind: "member", member: s.member, workspaceId: s.workspaceId, slug: s.slug } : { kind: "none" };
+  }
   if ((opts.trustLoopback && LOOPBACK_PEER.test(peer) && addressedLocally(req)) || (opts.trustNetwork && !LOOPBACK_PEER.test(peer))) return { kind: "local" };
   const token = tokenOf(req, url, allowQueryToken);
   const device = token ? await deviceForToken(token) : null;
-  return device ? { kind: "device", device } : { kind: "none" };
+  if (!device) return { kind: "none" };
+  return req.headers["x-kraftwerk-relay"] === "1" ? { kind: "device", device, relay: true } : { kind: "device", device };
 }

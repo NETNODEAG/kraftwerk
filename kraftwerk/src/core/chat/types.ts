@@ -19,6 +19,18 @@ export type ChatScope =
   /** A channel: several agents (and humans) share one transcript; see channels.ts. */
   | { kind: "channel"; slug: string };
 
+/**
+ * The person behind a chat or a message: this machine's identity handle
+ * (local use, a paired device) or a remote member of the workspace (the
+ * cloud vouched for their handle and email; see server/members.ts).
+ * Absent on chats and messages from before authors were recorded.
+ */
+export interface ChatPerson {
+  handle: string;
+  /** A remote member's account email; absent for this machine's own person. */
+  email?: string;
+}
+
 /** Who produced an event. Absent on single-agent chats (the one human, the one agent). */
 export type Author = { kind: "human"; name: string } | { kind: "agent"; slug: string };
 
@@ -43,6 +55,14 @@ export interface ChatMeta {
    * over with the transcript as a summary.
    */
   sessions?: Record<string, string>;
+  /** Who started the chat (a routine's run: this machine's person). */
+  author?: ChatPerson;
+  /**
+   * A run of a `private: true` routine: left out of what remote callers see
+   * (member sessions, paired devices over the relay); this machine and the
+   * LAN still see it.
+   */
+  private?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -139,7 +159,8 @@ export type ElicitationAnswer = { action: "accept"; content: Record<string, stri
  */
 export type ChatEvent =
   /** `steered`: handed into the running turn instead of starting the next one. */
-  | { type: "user_message"; text: string; steered?: boolean; attachments?: Attachment[] }
+  /** `by`: the person who sent it (see ChatPerson). */
+  | { type: "user_message"; text: string; steered?: boolean; attachments?: Attachment[]; by?: ChatPerson }
   | { type: "text"; text: string; subagent?: string }
   | { type: "thought"; text: string; subagent?: string }
   | { type: "tool_call"; callId: string; title: string; kind?: string; status?: string; subagent?: string; compaction?: Compaction }

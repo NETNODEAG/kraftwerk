@@ -21,6 +21,7 @@ export type {
   ChatAgentId,
   ChatScope,
   ChatMeta,
+  ChatPerson,
   ChatEvent,
   Compaction,
   SessionFailure,

@@ -65,8 +65,9 @@ export interface RouteDef<N extends string, P extends string = string, S extends
   body?: S;
   /**
    * Who may call it. Default: anyone trusted (this machine, a paired
-   * device). `public`: also unpaired callers (pairing, the protocol).
-   * `local`: this machine only (managing devices).
+   * device, a workspace's member — except the machine-level routes
+   * MEMBER_DENIED names). `public`: also unpaired callers (pairing, the
+   * protocol). `local`: this machine only (managing devices).
    */
   access?: "public" | "local";
 }
@@ -126,10 +127,23 @@ export interface Router {
   allowed(name: string, trust: Trust): { status: number; error: string } | undefined;
 }
 
+/**
+ * What a member session (one workspace, over the relay; see members.ts) may
+ * not call: the machine's own business — its workspaces, devices, cloud
+ * record, settings, updates, restarts, identity, trash. server.ts already
+ * keeps the session inside its workspace; this keeps it out of the machine.
+ */
+const MEMBER_DENIED = /^(hub|devices|cloud|settings|server|update|workspaces|identity|trash)\./;
+/** …except asking who it is. */
+const MEMBER_ALLOWED = new Set(["devices.self"]);
+
 /** Why a caller may not use a route, or undefined when it may. */
 function refusal(route: Route, trust: Trust): ApiError | undefined {
   if (route.access === "public") return undefined;
   if (trust.kind === "none") return new ApiError(401, "pair this device first", { error: "pair this device first", pair: true });
+  if (trust.kind === "member" && (route.access === "local" || (MEMBER_DENIED.test(route.name) && !MEMBER_ALLOWED.has(route.name)))) {
+    return new ApiError(403, `${route.name} is not open to a workspace member — only to the machine kraftwerk runs on`);
+  }
   if (route.access === "local" && trust.kind !== "local") return new ApiError(403, "only on the machine kraftwerk runs on");
   return undefined;
 }

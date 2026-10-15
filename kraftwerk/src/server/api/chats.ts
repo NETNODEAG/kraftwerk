@@ -11,6 +11,7 @@ import {
   getChat,
   listAgentSessionsFor,
   listChats,
+  localPerson,
   postMessage,
   renameChat,
   resetSession,
@@ -22,8 +23,9 @@ import {
   stopChatTask,
   subscribeChat,
 } from "../../core/chat/sessions.js";
-import { attachmentPath, saveAttachment } from "../../core/chat/store.js";
-import type { ChatAgentId, ChatScope } from "../../core/chat/types.js";
+import { attachmentPath, readMeta, saveAttachment } from "../../core/chat/store.js";
+import type { ChatAgentId, ChatPerson, ChatScope } from "../../core/chat/types.js";
+import { remoteCaller, type Trust } from "../trust.js";
 import { getProject } from "../../core/projects.js";
 import { MIME } from "./mime.js";
 import { projectErrors } from "./projects.js";
@@ -106,9 +108,40 @@ async function projectSlug(slug: string): Promise<string> {
   return found.slug;
 }
 
+/** Who a chat or message is signed with: a member session's member, else this machine's person. */
+const personOf = async (trust: Trust): Promise<ChatPerson> =>
+  trust.kind === "member" ? { handle: trust.member.handle, email: trust.member.email } : localPerson();
+
+/**
+ * A private routine's run (meta.private) is not there for a remote caller
+ * (trust.ts remoteCaller): a 404, as if it did not exist. This machine and
+ * the LAN see it.
+ */
+async function hiddenFrom(trust: Trust, id: string): Promise<void> {
+  if (!remoteCaller(trust)) return;
+  const meta = await readMeta(id).catch(() => null);
+  if (meta?.private) fail(404, "not found");
+}
+
+/** Every route on one chat (`:id`) checks hiddenFrom first. */
+function guarded<R extends { path: string; handle: (c: Ctx<never>) => Promise<unknown> }>(r: R): R {
+  if (!r.path.includes("/:id")) return r;
+  const handle = r.handle as (c: Ctx) => Promise<unknown>;
+  return {
+    ...r,
+    handle: async (c: Ctx) => {
+      await hiddenFrom(c.trust, c.params.id);
+      return handle(c);
+    },
+  } as R;
+}
+
 /** Chats: ACP sessions with a coding agent, their event stream, and what a person does in them. */
 export const chatRoutes = [
-  route({ name: "chats.list", method: "GET", path: "/api/chats", summary: "every chat with its live state" }, async () => ({ chats: await listChats() })),
+  route({ name: "chats.list", method: "GET", path: "/api/chats", summary: "every chat with its live state; a remote caller's list leaves private routines' runs out" }, async (c) => {
+    const chats = await listChats();
+    return { chats: remoteCaller(c.trust) ? chats.filter((x) => !x.private) : chats };
+  }),
   route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?}", body: NewChat }, async (c) => {
     // `resume` continues one of the agent's own sessions (see agents.sessions).
     const body = await c.body();
@@ -117,7 +150,13 @@ export const chatRoutes = [
     if (body.project && scope.kind !== "agent") fail(400, "only an agent's chat takes a project");
     const project = body.project ? await projectSlug(body.project) : undefined;
     try {
-      return await createChat({ agent: agent as ChatAgentId, scope, ...(project ? { project } : {}), ...(body.resume ? { resume: body.resume } : {}) });
+      return await createChat({
+        agent: agent as ChatAgentId,
+        scope,
+        author: await personOf(c.trust),
+        ...(project ? { project } : {}),
+        ...(body.resume ? { resume: body.resume } : {}),
+      });
     } catch (err) {
       throw new ApiError(400, (err as Error).message);
     }
@@ -178,7 +217,7 @@ export const chatRoutes = [
       return metaOf(await setChatVibeable(c.params.id, slug || null));
     },
   ),
-  route({ name: "chats.fork", method: "POST", path: "/api/chats/:id/fork", summary: "a new chat continuing a copy of this one's session", errors: 400 }, async (c) => metaOf(await forkChat(c.params.id))),
+  route({ name: "chats.fork", method: "POST", path: "/api/chats/:id/fork", summary: "a new chat continuing a copy of this one's session", errors: 400 }, async (c) => metaOf(await forkChat(c.params.id, await personOf(c.trust)))),
   route({ name: "chats.resetSession", method: "POST", path: "/api/chats/:id/reset-session", summary: "forget the agent's session; the next message starts fresh", errors: 400 }, async (c) =>
     metaOf(await resetSession(c.params.id)),
   ),
@@ -210,10 +249,12 @@ export const chatRoutes = [
   }),
 
   // Channels: `from` is the poster's display name, which signs the message.
-  act("chats.message", "/api/chats/:id/message", "send a message {text, attachments?, from?}", Said.extend({ from: z.string().optional() }), (c, body) =>
-    postMessage(c.params.id, textOf(body), { from: body.from, attachments: body.attachments }),
+  act("chats.message", "/api/chats/:id/message", "send a message {text, attachments?, from?}", Said.extend({ from: z.string().optional() }), async (c, body) =>
+    postMessage(c.params.id, textOf(body), { from: body.from, attachments: body.attachments, by: await personOf(c.trust) }),
   ),
-  act("chats.steer", "/api/chats/:id/steer", "add to the running turn {text, attachments?}", Said, (c, body) => steerChat(c.params.id, textOf(body), body.attachments)),
+  act("chats.steer", "/api/chats/:id/steer", "add to the running turn {text, attachments?}", Said, async (c, body) =>
+    steerChat(c.params.id, textOf(body), body.attachments, await personOf(c.trust)),
+  ),
   act(
     "chats.permission",
     "/api/chats/:id/permission",
@@ -242,4 +283,4 @@ export const chatRoutes = [
     z.object({ configId: z.string().default(""), value: z.union([z.string(), z.boolean()]).default("") }),
     (c, body) => setChatConfig(c.params.id, body.configId, body.value),
   ),
-];
+].map(guarded);

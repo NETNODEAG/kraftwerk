@@ -48,9 +48,10 @@ export const deviceRoutes = [
       }
     },
   ),
-  route({ name: "devices.self", method: "GET", path: "/api/devices/self", summary: "how this caller is trusted: this machine or a paired device" }, async (c) => ({
+  route({ name: "devices.self", method: "GET", path: "/api/devices/self", summary: "how this caller is trusted: this machine, a paired device, or a workspace's member" }, async (c) => ({
     trust: c.trust.kind,
-    ...(c.trust.kind === "device" ? { device: c.trust.device } : {}),
+    ...(c.trust.kind === "device" ? { device: c.trust.device, ...(c.trust.relay ? { relay: true } : {}) } : {}),
+    ...(c.trust.kind === "member" ? { member: c.trust.member, workspace: { id: c.trust.workspaceId, slug: c.trust.slug } } : {}),
   })),
   // A paired device's app says where its push notifications go (and the key it seals them with); see server/push.ts.
   route(

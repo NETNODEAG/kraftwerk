@@ -8,13 +8,18 @@ import {
   machineHeartbeat,
   machineRegister,
   machineUnlink,
+  MAX_REPORTED_ROUTINES,
   retiredCloudDir,
   unknownMachine,
+  workspaceInvite,
   type Credentials,
   type CloudUrlSource,
+  type InviteResponse,
   type MachineWorkspace,
+  type RoutineReportEntry,
 } from "../core/cloud.js";
 import { identityString, readIdentity } from "../core/identity.js";
+import { routineReport } from "../core/routines.js";
 import { machineCredentials } from "./relay.js";
 
 /**
@@ -34,7 +39,12 @@ import { machineCredentials } from "./relay.js";
  *              along whenever it changed (opened, closed, vetoed, claimed).
  *              A claim made in the cloud arrives in the answer
  *   privacy    while unclaimed, entries carry name/slug/ws-id only — no
- *              roots; once claimed, roots too
+ *              roots; once claimed, roots too, and the routines that ran
+ *              here (`routines`, sent when it changed; private ones never)
+ *   members    the machine's credentials and the served workspaces are
+ *              what member sessions over the relay are verified with
+ *              (server/members.ts), and what `kraftwerk invite` asks the
+ *              cloud with (createWorkspaceInvite)
  *   recovery   a cloud that no longer knows the machine (data reset) gets a
  *              fresh registration; a cloud that is down is retried at the
  *              same cadence and never affects the UI
@@ -71,8 +81,8 @@ export interface CloudStatus {
   workspaces?: number;
 }
 
-/** What the daemon serves right now. */
-export type WorkspaceSource = () => Array<{ root: string; slug: string; name: string }>;
+/** What the daemon serves right now; `ws` runs code inside that workspace (the routine report reads its state). */
+export type WorkspaceSource = () => Array<{ root: string; slug: string; name: string; ws?: { run<T>(fn: () => T): T } }>;
 
 const DEFAULT_INTERVAL = 60;
 const STANDALONE: CloudStatus = { url: "", state: "off", reason: "only the daemon registers this machine with the cloud (`kraftwerk daemon start`)" };
@@ -88,6 +98,8 @@ const m = {
   version: "",
   /** The workspace list the cloud last acknowledged, as JSON: sent again only when it differs. */
   reported: "",
+  /** The routine report the cloud last took, as JSON (claimed only; "" sends it again). */
+  routines: "",
   /** One round at a time: a timer tick, a sync from the CLI and a workspace change never overlap. */
   lock: Promise.resolve() as Promise<unknown>,
   warned: new Set<string>(),
@@ -116,6 +128,24 @@ async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; 
 }
 
 const claimed = (): boolean => typeof m.status.account === "string" && m.status.account.length > 0;
+
+/** The routines that ran here, per served workspace with a ws_ id (vetoed ones left out), capped. */
+async function routineEntries(): Promise<RoutineReportEntry[]> {
+  const out: RoutineReportEntry[] = [];
+  for (const o of m.source()) {
+    const ws = await resolveWorkspace(o.root).catch(() => null);
+    const id = ws?.config.id;
+    if (!id || ws.config.cloud?.enabled === false || !o.ws) continue;
+    // A workspace closing meanwhile throws "workspace closed": it simply reports nothing.
+    const run = o.ws.run.bind(o.ws);
+    const ran = await Promise.resolve()
+      .then(() => run(() => routineReport()))
+      .catch(() => []);
+    for (const r of ran) out.push({ workspaceId: id, ...r });
+    if (out.length >= MAX_REPORTED_ROUTINES) break;
+  }
+  return out.slice(0, MAX_REPORTED_ROUTINES);
+}
 
 function warnYml(cloud: { source: CloudUrlSource; url: string }, ymlUrls: string[]): void {
   if (!ymlUrls.length) return;
@@ -155,6 +185,7 @@ async function register(): Promise<boolean> {
       version: m.version,
     }, list);
     m.registered = true;
+    m.routines = "";
     // An unclaimed register carries no roots: the list counts as reported only when that is all the cloud should know.
     m.reported = r.account ? "" : JSON.stringify(list);
     m.status = {
@@ -176,9 +207,17 @@ async function heartbeat(): Promise<void> {
   const wasClaimed = claimed();
   const { list } = await entries(wasClaimed);
   const now = JSON.stringify(list);
+  // Routines only while claimed; unclaimed, the next claim sends them afresh.
+  const routines = wasClaimed ? await routineEntries() : null;
+  const ran = routines ? JSON.stringify(routines) : "";
   try {
-    const r = await machineHeartbeat(m.status.url, m.creds, { version: m.version, ...(now !== m.reported ? { workspaces: list } : {}) });
+    const r = await machineHeartbeat(m.status.url, m.creds, {
+      version: m.version,
+      ...(now !== m.reported ? { workspaces: list } : {}),
+      ...(routines && ran !== m.routines ? { routines } : {}),
+    });
     m.reported = now;
+    m.routines = ran;
     m.status = {
       ...m.status, state: "connected", error: undefined, interval: r.interval || m.status.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
       ...(r.account !== undefined ? { account: r.account } : {}),
@@ -281,6 +320,7 @@ export async function unlinkMachineCloud(): Promise<CloudStatus> {
     const r = await machineUnlink(m.status.url, m.creds, m.version);
     // The next heartbeat sends the list again — without roots now.
     m.reported = "";
+    m.routines = "";
     m.status = { ...m.status, account: null, claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(m.status.url, r.claimCode) };
     return m.status;
   });
@@ -302,4 +342,42 @@ export async function stopMachineCloud(owner?: unknown): Promise<void> {
   m.reported = "";
   m.status = { ...STANDALONE };
   if (registered && creds && url) await machineGoodbye(url, creds, m.version).catch(() => {});
+}
+
+/**
+ * What member verification needs (server/members.ts): the cloud's origin,
+ * this machine's credentials. Null when no machine client runs (a
+ * standalone server, the cloud turned off).
+ */
+export function machineLink(): { url: string; creds: Credentials; version: string } | null {
+  if (!m.started || m.status.state === "off" || !m.creds || !m.status.url) return null;
+  return { url: m.status.url, creds: m.creds, version: m.version };
+}
+
+/** The served workspace whose kraftwerk.yml `id` is `id` (vetoed ones not), or null. */
+export async function servedWorkspace(id: string): Promise<{ slug: string; name: string; root: string } | null> {
+  for (const o of m.source()) {
+    const ws = await resolveWorkspace(o.root).catch(() => null);
+    if (ws?.config.id === id && ws.config.cloud?.enabled !== false) return { slug: o.slug, name: o.name, root: o.root };
+  }
+  return null;
+}
+
+/**
+ * An invite to a served workspace (`kraftwerk invite`): the cloud's machine
+ * path, so only a claimed machine that reports the workspace gets one.
+ * `which` is the workspace's slug or root.
+ */
+export async function createWorkspaceInvite(which: { slug?: string; root?: string }, role?: "owner" | "member"): Promise<InviteResponse & { workspace: { id: string; slug: string; name: string } }> {
+  const o = m.source().find((x) => (which.root && x.root === which.root) || (which.slug && x.slug === which.slug));
+  if (!o) throw new Error(`the daemon does not serve ${which.slug ? `"${which.slug}"` : which.root} — open it first (\`kraftwerk ui\` in its folder)`);
+  const ws = await resolveWorkspace(o.root);
+  if (ws.config.cloud?.enabled === false) throw new Error(`${o.slug} is left out of the cloud (cloud.enabled: false in kraftwerk.yml)`);
+  const id = ws.config.id;
+  if (!id) throw new Error(`${o.slug} has no workspace id (ws_…) in kraftwerk.yml — run \`kraftwerk doctor --fix\``);
+  const link = machineLink();
+  if (!link) throw new Error(m.status.reason ? `the cloud is off: ${m.status.reason}` : "this machine is not connected to the kraftwerk cloud — `kraftwerk daemon start`");
+  if (!claimed()) throw new Error("this machine is not claimed — run `kraftwerk login` first");
+  const invite = await workspaceInvite(link.url, link.creds, id, role, link.version);
+  return { ...invite, workspace: { id, slug: o.slug, name: o.name } };
 }

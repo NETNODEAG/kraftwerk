@@ -28,6 +28,12 @@
  * presents a paired device's token like any network caller, and the daemon
  * applies the same trust rules (src/server/trust.ts). Anyone holding the
  * pairing link still needs a pairing code or a token.
+ *
+ * Or, as a remote member of one workspace, it sends `{t:"auth",
+ * memberToken, workspaceId}` as its first sealed message and waits for the
+ * daemon's `{t:"auth", ok, …}` (src/server/members.ts): the whole channel
+ * is then that member's, scoped to that workspace. A client that sends no
+ * auth is a device's channel exactly as before.
  */
 
 const subtle = (): SubtleCrypto => globalThis.crypto.subtle;
@@ -208,13 +214,24 @@ export async function daemonHandshake(own: KeyPair, hello: Hello): Promise<{ rea
  */
 export type TunnelToDaemon =
   | { t: "req"; id: number; method: string; url: string; headers: Record<string, string>; body?: string }
-  | { t: "abort"; id: number };
+  | { t: "abort"; id: number }
+  /** A member session: first, once, before any request (see src/server/members.ts). */
+  | { t: "auth"; memberToken: string; workspaceId: string };
+
+/** Who the cloud says the member is, and the workspace the session is scoped to. */
+export interface MemberAuth {
+  member: { email: string; handle: string; role: "owner" | "member" };
+  /** `slug` addresses it: /w/<slug>/api/… */
+  workspace: { id: string; slug: string; name: string };
+}
 
 export type TunnelToClient =
   | { t: "res"; id: number; status: number; headers: Record<string, string> }
   | { t: "data"; id: number; chunk: string }
   | { t: "end"; id: number }
-  | { t: "fail"; id: number; error: string };
+  | { t: "fail"; id: number; error: string }
+  | ({ t: "auth"; ok: true } & MemberAuth)
+  | { t: "auth"; ok: false; error: string };
 
 /** The socket the client talks over — the browser's WebSocket and Node's global one both fit. */
 export interface RelaySocket {
@@ -232,6 +249,8 @@ export interface Tunnel {
   close(): void;
   /** Resolves when the connection ends, with why. */
   readonly closed: Promise<string>;
+  /** A member session's answer (ConnectOptions.member); absent on a device's channel. */
+  readonly member?: MemberAuth;
 }
 
 export interface ConnectOptions {
@@ -243,6 +262,8 @@ export interface ConnectOptions {
   connect?: (url: string) => RelaySocket;
   /** Abort the handshake after this long (default 15 s). */
   timeoutMs?: number;
+  /** Open the channel as a remote member of one workspace instead of a device: the daemon verifies it with the cloud. */
+  member?: { token: string; workspaceId: string };
 }
 
 const OPEN = 1;
@@ -264,6 +285,7 @@ export async function connectTunnel(opts: ConnectOptions): Promise<Tunnel> {
     { resolve: (r: Response) => void; reject: (e: Error) => void; stream?: ReadableStreamDefaultController<Uint8Array>; signal?: AbortSignal }
   >();
   let nextId = 1;
+  let onAuth: ((msg: Extract<TunnelToClient, { t: "auth" }>) => void) | null = null;
 
   const finish = (why: string) => {
     if (closedWhy) return;
@@ -325,6 +347,11 @@ export async function connectTunnel(opts: ConnectOptions): Promise<Tunnel> {
   });
 
   const receive = (msg: TunnelToClient) => {
+    if (msg.t === "auth") {
+      onAuth?.(msg);
+      onAuth = null;
+      return;
+    }
     const p = pending.get(msg.id);
     if (!p) return;
     if (msg.t === "res") {
@@ -367,6 +394,29 @@ export async function connectTunnel(opts: ConnectOptions): Promise<Tunnel> {
 
   await ready;
 
+  let member: MemberAuth | undefined;
+  if (opts.member) {
+    const m = opts.member;
+    const answer = await new Promise<Extract<TunnelToClient, { t: "auth" }>>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("the machine did not answer the member's hello")), opts.timeoutMs ?? 15_000);
+      onAuth = (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      };
+      void closed.then((why) => {
+        clearTimeout(timer);
+        reject(new Error(why));
+      });
+      send({ t: "auth", memberToken: m.token, workspaceId: m.workspaceId }).catch(reject);
+    });
+    if (!answer.ok) {
+      ws.close(1000, "bye");
+      finish(answer.error);
+      throw new Error(answer.error);
+    }
+    member = { member: answer.member, workspace: answer.workspace };
+  }
+
   const tunnelFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (closedWhy) throw new Error(closedWhy);
     const req = new Request(typeof input === "string" && input.startsWith("/") ? `http://relay${input}` : input, init);
@@ -402,5 +452,6 @@ export async function connectTunnel(opts: ConnectOptions): Promise<Tunnel> {
       finish("closed");
     },
     closed,
+    ...(member ? { member } : {}),
   };
 }

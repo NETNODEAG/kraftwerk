@@ -1,5 +1,5 @@
 import { getAgent } from "../agents.js";
-import type { Attachment, Author } from "./types.js";
+import type { Attachment, Author, ChatPerson } from "./types.js";
 import { getChannel, mentionTargets, type Channel } from "../channels.js";
 import { attachmentPath, writeMeta } from "./store.js";
 import { scopeContext } from "./context.js";
@@ -19,11 +19,11 @@ import { type ChatState, type Seat, dropSeat, emit, forgetFailedResume, newSeat 
  * parallel, never blocking the humans, who can keep posting. An agent that
  * is still busy is woken again when its turn ends, so nothing is lost.
  */
-export async function postChannelMessage(state: ChatState, slug: string, text: string, from?: string, attachments?: Attachment[]): Promise<{ error?: string }> {
+export async function postChannelMessage(state: ChatState, slug: string, text: string, from?: string, attachments?: Attachment[], by?: ChatPerson): Promise<{ error?: string }> {
   const channel = await getChannel(slug).catch(() => null);
   if (!channel) return { error: `channel "${slug}" has no definition under channels/` };
   const name = (from ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || "you";
-  emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}) }, { kind: "human", name });
+  emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}), ...(by ? { by } : {}) }, { kind: "human", name });
   void writeMeta(state.meta).catch(() => {});
   for (const target of mentionTargets(text, channel)) void wakeSeat(state, channel, target, 0);
   return {};

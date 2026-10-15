@@ -46,6 +46,7 @@ export const ROUTES = {
   "chats.setVibeable": ["POST", "/api/chats/:id/vibeable"],
   "chats.steer": ["POST", "/api/chats/:id/steer"],
   "chats.stopTask": ["POST", "/api/chats/:id/task-stop"],
+  "cloud.invite": ["POST", "/api/cloud/invite"],
   "cloud.set": ["POST", "/api/cloud"],
   "cloud.status": ["GET", "/api/cloud"],
   "cloud.sync": ["POST", "/api/cloud/sync"],

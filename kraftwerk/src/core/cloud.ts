@@ -29,13 +29,25 @@ import { CLOUD_DEFAULT_URL } from "../config.js";
  *
  *   /api/machines/register   {id, key, secret, name, handle, hostname?, platform?, version, interval?, workspaces}
  *                            → {ok, interval, claimCode|null, account|null}   (403: wrong secret)
- *   /api/machines/heartbeat  {id, secret, version?, workspaces?} → {ok, interval, account, claimCode}
+ *   /api/machines/heartbeat  {id, secret, version?, workspaces?, routines?} → {ok, interval, account, claimCode}
  *   /api/machines/goodbye    {id, secret}
  *   /api/machines/unlink     {id, secret} → {ok, claimCode}
  *
  * workspaces: [{id?: "ws_…", name, slug, root?}] — `root` only once the
  * machine is claimed (account set): an unclaimed machine tells the cloud no
  * paths.
+ *
+ * routines: [{workspaceId, routineId: "<agent>/<id>", name, lastRunAt|null, ok}]
+ * — the routines that ran here, private ones left out, at most 500; only
+ * while claimed, and only when it changed since the cloud last took it.
+ *
+ * Membership (remote members, no clone — they reach a workspace through the
+ * relay with a workspace-scoped member token, see server/members.ts):
+ *
+ *   /api/members/verify          {id, secret, token, workspaceId} → {email, handle, role: "owner"|"member"}
+ *                                (404: unknown or revoked token; 403: this machine does not host the workspace)
+ *   /api/workspaces/:id/invites  {id, secret, role?} → {code, url, role, expiresAt}
+ *                                (a claimed machine reporting the workspace; `kraftwerk invite`)
  */
 
 export interface CloudFile {
@@ -80,6 +92,32 @@ export interface HeartbeatResponse {
   account: string | null;
   claimCode: string | null;
 }
+
+/** What the cloud vouches for about a member token in one workspace. */
+export interface MemberVerdict {
+  email: string;
+  handle: string;
+  role: "owner" | "member";
+}
+
+export interface InviteResponse {
+  code: string;
+  url: string;
+  role: "owner" | "member";
+  expiresAt: string;
+}
+
+/** One routine that ran here, in the heartbeat (claimed machines only). */
+export interface RoutineReportEntry {
+  workspaceId: string;
+  routineId: string;
+  name: string;
+  lastRunAt: string | null;
+  ok: boolean;
+}
+
+/** The most routines one heartbeat carries. */
+export const MAX_REPORTED_ROUTINES = 500;
 
 export interface UnlinkResponse {
   ok: boolean;
@@ -187,7 +225,11 @@ export interface MachineHello {
 export const machineRegister = (base: string, creds: Credentials, hello: MachineHello, workspaces: MachineWorkspace[]): Promise<RegisterResponse> =>
   cloudPost<RegisterResponse>(base, "/api/machines/register", { ...creds, ...hello, workspaces }, { version: hello.version });
 
-export const machineHeartbeat = (base: string, creds: Credentials, extra: { version?: string; workspaces?: MachineWorkspace[] }): Promise<HeartbeatResponse> =>
+export const machineHeartbeat = (
+  base: string,
+  creds: Credentials,
+  extra: { version?: string; workspaces?: MachineWorkspace[]; routines?: RoutineReportEntry[] },
+): Promise<HeartbeatResponse> =>
   cloudPost<HeartbeatResponse>(base, "/api/machines/heartbeat", { id: creds.id, secret: creds.secret, ...extra }, { version: extra.version });
 
 export const machineGoodbye = (base: string, creds: Credentials, version?: string): Promise<unknown> =>
@@ -195,3 +237,9 @@ export const machineGoodbye = (base: string, creds: Credentials, version?: strin
 
 export const machineUnlink = (base: string, creds: Credentials, version?: string): Promise<UnlinkResponse> =>
   cloudPost<UnlinkResponse>(base, "/api/machines/unlink", { id: creds.id, secret: creds.secret }, { version });
+
+export const memberVerify = (base: string, creds: Credentials, token: string, workspaceId: string, version?: string): Promise<MemberVerdict> =>
+  cloudPost<MemberVerdict>(base, "/api/members/verify", { id: creds.id, secret: creds.secret, token, workspaceId }, { version });
+
+export const workspaceInvite = (base: string, creds: Credentials, workspaceId: string, role?: "owner" | "member", version?: string): Promise<InviteResponse> =>
+  cloudPost<InviteResponse>(base, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`, { id: creds.id, secret: creds.secret, ...(role ? { role } : {}) }, { version });

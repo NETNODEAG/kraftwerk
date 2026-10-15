@@ -21,6 +21,7 @@ import {
 } from "../client/relay.js";
 import { CLOUD_DEFAULT_URL } from "../config.js";
 import { dropPushToken } from "../core/devices.js";
+import { checkMemberSession, closeMemberSession, MEMBER_HEADER, openMemberSession } from "./members.js";
 import type { PushMessage } from "./push.js";
 
 /**
@@ -29,7 +30,14 @@ import type { PushMessage } from "./push.js";
  * it, and every request that comes through answered by this daemon's own
  * server — as a request from a network device, never as this machine. So a
  * client needs a paired device's token (or pairs with a code) exactly as on
- * the LAN.
+ * the LAN. Every request is marked `x-kraftwerk-relay: 1`, so a paired
+ * device over the relay counts as a remote caller (trust.ts).
+ *
+ * Or a channel is a remote member's: its first sealed message is
+ * {t:"auth", memberToken, workspaceId} (see members.ts for the answer and
+ * the cache). From then on every request of the channel carries the
+ * session's tag (members.ts MEMBER_HEADER) and is re-checked against the
+ * cache first; a membership the cloud revoked closes the channel.
  *
  * Machine settings live in ~/.kraftwerk/relay.json (owner-only): whether
  * the relay is on, which relay, the machine's key pair, and the secret the
@@ -164,6 +172,10 @@ interface Conn {
   inflight: Map<number, http.ClientRequest>;
   /** Opens and handles messages one after another: the channel counts them. */
   queue: Promise<unknown>;
+  /** The member session the channel opened with ({t:"auth"}), if any. */
+  member?: string;
+  /** A request went through: too late to authenticate as a member. */
+  used?: boolean;
 }
 
 export interface RelayLink {
@@ -208,6 +220,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
     const conn = conns.get(c);
     if (!conn) return;
     for (const r of conn.inflight.values()) r.destroy();
+    if (conn.member) closeMemberSession(conn.member);
     conns.delete(c);
     status.clients = conns.size;
   };
@@ -220,7 +233,9 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
   /** One tunnelled request, answered by this daemon's own server as a network device's request. */
   const forward = (c: string, conn: Conn, req: Extract<TunnelToDaemon, { t: "req" }>) => {
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers ?? {})) if (!DROP_REQUEST.has(k.toLowerCase())) headers[k.toLowerCase()] = String(v);
+    // x-kraftwerk-* are the daemon's own marks (relay, member session): never the client's to set.
+    for (const [k, v] of Object.entries(req.headers ?? {})) if (!DROP_REQUEST.has(k.toLowerCase()) && !k.toLowerCase().startsWith("x-kraftwerk-")) headers[k.toLowerCase()] = String(v);
+    if (conn.member) headers[MEMBER_HEADER] = conn.member;
     const clientHost = typeof req.headers?.host === "string" && /^[A-Za-z0-9.:[\]-]+$/.test(req.headers.host) ? req.headers.host : "relay.invalid";
     // Marked as forwarded: trust.ts never takes a forwarded request for this machine, whatever its peer address.
     Object.assign(headers, { host: `127.0.0.1:${opts.port}`, "x-forwarded-for": "relay", "x-forwarded-host": clientHost, "x-forwarded-proto": "https", "x-kraftwerk-relay": "1" });
@@ -277,8 +292,44 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
       dropConn(c);
       return;
     }
-    if (msg.t === "req" && typeof msg.id === "number") forward(c, conn, msg);
-    else if (msg.t === "abort") {
+    if (msg.t === "auth") {
+      if (conn.member || conn.used) {
+        await reply(c, conn, { t: "auth", ok: false, error: "authenticate once, before the first request" });
+        return;
+      }
+      const r = await openMemberSession(msg.memberToken, msg.workspaceId).catch((err: Error) => ({ ok: false as const, error: err.message }));
+      if (!conns.has(c)) {
+        if (r.ok) closeMemberSession(r.id);
+        return;
+      }
+      if (!r.ok) {
+        log(`relay: member refused — ${r.error}`);
+        await reply(c, conn, { t: "auth", ok: false, error: r.error });
+        send({ t: "close", c, reason: r.error.slice(0, 100) });
+        dropConn(c);
+        return;
+      }
+      conn.member = r.id;
+      await reply(c, conn, { t: "auth", ok: true, member: r.member, workspace: r.workspace });
+      return;
+    }
+    if (msg.t === "req" && typeof msg.id === "number") {
+      conn.used = true;
+      if (conn.member) {
+        // Past the cache's TTL this asks the cloud again; a revoked membership ends the channel.
+        const check = await checkMemberSession(conn.member);
+        if (!check.ok) {
+          await reply(c, conn, { t: "fail", id: msg.id, error: check.error });
+          if (check.ended) {
+            log(`relay: member session dropped — ${check.error}`);
+            send({ t: "close", c, reason: check.error.slice(0, 100) });
+            dropConn(c);
+          }
+          return;
+        }
+      }
+      forward(c, conn, msg);
+    } else if (msg.t === "abort") {
       const r = conn.inflight.get(msg.id);
       conn.inflight.delete(msg.id);
       r?.destroy();

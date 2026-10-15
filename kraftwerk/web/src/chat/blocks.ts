@@ -2,6 +2,7 @@
 import type {
   Attachment,
   Author,
+  ChatPerson,
   Compaction,
   ElicitationField,
   PlanEntry,
@@ -11,7 +12,8 @@ import type {
 
 /** Rendered thread block. */
 export type Block =
-  | { kind: "user"; text: string; steered?: boolean; attachments?: Attachment[]; key: string; from?: Author }
+  /** `by`: who sent it (a remote member carries an email). */
+  | { kind: "user"; text: string; steered?: boolean; attachments?: Attachment[]; key: string; from?: Author; by?: ChatPerson }
   | { kind: "agent"; text: string; key: string; from?: Author }
   | { kind: "thought"; text: string; key: string; from?: Author }
   | { kind: "tool"; callId: string; title: string; toolKind?: string; status?: string; compaction?: Compaction; key: string; from?: Author }
@@ -66,7 +68,7 @@ export function toBlocks(events: StoredChatEvent[]): Block[] {
     switch (ev.type) {
       case "user_message":
         lastUserText = ev.text;
-        blocks.push({ kind: "user", text: ev.text, steered: ev.steered, attachments: ev.attachments, key: `e${ev.seq}`, from: ev.from });
+        blocks.push({ kind: "user", text: ev.text, steered: ev.steered, attachments: ev.attachments, key: `e${ev.seq}`, from: ev.from, by: ev.by });
         break;
       case "text":
         if (last?.kind === "agent" && sameAuthor(last.from, ev.from)) last.text += ev.text;

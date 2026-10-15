@@ -172,6 +172,12 @@ function BlockView({ b, chatId, nested }: { b: Block; chatId: string; nested?: b
           )}
         >
           {b.steered && <Eyebrow className="mb-0.5 block text-[10px] opacity-70">steered in</Eyebrow>}
+          {/* A remote member's message says who sent it; this machine's own stay as they were. */}
+          {b.by?.email && (
+            <Eyebrow className="mb-0.5 block text-[10px] normal-case opacity-70">
+              <span title={b.by.email}>@{b.by.handle}</span>
+            </Eyebrow>
+          )}
           {b.text}
           {b.attachments && b.attachments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">

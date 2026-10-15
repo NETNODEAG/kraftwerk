@@ -29,7 +29,12 @@ import { gitCommit, repoRootFor } from "./git.js";
  * runs_on is exactly this machine's identity. No runs_on, no runner — an
  * unassigned routine fires nowhere until someone adopts it ("run these
  * here"), which writes runs_on and commits routines.yml so the other clones
- * learn who runs it. `private:` is stored and round-tripped; nothing reads it yet.
+ * learn who runs it.
+ *
+ * `private: true` keeps a routine's runs to this machine: each run's chat is
+ * marked private when it is created (ChatMeta.private), and remote callers —
+ * member sessions and paired devices over the relay — never get it listed;
+ * the machine's cloud report (routineReport) leaves the routine out too.
  */
 
 export interface Routine {
@@ -41,7 +46,7 @@ export interface Routine {
   enabled: boolean;
   /** The one identity (`handle@machine`) that fires it. Absent: unassigned, fires nowhere. */
   runsOn?: string;
-  /** Stored as given; no behaviour yet. */
+  /** Its runs' chats stay off remote callers' listings, and out of the cloud's report. */
   private?: boolean;
 }
 
@@ -346,6 +351,7 @@ async function fireRoutine(slug: string, routine: Routine): Promise<string> {
     agent: def.harness,
     scope: { kind: "agent", slug: slug, routine: routine.id },
     title: `⏰ ${routine.name}`,
+    ...(routine.private ? { private: true } : {}),
   });
   const { error } = await postMessage(meta.id, routine.prompt);
   if (error) throw new Error(error);
@@ -380,6 +386,39 @@ export async function runRoutineNow(slug: string, id: string): Promise<{ chatId:
     void notifyRoutineFailed(slug, routine, (err as Error).message);
     throw err;
   }
+}
+
+/** One routine that ran on this machine, as the machine's cloud heartbeat reports it (server/cloud.ts). */
+export interface RoutineRan {
+  /** `<agent>/<routine id>`: the key in routines-state.json. */
+  routineId: string;
+  name: string;
+  /** Null when it never started (only failed to). */
+  lastRunAt: string | null;
+  /** False when its last attempt could not start (lastError). */
+  ok: boolean;
+}
+
+/**
+ * The current workspace's routines that ran (or tried to) on this machine,
+ * from routines-state.json and the listings; private routines left out.
+ */
+export async function routineReport(): Promise<RoutineRan[]> {
+  const state = await readState();
+  const out: RoutineRan[] = [];
+  const bySlug = new Map<string, Routine[]>();
+  for (const [key, s] of Object.entries(state)) {
+    if (!s.lastRunAt && !s.lastError) continue;
+    const cut = key.indexOf("/");
+    if (cut <= 0) continue;
+    const slug = key.slice(0, cut);
+    const id = key.slice(cut + 1);
+    if (!bySlug.has(slug)) bySlug.set(slug, await listRoutines(slug).catch(() => []));
+    const r = bySlug.get(slug)!.find((x) => x.id === id);
+    if (r?.private) continue;
+    out.push({ routineId: key, name: r?.name ?? id, lastRunAt: s.lastRunAt ?? null, ok: !s.lastError });
+  }
+  return out.sort((a, b) => a.routineId.localeCompare(b.routineId));
 }
 
 /* ---------- scheduler ---------- */

@@ -23,6 +23,7 @@ import { registerRemoteCommand } from "./remote.js";
 import { registerJournalCommands } from "./journal.js";
 import { registerWhoamiCommand } from "./whoami.js";
 import { registerCloudCommands } from "./cloud.js";
+import { registerInviteCommand } from "./invite.js";
 import { applyDotenv } from "../dotenv.js";
 import { resolveWorkspace } from "../config.js";
 import { registerRoutineCommands } from "./routines.js";
@@ -50,6 +51,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk daemon                  the machine's kraftwerk: every open workspace at <slug>.localhost
  *   kraftwerk cloud [on|off|status]   this machine in the kraftwerk cloud (the daemon registers it)
  *   kraftwerk login / logout          claim this machine into your cloud account (in the browser) / release it
+ *   kraftwerk invite [--role owner]   invite a remote member into this workspace (join code + link, via the daemon)
  *   kraftwerk doctor [--fix]          preflight: harness CLIs, docker, workflows, env, routine runners
  *   kraftwerk validate [paths...]     validate without executing
  *
@@ -341,6 +343,7 @@ registerRemoteCommand(program);
 registerJournalCommands(program);
 registerWhoamiCommand(program);
 registerCloudCommands(program);
+registerInviteCommand(program);
 
 program
   .command("ui")

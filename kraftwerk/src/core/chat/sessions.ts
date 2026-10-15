@@ -5,7 +5,8 @@ import { getAgent } from "../agents.js";
 import { resolveVibeable } from "../vibeables.js";
 import { deleteAgentSession, listAgentSessions } from "./acp.js";
 import { chatHref, pushNotification } from "../notifications.js";
-import type { Attachment, ChatAgentId, ChatMeta, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
+import { readIdentity } from "../identity.js";
+import type { Attachment, ChatAgentId, ChatMeta, ChatPerson, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
 import type { PromptFile } from "./backend.js";
 import { type Channel } from "../channels.js";
 import { moveToTrash } from "../trash.js";
@@ -25,6 +26,15 @@ export { disposeAllBackends, disposeWorkspaceBackends } from "./state.js";
  */
 
 /* ---------- public API (used by server.ts) ---------- */
+
+/**
+ * This machine's person: its identity handle (identity.ts). What a chat or
+ * message is signed with when nobody else is named — local use, a paired
+ * device, a routine's run. A member session names its member instead.
+ */
+export async function localPerson(): Promise<ChatPerson> {
+  return { handle: (await readIdentity()).handle };
+}
 
 /** Where a chat's agent runs when no vibeable is open: the run folder for run chats, else the project root. */
 const defaultCwd = (scope: ChatScope): string => (scope.kind === "run" ? safeRunDir(scope.runId) : workspaceRoot());
@@ -50,9 +60,14 @@ export async function createChat(opts: {
   resume?: string;
   /** The project an agent's chat works in (meta.project); the caller checks that it exists. */
   project?: string;
+  /** Who starts it; default this machine's person. */
+  author?: ChatPerson;
+  /** A private routine's run: hidden from remote callers (meta.private). */
+  private?: boolean;
 }): Promise<ChatMeta> {
   const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
+  const author = opts.author ?? (await localPerson());
   const meta: ChatMeta = {
     id: newChatId(),
     agent: opts.agent,
@@ -61,6 +76,8 @@ export async function createChat(opts: {
     scope: opts.scope,
     ...(opts.project && opts.scope.kind === "agent" ? { project: opts.project } : {}),
     ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
+    author,
+    ...(opts.private ? { private: true } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -159,12 +176,13 @@ const promptFiles = (id: string, attachments: Attachment[] = []): PromptFile[] =
 export async function postMessage(
   id: string,
   text: string,
-  opts: { from?: string; attachments?: Attachment[] } = {}
+  opts: { from?: string; attachments?: Attachment[]; by?: ChatPerson } = {}
 ): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   const attachments = opts.attachments?.length ? opts.attachments : undefined;
-  if (state.meta.scope.kind === "channel") return postChannelMessage(state, state.meta.scope.slug, text, opts.from, attachments);
+  const by = opts.by ?? (await localPerson());
+  if (state.meta.scope.kind === "channel") return postChannelMessage(state, state.meta.scope.slug, text, opts.from, attachments, by);
   const seat = mainSeat(state);
   if (seat.busy) return { error: "agent is still working — wait for the turn to finish" };
 
@@ -175,7 +193,7 @@ export async function postMessage(
     state.meta.title = text.replace(/\s+/g, " ").trim().slice(0, 80);
     void writeMeta(state.meta).catch(() => {});
   }
-  const turnStart = emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}) }).seq;
+  const turnStart = emit(state, { type: "user_message", text, ...(attachments ? { attachments } : {}), by }).seq;
 
   // The turn runs in the background; the HTTP request returns immediately
   // and the browser follows along on the SSE stream.
@@ -356,7 +374,7 @@ export async function setChatVibeable(
  * once. The source's process is (re)spawned if needed; the fork's own
  * process starts with its first message and resumes the forked id.
  */
-export async function forkChat(id: string): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
+export async function forkChat(id: string, by?: ChatPerson): Promise<{ error?: string; status?: number; meta?: ChatMeta }> {
   const state = await loadState(id);
   if (!state) return { error: "not found", status: 404 };
   const { meta } = state;
@@ -380,6 +398,7 @@ export async function forkChat(id: string): Promise<{ error?: string; status?: n
     id: newChatId(),
     title: meta.title ? `${meta.title} (fork)` : "",
     sessions: { [MAIN]: forked },
+    author: by ?? (await localPerson()),
     createdAt: now,
     updatedAt: now,
   };
@@ -421,20 +440,21 @@ export async function answerElicitation(id: string, requestId: string, answer: E
  * for it to end. Shown in the thread like any message. When no turn is
  * running (or the agent cannot take steering) it goes the ordinary way.
  */
-export async function steerChat(id: string, text: string, attachments?: Attachment[]): Promise<{ error?: string }> {
+export async function steerChat(id: string, text: string, attachments?: Attachment[], by?: ChatPerson): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
   if (state.meta.scope.kind === "channel") return { error: "channels take messages, not steering — @mention the agent" };
   const seat = mainSeat(state);
   const files = attachments?.length ? attachments : undefined;
-  if (!seat.busy || !seat.backend?.steer) return postMessage(id, text, { attachments: files });
+  const person = by ?? (await localPerson());
+  if (!seat.busy || !seat.backend?.steer) return postMessage(id, text, { attachments: files, by: person });
   try {
     const outcome = await seat.backend.steer(text, promptFiles(id, files));
-    if (outcome === "promptRequired") return postMessage(id, text, { attachments: files });
+    if (outcome === "promptRequired") return postMessage(id, text, { attachments: files, by: person });
   } catch (err) {
     return { error: (err as Error).message };
   }
-  emit(state, { type: "user_message", text, steered: true, ...(files ? { attachments: files } : {}) });
+  emit(state, { type: "user_message", text, steered: true, ...(files ? { attachments: files } : {}), by: person });
   void writeMeta(state.meta).catch(() => {});
   return {};
 }

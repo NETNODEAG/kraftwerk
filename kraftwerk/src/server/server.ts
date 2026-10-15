@@ -333,6 +333,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       if (target.slug !== undefined && !open) return json(res, { error: `no workspace "${target.slug}" here` }, 404);
       const { url } = target;
       const trust = await trustOf(req, url, trustOpts);
+      // A member session (members.ts) reaches its one workspace and nothing else: not another, not the hub page.
+      if (trust.kind === "member" && open?.slug !== trust.slug) {
+        return json(res, { error: `a member session reaches only its workspace — /w/${trust.slug}/…` }, 403);
+      }
       const run = <T>(fn: () => T): T => runInHub(hub, () => (open ? open.ws.run(fn) : fn()));
       if (url.pathname.startsWith("/api/")) {
         const method = req.method ?? "GET";
@@ -366,6 +370,8 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const { url } = target;
       const trust = await trustOf(req, url, trustOpts, true);
       if (trust.kind === "none") return void socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n");
+      // A socket may name any workspace per message; a member session's scope is per request, so it gets none.
+      if (trust.kind === "member") return void socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
       if (url.pathname !== "/api/ws") {
         if (!open) return void socket.destroy();
         // The dev server's HMR socket: what it sees is the path without the workspace prefix.
