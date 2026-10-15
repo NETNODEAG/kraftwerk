@@ -20,6 +20,7 @@ import {
   type TunnelToDaemon,
 } from "../client/relay.js";
 import { CLOUD_DEFAULT_URL } from "../config.js";
+import { machineCloud } from "../core/cloud.js";
 import { dropPushToken } from "../core/devices.js";
 import { checkMemberSession, closeMemberSession, MEMBER_HEADER, openMemberSession } from "./members.js";
 import type { PushMessage } from "./push.js";
@@ -97,14 +98,22 @@ async function writeRelaySettings(s: RelaySettings): Promise<void> {
   await fs.rename(tmp, file);
 }
 
-/** Turn the relay on or off (creating the machine's key on first use); `url` switches relays. */
+/**
+ * Turn the relay on or off (creating the machine's key on first use).
+ * `url` switches relays explicitly and sticks across off/on. Without it,
+ * turning ON re-derives the URL only while the stored one is the untouched
+ * default — a machine whose cloud is elsewhere (env, cloud.json) then
+ * relays through that cloud, while an explicit `--url` choice is kept.
+ */
 export async function setRelay(enabled: boolean, url?: string): Promise<RelaySettings> {
   let s = await readRelaySettings();
+  const follow = !url && enabled && (!s || s.url === CLOUD_DEFAULT_URL);
+  const effective = url ?? (follow ? (await machineCloud()).url : undefined);
   if (!s) {
     const pair = await exportKeyPair(await generateKeyPair());
-    s = { enabled, url: url || CLOUD_DEFAULT_URL, ...pair, secret: randomBytes(32).toString("base64url") };
+    s = { enabled, url: effective || CLOUD_DEFAULT_URL, ...pair, secret: randomBytes(32).toString("base64url") };
   }
-  s = { ...s, enabled, ...(url ? { url: url.replace(/\/+$/, "") } : {}) };
+  s = { ...s, enabled, ...(effective ? { url: effective.replace(/\/+$/, "") } : {}) };
   await writeRelaySettings(s);
   return s;
 }
@@ -125,7 +134,7 @@ export async function ensureRelayKeys(): Promise<RelaySettings> {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
   const pair = await exportKeyPair(await generateKeyPair());
-  const fresh: RelaySettings = { enabled: false, url: CLOUD_DEFAULT_URL, ...pair, secret: randomBytes(32).toString("base64url") };
+  const fresh: RelaySettings = { enabled: false, url: (await machineCloud()).url, ...pair, secret: randomBytes(32).toString("base64url") };
   await writeRelaySettings(fresh);
   return fresh;
 }

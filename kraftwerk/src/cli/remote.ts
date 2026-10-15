@@ -63,7 +63,7 @@ export function registerRemoteCommand(program: Command): void {
   remote
     .command("on")
     .description("Turn remote access on: the daemon connects to the relay")
-    .option("--url <url>", "The cloud whose relay to use (default: the kraftwerk cloud)")
+    .option("--url <url>", "The cloud whose relay to use (default: this machine's cloud — env, cloud.json, else the kraftwerk cloud)")
     .action(async (opts: { url?: string }) => {
       if (opts.url && !/^https?:\/\//.test(opts.url)) {
         console.error(chalk.red("✖ --url is the cloud's address, e.g. https://srv.kraftwerk-cloud.netnode.cloud"));
