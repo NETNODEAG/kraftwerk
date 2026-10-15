@@ -119,7 +119,12 @@ describe("members: a remote member reaches one workspace through the relay", { t
     assert.equal(who.trust, "member");
     assert.equal(who.member.handle, "mia");
     assert.equal(who.workspace.slug, "alpha");
-    assert.equal((await mia.fetch("/w/alpha/api/meta")).status, 200, "its workspace answers");
+    const meta = await mia.fetch("/w/alpha/api/meta");
+    assert.equal(meta.status, 200, "its workspace answers");
+    const metaBody = (await meta.json()) as { workspaceRoot: string; workspaceRootLabel: string; switcher: unknown[] };
+    assert.equal(metaBody.workspaceRoot, "", "no host paths for a member");
+    assert.equal(metaBody.workspaceRootLabel, "");
+    assert.deepEqual(metaBody.switcher, [], "no other workspaces for a member");
     assert.equal((await mia.fetch("/w/alpha/api/chats")).status, 200);
 
     // Everything else: another workspace, the machine's own routes, the hub page, settings.

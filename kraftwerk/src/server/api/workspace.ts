@@ -67,8 +67,10 @@ export const workspaceRoutes = [
     const ws = await resolveWorkspace(workspaceRoot()).catch(() => null);
     const name = ws?.config.name ?? (ws ? path.basename(ws.root) : "");
     const root = ws?.root ?? workspaceRoot();
-    const manual = ws?.config.switcher ?? [];
-    const discovered = c.query.get("probe") === "1" ? [] : placeInHub(await discoverWorkspaces());
+    // A member sees their workspace, not the host machine: no local paths, no other workspaces.
+    const member = c.trust.kind === "member";
+    const manual = member ? [] : (ws?.config.switcher ?? []);
+    const discovered = member || c.query.get("probe") === "1" ? [] : placeInHub(await discoverWorkspaces());
     // Manual switcher entries keep their configured name/icon; discovered
     // workspaces that duplicate one (same url, running) only contribute
     // the live flag. Stopped workspaces never collide — they carry a root,
@@ -86,8 +88,8 @@ export const workspaceRoutes = [
       workspaceIcon: ws?.config.icon ?? "",
       workspaceColor: ws?.config.color ?? "",
       workspaceNamed: !!ws?.config.name,
-      workspaceRoot: root,
-      workspaceRootLabel: tildify(root),
+      workspaceRoot: member ? "" : root,
+      workspaceRootLabel: member ? "" : tildify(root),
     };
     return {
       version: await getPkgVersion(),
