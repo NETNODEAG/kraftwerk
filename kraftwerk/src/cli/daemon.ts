@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import type { Command } from "commander";
-import { DAEMON_PORT, findDaemon, lastOpenRoots, setDaemonVersion, writeDaemonFile } from "../core/daemon.js";
+import { DAEMON_PORT, daemonState, lastOpenRoots, setDaemonVersion, writeDaemonFile } from "../core/daemon.js";
 import { tildify } from "../core/instances.js";
 import { networkUrls } from "../server/bind.js";
 import { startPushWatcher } from "../server/push.js";
@@ -23,9 +23,10 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
   if (opts.lan) process.env.KRAFTWERK_UI_HOST ||= "0.0.0.0";
   if (process.env.KRAFTWERK_UI_SUPERVISED !== "1") return supervise(["daemon", ...(opts.port ? ["--port", opts.port] : [])], "the daemon");
 
-  const running = await findDaemon();
-  if (running && running.pid !== process.pid) {
-    console.error(chalk.red(`✖ a kraftwerk daemon already runs (pid ${running.pid}, port ${running.port})`));
+  // A busy one counts too: a second daemon would only crash on its port.
+  const running = await daemonState();
+  if (running.state !== "stopped" && running.pid !== process.pid) {
+    console.error(chalk.red(`✖ a kraftwerk daemon already runs (pid ${running.pid}, port ${running.port}${running.state === "busy" ? ", busy right now" : ""})`));
     process.exit(1);
   }
   const port = Number(opts.port ?? process.env.KRAFTWERK_DAEMON_PORT ?? DAEMON_PORT);

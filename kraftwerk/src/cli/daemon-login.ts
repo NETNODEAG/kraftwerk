@@ -3,7 +3,7 @@ import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import chalk from "chalk";
-import { daemonLogPath, findDaemon } from "../core/daemon.js";
+import { daemonLogPath, daemonState } from "../core/daemon.js";
 import { selfCommand } from "../core/self-command.js";
 import { tildify } from "../core/instances.js";
 
@@ -79,8 +79,8 @@ export async function installDaemon(opts: { port?: string; lan?: boolean }): Pro
   // An older version of the item is replaced: unload it first (an error just means it was not loaded).
   spawnSync(launchctl(), ["bootout", `${domain()}/${LAUNCH_LABEL}`], { stdio: "ignore" });
 
-  const running = await findDaemon();
-  if (running) {
+  const running = await daemonState();
+  if (running.state !== "stopped") {
     // Loading now would start a second daemon, which refuses to run. launchd loads the file at the next login.
     console.log(`${chalk.green("✔")} login item installed: ${chalk.dim(tildify(file))}`);
     console.log(chalk.dim(`  a daemon already runs (pid ${running.pid}); from the next login on, launchd starts it`));

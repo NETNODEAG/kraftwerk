@@ -9,7 +9,7 @@ import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
 import { legacyFindings, versionLt } from "./doctor-legacy.js";
 import { listDevices } from "../core/devices.js";
 import { slugClashes } from "../core/instances.js";
-import { findDaemon } from "../core/daemon.js";
+import { daemonState } from "../core/daemon.js";
 import { daemonLoginItem } from "./daemon-login.js";
 import { readRelaySettings } from "../server/relay.js";
 
@@ -219,11 +219,12 @@ export async function runDoctor(cwd: string): Promise<void> {
   report("info", devices.length ? `${devices.length} paired device(s)` : "no paired devices", devices.length ? devices.map((d) => d.name).join(", ") : "a phone or another computer can use kraftwerk once paired: `kraftwerk ui --lan`, then `kraftwerk devices pair`");
 
   // The daemon: whether one runs, and whether it starts at login.
-  const daemon = await findDaemon();
+  const state = await daemonState();
+  const daemon = state.state === "stopped" ? null : state;
   const loginItem = daemonLoginItem();
   report(
     "info",
-    daemon ? `kraftwerk daemon running on :${daemon.port}` : "no kraftwerk daemon running",
+    !daemon ? "no kraftwerk daemon running" : daemon.state === "busy" ? `kraftwerk daemon running on :${daemon.port}, but slow to answer (busy)` : `kraftwerk daemon running on :${daemon.port}`,
     loginItem
       ? daemon
         ? "starts at login · `kraftwerk daemon status` for more"

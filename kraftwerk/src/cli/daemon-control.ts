@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, promises as fs } from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
-import { daemonLogPath, findDaemon, readDaemonFile } from "../core/daemon.js";
+import { daemonLogPath, daemonState, findDaemon, readDaemonFile } from "../core/daemon.js";
 import { tildify } from "../core/instances.js";
 import { selfCommand } from "../core/self-command.js";
 import { getPkgVersion } from "../server/version.js";
@@ -42,7 +42,7 @@ const ago = (iso: string | undefined): string => {
 
 async function getJson<T>(port: number, p: string): Promise<T | null> {
   try {
-    const r = await fetch(`http://127.0.0.1:${port}${p}`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`http://127.0.0.1:${port}${p}`, { signal: AbortSignal.timeout(3000) });
     return r.ok ? ((await r.json()) as T) : null;
   } catch {
     return null;
@@ -62,6 +62,8 @@ async function tail(n: number): Promise<string[]> {
 
 interface Status {
   running: boolean;
+  /** Running, but it did not answer in time: its process lives and holds its port (agents at work, a loaded machine). */
+  busy?: boolean;
   pid?: number;
   port?: number;
   version?: string;
@@ -74,9 +76,13 @@ interface Status {
 }
 
 async function status(): Promise<Status> {
-  const [running, rec, installed] = await Promise.all([findDaemon(), readDaemonFile(), getPkgVersion()]);
+  const [found, rec, installed] = await Promise.all([daemonState(), readDaemonFile(), getPkgVersion()]);
   const base = { installed, loginItem: daemonLoginItem() !== null, log: daemonLogPath() };
-  if (!running) return { running: false, ...base };
+  if (found.state === "stopped") return { running: false, ...base };
+  const running = found;
+  if (found.state === "busy") {
+    return { running: true, busy: true, ...base, pid: found.pid, port: found.port, ...(rec?.version ? { version: rec.version } : {}), ...(rec?.startedAt ? { startedAt: rec.startedAt } : {}) };
+  }
   const [hub, relay] = await Promise.all([
     getJson<{ workspaces?: Array<{ slug: string; name: string; url: string }> }>(running.port, "/api/hub"),
     getJson<{ enabled?: boolean; state?: string; url?: string; clients?: number }>(running.port, "/api/devices/relay"),
@@ -99,7 +105,11 @@ export async function daemonStatus(opts: { json?: boolean }): Promise<void> {
     console.log(JSON.stringify(s, null, 2));
     process.exit(s.running ? 0 : NOT_RUNNING);
   }
-  if (s.running) {
+  if (s.busy) {
+    const up = ago(s.startedAt);
+    console.log(`${chalk.yellow("●")} kraftwerk daemon ${chalk.yellow("running, but slow to answer")} ${chalk.dim(`pid ${s.pid}, port ${s.port}${up ? `, up ${up}` : ""}${s.version ? `, ${s.version}` : ""}`)}`);
+    console.log(chalk.dim("  its process lives and holds its port — busy (agents at work, a loaded machine); ask again in a moment"));
+  } else if (s.running) {
     const up = ago(s.startedAt);
     const behind = s.version && s.version !== s.installed ? chalk.yellow(` — ${s.installed} is installed: \`kraftwerk daemon restart\``) : "";
     console.log(`${chalk.green("●")} kraftwerk daemon ${chalk.green("running")} ${chalk.dim(`pid ${s.pid}${up ? `, up ${up}` : ""}${s.version ? `, ${s.version}` : ""}`)}${behind}`);
@@ -147,9 +157,10 @@ async function launch(port: string | undefined): Promise<"login item" | "backgro
 }
 
 export async function startDaemon(opts: { port?: string }): Promise<void> {
-  const running = await findDaemon();
-  if (running) {
-    console.log(`${chalk.green("✔")} the daemon already runs ${chalk.dim(`(pid ${running.pid}, http://localhost:${running.port})`)}`);
+  const running = await daemonState();
+  if (running.state !== "stopped") {
+    const busy = running.state === "busy" ? ", busy — slow to answer right now" : "";
+    console.log(`${chalk.green("✔")} the daemon already runs ${chalk.dim(`(pid ${running.pid}, http://localhost:${running.port}${busy})`)}`);
     return;
   }
   const how = await launch(opts.port);
@@ -166,8 +177,9 @@ export async function startDaemon(opts: { port?: string }): Promise<void> {
 
 /** Stop it: its supervisor first (else it would start the daemon again), then wait until it is gone. */
 async function stopRunning(): Promise<boolean> {
-  const [running, rec] = await Promise.all([findDaemon(), readDaemonFile()]);
-  if (!running) return false;
+  const [found, rec] = await Promise.all([daemonState(), readDaemonFile()]);
+  if (found.state === "stopped") return false;
+  const running = found;
   const target = rec?.pid === running.pid && alive(rec.supervisor) ? rec.supervisor! : running.pid;
   process.kill(target, "SIGTERM");
   const gone = await until(async () => !alive(running.pid) && !alive(target) && (await findDaemon()) === null, 20_000);
@@ -189,8 +201,14 @@ export async function stopDaemon(): Promise<void> {
 
 /** Restart: the running daemon relaunches itself with the current install (its supervisor stays); none running — start one. */
 export async function restartDaemon(opts: { port?: string }): Promise<void> {
-  const running = await findDaemon();
-  if (!running) return startDaemon(opts);
+  const found = await daemonState();
+  if (found.state === "stopped") return startDaemon(opts);
+  if (found.state === "busy") {
+    // It does not answer, so it cannot be asked to relaunch: stopping it is the only way (its agents are interrupted).
+    await stopRunning();
+    return startDaemon(opts);
+  }
+  const running = found;
   // The restart route lives in every workspace (the daemon's root answers machine routes only); any open one will do.
   const hub = await getJson<{ workspaces?: Array<{ slug: string }> }>(running.port, "/api/hub");
   const slug = hub?.workspaces?.[0]?.slug;

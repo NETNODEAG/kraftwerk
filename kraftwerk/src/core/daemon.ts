@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -66,22 +67,63 @@ export async function readDaemonFile(): Promise<DaemonFile | null> {
   }
 }
 
+/**
+ * How long a daemon may take to answer before it counts as not there. A
+ * daemon under load (agents at work, a busy machine) can take a second or
+ * two; 0.8 s once read such a one as stopped.
+ */
+const ANSWER_MS = 3000;
+
 /** The running daemon (its file, and a hub that answers on its port), or null. */
-export async function findDaemon(): Promise<{ pid: number; port: number } | null> {
-  let rec: DaemonFile;
-  try {
-    rec = JSON.parse(await fs.readFile(daemonFile(), "utf8")) as DaemonFile;
-  } catch {
-    return null;
-  }
+export async function findDaemon(timeoutMs = ANSWER_MS): Promise<{ pid: number; port: number } | null> {
+  const rec = await readDaemonFile();
+  if (!rec) return null;
   try {
     // Every kraftwerk server answers /api/hub; only the daemon says it is one (a standalone `kraftwerk ui` may sit on that port now).
-    const r = await fetch(`http://127.0.0.1:${rec.port}/api/hub`, { signal: AbortSignal.timeout(800) });
+    const r = await fetch(`http://127.0.0.1:${rec.port}/api/hub`, { signal: AbortSignal.timeout(timeoutMs) });
     const body = r.ok ? ((await r.json()) as { daemon?: unknown }) : null;
     return body?.daemon === true ? { pid: rec.pid, port: rec.port } : null;
   } catch {
     return null;
   }
+}
+
+const pidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: it exists, it is just not ours to signal.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+const portTaken = (port: number): Promise<boolean> =>
+  new Promise((resolve) => {
+    const sock = net.connect({ host: "127.0.0.1", port });
+    const done = (taken: boolean) => {
+      sock.destroy();
+      resolve(taken);
+    };
+    sock.setTimeout(1000, () => done(true)); // accepted nothing yet, refused nothing either: something holds it
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+
+export type DaemonState = { state: "running" | "busy"; pid: number; port: number } | { state: "stopped" };
+
+/**
+ * Whether a daemon runs, telling a slow one from a stopped one: "busy" is a
+ * daemon whose process lives and whose port is taken but that did not answer
+ * in time. A busy daemon is never "stopped" — starting another would only
+ * crash on the taken port, and restarting it would interrupt its agents.
+ */
+export async function daemonState(timeoutMs = ANSWER_MS): Promise<DaemonState> {
+  const found = await findDaemon(timeoutMs);
+  if (found) return { state: "running", ...found };
+  const rec = await readDaemonFile();
+  if (rec && pidAlive(rec.pid) && (await portTaken(rec.port))) return { state: "busy", pid: rec.pid, port: rec.port };
+  return { state: "stopped" };
 }
 
 /** Ask the daemon to open or close a workspace (this machine's request: local trust). */
