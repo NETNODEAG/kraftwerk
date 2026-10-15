@@ -120,6 +120,8 @@ interface CloudMeta {
 function CloudPanel() {
   const [cloud, setCloud] = useState<CloudMeta | null>(null);
   const [copied, setCopied] = useState(false);
+  // While the claim page is open in another tab, sync every 2 s so the claim lands here in seconds, not a heartbeat.
+  const [waiting, setWaiting] = useState(false);
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -134,6 +136,24 @@ function CloudPanel() {
       clearInterval(t);
     };
   }, []);
+  useEffect(() => {
+    if (!waiting) return;
+    if (cloud?.account) return void setWaiting(false);
+    const t = setInterval(() => {
+      api
+        .call("cloud.sync")
+        .then((s) => {
+          setCloud((c) => (c ? { ...c, ...s } : c));
+          if ((s as CloudMeta).account) setWaiting(false);
+        })
+        .catch(() => {});
+    }, 2_000);
+    const stop = setTimeout(() => setWaiting(false), 600_000);
+    return () => {
+      clearInterval(t);
+      clearTimeout(stop);
+    };
+  }, [waiting, cloud?.account]);
   if (!cloud) return null;
   const word = cloud.state === "connected" ? (cloud.account ? "claimed" : "unclaimed") : cloud.state;
   const tone = cloud.state === "connected" && cloud.account ? "ok" : cloud.state === "error" ? "bad" : "neutral";
@@ -166,10 +186,28 @@ function CloudPanel() {
           </Hint>
         )}
         {cloud.state === "connected" && cloud.account && (
-          <Hint>
-            This machine{cloud.machine ? <> (<code>{cloud.machine}</code>)</> : null} is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
-            Last heartbeat {cloud.lastSeen ? new Date(cloud.lastSeen).toLocaleTimeString() : "pending"}.
-          </Hint>
+          <>
+            <Hint>
+              This machine{cloud.machine ? <> (<code>{cloud.machine}</code>)</> : null} is registered at <a href={cloud.url} target="_blank" rel="noreferrer">{cloud.url}</a> under <strong>{cloud.account}</strong>.
+              Last heartbeat {cloud.lastSeen ? new Date(cloud.lastSeen).toLocaleTimeString() : "pending"}.
+            </Hint>
+            <div>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="logout"
+                onClick={() => {
+                  if (!confirm(`Sign this machine out of ${cloud.account}? It stays registered, unclaimed, and sends no folder paths until claimed again.`)) return;
+                  void api
+                    .call("cloud.unlink")
+                    .then((s) => setCloud((c) => (c ? { ...c, ...s, account: null } : c)))
+                    .catch(() => {});
+                }}
+              >
+                sign out
+              </Button>
+            </div>
+          </>
         )}
         {cloud.state === "connected" && !cloud.account && (
           <>
@@ -193,10 +231,11 @@ function CloudPanel() {
                 </Button>
               )}
               {cloud.claimUrl && (
-                <a className={buttonClass("primary", "sm")} href={cloud.claimUrl} target="_blank" rel="noreferrer">
-                  <Icon name="link" className="ms-sm" /> claim in the cloud
+                <a className={buttonClass("primary", "sm")} href={cloud.claimUrl} target="_blank" rel="noreferrer" onClick={() => setWaiting(true)}>
+                  <Icon name="link" className="ms-sm" /> sign in &amp; claim
                 </a>
               )}
+              {waiting && <span className="text-fg-dim text-sm">waiting for the claim …</span>}
             </div>
             <Hint>
               A claim made there reaches this machine with the next heartbeat (every {cloud.interval ?? 60}s). To keep this workspace out of the
