@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
 import { appendJournal, journalExcerpt } from "../../src/core/journal.js";
@@ -21,7 +21,8 @@ describe("agent journal and status API", () => {
   const headers = () => ({ "content-type": "application/json", origin });
   const send = (p: string, method: string, body?: unknown) =>
     fetch(srv.url + p, { method, headers: headers(), body: body === undefined ? undefined : JSON.stringify(body) });
-  const today = new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const journal = async (): Promise<string> => ((await (await fetch(srv.url + "/api/agents/lisa/journal")).json()) as { journal: string }).journal;
   const status = async (): Promise<Record<string, AgentStatus>> => (await fetch(srv.url + "/api/agent-status")).json();
 
@@ -50,7 +51,7 @@ describe("agent journal and status API", () => {
     assert.equal(r.status, 200, await r.text());
     const text = await journal();
     assert.match(text, /^# Lisa's journal\n/);
-    assert.match(text, new RegExp(`## ${today}\\n\\* Lukas prefers short answers in German \\(human:user\\)`));
+    assert.match(text, new RegExp(`## ${today}\\n\\* \\d\\d:\\d\\d Lukas prefers short answers in German \\(human:user\\)`));
     assert.equal(await readFile(path.join(fx.root, "agents/lisa/journal.md"), "utf8"), text);
   });
 
@@ -58,9 +59,23 @@ describe("agent journal and status API", () => {
     await appendJournal("lisa", "send the competitor summary on Friday", { kind: "promised", actor: "lisa/claude" });
     const text = await journal();
     const lines = text.split("\n").filter((l) => l.startsWith("* "));
-    assert.equal(lines[0], "* **Promised**: send the competitor summary on Friday");
+    assert.match(lines[0], /^\* \d\d:\d\d \*\*Promised\*\*: send the competitor summary on Friday$/);
     assert.equal(text.match(new RegExp(`## ${today}`, "g"))?.length, 1, "one heading per day");
     assert.match(await agentJournalContext({ slug: "lisa", harness: "claude" }), /\*\*Promised\*\*: send the competitor summary/);
+  });
+
+  it("stamps the minute, and tidies a day git kept twice after a merge", async () => {
+    const file = path.join(fx.root, "agents/lisa/journal.md");
+    // both sides of a merge opened the same day; git (union) kept both
+    await writeFile(
+      file,
+      "# Lisa's journal\n\n## 2026-10-14\n* 09:05 mine\n\n## 2026-10-14\n* 11:40 theirs\n* 08:00 theirs, earlier\n\n## 2026-10-13\n* old, unstamped\n",
+    );
+    const text = await appendJournal("lisa", "a later one", { now: new Date(2026, 9, 14, 14, 32) });
+    assert.equal(
+      text,
+      "# Lisa's journal\n\n## 2026-10-14\n* 14:32 a later one\n* 11:40 theirs\n* 09:05 mine\n* 08:00 theirs, earlier\n\n## 2026-10-13\n* old, unstamped\n",
+    );
   });
 
   it("refuses an unknown kind, an empty entry and an unknown agent", async () => {

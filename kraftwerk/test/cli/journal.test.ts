@@ -26,7 +26,7 @@ describe("kraftwerk journal", () => {
     r = await cli(fx.root, fx.home, ["journal", "lisa", "ship v2 first", "--kind", "decided", "--actor", "human:lukas"]);
     assert.equal(r.code, 0, r.all);
     const text = await readFile(path.join(fx.root, "agents/lisa/journal.md"), "utf8");
-    assert.match(text, /\* \*\*Decided\*\*: ship v2 first \(human:lukas\)\n\* \*\*Learned\*\*: the client wants weekly reports\n/);
+    assert.match(text, /\* \d\d:\d\d \*\*Decided\*\*: ship v2 first \(human:lukas\)\n\* \d\d:\d\d \*\*Learned\*\*: the client wants weekly reports\n/);
     assert.match((await cli(fx.root, fx.home, ["journal", "lisa"])).stdout, /weekly reports/);
   });
 
