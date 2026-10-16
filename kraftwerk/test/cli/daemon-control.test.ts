@@ -72,7 +72,7 @@ describe("kraftwerk daemon status / start / stop / restart / logs", () => {
     assert.match(s.body.version ?? "", /^\d+\.\d+\.\d+/);
     assert.match((await kw(["daemon", "start"])).stdout, /already runs/);
     const logs = await kw(["daemon", "logs", "-n", "20"]);
-    assert.match(logs.stdout, /kraftwerk daemon on http:\/\/localhost:\d+/);
+    assert.match(logs.stdout, /^\d{4}-\d{2}-\d{2}T\S+ INFO  daemon    listening on http:\/\/localhost:\d+/m, "the log follows the standard line shape");
   });
 
   it("starts it again after a crash (the supervisor)", async () => {

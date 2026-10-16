@@ -2,6 +2,7 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import { DAEMON_PORT, daemonState, lastOpenRoots, setDaemonVersion, writeDaemonFile } from "../core/daemon.js";
 import { tildify } from "../core/instances.js";
+import { log } from "../core/log.js";
 import { networkUrls } from "../server/bind.js";
 import { startMachineCloud } from "../server/cloud.js";
 import { startPushWatcher } from "../server/push.js";
@@ -44,26 +45,26 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
     try {
       await hub.open(root);
     } catch (err) {
-      console.log(`${chalk.yellow("⚠")} not reopened: ${tildify(root)} — ${(err as Error).message}`);
+      log("warn", "workspace", `not reopened: ${tildify(root)} — ${(err as Error).message}`);
     }
   }
-  console.log(`${chalk.green("✔")} kraftwerk daemon on ${chalk.cyan(`http://localhost:${hub.port}`)} ${chalk.dim(`(pid ${process.pid}, ${new Date().toISOString()})`)}`);
-  for (const o of hub.list()) console.log(`  ${chalk.cyan(o.url)} ${chalk.dim(o.name)}${o.aliasPort ? chalk.dim(` · also :${o.aliasPort}`) : ""}`);
-  if (!hub.list().length) console.log(chalk.dim("  no workspace open yet — `kraftwerk ui` in a workspace folder opens it here"));
+  log("info", "daemon", `listening on http://localhost:${hub.port} (pid ${process.pid}, v${await getPkgVersion()})`);
+  for (const o of hub.list()) log("info", "workspace", `open: ${o.url} (${o.name})${o.aliasPort ? ` · also :${o.aliasPort}` : ""}`);
+  if (!hub.list().length) log("info", "daemon", "no workspace open yet — `kraftwerk ui` in a workspace folder opens it here");
   // The machine in the kraftwerk cloud: registered once, the open workspaces as its children (`kraftwerk cloud`, `kraftwerk login`).
   const cloud = await startMachineCloud({ version: await getPkgVersion(), workspaces: () => hub.list(), owner: hub });
   if (cloud.state === "connected") {
-    console.log(`${chalk.green("✔")} Cloud: ${chalk.cyan(cloud.url)} ${chalk.dim(cloud.account ? `(claimed by ${cloud.account})` : `(unclaimed — \`kraftwerk login\` claims this machine)`)}`);
+    log("info", "cloud", `registered at ${cloud.url} ${cloud.account ? `(claimed by ${cloud.account})` : "(unclaimed — `kraftwerk login` claims this machine)"}`);
   } else if (cloud.state === "error") {
-    console.log(`${chalk.yellow("⚠")} Cloud: ${cloud.url} unreachable — ${cloud.error ?? "no answer"} ${chalk.dim("(retrying; nothing else depends on it)")}`);
+    log("warn", "cloud", `${cloud.url} unreachable — ${cloud.error ?? "no answer"} (retrying; nothing else depends on it)`);
   }
   // The relay (`kraftwerk remote on`): devices reach this machine from anywhere, end to end encrypted.
-  const relay = await applyRelay(hub.port, await getPkgVersion(), (line) => console.log(chalk.dim(line)));
+  const relay = await applyRelay(hub.port, await getPkgVersion(), (level, line) => log(level, "relay", line));
   // What needs you, pushed to the phones that asked (through the relay, sealed per device).
   startPushWatcher(hub, relayPush);
-  if (relay.state !== "off") console.log(`${chalk.green("✔")} Reachable from anywhere through ${chalk.cyan(relay.url ?? "")} ${chalk.dim("(`kraftwerk remote pair` pairs a device)")}`);
+  if (relay.state !== "off") log("info", "relay", `reachable from anywhere through ${relay.url ?? ""} (\`kraftwerk remote pair\` pairs a device)`);
   const lan = networkUrls(hub.port);
-  if (lan.length) console.log(`${chalk.green("✔")} On your network: ${lan.map((u) => chalk.cyan(u)).join(", ")} ${chalk.dim("(add /w/<slug>/; devices pair first)")}`);
+  if (lan.length) log("info", "daemon", `on your network: ${lan.join(", ")} (add /w/<slug>/; devices pair first)`);
 }
 
 export function registerDaemonCommand(program: Command): void {

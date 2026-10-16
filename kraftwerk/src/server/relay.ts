@@ -203,7 +203,8 @@ export interface RelayOptions {
   connect?: (url: string) => WebSocket;
   /** Give up on a connection the relay has not accepted (`ok`) within this long, and try again (default 15 s). */
   handshakeTimeoutMs?: number;
-  log?: (line: string) => void;
+  /** One relay event, leveled — the daemon writes it as a standard log line. */
+  log?: (level: "info" | "warn", line: string) => void;
 }
 
 /** Hold the daemon's socket to the relay, reconnecting with backoff, and answer every client behind it. */
@@ -286,7 +287,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         conn.channel = channel;
         send({ t: "msg", c, d: JSON.stringify(ready) });
       } catch (err) {
-        log(`relay: handshake refused — ${(err as Error).message}`);
+        log("warn", `handshake refused — ${(err as Error).message}`);
         send({ t: "close", c, reason: "handshake failed" });
         dropConn(c);
       }
@@ -312,7 +313,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         return;
       }
       if (!r.ok) {
-        log(`relay: member refused — ${r.error}`);
+        log("warn", `member refused — ${r.error}`);
         await reply(c, conn, { t: "auth", ok: false, error: r.error });
         send({ t: "close", c, reason: r.error.slice(0, 100) });
         dropConn(c);
@@ -330,7 +331,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         if (!check.ok) {
           await reply(c, conn, { t: "fail", id: msg.id, error: check.error });
           if (check.ended) {
-            log(`relay: member session dropped — ${check.error}`);
+            log("warn", `member session dropped — ${check.error}`);
             send({ t: "close", c, reason: check.error.slice(0, 100) });
             dropConn(c);
           }
@@ -374,7 +375,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
       } catch {}
       status.state = "error";
       status.error = "the relay did not answer";
-      log("relay: no answer from the relay — trying again");
+      log("warn", "no answer from the relay — trying again");
       schedule();
     }, opts.handshakeTimeoutMs ?? 15_000);
     handshake.unref?.();
@@ -396,7 +397,7 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         status.state = "connected";
         status.error = undefined;
         status.since = new Date().toISOString();
-        log(`relay: connected to ${opts.settings.url} as ${id}`);
+        log("info", `connected to ${opts.settings.url} as ${id}`);
       } else if (msg.t === "open" && msg.c) {
         dropConn(msg.c);
         conns.set(msg.c, { channel: null, inflight: new Map(), queue: Promise.resolve() });
@@ -419,10 +420,10 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
       ws = null;
       for (const c of [...conns.keys()]) dropConn(c);
       if (stopped) return;
-      if (status.state === "connected") log("relay: connection lost — reconnecting");
+      if (status.state === "connected") log("warn", "connection lost — reconnecting");
       status.state = "error";
       status.error = ev.code === 4401 ? `the relay refused this machine: ${ev.reason || "wrong secret"}` : ev.reason || "the relay connection closed";
-      if (ev.code === 4401) log(`relay: ${status.error}`);
+      if (ev.code === 4401) log("warn", `${status.error}`);
       schedule();
     });
     socket.addEventListener("error", () => {});
@@ -478,7 +479,7 @@ export const keyFingerprint = (key: string): string =>
 let link: RelayLink | null = null;
 
 /** Start, restart or stop this daemon's relay link to match ~/.kraftwerk/relay.json. */
-export async function applyRelay(port: number, version: string, log?: (line: string) => void): Promise<RelayStatus> {
+export async function applyRelay(port: number, version: string, log?: (level: "info" | "warn", line: string) => void): Promise<RelayStatus> {
   link?.stop();
   link = null;
   const settings = await readRelaySettings();

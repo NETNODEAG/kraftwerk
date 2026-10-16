@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { log } from "../core/log.js";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -216,7 +217,7 @@ function installExitHandlers(): void {
   });
   process.on("uncaughtException", (err) => {
     if (closedOnly(err)) return;
-    console.error(`✖ ${new Date().toISOString()} crashed:`, err);
+    log("error", "server", `crashed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
     process.exit(1);
   });
   // Chat agent subprocesses must die with the server — signals bypass "exit" handlers, so hook the signals themselves.
@@ -439,7 +440,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     try {
       await opts.onChange?.(hub);
     } catch (err) {
-      console.error(`kraftwerk: could not note the open workspaces: ${(err as Error).message}`);
+      log("warn", "daemon", `could not note the open workspaces: ${(err as Error).message}`);
     }
   }
 

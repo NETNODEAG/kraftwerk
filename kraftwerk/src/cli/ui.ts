@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { log } from "../core/log.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,7 +153,7 @@ export async function supervise(argv: string[], what: string): Promise<void> {
     if (crashed) {
       if (ran > 120_000) backoff = 1000;
       const how = result.signal ? `signal ${result.signal}` : `exit ${result.code}`;
-      console.error(chalk.yellow(`↻ ${new Date().toISOString()} ${what} stopped unexpectedly (${how}) — starting it again in ${backoff / 1000}s`));
+      log("warn", "supervise", `${what} stopped unexpectedly (${how}) — starting it again in ${backoff / 1000}s`);
       await new Promise((r) => setTimeout(r, backoff));
       backoff = Math.min(backoff * 2, 60_000);
       continue;

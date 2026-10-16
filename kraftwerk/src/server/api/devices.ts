@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { log } from "../../core/log.js";
 import { createPairCode, listDevices, redeemPairCode, revokeDevice, setDevicePush } from "../../core/devices.js";
 import { networkUrls } from "../bind.js";
 import { currentHub } from "../hub-context.js";
@@ -115,7 +116,7 @@ export const deviceRoutes = [
       const { enabled, url } = await c.body();
       const s = await setRelay(enabled, url);
       const hub = currentHub();
-      const status = hub.daemon ? await applyRelay(hub.port, await getPkgVersion(), (l) => console.log(l)) : relayStatus();
+      const status = hub.daemon ? await applyRelay(hub.port, await getPkgVersion(), (level, l) => log(level, "relay", l)) : relayStatus();
       return { enabled: s.enabled, url: s.url, fingerprint: keyFingerprint(s.publicKey), daemon: hub.daemon === true, ...status };
     },
   ),

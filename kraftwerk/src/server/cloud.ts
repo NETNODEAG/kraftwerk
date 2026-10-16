@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { log } from "../core/log.js";
 import os from "node:os";
 import { resolveWorkspace } from "../config.js";
 import {
@@ -153,9 +154,9 @@ function warnYml(cloud: { source: CloudUrlSource; url: string }, ymlUrls: string
   if (m.warned.has(key)) return;
   m.warned.add(key);
   if (cloud.source === "kraftwerk.yml") {
-    console.warn(`⚠ kraftwerk.yml cloud.url is deprecated — the cloud is the machine's now: \`kraftwerk cloud on --url ${cloud.url}\` (using ${cloud.url} for now)`);
+    log("warn", "cloud", `kraftwerk.yml cloud.url is deprecated — the cloud is the machine's now: \`kraftwerk cloud on --url ${cloud.url}\` (using ${cloud.url} for now)`);
   } else {
-    console.warn(`⚠ kraftwerk.yml cloud.url (${ymlUrls[0]}) is ignored: the machine's cloud is ${cloud.url} (${cloud.source}); remove it from kraftwerk.yml`);
+    log("warn", "cloud", `kraftwerk.yml cloud.url (${ymlUrls[0]}) is ignored: the machine's cloud is ${cloud.url} (${cloud.source}); remove it from kraftwerk.yml`);
   }
 }
 
