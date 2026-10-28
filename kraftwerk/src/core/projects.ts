@@ -2,16 +2,17 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parse, stringify } from "yaml";
 import { projectsRootFor, resolveWorkspace, type ResolvedWorkspace } from "../config.js";
-import { EFFORTS, HARNESSES, listAgents } from "./agents.js";
+import { EFFORTS, HARNESSES } from "./agents.js";
 import type { ChatAgentId } from "./chat/types.js";
 import { workspaceRoot } from "./context.js";
+import { CONTACTS, entityLine, EVENTS, listEntities, PLACES, type EntityBase, type EntityKindDef } from "./entities.js";
 import { syncWorkspaceProjects } from "./instances.js";
-import { knowledgeIndex } from "./knowledge.js";
 import { newestMtime } from "./mtime.js";
+import { cleanRecords, RECORD_KINDS, recordLine, type SystemOfRecord } from "./records.js";
+import { resolveRefs, type LinkState } from "./refs.js";
 import { listRepos } from "./repos.js";
+import { SLUG_RE, slugify } from "./slug.js";
 import { moveToTrash } from "./trash.js";
-import { listVibeables } from "./vibeables.js";
-import { listWorkflows } from "./workflows.js";
 import { filesContext } from "./files.js";
 
 /**
@@ -32,9 +33,10 @@ import { filesContext } from "./files.js";
  *   projects/<slug>/state.md      # current state, rewritten at the end of a session
  *   projects/<slug>/log.md        # append-only: decisions, milestones (newest first, stamped)
  *
- * Links are one-directional lists of slugs; a target that does not exist
- * is reported ("configured but not found"), never an error — the same
- * rule agent knowledge follows. A system of record is context, not a
+ * Links are one-directional lists of slugs, resolved through the reference
+ * registry (refs.ts); a target that does not exist is reported
+ * ("configured but not found"), never an error — the same rule agent
+ * knowledge follows. A system of record (records.ts) is context, not a
  * credential and not a grant: it says where the truth lives and how it is
  * usually reached, and the harness decides what the agent may call.
  */
@@ -43,31 +45,11 @@ export const PROJECT_FILE = "project.yml";
 export const PROJECT_STATUSES = ["active", "paused", "done", "archived"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
-/** Where truth is managed outside kraftwerk: a tool, a folder, a board. */
-export interface SystemOfRecord {
-  /** my-netnode | google-drive | github | bitbucket | notion | slack | url | anything else (rendered by name). */
-  kind: string;
-  /** Display name ("Figma board", "Contracts folder"). */
-  title?: string;
-  url?: string;
-  /** For tools with workspaces or boards: the id the agent needs (a my.netnode.ch workspace, a Slack channel). */
-  workspace?: string;
-  /** What lives there and how it is usually reached ("tickets and roadmap, `my` CLI"). */
-  note?: string;
-}
+export { RECORD_KINDS, recordLine, type SystemOfRecord };
+export type { LinkState };
 
-/** What kraftwerk knows about a record kind: a label and what such a place usually holds. */
-export const RECORD_KINDS: Record<string, { label: string; hint: string }> = {
-  "my-netnode": { label: "my.netnode.ch", hint: "tickets, roadmap items, meetings and workspace memory" },
-  "google-drive": { label: "Google Drive", hint: "documents and folders" },
-  github: { label: "GitHub", hint: "issues, pull requests and discussions" },
-  bitbucket: { label: "Bitbucket", hint: "pull requests and pipelines" },
-  notion: { label: "Notion", hint: "pages and databases" },
-  slack: { label: "Slack", hint: "conversations and decisions" },
-  url: { label: "Link", hint: "" },
-};
-
-export const LINK_KINDS = ["knowledge", "vibeables", "repos", "workflows", "agents"] as const;
+/** What a project links to, in the order project.yml and the UI list them; each is a kind of the reference registry. */
+export const LINK_KINDS = ["knowledge", "vibeables", "repos", "workflows", "agents", "contacts", "places", "events"] as const;
 export type LinkKind = (typeof LINK_KINDS)[number];
 
 export interface ProjectDef {
@@ -93,6 +75,12 @@ export interface ProjectDef {
   workflows: string[];
   /** Agent slugs. */
   agents: string[];
+  /** Contact slugs (contact:<slug>). */
+  contacts: string[];
+  /** Place slugs. */
+  places: string[];
+  /** Event slugs. */
+  events: string[];
 }
 
 /** What the ⌘K palette needs of a project: also the shape kept in the workspace registry. */
@@ -117,14 +105,6 @@ export interface ProjectSummary extends ProjectDef {
   updatedAt?: string;
   /** Set when project.yml exists but is unusable; the rest shows defaults. */
   configError?: string;
-}
-
-/** One linked slug and whether its target exists right now. */
-export interface LinkState {
-  slug: string;
-  found: boolean;
-  /** Display name of the target when found (an agent's name, a workflow's description). */
-  label?: string;
 }
 
 export type ProjectLinks = Record<LinkKind, LinkState[]>;
@@ -171,11 +151,12 @@ export interface SaveProjectInput {
   repos?: unknown;
   workflows?: unknown;
   agents?: unknown;
+  contacts?: unknown;
+  places?: unknown;
+  events?: unknown;
   brief?: string;
   state?: string;
 }
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,48}$/;
 
 export function safeProjectSlug(slug: string): string {
   if (!SLUG_RE.test(slug)) throw new Error(`invalid project name "${slug}"`);
@@ -183,16 +164,7 @@ export function safeProjectSlug(slug: string): string {
 }
 
 /** Derive a slug from a title: "Relaunch netnode.ch" -> "relaunch-netnode-ch". */
-export function projectSlugFromTitle(title: string): string {
-  return title
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-+$/, "");
-}
+export const projectSlugFromTitle = (title: string): string => slugify(title);
 
 /* ---------- root ---------- */
 
@@ -226,35 +198,6 @@ const strList = (v: unknown, field: string): string[] => {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) throw new Error(`${field} must be a list of names`);
   return [...new Set(v.map((x) => x.trim()).filter(Boolean))];
-};
-
-const cleanRecords = (v: unknown): SystemOfRecord[] => {
-  if (v === undefined || v === null) return [];
-  if (!Array.isArray(v)) throw new Error("records must be a list");
-  return v.map((r, i) => {
-    if (typeof r !== "object" || r === null || Array.isArray(r)) throw new Error(`records[${i}] must be a mapping (kind, title, url, workspace, note)`);
-    const o = r as Record<string, unknown>;
-    const kind = typeof o.kind === "string" ? o.kind.trim().toLowerCase() : "";
-    if (!kind) throw new Error(`records[${i}]: kind is required (e.g. my-netnode, google-drive, url)`);
-    const str = (k: string): string | undefined => {
-      const x = o[k];
-      if (x === undefined || x === null || x === "") return undefined;
-      if (typeof x === "number") return String(x);
-      if (typeof x !== "string") throw new Error(`records[${i}].${k} must be a string`);
-      return x.trim() || undefined;
-    };
-    const url = str("url");
-    if (url && !/^https?:\/\//.test(url)) throw new Error(`records[${i}].url must start with http:// or https://`);
-    const out: SystemOfRecord = { kind };
-    const title = str("title");
-    const workspace = str("workspace");
-    const note = str("note");
-    if (title) out.title = title;
-    if (url) out.url = url;
-    if (workspace) out.workspace = workspace;
-    if (note) out.note = note;
-    return out;
-  });
 };
 
 const cleanHarness = (v: unknown): ChatAgentId => {
@@ -302,13 +245,13 @@ function parseDef(slug: string, raw: string): ProjectDef {
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
     records: cleanRecords(d.records),
-    knowledge: strList(d.knowledge, "knowledge"),
-    vibeables: strList(d.vibeables, "vibeables"),
-    repos: strList(d.repos, "repos"),
-    workflows: strList(d.workflows, "workflows"),
-    agents: strList(d.agents, "agents"),
+    ...linkLists((kind) => strList(d[kind], kind)),
   };
 }
+
+/** The link lists of a definition, one per LINK_KIND, from a function that gives each. */
+const linkLists = (of: (kind: LinkKind) => string[]): Record<LinkKind, string[]> =>
+  Object.fromEntries(LINK_KINDS.map((kind) => [kind, of(kind)])) as Record<LinkKind, string[]>;
 
 const emptyDef = (slug: string): ProjectDef => ({
   slug,
@@ -317,11 +260,7 @@ const emptyDef = (slug: string): ProjectDef => ({
   goal: "",
   harness: "claude",
   records: [],
-  knowledge: [],
-  vibeables: [],
-  repos: [],
-  workflows: [],
-  agents: [],
+  ...linkLists(() => []),
 });
 
 /** project.yml as written: no slug (the folder is the slug), empty lists left out. */
@@ -422,43 +361,8 @@ export async function saveLayout(input: unknown): Promise<ProjectLayout> {
   return layout;
 }
 
-/** Which of the linked slugs exist right now, with a display label for the ones that do. */
-export async function resolveLinks(def: ProjectDef): Promise<ProjectLinks> {
-  const [knowledge, vibeables, repos, workflows, agents] = await Promise.all([
-    knowledgeIndex().catch(() => ({ bundles: [] as Array<{ name: string; concepts: number }> })),
-    listVibeables().catch(() => ({ vibeables: [] as Array<{ slug: string; dev?: string }> })),
-    listRepos().catch(() => ({ repos: [] as Array<{ slug: string; branch?: string }> })),
-    listWorkflows().catch(() => ({ workflows: [] as Array<{ slug: string; name?: string; description?: string }> })),
-    listAgents().catch(() => [] as Array<{ slug: string; name: string; emoji: string; archived?: boolean }>),
-  ]);
-  const state = (slugs: string[], lookup: (s: string) => string | undefined): LinkState[] =>
-    slugs.map((slug) => {
-      const label = lookup(slug);
-      return label === undefined ? { slug, found: false } : { slug, found: true, ...(label ? { label } : {}) };
-    });
-  return {
-    knowledge: state(def.knowledge, (s) => {
-      const b = knowledge.bundles.find((x) => x.name === s);
-      return b ? `${b.concepts} concepts` : undefined;
-    }),
-    vibeables: state(def.vibeables, (s) => {
-      const v = vibeables.vibeables.find((x) => x.slug === s);
-      return v ? (v.dev ? "dev" : "static") : undefined;
-    }),
-    repos: state(def.repos, (s) => {
-      const r = repos.repos.find((x) => x.slug === s);
-      return r ? r.branch ?? "" : undefined;
-    }),
-    workflows: state(def.workflows, (s) => {
-      const w = workflows.workflows.find((x) => x.slug === s);
-      return w ? w.description ?? w.name ?? "" : undefined;
-    }),
-    agents: state(def.agents, (s) => {
-      const a = agents.find((x) => x.slug === s && !x.archived);
-      return a ? `${a.emoji} ${a.name}` : undefined;
-    }),
-  };
-}
+/** Which of the linked slugs exist right now, with a display label for the ones that do (the reference registry decides). */
+export const resolveLinks = (def: ProjectDef): Promise<ProjectLinks> => resolveRefs(linkLists((kind) => def[kind]));
 
 /** One project with its files and link states; null when the folder is not a project. */
 export async function getProject(slug: string): Promise<ProjectDetail | null> {
@@ -522,11 +426,7 @@ export async function saveProject(slug: string, input: SaveProjectInput): Promis
     goal: input.goal !== undefined ? String(input.goal).trim() : current.goal,
     harness: input.harness !== undefined ? cleanHarness(input.harness) : current.harness,
     records: input.records !== undefined ? cleanRecords(input.records) : current.records,
-    knowledge: input.knowledge !== undefined ? strList(input.knowledge, "knowledge") : current.knowledge,
-    vibeables: input.vibeables !== undefined ? strList(input.vibeables, "vibeables") : current.vibeables,
-    repos: input.repos !== undefined ? strList(input.repos, "repos") : current.repos,
-    workflows: input.workflows !== undefined ? strList(input.workflows, "workflows") : current.workflows,
-    agents: input.agents !== undefined ? strList(input.agents, "agents") : current.agents,
+    ...linkLists((kind) => (input[kind] !== undefined ? strList(input[kind], kind) : current[kind])),
   };
   const model = input.model !== undefined ? cleanModel(input.model) : current.model;
   const effort = input.effort !== undefined ? cleanEffort(input.effort) : current.effort;
@@ -590,20 +490,6 @@ export async function deleteProject(slug: string): Promise<void> {
 
 /* ---------- chat context ---------- */
 
-/** One line per system of record: what it is, where, and what usually lives there. */
-export function recordLine(r: SystemOfRecord): string {
-  const known = RECORD_KINDS[r.kind];
-  const label = known?.label ?? r.kind;
-  const head = r.title ? `${label}: ${r.title}` : label;
-  const parts = [
-    r.workspace ? `workspace ${r.workspace}` : "",
-    r.url ?? "",
-    known?.hint ?? "",
-    r.note ?? "",
-  ].filter(Boolean);
-  return `- ${head}${parts.length ? ` — ${parts.join("; ")}` : ""}`;
-}
-
 /**
  * The "## …" blocks a project chat starts with: brief, state, records,
  * every link with how to reach it, and how to keep the project current.
@@ -621,6 +507,21 @@ export async function projectContext(slug: string, actor: string, opts: { member
   const repos = await listRepos().catch(() => null);
   const reposRoot = repos?.enabled && repos.root ? repos.root : undefined;
   const vibeables = p.vibeables.length > 0;
+  // Who, where and when: the linked entries as one-liners, each with its reference token.
+  const entityBlock = async (def: EntityKindDef<any>, slugs: string[], heading: string, intro: string): Promise<string> => {
+    if (slugs.length === 0) return "";
+    const view = await listEntities(def).catch(() => ({ items: [] as EntityBase[] }));
+    const lines = slugs.map((slug) => {
+      const item = view.items.find((x) => x.slug === slug);
+      return item ? entityLine(def, item) : `- ${def.singular}:${slug} (configured but not found in this workspace — tell the user if you need it)`;
+    });
+    return `## ${heading}\n${intro}\n${lines.join("\n")}\n\`npx kraftwerk ${def.kind} show <slug> --json\` has the full entry and notes.`;
+  };
+  const [contactsBlock, placesBlock, eventsBlock] = await Promise.all([
+    entityBlock(CONTACTS, p.contacts, "Contacts", "People and organisations of this project (reference one as contact:<slug>):"),
+    entityBlock(PLACES, p.places, "Places", "Where this project happens (reference one as place:<slug>):"),
+    entityBlock(EVENTS, p.events, "Events", "Dates of this project (reference one as event:<slug>):"),
+  ]);
   const sections = [
     (opts.member
       ? `## Project: ${p.title}\nThis channel works in the project "${p.title}" (status ${p.status}) of this kraftwerk workspace. ` +
@@ -673,6 +574,9 @@ export async function projectContext(slug: string, actor: string, opts: { member
         linkLines("agents", (l) => `- ${l.slug}${l.label ? ` — ${l.label}` : ""}`) +
         `\nThe user talks to them on the Agents screen; you cannot message them yourself. When a request clearly belongs to one of them, say so.`
       : "",
+    contactsBlock,
+    placesBlock,
+    eventsBlock,
     `## Keeping the project current\n` +
       `- brief.md is the user's: propose changes and write them only when they agree.\n` +
       `- state.md is the project's memory between sessions. At the end of a session that changed something, rewrite it so the next session ` +
@@ -680,7 +584,7 @@ export async function projectContext(slug: string, actor: string, opts: { member
       `- log.md is append-only. Record decisions and milestones with\n` +
       `  npx kraftwerk projects log ${p.slug} "<one line>" --actor ${actor}\n` +
       `  (stamps the date and you as the author; never edit log.md by hand).\n` +
-      `- Links (knowledge, vibeables, repositories, workflows, agents) live in project.yml: \`npx kraftwerk projects link ${p.slug} <kind> <name>\` adds one, \`unlink\` removes it.`,
+      `- Links (knowledge, vibeables, repositories, workflows, agents, contacts, places, events) live in project.yml: \`npx kraftwerk projects link ${p.slug} <kind> <name>\` adds one, \`unlink\` removes it.`,
   ];
   return sections.filter(Boolean).join("\n\n");
 }

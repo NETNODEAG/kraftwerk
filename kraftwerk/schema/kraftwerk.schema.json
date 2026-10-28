@@ -171,6 +171,60 @@
         }
       }
     },
+    "contacts": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Contacts: people and organisations the workspace works with, one Markdown file (YAML frontmatter + notes) each under the root, part of the workspace. Referenced as contact:<slug> from projects, events and text. Absent = feature off, a bare `contacts:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the contact files live, relative to the project root. Default: kraftwerk-data/contacts"
+        }
+      }
+    },
+    "places": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Places: addresses and points of interest, one Markdown file (YAML frontmatter + notes) each under the root, part of the workspace. Referenced as place:<slug>; a Google Maps link is derived from coordinates or the address. Absent = feature off, a bare `places:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the place files live, relative to the project root. Default: kraftwerk-data/places"
+        }
+      }
+    },
+    "events": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Events: dated, one-off entries (a meeting, a launch, a deadline) with a place, contacts and a project, one Markdown file (YAML frontmatter + notes) each under the root, part of the workspace. Referenced as event:<slug>. Absent = feature off, a bare `events:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the event files live, relative to the project root. Default: kraftwerk-data/events"
+        }
+      }
+    },
     "cloud": {
       "type": [
         "object",

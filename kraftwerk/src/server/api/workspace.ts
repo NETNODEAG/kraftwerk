@@ -35,6 +35,9 @@ const SettingsFields = z.looseObject({
   repos: RootBlock.optional(),
   vibeables: RootBlock.optional(),
   projects: RootBlock.optional(),
+  contacts: RootBlock.optional(),
+  places: RootBlock.optional(),
+  events: RootBlock.optional(),
 });
 
 /** A start's answer; `here` (with its slug) when the hub answering serves it now. */
@@ -109,6 +112,9 @@ export const workspaceRoutes = [
       repos: (ws?.config.repos && ws.config.repos.enabled !== false) === true,
       vibeables: (ws?.config.vibeables && ws.config.vibeables.enabled !== false) === true,
       projects: (ws?.config.projects && ws.config.projects.enabled !== false) === true,
+      contacts: (ws?.config.contacts && ws.config.contacts.enabled !== false) === true,
+      places: (ws?.config.places && ws.config.places.enabled !== false) === true,
+      events: (ws?.config.events && ws.config.events.enabled !== false) === true,
       /** @deprecated Always "": the Cloudflare Tunnel that set it was removed in 0.65. Removed with protocol 2. */
       publicUrl: "",
       // The machine's cloud record (only the daemon registers one); `included`: this workspace rides along (no cloud.enabled: false veto).

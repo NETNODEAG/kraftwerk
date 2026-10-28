@@ -5,6 +5,7 @@ import { channelRoutes } from "./channels.js";
 import { chatRoutes } from "./chats.js";
 import { cloudRoutes } from "./cloud.js";
 import { deviceRoutes } from "./devices.js";
+import { contactRoutes, eventRoutes, placeRoutes, refRoutes } from "./entities.js";
 import { hubRoutes } from "./hub.js";
 import { fileRoutes } from "./files.js";
 import { gitRoutes } from "./git.js";
@@ -32,6 +33,10 @@ const domainRoutes = [
   ...chatRoutes,
   ...channelRoutes,
   ...projectRoutes,
+  ...contactRoutes,
+  ...placeRoutes,
+  ...eventRoutes,
+  ...refRoutes,
   ...runRoutes,
   ...knowledgeRoutes,
   ...fileRoutes,

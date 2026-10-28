@@ -44,7 +44,9 @@ export type {
 } from "../../src/core/agents";
 export type { SkillDetail, SkillInfo } from "../../src/core/skills";
 export type { GitFile, GitStatus, GitDiff } from "../../src/core/git";
-export type { AgentSearch, WorkspaceAgents } from "../../src/core/search";
+export type { AgentSearch, EntityHit, WorkspaceAgents } from "../../src/core/search";
+export type { ContactDef, EntityBase, EntityDetail, EntitiesView, EventDef, PlaceDef } from "../../src/core/entities";
+export type { ResolvedRef } from "../../src/core/refs";
 export type {
   Routine,
   RoutineRunner,

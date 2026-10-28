@@ -46,6 +46,9 @@ interface SettingsData {
     repos?: { enabled?: boolean; root?: string };
     vibeables?: { enabled?: boolean; root?: string };
     projects?: { enabled?: boolean; root?: string };
+    contacts?: { enabled?: boolean; root?: string };
+    places?: { enabled?: boolean; root?: string };
+    events?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -89,6 +92,25 @@ function projectsForm(d: SettingsData): ReposForm {
   if (!p) return REPOS_OFF;
   return { enabled: p.enabled !== false, root: p.root ?? "" };
 }
+
+/** The contacts, places and events blocks: the same shape, one form each. */
+type EntityKind = "contacts" | "places" | "events";
+const ENTITY_KINDS: EntityKind[] = ["contacts", "places", "events"];
+type EntityForms = Record<EntityKind, ReposForm>;
+const ENTITIES_OFF: EntityForms = { contacts: REPOS_OFF, places: REPOS_OFF, events: REPOS_OFF };
+function entityForms(d: SettingsData): EntityForms {
+  const one = (kind: EntityKind): ReposForm => {
+    const e = d.config[kind];
+    if (!e) return REPOS_OFF;
+    return { enabled: e.enabled !== false, root: e.root ?? "" };
+  };
+  return { contacts: one("contacts"), places: one("places"), events: one("events") };
+}
+const ENTITY_COPY: Record<EntityKind, { icon: string; what: string; files: string }> = {
+  contacts: { icon: "person", what: "keep people and organisations as contacts, referenced as contact:<slug> from projects, events and text", files: "one Markdown file per contact (frontmatter: role, org, email, phone, place, records; notes below)" },
+  places: { icon: "location_on", what: "keep addresses and points of interest as places, referenced as place:<slug>; a Google Maps link derives from coordinates or the address", files: "one Markdown file per place (frontmatter: address, lat, lng, url, records; notes below)" },
+  events: { icon: "event", what: "keep dated one-off entries as events with a place, contacts and a project, referenced as event:<slug>", files: "one Markdown file per event, named by its date (frontmatter: start, end, place, contacts, project, records; notes below)" },
+};
 
 interface CloudMeta {
   url: string;
@@ -265,6 +287,7 @@ export function SettingsScreen() {
   const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
   const [vibeables, setVibeables] = useState<ReposForm>(REPOS_OFF);
   const [projects, setProjects] = useState<ReposForm>(REPOS_OFF);
+  const [entities, setEntities] = useState<EntityForms>(ENTITIES_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -284,6 +307,7 @@ export function SettingsScreen() {
         setRepos(reposForm(d));
         setVibeables(vibeablesForm(d));
         setProjects(projectsForm(d));
+        setEntities(entityForms(d));
       })
       .catch(() => setError("could not load settings"));
   }, []);
@@ -308,6 +332,7 @@ export function SettingsScreen() {
           repos,
           vibeables,
           projects,
+          ...entities,
         },
       });
       if (!r.ok) throw new Error(r.error || "save failed");
@@ -318,6 +343,7 @@ export function SettingsScreen() {
       setRepos(reposForm(d));
       setVibeables(vibeablesForm(d));
       setProjects(projectsForm(d));
+      setEntities(entityForms(d));
       setDirty(false);
       setSaved(true);
       // Nudge the app shell to refetch /api/meta so header + favicon update now.
@@ -346,6 +372,10 @@ export function SettingsScreen() {
   };
   const setProjectsField = (patch: Partial<ReposForm>): void => {
     setProjects((p) => ({ ...p, ...patch }));
+    touch();
+  };
+  const setEntityField = (kind: EntityKind, patch: Partial<ReposForm>): void => {
+    setEntities((e) => ({ ...e, [kind]: { ...e[kind], ...patch } }));
     touch();
   };
 
@@ -575,6 +605,27 @@ export function SettingsScreen() {
           )}
         </FormStack>
       </Panel>
+
+      {ENTITY_KINDS.map((kind) => (
+        <Panel key={kind} title={kind} actions={<Button size="sm" icon={ENTITY_COPY[kind].icon} href={`/${kind}`}>open {kind}</Button>}>
+          <FormStack>
+            <Checkbox checked={entities[kind].enabled} onChange={(on) => setEntityField(kind, { enabled: on })}>
+              {ENTITY_COPY[kind].what}
+            </Checkbox>
+            {entities[kind].enabled && (
+              <>
+                <Field label={`${kind} root`}>
+                  <TextField value={entities[kind].root} placeholder={`kraftwerk-data/${kind}`} onChange={(e) => setEntityField(kind, { root: e.target.value })} />
+                </Field>
+                <Hint>
+                  Relative to the project root, {ENTITY_COPY[kind].files}. Part of the workspace: versioned with it on the git screen. Agents read and
+                  write them with <code>kraftwerk {kind}</code>.
+                </Hint>
+              </>
+            )}
+          </FormStack>
+        </Panel>
+      ))}
 
       <CloudPanel />
       <DevicesPanel />

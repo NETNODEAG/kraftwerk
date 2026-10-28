@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { onBrowseClick, withBrowseIcons } from "../context-browser";
+import { linkRefs } from "../refs";
 import type {
   Agent,
   Author,
@@ -130,7 +131,8 @@ function Byline({ from, agentMap }: { from: Author; agentMap?: Map<string, Agent
 /** Agent replies are markdown — render them (sanitized; images/links included). */
 function AgentMessage({ text, small }: { text: string; small?: boolean }) {
   // Every external link gets a small icon that opens it in the context column's browser.
-  const html = useMemo(() => withBrowseIcons(DOMPurify.sanitize(marked.parse(text, { async: false }))), [text]);
+  // References (contact:anna-meier, place:…, project:…) link to their pages.
+  const html = useMemo(() => withBrowseIcons(linkRefs(DOMPurify.sanitize(marked.parse(text, { async: false })))), [text]);
   return (
     <div
       className={cn(

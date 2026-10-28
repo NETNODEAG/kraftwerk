@@ -70,6 +70,40 @@ knowledge: [netnode-helpdesk]
 repos: [netnode-frontend]
 workflows: [website-check, accessibility-audit]
 agents: [max]
+contacts: [anna-meier]           # who, where and when, see below
+places: [netnode-office]
+events: [2026-11-03-kickoff]
+```
+
+**Contacts, places and events.** The workspace's own records of who, where
+and when, so humans and agents can point at them reliably: one Markdown
+file each, the typed fields in YAML frontmatter and free notes in the body.
+A contact has a role, an organisation, an email, a phone and the place it
+is usually at; a place has an address and coordinates, and gets a Google
+Maps link from them; an event has a start and an end, a place, contacts
+and a project. Each file can name its systems of record — the CRM and the
+newsletter tool for a contact, the calendar entry for an event, Google
+Maps for a place. Anything in the workspace is referenced as
+`kind:slug` — `contact:anna-meier`, `place:netnode-office`,
+`event:2026-11-03-kickoff`, also `project:`, `agent:`, `workflow:`,
+`repo:`, `vibeable:`, `knowledge:` — in notes, in a project's files and in
+chat; kraftwerk resolves the token, links it in the UI and marks a target
+that does not exist. Three features, each switched on by its own block in
+`kraftwerk.yml`.
+
+```markdown
+<!-- kraftwerk-data/contacts/anna-meier.md -->
+---
+title: Anna Meier
+role: CTO
+org: ACME
+email: anna@acme.ch
+place: netnode-office            # a place's slug
+records:
+  - kind: crm
+    url: https://crm.example/anna
+---
+Prefers email. Met at event:2026-11-03-kickoff.
 ```
 
 <img src="assets/project-chat-light.png" alt="A project chat: the session reads the brief and the brand knowledge, writes the draft, and the project's workflows, knowledge and records sit in the context column beside it" width="100%"/>

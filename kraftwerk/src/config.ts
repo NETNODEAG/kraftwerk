@@ -161,6 +161,33 @@ export function projectsRootFor(project: ResolvedWorkspace): string | undefined 
 }
 
 /**
+ * Contacts, places and events: the workspace's own records of who, where
+ * and when — one Markdown file with YAML frontmatter per entry under the
+ * kind's root, so humans, agents and projects can reference them reliably
+ * (`contact:anna-meier`). Three features with one shape, each switched on
+ * by its own block; part of the workspace and synced by the workspace git.
+ */
+export interface EntitiesConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where the files live, relative to the project root. Default: kraftwerk-data/<kind> */
+  root?: string;
+}
+
+export const ENTITY_KINDS = ["contacts", "places", "events"] as const;
+export type EntityKind = (typeof ENTITY_KINDS)[number];
+
+/** Where a kind's files live when its `root` is not set. */
+export const entityDefaultRoot = (kind: EntityKind): string => `kraftwerk-data/${kind}`;
+
+/** Absolute root of a kind when its feature is on, undefined otherwise. */
+export function entitiesRootFor(project: ResolvedWorkspace, kind: EntityKind): string | undefined {
+  const e = project.config[kind];
+  if (!e || e.enabled === false) return undefined;
+  return path.resolve(project.root, e.root ?? entityDefaultRoot(kind));
+}
+
+/**
  * kraftwerk.yml `cloud:` — since the cloud knows machines (core/cloud.ts,
  * server/cloud.ts), this block only vetoes: `enabled: false` leaves the
  * workspace out of the machine's reports. The machine's switch and the
@@ -243,6 +270,12 @@ export interface WorkspaceConfig {
   vibeables?: VibeablesConfig;
   /** Projects: goal-scoped folders the chats work in. Absent = off. */
   projects?: ProjectsConfig;
+  /** Contacts: people and organisations, one Markdown file each. Absent = off. */
+  contacts?: EntitiesConfig;
+  /** Places: addresses and points of interest, one Markdown file each. Absent = off. */
+  places?: EntitiesConfig;
+  /** Events: dated entries (one-off), one Markdown file each. Absent = off. */
+  events?: EntitiesConfig;
   /** The machine's cloud record lists this workspace. Absent = listed; `enabled: false` leaves it out. */
   cloud?: CloudConfig;
 }
@@ -397,7 +430,7 @@ export async function addWorkspaceId(configPath: string): Promise<string> {
   return id;
 }
 
-const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "cloud"];
+const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "cloud"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -456,9 +489,9 @@ async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig
     } else if (key === "vibeables") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, "vibeables", config[key]);
-    } else if (key === "projects") {
+    } else if (key === "projects" || key === "contacts" || key === "places" || key === "events") {
       if (config[key] === null) config[key] = {};
-      validateRootBlock(configPath, "projects", config[key]);
+      validateRootBlock(configPath, key, config[key]);
     } else if (key === "cloud") {
       if (config[key] === null) config[key] = {};
       validateCloud(configPath, config[key]);
@@ -559,11 +592,12 @@ function validateGit(configPath: string, value: unknown): void {
 }
 
 /**
- * `repos`, `vibeables` and `projects` share one shape: { enabled?, root? }. The root
- * must never be the project itself or anything outside it — it is what
- * remove/delete operate under, and what the workspace git may stage.
+ * `repos`, `vibeables`, `projects`, `contacts`, `places` and `events` share one
+ * shape: { enabled?, root? }. The root must never be the project itself or
+ * anything outside it — it is what remove/delete operate under, and what
+ * the workspace git may stage.
  */
-function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects", value: unknown): void {
+function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects" | EntityKind, value: unknown): void {
   const file = path.basename(configPath);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${file}: ${block} must be a mapping (enabled, root)`);

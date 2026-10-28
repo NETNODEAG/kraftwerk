@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import { api, failure, useApi } from "./api";
 import { ChatThread, createChatAndOpen } from "./chat";
-import { EFFORTS, Icon, Link, navigate, fmtAgo, useExpertMode, PROJECT_ASSISTANT } from "./shared";
+import { EFFORTS, Icon, Link, navigate, fmtAgo, useExpertMode, PROJECT_ASSISTANT, useFeatures } from "./shared";
 import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
 import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
@@ -42,6 +42,10 @@ const RECORD_KINDS: Record<string, string> = {
   bitbucket: "Bitbucket",
   notion: "Notion",
   slack: "Slack",
+  crm: "CRM",
+  newsletter: "Newsletter tool",
+  calendar: "Calendar",
+  "google-maps": "Google Maps",
   url: "Link",
 };
 const kindLabel = (kind: string): string => RECORD_KINDS[kind] ?? kind;
@@ -431,13 +435,16 @@ function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
 /* ---------- project page ---------- */
 
 
-type LinkKind = "knowledge" | "vibeables" | "repos" | "workflows" | "agents";
+type LinkKind = "knowledge" | "vibeables" | "repos" | "workflows" | "agents" | "contacts" | "places" | "events";
 const LINKS: Array<{ kind: LinkKind; label: string; icon: string; href?: (slug: string) => string }> = [
   { kind: "knowledge", label: "knowledge", icon: "menu_book", href: (s) => `/knowledge/${encodeURIComponent(s)}` },
   { kind: "vibeables", label: "apps", icon: "web", href: (s) => `/vibeables/${encodeURIComponent(s)}` },
   { kind: "repos", label: "repositories", icon: "source" },
   { kind: "workflows", label: "workflows", icon: "account_tree", href: (s) => `/workflows/${encodeURIComponent(s)}` },
   { kind: "agents", label: "agents", icon: "groups", href: (s) => `/agents/${encodeURIComponent(s)}` },
+  { kind: "contacts", label: "contacts", icon: "person", href: (s) => `/contacts/${encodeURIComponent(s)}` },
+  { kind: "places", label: "places", icon: "location_on", href: (s) => `/places/${encodeURIComponent(s)}` },
+  { kind: "events", label: "events", icon: "event", href: (s) => `/events/${encodeURIComponent(s)}` },
 ];
 
 /** What the workspace offers for each link kind: slug + hint, for the add picker. */
@@ -462,6 +469,8 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
   const [dirty, setDirty] = useState(false);
   const [logEntry, setLogEntry] = useState("");
   const expert = useExpertMode();
+  // Links to contacts, places and events show only while those features are on.
+  const features = useFeatures();
 
   const apply = (p: ProjectDetail) => {
     setProject(p);
@@ -621,7 +630,7 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
 
       <Panel title="links" className="flex-none" actions={<span className="text-xs text-fg-2">by name; a target that is missing in this workspace is marked</span>}>
         <PanelRows>
-          {LINKS.map((l) => (
+          {LINKS.filter((l) => !(l.kind === "contacts" || l.kind === "places" || l.kind === "events") || features[l.kind]).map((l) => (
             <LinkRow
               key={l.kind}
               kind={l.kind}
@@ -729,6 +738,18 @@ async function loadOptions(kind: LinkKind): Promise<Option[]> {
     case "agents": {
       const d = await api.call("agents.list");
       return d.agents.filter((a) => !a.archived).map((a) => ({ slug: a.slug, hint: `${a.emoji} ${a.name}` }));
+    }
+    case "contacts": {
+      const d = await api.call("contacts.list");
+      return d.items.map((c) => ({ slug: c.slug, hint: [c.role, c.org].filter(Boolean).join(", ") || undefined }));
+    }
+    case "places": {
+      const d = await api.call("places.list");
+      return d.items.map((p) => ({ slug: p.slug, hint: p.address }));
+    }
+    case "events": {
+      const d = await api.call("events.list");
+      return d.items.map((e) => ({ slug: e.slug, hint: e.start }));
     }
   }
 }
@@ -846,7 +867,7 @@ function LinkRow({
 
 const EMPTY_RECORD: SystemOfRecord = { kind: "url" };
 
-function RecordsPanel({ records, saving, onSave }: { records: SystemOfRecord[]; saving: boolean; onSave: (records: SystemOfRecord[]) => Promise<void> }) {
+export function RecordsPanel({ records, saving, onSave }: { records: SystemOfRecord[]; saving: boolean; onSave: (records: SystemOfRecord[]) => Promise<void> }) {
   const [draft, setDraft] = useState<SystemOfRecord | null>(null);
   const [customKind, setCustomKind] = useState(false);
 

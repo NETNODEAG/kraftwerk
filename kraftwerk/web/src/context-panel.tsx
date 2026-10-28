@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, useApi } from "./api";
 import { Icon, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath } from "./shared";
 import { BundleView } from "./knowledge";
@@ -9,7 +9,14 @@ import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "
 import { WorkflowView } from "./workflow-view";
 import { RunForm } from "./run-launcher";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
-import type { AgentDetail, ChannelView, ProjectDetail, WorkflowSummary } from "./types";
+import type { AgentDetail, ChannelView, LinkState, ProjectDetail, WorkflowSummary } from "./types";
+
+/** The context tabs of a project's contacts, places and events: the kind is the tab id, the route and the feature flag. */
+const ENTITY_TABS = [
+  { id: "contacts", icon: "person" },
+  { id: "places", icon: "location_on" },
+  { id: "events", icon: "event" },
+] as const;
 
 /** What the middle column talks to, read off its route. */
 type Context =
@@ -35,6 +42,10 @@ interface Links {
   vibeables?: { slug: string; found: boolean }[];
   repos?: { slug: string; found: boolean }[];
   agents?: { slug: string; found: boolean; label?: string }[];
+  /** A project's who, where and when (contacts, places, events); absent for everything but a project. */
+  contacts?: LinkState[];
+  places?: LinkState[];
+  events?: LinkState[];
   records?: ProjectDetail["records"];
   /** A project's state.md and log.md, shown as documents; absent for everything but a project. */
   state?: string;
@@ -193,6 +204,8 @@ export function ContextPanel({ chatPath, workspace }: {
     { id: "workflows", label: "workflows", count: links?.workflows.length, allHref: "/workflows" },
     // Expert detail: the clones a project or agent works on.
     ...(expert && showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
+    // A project's who, where and when, each only while the kind is on.
+    ...ENTITY_TABS.filter((t) => features[t.id] && links?.[t.id]).map((t) => ({ id: t.id, label: t.id, count: links?.[t.id]?.length, allHref: `/${t.id}` })),
     // The browser shows up once a link from the chat opened something in it.
     ...(browserTabs > 0 || tab === "browser" ? [{ id: "browser", label: "browser", count: browserTabs }] : []),
   ];
@@ -241,7 +254,7 @@ export function ContextPanel({ chatPath, workspace }: {
         }
       } else if (ctx.kind === "project") {
         const p = await api.call("projects.get", { slug: ctx.slug }).catch(() => null);
-        if (p) next = { title: `📁 ${p.title}`, project: p, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
+        if (p) next = { title: `📁 ${p.title}`, project: p, workflows: p.links.workflows, knowledge: p.links.knowledge, vibeables: p.links.vibeables, repos: p.links.repos, agents: p.links.agents, contacts: p.links.contacts, places: p.links.places, events: p.links.events, records: p.records, state: p.state, log: p.log, editHref: `/projects/${encodeURIComponent(ctx.slug)}/info` };
       } else if (ctx.kind === "channel") {
         const d = await api.call("channels.list").catch(() => null);
         const c = d?.channels.find((x) => x.slug === ctx.slug);
@@ -488,6 +501,26 @@ export function ContextPanel({ chatPath, workspace }: {
               {links.all && vibes && vibes.vibeables.length === 0 && empty("vibeables")}
               {!links.all && links.vibeables?.length === 0 && empty("vibeables")}
             </>
+          )}
+
+          {ENTITY_TABS.map(
+            (t) =>
+              current === t.id &&
+              links?.[t.id] && (
+                <Fragment key={t.id}>
+                  {links[t.id]!.length === 0 && empty(t.id)}
+                  {links[t.id]!.map(({ slug, found, label }) => (
+                    <ListRow
+                      key={slug}
+                      href={`/${t.id}/${encodeURIComponent(slug)}`}
+                      dim={!found}
+                      leading={<Icon name={t.icon} className="ms-sm" />}
+                      title={found && label ? label : slug}
+                      sub={!found ? "not in this workspace" : label ? slug : undefined}
+                    />
+                  ))}
+                </Fragment>
+              ),
           )}
 
           {current === "repos" && links?.repos && (

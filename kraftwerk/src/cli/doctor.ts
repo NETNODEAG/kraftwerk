@@ -112,7 +112,7 @@ export async function runDoctor(cwd: string, opts: { fix?: boolean } = {}): Prom
   } else {
     const cfg = project.config as Record<string, unknown>;
     const keys = Object.keys(cfg);
-    // Blocks (git, repos, vibeables, projects, cloud) print as their keys, not [object Object].
+    // Blocks (git, repos, vibeables, projects, contacts, places, events, cloud) print as their keys, not [object Object].
     const show = (v: unknown): string =>
       typeof v === "object" && v !== null
         ? Array.isArray(v)

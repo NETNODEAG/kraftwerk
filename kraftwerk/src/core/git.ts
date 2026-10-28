@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { projectsRootFor, reposRootFor, resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace, isSafeGitName } from "../config.js";
+import { ENTITY_KINDS, entitiesRootFor, projectsRootFor, reposRootFor, resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, workspaceRoot } from "./context.js";
 import { perWorkspace, workspaceOpen } from "./workspace.js";
@@ -316,6 +316,8 @@ function scopeFor({ project, repoRoot }: Repo): Scope {
     vibeablesRootFor(project),
     // Projects too: briefs, state and logs are the workspace's own record.
     projectsRootFor(project),
+    // Contacts, places and events: who, where and when — the workspace's records.
+    ...ENTITY_KINDS.map((kind) => entitiesRootFor(project, kind)),
     // Workspace files: shared material, versioned (files over 25 MB ignore themselves, see files.ts).
     path.resolve(project.root, "kraftwerk-data/files"),
     project.configPath,

@@ -130,6 +130,9 @@ set up the rest. From there:
   Open one and chat with it; its sessions continue where they ended.
 - **Projects** gather a goal, a brief and links; every chat in a project
   starts with that context.
+- **Contacts, places and events** are the workspace's records of who, where
+  and when — one Markdown file each, referenced anywhere as `contact:<slug>`,
+  `place:<slug>`, `event:<slug>`.
 - **Workflows** are repeatable processes with checked results; run one from
   its page or with `kraftwerk run <workflow> "<request>"`.
 - **Knowledge** is the shared, human-verified context agents read.
@@ -256,6 +259,8 @@ kraftwerk workspaces                    # every workspace on this machine; works
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk remote on|off|pair            # reach this machine from anywhere through the relay, end to end encrypted
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
+kraftwerk contacts|places|events        # who, where and when, one Markdown file each; … show|create|set|remove, events --from/--to
+kraftwerk ref <kind:slug>               # resolve a reference (contact:anna-meier, project:relaunch, …); --file <md> resolves every one in a file
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
 kraftwerk journal <agent> ["<entry>"]   # an agent's memory across sessions: print it, add a line (--kind)
 kraftwerk doctor                        # preflight: harness CLIs, docker, workflows, declared env vars, legacy leftovers
@@ -625,6 +630,84 @@ kraftwerk projects remove relaunch-netnode-ch
 
 The registry of workspaces on this machine, which answered to
 `kraftwerk projects` until 0.48, is `kraftwerk workspaces` now.
+
+## Contacts, places and events
+
+Who, where and when, kept by the workspace itself so people and agents can
+point at them reliably. Three features with one shape — turn each on in
+`kraftwerk.yml` (or its checkbox in settings):
+
+```yaml
+contacts:                         # people and organisations
+places:                           # addresses and points of interest
+events:                           # dated one-off entries
+  root: kraftwerk-data/events     # default kraftwerk-data/<kind>; part of the workspace, synced like agents and knowledge
+```
+
+One Markdown file per entry: the typed fields in YAML frontmatter, free
+notes in the body. Readable and editable by hand, by agents and by the UI;
+versioned with the workspace, deleted into the trash.
+
+```
+kraftwerk-data/contacts/anna-meier.md          # title, role, org, email, phone, place, url, tags, records + notes
+kraftwerk-data/places/netnode-office.md        # title, address, lat, lng, url, tags, records + notes
+kraftwerk-data/events/2026-11-03-kickoff.md    # title, start, end, place, contacts, project, url, tags, records + notes
+```
+
+```markdown
+---
+title: Kickoff
+start: 2026-11-03T14:00           # ISO date or date-time; events are one-off (recurrence lives in the calendar entry)
+end: 2026-11-03T16:00
+place: netnode-office             # a place's slug
+contacts: [anna-meier]            # contact slugs
+project: relaunch                 # a project's slug
+records:
+  - kind: calendar
+    url: https://calendar.google.com/event?eid=…
+---
+Agenda: scope, timeline, who does what.
+```
+
+**References.** Fields that point at other entries hold slugs, and anything
+in the workspace is referenced in text as `kind:slug` — `contact:anna-meier`,
+`place:netnode-office`, `event:2026-11-03-kickoff`, and likewise `project:`,
+`agent:`, `workflow:`, `repo:`, `vibeable:`, `knowledge:`. The same resolver
+serves a project's links, an event's place and contacts, a token in notes or
+in a chat reply, the ⌘K palette and the context an agent starts with: a
+target that does not exist is reported ("not found"), never an error, and
+only these tokens match, so `https:` never does. Projects link to contacts,
+places and events like to anything else (`kraftwerk projects link <slug>
+contacts anna-meier`), and a project chat starts with them as one-liners.
+
+**Systems of record.** As on a project: where the truth lives outside
+kraftwerk — a contact's CRM record and newsletter subscription (`crm`,
+`newsletter`), an event's calendar entry (`calendar`), a place on Google
+Maps (`google-maps`). A place without a maps record gets a Google Maps link
+derived from its coordinates or its address.
+
+**Agents** get a "Contacts, places and events" block in every chat: what
+exists, the next events, the token syntax and the CLI — they read and write
+the files through it, never by hand:
+
+```bash
+kraftwerk contacts                                   # list (--json); places, events the same
+kraftwerk contacts create "Anna Meier" --org ACME --email anna@acme.ch --place netnode-office
+kraftwerk contacts show anna-meier                   # fields, records, references with their state, notes
+kraftwerk contacts set anna-meier --role CTO --email ""   # "" clears a field; --notes-file replaces the notes
+kraftwerk places create "NETNODE Office" --address "Zentralstrasse 1, 6003 Luzern" --lat 47.05 --lng 8.3
+kraftwerk places show netnode-office                 # prints the Google Maps link
+kraftwerk events create "Kickoff" --start 2026-11-03T14:00 --place netnode-office --contacts anna-meier --project relaunch
+kraftwerk events --from 2026-11-01 --to 2026-11-30   # the month's events
+kraftwerk ref contact:anna-meier                     # ✔ with its label, or ? not found (exit 1); --file notes.md checks a whole file
+kraftwerk contacts remove anna-meier                 # to the trash
+```
+
+Over the API each kind is its own route family — `contacts.list|get|create|save|delete`,
+`places.*`, `events.*` (`GET /api/events?from=&to=`) — and `refs.resolve`
+resolves tokens or every reference found in a text. In the inspector each
+kind is a page of the workspace (expert mode) with the list beside the open
+entry; a project's context column shows its contacts, places and events.
 
 ## Files
 

@@ -208,7 +208,7 @@ export function useExpertMode(): boolean {
 
 /* ---------- feature flags ---------- */
 
-// Which optional features kraftwerk.yml turns on (git, repos, vibeables, projects).
+// Which optional features kraftwerk.yml turns on (git, repos, vibeables, projects, contacts, places, events).
 // app.tsx sets them from /api/meta; screens read them to show or hide
 // entry points, so a chat never offers a vibeable in a workspace without them.
 export interface Features {
@@ -216,12 +216,16 @@ export interface Features {
   repos: boolean;
   vibeables: boolean;
   projects: boolean;
+  contacts: boolean;
+  places: boolean;
+  events: boolean;
 }
-let features: Features = { git: false, repos: false, vibeables: false, projects: false };
+const FEATURE_KEYS = ["git", "repos", "vibeables", "projects", "contacts", "places", "events"] as const;
+let features: Features = { git: false, repos: false, vibeables: false, projects: false, contacts: false, places: false, events: false };
 const featureListeners = new Set<() => void>();
 
 export function setFeatures(next: Features): void {
-  if (next.git === features.git && next.repos === features.repos && next.vibeables === features.vibeables && next.projects === features.projects) return;
+  if (FEATURE_KEYS.every((k) => next[k] === features[k])) return;
   features = next;
   featureListeners.forEach((fn) => fn());
 }

@@ -7,6 +7,7 @@ import { getAgent, listAgents } from "../agents.js";
 import { listRepos } from "../repos.js";
 import { listVibeables, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { projectContext } from "../projects.js";
+import { entitiesContext } from "../entities.js";
 import { unattendedTimeoutLabel } from "./permissions.js";
 import type { ChatAgentId, ChatMeta, ChatScope } from "./types.js";
 import { getChannel } from "../channels.js";
@@ -430,7 +431,7 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
   const agent = seat.harness;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, vibe, skills, channel, project] = await Promise.all([
+  const [base, repos, vibe, skills, channel, project, entities] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
@@ -438,8 +439,10 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
     meta.scope.kind === "channel" ? channelContext(meta.scope.slug, seat.key) : Promise.resolve(""),
     // A channel that works in a project: every member reads the project too, as a member, not as its assistant.
     meta.scope.kind === "channel" && meta.project ? projectContext(meta.project, `${seat.key}/${agent}`, { member: true }) : Promise.resolve(""),
+    // Who, where and when: the workspace's contacts, places and events, wherever the chat works (a run discusses its own artifacts only).
+    scope.kind === "run" ? Promise.resolve("") : entitiesContext().catch(() => ""),
   ]);
-  return [base, channel, project, repos, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, channel, project, repos, entities, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentSummary, AgentSearch, ChannelSummary, ProjectHit, WorkspaceAgents } from "./types";
+import type { AgentSummary, AgentSearch, ChannelSummary, EntityHit, ProjectHit, WorkspaceAgents } from "./types";
 import { api } from "./api";
 import { Icon, navigate, startWorkspace, workspaceHref } from "./shared";
 import { cn, Kbd } from "./ui";
@@ -17,6 +17,7 @@ type Hit = { ws: WorkspaceAgents; key: string } & (
   | { kind: "agent"; agent: AgentSummary }
   | { kind: "project"; project: ProjectHit }
   | { kind: "channel"; channel: ChannelSummary }
+  | { kind: "entity"; entity: EntityHit }
 );
 
 const MAX_SHOWN = 40;
@@ -30,21 +31,41 @@ const flatten = (data: AgentSearch | null): Hit[] =>
     ...ws.agents.map((agent): Hit => ({ kind: "agent", agent, ws, key: `${ws.url}|agent|${agent.slug}` })),
     ...(ws.projects ?? []).map((project): Hit => ({ kind: "project", project, ws, key: `${ws.url}|project|${project.slug}` })),
     ...(ws.channels ?? []).map((channel): Hit => ({ kind: "channel", channel, ws, key: `${ws.url}|channel|${channel.slug}` })),
+    ...(ws.entities ?? []).map((entity): Hit => ({ kind: "entity", entity, ws, key: `${ws.url}|${entity.kind}|${entity.slug}` })),
   ]);
 
-const nameOf = (hit: Hit): string => (hit.kind === "agent" ? hit.agent.name : hit.kind === "project" ? hit.project.title : hit.channel.name);
+const nameOf = (hit: Hit): string => (hit.kind === "agent" ? hit.agent.name : hit.kind === "project" ? hit.project.title : hit.kind === "entity" ? hit.entity.title : hit.channel.name);
 const subOf = (hit: Hit): string | undefined =>
-  hit.kind === "agent" ? hit.agent.description : hit.kind === "project" ? hit.project.goal || (hit.project.status !== "active" ? hit.project.status : undefined) : hit.channel.purpose;
+  hit.kind === "agent"
+    ? hit.agent.description
+    : hit.kind === "project"
+      ? hit.project.goal || (hit.project.status !== "active" ? hit.project.status : undefined)
+      : hit.kind === "entity"
+        ? hit.entity.detail
+        : hit.channel.purpose;
 const hrefOf = (hit: Hit): string =>
   hit.kind === "agent"
     ? `/agents/${encodeURIComponent(hit.agent.slug)}`
     : hit.kind === "project"
       ? `/projects/${encodeURIComponent(hit.project.slug)}`
-      : `/channels/${encodeURIComponent(hit.channel.slug)}`;
+      : hit.kind === "entity"
+        ? `/${hit.entity.kind}/${encodeURIComponent(hit.entity.slug)}`
+        : `/channels/${encodeURIComponent(hit.channel.slug)}`;
+/** The singular of a hit's kind, for the tag beside its name: contact, place, event. */
+const ENTITY_WORD: Record<EntityHit["kind"], string> = { contacts: "contact", places: "place", events: "event" };
+const ENTITY_ICON: Record<EntityHit["kind"], string> = { contacts: "person", places: "location_on", events: "event" };
 /** The same marks the rail uses for a project's status. */
 const PROJECT_MARK: Record<ProjectHit["status"], string> = { active: "📁", paused: "⏸️", done: "✅", archived: "🗄️" };
 const emojiOf = (hit: Hit): React.ReactNode =>
-  hit.kind === "agent" ? hit.agent.emoji : hit.kind === "project" ? PROJECT_MARK[hit.project.status] : <Icon name="forum" className="text-[18px] text-fg-2" />;
+  hit.kind === "agent" ? (
+    hit.agent.emoji
+  ) : hit.kind === "project" ? (
+    PROJECT_MARK[hit.project.status]
+  ) : hit.kind === "entity" ? (
+    <Icon name={ENTITY_ICON[hit.entity.kind]} className="text-[18px] text-fg-2" />
+  ) : (
+    <Icon name="forum" className="text-[18px] text-fg-2" />
+  );
 
 /** "channel", "project", "stopped": what a hit or a workspace is, beside its name. */
 const PALETTE_TAG = "flex-none rounded-full border border-line px-1.5 py-px text-[10px] font-semibold tracking-[0.4px] uppercase";
@@ -69,7 +90,9 @@ function filter(hits: Hit[], query: string): Hit[] {
         ? [hit.agent.slug, hit.agent.description ?? "", hit.agent.group ?? "", "agent"]
         : hit.kind === "project"
           ? [hit.project.slug, hit.project.goal ?? "", hit.project.status, "project"]
-          : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
+          : hit.kind === "entity"
+            ? [hit.entity.slug, hit.entity.detail ?? "", ENTITY_WORD[hit.entity.kind], `${ENTITY_WORD[hit.entity.kind]}:${hit.entity.slug}`]
+            : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
     const hay = [name, ...own, hit.ws.name].join(" ").toLowerCase();
     if (!tokens.every((t) => hay.includes(t))) continue;
     const score = name.startsWith(tokens[0]) ? 0 : name.includes(tokens[0]) ? 1 : 2;
@@ -237,7 +260,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   {starting === hit.key ? (
                     <Icon name="progress_activity" className="ms-sm" />
                   ) : (
-                    hit.kind !== "agent" && <span className={cn(PALETTE_TAG, "text-fg-2")}>{hit.kind}</span>
+                    hit.kind !== "agent" && <span className={cn(PALETTE_TAG, "text-fg-2")}>{hit.kind === "entity" ? ENTITY_WORD[hit.entity.kind] : hit.kind}</span>
                   )}
                 </li>
               );
@@ -276,7 +299,7 @@ function Palette({ onClose }: { onClose: () => void }) {
               setQuery(e.target.value);
               setActive(0);
             }}
-            placeholder="jump to an agent, project or channel…"
+            placeholder="jump to an agent, project, channel, contact, place or event…"
             aria-label="search"
             autoComplete="off"
             spellCheck={false}

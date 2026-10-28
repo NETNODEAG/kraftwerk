@@ -13,6 +13,7 @@ import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
 import { registerProjectCommands } from "./projects.js";
+import { registerContactCommands, registerEventCommands, registerPlaceCommands, registerRefCommand } from "./entities.js";
 import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
@@ -43,6 +44,8 @@ import { runUi } from "./ui.js";
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk workspaces ...          known workspaces on this machine (list/start/stop/forget)
  *   kraftwerk projects ...            goal-scoped project folders (list/create/show/link/log/remove)
+ *   kraftwerk contacts|places|events  who, where and when: one Markdown file each (list/show/create/set/remove)
+ *   kraftwerk ref <kind:slug>         resolve a reference (contact:anna-meier) or every one in a file
  *   kraftwerk vibeables ...           small apps built live in a chat (list/create/remove)
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk journal <agent> [entry] an agent's memory across sessions: print it, add a line
@@ -334,6 +337,10 @@ registerKnowledgeCommands(program);
 registerRoutineCommands(program);
 registerWorkspaceCommands(program);
 registerProjectCommands(program);
+registerContactCommands(program);
+registerPlaceCommands(program);
+registerEventCommands(program);
+registerRefCommand(program);
 registerRepoCommands(program);
 registerVibeableCommands(program);
 registerTrashCommands(program);

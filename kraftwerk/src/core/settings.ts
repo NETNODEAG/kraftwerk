@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
+import { ENTITY_KINDS, entityDefaultRoot, ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type EntitiesConfig, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
+import { ensureEntitiesRoot } from "./entities.js";
 import { ensureProjectsRoot } from "./projects.js";
 import { disposeAllDevs, ensureVibeablesRoot } from "./vibeables.js";
 import { workspaceRoot } from "./context.js";
@@ -42,6 +43,10 @@ export interface SaveSettingsInput {
   vibeables?: ReposSettingsInput;
   /** Omitted = untouched. Same shape and rules as repos. */
   projects?: ReposSettingsInput;
+  /** Omitted = untouched. Same shape and rules as repos. */
+  contacts?: ReposSettingsInput;
+  places?: ReposSettingsInput;
+  events?: ReposSettingsInput;
 }
 
 export interface ReposSettingsInput {
@@ -117,10 +122,17 @@ function cleanGit(value: GitSettingsInput): GitConfig | null {
   return { enabled: false, ...out };
 }
 
-const ROOT_DEFAULTS = { repos: REPOS_DEFAULT_ROOT, vibeables: VIBEABLES_DEFAULT_ROOT, projects: PROJECTS_DEFAULT_ROOT } as const;
+const ROOT_DEFAULTS = {
+  repos: REPOS_DEFAULT_ROOT,
+  vibeables: VIBEABLES_DEFAULT_ROOT,
+  projects: PROJECTS_DEFAULT_ROOT,
+  contacts: entityDefaultRoot("contacts"),
+  places: entityDefaultRoot("places"),
+  events: entityDefaultRoot("events"),
+} as const;
 
-/** The repos, vibeables or projects block to write; null when the feature is off and nothing else is set. */
-function cleanRootBlock(block: keyof typeof ROOT_DEFAULTS, value: ReposSettingsInput, projectRoot: string): ReposConfig | VibeablesConfig | ProjectsConfig | null {
+/** The repos, vibeables, projects, contacts, places or events block to write; null when the feature is off and nothing else is set. */
+function cleanRootBlock(block: keyof typeof ROOT_DEFAULTS, value: ReposSettingsInput, projectRoot: string): ReposConfig | VibeablesConfig | ProjectsConfig | EntitiesConfig | null {
   if (typeof value !== "object" || value === null) throw new Error(`${block} must be an object`);
   if (typeof value.enabled !== "boolean") throw new Error(`${block}.enabled must be true or false`);
   const out: ReposConfig = {};
@@ -187,6 +199,13 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     if (projects === null) doc.delete("projects");
     else doc.set("projects", projects);
   }
+  for (const kind of ENTITY_KINDS) {
+    const given = input[kind];
+    if (given === undefined) continue;
+    const block = cleanRootBlock(kind, given, project.root);
+    if (block === null) doc.delete(kind);
+    else doc.set(kind, block);
+  }
 
   await fs.writeFile(configPath, doc.toString());
   // Turning repositories on prepares the folder so the first clone and the
@@ -194,5 +213,6 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
   if (input.repos?.enabled) await ensureReposRoot().catch(() => {});
   if (input.vibeables?.enabled) await ensureVibeablesRoot().catch(() => {});
   if (input.projects?.enabled) await ensureProjectsRoot().catch(() => {});
+  for (const kind of ENTITY_KINDS) if (input[kind]?.enabled) await ensureEntitiesRoot(kind).catch(() => {});
   return getSettings();
 }

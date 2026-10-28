@@ -21,6 +21,7 @@ import { GitScreen } from "./git";
 import { ReposScreen } from "./repos";
 import { VibeablesScreen } from "./vibeables";
 import { ProjectsScreen } from "./projects";
+import { EntitiesScreen } from "./entities";
 import { SearchPalette } from "./search";
 import { ConversationsRail } from "./rail";
 import { GlobalNav } from "./workspace-tabs";
@@ -172,7 +173,7 @@ export function App() {
         setWorkspaceNamed(d.workspaceNamed !== false);
         setWorkspaceRootLabel(d.workspaceRootLabel ?? "");
         setWorkspaceRootAbs(d.workspaceRoot ?? "");
-        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects });
+        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects, contacts: !!d.contacts, places: !!d.places, events: !!d.events });
         setSwitcher(Array.isArray(d.switcher) ? (d.switcher as SwitcherEntry[]) : []);
   }, [meta]);
   // Browser-tab title + favicon carry the instance identity so multiple
@@ -229,6 +230,7 @@ export function App() {
   else if (seg[0] === "workspaces") globalScreen = <WorkspacesScreen />;
   else if (seg[0] === "git") globalScreen = <GitScreen />;
   else if (seg[0] === "repos") globalScreen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
+  else if (seg[0] === "contacts" || seg[0] === "places" || seg[0] === "events") globalScreen = <EntitiesScreen kind={seg[0]} slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
 
   // The workspace colour is the accent: derive the primary roles from it and
   // hand them to the stylesheet ([data-ws-accent] in tokens.css). Set only

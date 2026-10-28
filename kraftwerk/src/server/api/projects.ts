@@ -26,6 +26,9 @@ const ProjectFields = z.looseObject({
   repos: z.unknown().optional(),
   workflows: z.unknown().optional(),
   agents: z.unknown().optional(),
+  contacts: z.unknown().optional(),
+  places: z.unknown().optional(),
+  events: z.unknown().optional(),
 });
 
 /** Projects: folders with a goal, a brief, a log and links, plus the rail's order. */

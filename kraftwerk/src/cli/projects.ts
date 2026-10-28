@@ -43,7 +43,7 @@ const die = (msg: string): never => {
   process.exit(1);
 };
 
-const linkSummary = (p: { knowledge: string[]; vibeables: string[]; repos: string[]; workflows: string[]; agents: string[] }): string =>
+const linkSummary = (p: Record<(typeof LINK_KINDS)[number], string[]>): string =>
   LINK_KINDS.map((k) => (p[k].length ? `${p[k].length} ${k}` : ""))
     .filter(Boolean)
     .join(", ");
