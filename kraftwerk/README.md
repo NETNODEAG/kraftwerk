@@ -300,7 +300,9 @@ Optional, at the project root, and also the root marker for the walk-up. All
 fields are optional. `workflows:` sets the workflows root, `output:` the
 run-artifact directory (default `output/`), `knowledge:` the OKF bundle root
 (default `knowledge/`), and `agents:` the agent-definition root (default
-`agents/`). `repos:` turns on the [repositories](#repositories) folder.
+`agents/`). `repos:` turns on the [repositories](#repositories) folder,
+`projects:` the [projects](#projects), and `contacts:`, `places:` and
+`events:` each one of the [contacts, places and events](#contacts-places-and-events).
 `cloud: { enabled: false }` leaves the workspace out of this machine's
 record in the [kraftwerk cloud](#this-machine-in-the-kraftwerk-cloud).
 
@@ -342,7 +344,8 @@ projects (all but archived ones) and the channels of every workspace on this
 machine, grouped by workspace and running or not (a stopped one is started
 on the way), read from the workspace registry under `~/.kraftwerk/workspaces`,
 which every inspector keeps current with its roster, project and channel
-lists.
+lists — and this workspace's contacts, places and events, by title, role,
+organisation, address or date.
 
 ### Triggering from CI, cron, or webhooks
 

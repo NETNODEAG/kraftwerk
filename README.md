@@ -46,8 +46,9 @@ where that work becomes shared practice.
 **Projects.** A goal with everything the agents need to reach it in one
 folder: a brief, the systems of record where the truth is managed outside
 kraftwerk (a Google Drive folder, a my.netnode.ch workspace, a board), and
-links to the workspace's knowledge, vibeables, repositories, workflows and
-agents. Working in a project is chat: every session opened in it starts
+links to the workspace's knowledge, vibeables, repositories, workflows,
+agents, contacts, places and events. Working in a project is chat: every
+session opened in it starts
 with the brief, the current state, the records and the links as context,
 and the agent keeps `state.md` and the dated `log.md` current for the next
 session. Add coworkers to a project chat and it becomes a channel of the
