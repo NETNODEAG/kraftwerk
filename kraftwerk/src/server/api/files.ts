@@ -1,5 +1,7 @@
 import * as z from "zod";
 import { deleteFile, filesSummary, listFiles, listScopes, makeFolder, moveFile, openFile, saveUpload } from "../../core/files.js";
+import { cleanTemp, listTemp } from "../../core/temp.js";
+import { tildify } from "../../core/instances.js";
 import { reply, route, type Ctx } from "./router.js";
 
 const errors = (message: string): number => (/^no (file|folder|project)/.test(message) ? 404 : 400);
@@ -49,5 +51,17 @@ export const fileRoutes = [
   route({ name: "files.delete", method: "DELETE", path: "/api/files", summary: "move a file or folder ?scope&path to the trash", errors }, async (c) => {
     await deleteFile(...where(c));
     return { ok: true };
+  }),
+
+  // The temp root: one scratch folder per session (core/temp.ts). Nothing in it is a deliverable, so a clean deletes for good.
+  route({ name: "temp.list", method: "GET", path: "/api/temp", summary: "the sessions' scratch folders, newest first", errors }, async () => {
+    const view = await listTemp();
+    return { ...view, root: tildify(view.root) };
+  }),
+  route({ name: "temp.clean", method: "DELETE", path: "/api/temp", summary: "remove scratch folders idle a week ?olderThanDays, or every one ?all=1", errors }, async (c) => {
+    const raw = c.query.get("olderThanDays");
+    const days = raw === null ? NaN : Number(raw);
+    const gone = await cleanTemp({ all: c.query.get("all") === "1", ...(Number.isFinite(days) && days >= 0 ? { olderThanMs: days * 24 * 60 * 60 * 1000 } : {}) });
+    return { ok: true, removed: gone.map((e) => e.id), bytes: gone.reduce((n, e) => n + e.bytes, 0) };
   }),
 ];

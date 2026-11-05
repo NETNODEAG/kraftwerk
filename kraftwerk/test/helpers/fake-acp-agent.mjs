@@ -23,7 +23,10 @@ new AgentSideConnection(
     async prompt(params) {
       const text = params.prompt.map((b) => (b.type === "text" ? b.text : "")).join(" ");
       let said;
-      if (/ask a question/i.test(text)) {
+      if (/where is temp/i.test(text)) {
+        // What the process was handed for scratch, and whether the prompt briefed it (core/temp.ts).
+        said = `temp: ${process.env.KRAFTWERK_TEMP ?? ""}|${process.env.TMPDIR ?? ""}|${/## Temporary files/.test(text) ? "briefed" : "unbriefed"}`;
+      } else if (/ask a question/i.test(text)) {
         const r = await conn.createElicitation({
           sessionId: params.sessionId,
           mode: "form",

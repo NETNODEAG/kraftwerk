@@ -40,6 +40,7 @@ describe("kraftwerk init / list / doctor", () => {
     const gitignore = await readFile(path.join(dir.root, ".gitignore"), "utf8");
     assert.match(gitignore, /^kraftwerk-data\/output\/$/m);
     assert.match(gitignore, /^kraftwerk-data\/repos\/$/m, "the repos root is ignored before the first clone");
+    assert.match(gitignore, /^kraftwerk-data\/temp\/$/m, "the temp root is ignored before the first session");
     assert.match(await readFile(path.join(dir.root, "kraftwerk.yml"), "utf8"), /^name: "project"/m);
     assert.match(await readFile(path.join(dir.root, "kraftwerk.yml"), "utf8"), /^id: ws_[a-z0-9]{10} /m, "a new workspace gets its id");
   });

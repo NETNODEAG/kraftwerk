@@ -543,7 +543,7 @@ export async function projectContext(slug: string, actor: string, opts: { member
       ? `## Knowledge\nOKF bundles linked to this project (markdown + YAML frontmatter under the knowledge root):\n` +
         linkLines("knowledge", (l) => `- ${l.slug}${l.label ? ` (${l.label})` : ""}`) +
         `\nRead with \`npx kraftwerk knowledge list <bundle>\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
-        `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor ${actor}\` ` +
+        `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file $KRAFTWERK_TEMP/<name>.md --actor ${actor}\` ` +
         `(stamps provenance, maintains index.md/log.md — never hand-edit those).`
       : "",
     p.repos.length > 0

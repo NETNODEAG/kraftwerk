@@ -144,6 +144,18 @@ export a bundle or a single page as PDF.
 Type `/` in any chat to invoke one. The same skill works on claude, codex and
 pi.
 
+**Files and temp.** The material of the work lives in plain folders:
+`kraftwerk-data/files/` for what the workspace shares, `files/` inside a
+project for its briefings, drafts and deliverables, both versioned with the
+workspace. Scratch work goes elsewhere: every session gets a folder of its
+own under `kraftwerk-data/temp/`, handed to the agent process as `TMPDIR`
+and `KRAFTWERK_TEMP` and named in its context, so intermediate files,
+downloads and one-off scripts land there by themselves instead of in the
+files folders or the system temp dir. The temp root is git-ignored; a
+chat's folder goes with the chat, idle folders are swept after a week
+(`kraftwerk temp`, `kraftwerk temp clean`). A workflow run uses `temp/`
+inside its run folder the same way.
+
 **Workflows.** Repeatable multi-step processes. A sequence of agent and script
 steps described in YAML, with prompts as markdown files beside it. Run one
 from the UI, the CLI, a routine, or CI.

@@ -48,6 +48,8 @@ export interface BackendTuning {
   skillDirs?: string[];
   /** claude: extra directories the session may work in (e.g. project root for run chats). */
   addDirs?: string[];
+  /** The session's scratch folder (core/temp.ts): handed to the process as TMPDIR and KRAFTWERK_TEMP. */
+  temp?: string;
   /**
    * Nobody is watching this session live (routine runs). The backend selects
    * the harness's own hands-off permission mode — the harness keeps deciding

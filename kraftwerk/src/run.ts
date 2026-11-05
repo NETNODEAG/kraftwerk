@@ -6,6 +6,7 @@ import { harnessFor } from "./harnesses/registry.js";
 import { correctionPrompt, parseEnvelope, type Envelope } from "./envelope.js";
 import type { Gate } from "./gates.js";
 import { fmtDuration, phaseStatsLine, summaryTable, type PhaseStats } from "./stats.js";
+import { tempEnvFor } from "./core/temp.js";
 
 /**
  * The phase runner: agent proposes, code disposes. An agent phase spawns one
@@ -51,6 +52,16 @@ export class Run {
     this.workspaceContext = options.workspaceContext;
     this.verbose = options.verbose ?? false;
     this.maxGateRetries = options.maxGateRetries ?? 2;
+  }
+
+  /**
+   * The run's scratch folder, <run dir>/temp, as TMPDIR for every phase
+   * (core/temp.ts): inside the run dir so a sandboxed run finds it in its
+   * mount, created when the first phase starts.
+   */
+  private temp?: Promise<Record<string, string>>;
+  private tempEnv(): Promise<Record<string, string>> {
+    return (this.temp ??= tempEnvFor(path.join(this.runDir, "temp")));
   }
 
   async trace(event: string, data: Record<string, unknown> = {}): Promise<void> {
@@ -124,6 +135,7 @@ export class Run {
         tools: agent.tools,
         clis: cliEntries.map(([name]) => name),
         mcpServers: agent.mcp,
+        env: await this.tempEnv(),
         resume: this.sessions.get(sessionKey),
         onToolUse: (tool, target) => {
           console.log(`  ⚙ ${tool} ${target}`.trimEnd());
@@ -222,12 +234,13 @@ export class Run {
     console.log(`\n▸ Phase "${params.name}" — script (bash)`);
     await this.trace("phase_start", { phase: params.name, kind: "script" });
     const started = Date.now();
+    const temp = await this.tempEnv();
 
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
       (resolve, reject) => {
         const child = spawn("bash", ["-c", params.script], {
           cwd: this.runDir,
-          env: { ...process.env, RUN_DIR: this.runDir, PHASE: params.name, ...params.env },
+          env: { ...process.env, ...temp, RUN_DIR: this.runDir, PHASE: params.name, ...params.env },
         });
         let stdout = "";
         let stderr = "";

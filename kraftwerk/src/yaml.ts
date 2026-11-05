@@ -356,6 +356,7 @@ export async function loadWorkflow(givenPath: string): Promise<LoadedWorkflow> {
         verbose,
         workspaceContext: [
           `Working directory (read and create all files here): ${runDir}`,
+          `Temporary files (scratch, downloads, intermediate output, one-off scripts) go to ${runDir}/temp — TMPDIR and KRAFTWERK_TEMP point there; nothing in it counts as a result of the run.`,
           workspace,
         ]
           .filter(Boolean)

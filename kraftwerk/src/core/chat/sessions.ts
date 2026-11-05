@@ -10,6 +10,7 @@ import type { Attachment, ChatAgentId, ChatMeta, ChatPerson, ChatScope, Elicitat
 import type { PromptFile } from "./backend.js";
 import { type Channel } from "../channels.js";
 import { moveToTrash } from "../trash.js";
+import { removeSessionTemp } from "../temp.js";
 import { attachmentPath, copyChatFiles, listChatMetas, newChatId, readMetaAt, safeChatDir, writeMeta } from "./store.js";
 import { postChannelMessage } from "./channel-turns.js";
 import { expandSkillInvocation, scopeContext } from "./context.js";
@@ -545,6 +546,8 @@ export async function deleteChat(id: string): Promise<{ error?: string }> {
   dropBackend(state);
   chatStates().delete(id);
   await moveToTrash("chats", id, safeChatDir(id));
+  // Scratch, not a deliverable: gone for good with the chat.
+  await removeSessionTemp(id).catch(() => {});
   return {};
 }
 

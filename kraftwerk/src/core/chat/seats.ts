@@ -11,6 +11,7 @@ import type { ChatEvent, ChatMeta, ElicitationAnswer, ElicitationField } from ".
 import { writeMeta } from "./store.js";
 import { availableSkills } from "./context.js";
 import { effectiveCwd } from "./sessions.js";
+import { sessionTemp } from "../temp.js";
 import { type ChatState, type Seat, emit, isUnattended, ownerLabel, seatAuthor } from "./state.js";
 
 /**
@@ -53,6 +54,8 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
     const skills = await availableSkills(scope);
     if (skills.length > 0) tuning.skillDirs = skills.map((s) => s.dir);
   }
+  // Every seat gets the chat's scratch folder as its temp dir (core/temp.ts), so nothing temporary lands in files/ or /tmp.
+  tuning.temp = (await sessionTemp(meta.id)).abs;
   return tuning;
 }
 

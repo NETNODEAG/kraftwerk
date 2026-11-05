@@ -47,6 +47,8 @@ export interface AgentInvocation {
   clis?: string[];
   /** MCP servers available in this phase, keyed by server name. */
   mcpServers?: Record<string, McpServerConfig>;
+  /** Extra environment for the agent process (the run's temp folder as TMPDIR, see core/temp.ts); on top of the workspace's. */
+  env?: Record<string, string>;
   resume?: string;
   onToolUse?: (tool: string, target: string) => void;
   onText?: (text: string) => void;

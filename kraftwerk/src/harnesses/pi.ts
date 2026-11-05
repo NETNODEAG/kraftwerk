@@ -90,6 +90,7 @@ function invokePi(inv: AgentInvocation): Promise<AgentResult> {
     const child = spawn("pi", args, {
       cwd: inv.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...inv.env },
     });
     child.stdin.write(inv.prompt);
     child.stdin.end();

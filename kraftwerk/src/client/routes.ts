@@ -137,6 +137,8 @@ export const ROUTES = {
   "settings.save": ["PUT", "/api/settings"],
   "skills.get": ["GET", "/api/skills/:name"],
   "skills.list": ["GET", "/api/skills"],
+  "temp.clean": ["DELETE", "/api/temp"],
+  "temp.list": ["GET", "/api/temp"],
   "trash.empty": ["DELETE", "/api/trash"],
   "trash.list": ["GET", "/api/trash"],
   "trash.purge": ["POST", "/api/trash/purge"],

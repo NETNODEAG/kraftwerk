@@ -18,6 +18,7 @@ import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
 import { registerVibeableCommands } from "./vibeables.js";
 import { registerTrashCommands } from "./trash.js";
+import { registerTempCommands } from "./temp.js";
 import { registerDevicesCommands } from "./devices.js";
 import { registerDaemonCommand } from "./daemon.js";
 import { registerRemoteCommand } from "./remote.js";
@@ -50,6 +51,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk repos ...               repositories the agents work on (list/add/update/remove)
  *   kraftwerk journal <agent> [entry] an agent's memory across sessions: print it, add a line
  *   kraftwerk trash ...               what was deleted: list, restore, purge, empty
+ *   kraftwerk temp [clean]            the sessions' scratch folders (TMPDIR of every agent): list, clean
  *   kraftwerk devices ...             paired devices: list, pair one, revoke one
  *   kraftwerk daemon                  the machine's kraftwerk: every open workspace at <slug>.localhost
  *   kraftwerk cloud [on|off|status]   this machine in the kraftwerk cloud (the daemon registers it)
@@ -344,6 +346,7 @@ registerRefCommand(program);
 registerRepoCommands(program);
 registerVibeableCommands(program);
 registerTrashCommands(program);
+registerTempCommands(program);
 registerDevicesCommands(program);
 registerDaemonCommand(program);
 registerRemoteCommand(program);

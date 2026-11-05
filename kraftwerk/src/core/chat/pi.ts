@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
 import { workspaceEnv } from "../env.js";
+import { tempEnv } from "../temp.js";
 
 /**
  * pi chat backend: pi has no ACP support, but its `-p --mode json` run with
@@ -58,7 +59,7 @@ export function startPiBackend(
         const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...tuningArgs], {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
-          env: workspaceEnv(),
+          env: { ...workspaceEnv(), ...(tuning.temp ? tempEnv(tuning.temp) : {}) },
         });
         child = proc;
         proc.stdin.write(text);

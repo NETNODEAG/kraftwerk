@@ -151,7 +151,7 @@ async function open(agent: AcpAgent, inv: AgentInvocation, resume?: string): Pro
 
   const { child, conn } = await connectAcp(agent, {
     cwd: inv.cwd,
-    env: adapterEnv(agent, { model: inv.model, effort: inv.effort }),
+    env: { ...adapterEnv(agent, { model: inv.model, effort: inv.effort }), ...inv.env },
     client,
     clientName: "kraftwerk",
     onError: (err) => end(`could not start the ${agent} adapter: ${err.message}`),

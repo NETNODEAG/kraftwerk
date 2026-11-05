@@ -156,11 +156,12 @@ export async function runInit(cwd: string): Promise<void> {
   }
 
   // .gitignore: the output dir, the repos root (clones must never become
-  // gitlinks of the workspace repo) and .env (secrets). A missing file gets
+  // gitlinks of the workspace repo), the temp root (session scratch, which
+  // also carries a .gitignore of its own) and .env (secrets). A missing file gets
   // all in one write; an existing one only the entries it lacks.
   const gitignorePath = path.join(cwd, ".gitignore");
   const gitignore = (await readFile(gitignorePath, "utf8").catch(() => null)) ?? null;
-  const entries = [`${DATA_DIR}/output/`, `${DATA_DIR}/repos/`, DOTENV_FILE];
+  const entries = [`${DATA_DIR}/output/`, `${DATA_DIR}/repos/`, `${DATA_DIR}/temp/`, DOTENV_FILE];
   if (gitignore === null) {
     await writeFile(gitignorePath, entries.map((e) => `${e}\n`).join(""));
     created.push(".gitignore");

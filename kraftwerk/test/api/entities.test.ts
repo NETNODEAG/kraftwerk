@@ -284,7 +284,8 @@ describe("contacts, places and events API", () => {
     assert.match(ctx, /`contact:<slug>`, `place:<slug>`, `event:<slug>`/);
     assert.match(ctx, /npx kraftwerk contacts\|places\|events list --json/);
     assert.match(ctx, /npx kraftwerk ref <kind:slug>/);
-    assert.match(ctx, /Next events:\n- event:2026-11-03-kickoff — [^\n]*\n- event:2099-01-01-launch — 2099-01-01 Launch$/);
+    // The kickoff on 2026-11-03 is upcoming only until that day has passed; the launch in 2099 always is.
+    assert.match(ctx, /Next events:\n(- event:2026-11-03-kickoff — [^\n]*\n)?- event:2099-01-01-launch — 2099-01-01 Launch$/);
   });
 
   it("the files are in the workspace git's scope: syncable", async () => {

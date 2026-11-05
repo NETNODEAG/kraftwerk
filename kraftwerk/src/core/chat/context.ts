@@ -13,6 +13,7 @@ import type { ChatAgentId, ChatMeta, ChatScope } from "./types.js";
 import { getChannel } from "../channels.js";
 import { JOURNAL_FILE, journalExcerpt, readJournal } from "../journal.js";
 import { filesSummary } from "../files.js";
+import { sessionTemp, tempContext } from "../temp.js";
 import { type Seat } from "./state.js";
 
 /**
@@ -98,8 +99,8 @@ async function agentKnowledgeContext(def: {
     `part of your job. Consult them before answering questions in their domain, and keep them current ` +
     `when you learn something durable:\n${lines}\n\n` +
     `Read with \`npx kraftwerk knowledge list <bundle>\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
-    `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor ${def.slug}/${def.harness}\` ` +
-    `(write the markdown to a temp file first; the CLI stamps provenance and maintains index.md/log.md). ` +
+    `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file $KRAFTWERK_TEMP/<name>.md --actor ${def.slug}/${def.harness}\` ` +
+    `(write the markdown into your temp folder first; the CLI stamps provenance and maintains index.md/log.md). ` +
     `Never hand-edit index.md or log.md, and never add \`verified\` yourself — verification is the human's ` +
     `click in the UI.\n\n`
   );
@@ -150,7 +151,8 @@ export async function agentFilesContext(def: { files?: string[] }): Promise<stri
     `## Files\nThe workspace's shared files (any format: brand assets, templates, contracts, …) are in ${ws.root}/ (${ws.count} file${ws.count === 1 ? "" : "s"}). ` +
     (linked ? `The folders that are part of your job:\n${linked}\n` : "") +
     `Work you do for a project belongs in that project's files folder, not here. What you produce in a direct session goes to ${ws.root}/inbox/. ` +
-    `Delete nothing there unless asked.\n\n`
+    `Only finished work and the user's own material belong in these folders — scratch, intermediate and downloaded files go to your ` +
+    `temp folder (below), never here. Delete nothing there unless asked.\n\n`
   );
 }
 
@@ -342,7 +344,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `- Favor structural markdown (headings, tables, lists) over prose.\n\n` +
       `ALWAYS write through the kraftwerk CLI so provenance is stamped and the bundle log/index stay maintained:\n` +
       `- \`npx kraftwerk knowledge init <bundle>\` — new bundle\n` +
-      `- \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor kraftwerk-chat/${agent}\` — create/update a concept ` +
+      `- \`npx kraftwerk knowledge put <bundle>/<path> --file $KRAFTWERK_TEMP/<name>.md --actor kraftwerk-chat/${agent}\` — create/update a concept ` +
       `(write the markdown to a temp file first; the CLI stamps generated.by/at, appends log.md, regenerates index.md)\n` +
       `- \`npx kraftwerk knowledge list [bundle]\`, \`get <bundle>/<path>\`, \`search <text>\`, \`validate\`\n` +
       `Do not hand-edit index.md or log.md (derived/maintained), and do not add \`verified\` yourself — ` +
@@ -383,7 +385,7 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `## Recent runs\n${runLines || "(none)"}\n\n` +
       `## Knowledge\nOKF bundles in this project:\n${bundleLines || "(none)"}\n` +
       `Read with \`npx kraftwerk knowledge list [bundle]\`, \`get <bundle>/<path>\`, \`search <text>\`. ` +
-      `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file <tmp.md> --actor kraftwerk-chat/${agent}\` ` +
+      `Write ONLY through \`npx kraftwerk knowledge put <bundle>/<path> --file $KRAFTWERK_TEMP/<name>.md --actor kraftwerk-chat/${agent}\` ` +
       `(stamps provenance, maintains index.md/log.md — never hand-edit those).\n\n` +
       `## Agents\n${agentLines || "(none)"}\n` +
       `These are persistent agents (defined under agents/); the user talks to them on the ` +
@@ -442,7 +444,10 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
     // Who, where and when: the workspace's contacts, places and events, wherever the chat works (a run discusses its own artifacts only).
     scope.kind === "run" ? Promise.resolve("") : entitiesContext().catch(() => ""),
   ]);
-  return [base, channel, project, repos, entities, vibe, RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  // Every session has a scratch folder of its own (core/temp.ts), named by its absolute path: a run chat or a
+  // vibeable session works in another folder than the workspace root. The block comes after the files blocks it refers to.
+  const temp = await sessionTemp(meta.id).catch(() => null);
+  return [base, channel, project, repos, entities, vibe, temp ? tempContext(temp.abs) : "", RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -24,7 +24,7 @@ describe("kraftwerk run without a request", () => {
     await write("kraftwerk.yml", "name: fixture\nworkflows: workflows\noutput: output\n");
     await write(
       "workflows/tick/workflow.yml",
-      "name: tick\ndescription: writes a stamp\nsteps:\n  - name: stamp\n    run: |\n      set -e\n      echo stamped > stamp.txt\n    gates:\n      - file_non_empty: stamp.txt\n"
+      "name: tick\ndescription: writes a stamp\nsteps:\n  - name: stamp\n    run: |\n      set -e\n      echo stamped > stamp.txt\n      test \"$TMPDIR\" = \"$RUN_DIR/temp\" && test \"$KRAFTWERK_TEMP\" = \"$TMPDIR\" && test -d \"$TMPDIR\" && echo \"$TMPDIR\" > temp.txt\n    gates:\n      - file_non_empty: stamp.txt\n"
     );
     await write(
       "workflows/ask/workflow.yml",
@@ -46,6 +46,7 @@ describe("kraftwerk run without a request", () => {
     assert.equal(out.ok, true);
     assert.equal(out.request, "");
     assert.ok(existsSync(path.join(out.runDir, "stamp.txt")), "the script ran in the run dir");
+    assert.equal((await readFile(path.join(out.runDir, "temp.txt"), "utf8")).trim(), path.join(out.runDir, "temp"), "TMPDIR is the run's own temp folder");
     const runs = await readdir(path.join(dir.root, "output", "runs"));
     assert.ok(runs.some((id) => id.endsWith("-tick")), "run folder named after the workflow");
   });

@@ -81,6 +81,7 @@ function invokeClaude(inv: AgentInvocation): Promise<AgentResult> {
     const child = spawn("claude", args, {
       cwd: inv.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...inv.env },
     });
     child.stdin.write(inv.prompt);
     child.stdin.end();

@@ -333,6 +333,7 @@ export async function filesContext(scope: FilesScope, heading: string, intro: st
     `## ${heading}\n${intro} ${s.root}/ — ${s.count} file${s.count === 1 ? "" : "s"}` +
     (recent ? `, most recently changed:\n${recent}\n` : " (empty so far)\n") +
     `Read and write them there like any folder; put what you produce for the user in ${s.root}/deliverables/. ` +
+    `Only finished work and the material the user gave you belong here — scratch, intermediate and downloaded files go to your temp folder (see Temporary files), never into this folder. ` +
     `Files over 25 MB stay out of git automatically. Delete nothing there unless asked.`
   );
 }

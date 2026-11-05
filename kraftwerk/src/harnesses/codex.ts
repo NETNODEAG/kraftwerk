@@ -127,6 +127,7 @@ function invokeCodex(inv: AgentInvocation): Promise<AgentResult> {
     const child = spawn("codex", args, {
       cwd: inv.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...inv.env },
     });
     child.stdin.write(prompt);
     child.stdin.end();
