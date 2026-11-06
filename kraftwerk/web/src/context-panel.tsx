@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { api, useApi } from "./api";
 import { Icon, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath } from "./shared";
 import { BundleView } from "./knowledge";
+import { BoardGlance } from "./boards";
 import { FileBrowser } from "./files";
 import { Overview } from "./overview";
 import { Button, cn, Dot, IconButton, ListRow, Select, Tabs, type DotTone } from "./ui";
@@ -112,6 +113,9 @@ export function ContextPanel({ chatPath, workspace }: {
   const [launching, setLaunching] = useState<string | null>(null);
   const know = useApi("knowledge.list", {}, { interval: 15_000 });
   const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 15_000 });
+  // A project's boards, for the board tab: its columns at a glance.
+  const boards = useApi("boards.list", features.boards && ctx.kind === "project" ? { query: { project: ctx.slug } } : null, { interval: 15_000 });
+  const projectBoards = ctx.kind === "project" ? (boards?.boards ?? []) : [];
   const [links, setLinks] = useState<Links | null>(null);
   const [version, setVersion] = useState(0);
   // One category at a time, as tabs; remembered per browser.
@@ -202,6 +206,10 @@ export function ContextPanel({ chatPath, workspace }: {
     { id: "knowledge", label: "knowledge", count: links?.knowledge.length, allHref: "/knowledge" },
     ...(features.vibeables ? [{ id: "vibeables", label: "apps", count: links?.all ? vibes?.vibeables.length : (links?.vibeables?.length ?? 0), allHref: "/vibeables" }] : []),
     { id: "workflows", label: "workflows", count: links?.workflows.length, allHref: "/workflows" },
+    // A project's work as columns of tasks; the count is what waits for review.
+    ...(features.boards && ctx.kind === "project"
+      ? [{ id: "board", label: "boards", count: projectBoards.reduce((n, b) => n + b.review, 0) || undefined, allHref: `/projects/${encodeURIComponent(ctx.slug)}/boards` }]
+      : []),
     // Expert detail: the clones a project or agent works on.
     ...(expert && showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
     // A project's who, where and when, each only while the kind is on.
@@ -521,6 +529,20 @@ export function ContextPanel({ chatPath, workspace }: {
                   ))}
                 </Fragment>
               ),
+          )}
+
+          {current === "board" && ctx.kind === "project" && (
+            <>
+              {boards && boards.enabled && projectBoards.length === 0 && (
+                <p className="m-0 px-2.5 py-3 text-sm text-fg-2">
+                  No board yet. <Link href={`/projects/${encodeURIComponent(ctx.slug)}/boards`} className="text-accent">Open the tasks board</Link> — it is created on first use.
+                </p>
+              )}
+              {boards && !boards.enabled && <p className="m-0 px-2.5 py-3 text-sm text-fg-2">{boards.error}</p>}
+              {projectBoards.map((b) => (
+                <BoardGlance key={b.board} project={ctx.slug} board={b.board} />
+              ))}
+            </>
           )}
 
           {current === "repos" && links?.repos && (

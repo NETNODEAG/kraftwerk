@@ -76,6 +76,42 @@ places: [netnode-office]
 events: [2026-11-03-kickoff]
 ```
 
+**Boards and tasks.** The work of a project as columns of cards, stored as
+plain folders. A board has columns (Draft, Todo, In progress, Review, Done
+by default, configured in its `board.md`); a task is a numbered folder with
+`task.md` (title, column, assignee, due date, tags, references, and the
+task itself in Markdown), `log.md` (newest first: every move, hand-over,
+comment and file, stamped with minute and author) and whatever files the
+task needs. Projects have boards under `projects/<slug>/boards/`, the
+workspace has its own under `kraftwerk-data/boards/`. Agents work the board
+through the CLI: `kraftwerk tasks pick` takes the next Todo task, `tasks
+log` says what was done, `tasks assign <n> max -m "…"` hands it on with a
+note, `tasks move <n> review` gives it back to the humans — and assigning a
+task to an agent wakes that agent with the task, its files and its log as
+context, on this machine only (events live in the output folder, never in
+git). Review tasks count as waiting for you; only a human moves a task to
+Done. Switched on by `boards:` in `kraftwerk.yml`.
+
+```markdown
+<!-- kraftwerk-data/projects/relaunch/boards/tasks/tasks/50-write-a-press-release/task.md -->
+---
+title: Write a press release
+status: progress
+order: 20
+assignee: lisa
+due: 2026-11-20
+created: 2026-11-05
+tags: [pr]
+refs: [contact:anna-meier, knowledge:brand-voice]
+---
+## What
+A release for the launch, 300 words, quotes from Anna.
+
+## Done when
+- [ ] draft in press-release.md
+- [ ] Anna's quote confirmed
+```
+
 **Contacts, places and events.** The workspace's own records of who, where
 and when, so humans and agents can point at them reliably: one Markdown
 file each, the typed fields in YAML frontmatter and free notes in the body.

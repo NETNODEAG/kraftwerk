@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { agentRoutes } from "./agents.js";
 import { attentionRoutes } from "./attention.js";
+import { boardRoutes } from "./boards.js";
 import { channelRoutes } from "./channels.js";
 import { chatRoutes } from "./chats.js";
 import { cloudRoutes } from "./cloud.js";
@@ -33,6 +34,7 @@ const domainRoutes = [
   ...chatRoutes,
   ...channelRoutes,
   ...projectRoutes,
+  ...boardRoutes,
   ...contactRoutes,
   ...placeRoutes,
   ...eventRoutes,

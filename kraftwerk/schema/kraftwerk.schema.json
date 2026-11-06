@@ -225,6 +225,45 @@
         }
       }
     },
+    "boards": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Boards: tasks as folders (task.md, log.md, files) in columns, per project (projects/<p>/boards/) and workspace-wide under the root; agents are woken when a task is assigned to them. Absent = feature off, a bare `boards:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the workspace boards live, relative to the project root. Default: kraftwerk-data/boards"
+        },
+        "columns": {
+          "type": "array",
+          "description": "Default columns for boards that name none: slugs or {slug, label, limit, done, review}. Default: draft, todo, progress, review (review: true), done (done: true)",
+          "items": {
+            "anyOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["slug"],
+                "properties": {
+                  "slug": { "type": "string" },
+                  "label": { "type": "string" },
+                  "limit": { "type": "integer", "minimum": 1 },
+                  "done": { "type": "boolean" },
+                  "review": { "type": "boolean" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "cloud": {
       "type": [
         "object",

@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { ENTITY_KINDS, entityDefaultRoot, ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type EntitiesConfig, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
+import { BOARDS_DEFAULT_ROOT, ENTITY_KINDS, entityDefaultRoot, ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type EntitiesConfig, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
+import { ensureBoardsRoot } from "./boards.js";
 import { ensureEntitiesRoot } from "./entities.js";
 import { ensureProjectsRoot } from "./projects.js";
 import { disposeAllDevs, ensureVibeablesRoot } from "./vibeables.js";
@@ -47,6 +48,8 @@ export interface SaveSettingsInput {
   contacts?: ReposSettingsInput;
   places?: ReposSettingsInput;
   events?: ReposSettingsInput;
+  /** Omitted = untouched. Same shape and rules as repos (boards.columns in the file is kept). */
+  boards?: ReposSettingsInput;
 }
 
 export interface ReposSettingsInput {
@@ -129,6 +132,7 @@ const ROOT_DEFAULTS = {
   contacts: entityDefaultRoot("contacts"),
   places: entityDefaultRoot("places"),
   events: entityDefaultRoot("events"),
+  boards: BOARDS_DEFAULT_ROOT,
 } as const;
 
 /** The repos, vibeables, projects, contacts, places or events block to write; null when the feature is off and nothing else is set. */
@@ -206,6 +210,12 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     if (block === null) doc.delete(kind);
     else doc.set(kind, block);
   }
+  if (input.boards !== undefined) {
+    const block = cleanRootBlock("boards", input.boards, project.root);
+    const columns = project.config.boards?.columns;
+    if (block === null && !columns) doc.delete("boards");
+    else doc.set("boards", { ...(block ?? { enabled: false }), ...(columns ? { columns } : {}) });
+  }
 
   await fs.writeFile(configPath, doc.toString());
   // Turning repositories on prepares the folder so the first clone and the
@@ -214,5 +224,6 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
   if (input.vibeables?.enabled) await ensureVibeablesRoot().catch(() => {});
   if (input.projects?.enabled) await ensureProjectsRoot().catch(() => {});
   for (const kind of ENTITY_KINDS) if (input[kind]?.enabled) await ensureEntitiesRoot(kind).catch(() => {});
+  if (input.boards?.enabled) await ensureBoardsRoot().catch(() => {});
   return getSettings();
 }

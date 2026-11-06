@@ -49,6 +49,7 @@ interface SettingsData {
     contacts?: { enabled?: boolean; root?: string };
     places?: { enabled?: boolean; root?: string };
     events?: { enabled?: boolean; root?: string };
+    boards?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -91,6 +92,13 @@ function projectsForm(d: SettingsData): ReposForm {
   const p = d.config.projects;
   if (!p) return REPOS_OFF;
   return { enabled: p.enabled !== false, root: p.root ?? "" };
+}
+
+/** The boards block, same shape. */
+function boardsForm(d: SettingsData): ReposForm {
+  const b = d.config.boards;
+  if (!b) return REPOS_OFF;
+  return { enabled: b.enabled !== false, root: b.root ?? "" };
 }
 
 /** The contacts, places and events blocks: the same shape, one form each. */
@@ -287,6 +295,7 @@ export function SettingsScreen() {
   const [repos, setRepos] = useState<ReposForm>(REPOS_OFF);
   const [vibeables, setVibeables] = useState<ReposForm>(REPOS_OFF);
   const [projects, setProjects] = useState<ReposForm>(REPOS_OFF);
+  const [boards, setBoards] = useState<ReposForm>(REPOS_OFF);
   const [entities, setEntities] = useState<EntityForms>(ENTITIES_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -307,6 +316,7 @@ export function SettingsScreen() {
         setRepos(reposForm(d));
         setVibeables(vibeablesForm(d));
         setProjects(projectsForm(d));
+        setBoards(boardsForm(d));
         setEntities(entityForms(d));
       })
       .catch(() => setError("could not load settings"));
@@ -332,6 +342,7 @@ export function SettingsScreen() {
           repos,
           vibeables,
           projects,
+          boards,
           ...entities,
         },
       });
@@ -343,6 +354,7 @@ export function SettingsScreen() {
       setRepos(reposForm(d));
       setVibeables(vibeablesForm(d));
       setProjects(projectsForm(d));
+      setBoards(boardsForm(d));
       setEntities(entityForms(d));
       setDirty(false);
       setSaved(true);
@@ -372,6 +384,10 @@ export function SettingsScreen() {
   };
   const setProjectsField = (patch: Partial<ReposForm>): void => {
     setProjects((p) => ({ ...p, ...patch }));
+    touch();
+  };
+  const setBoardsField = (patch: Partial<ReposForm>): void => {
+    setBoards((b) => ({ ...b, ...patch }));
     touch();
   };
   const setEntityField = (kind: EntityKind, patch: Partial<ReposForm>): void => {
@@ -600,6 +616,25 @@ export function SettingsScreen() {
               <Hint>
                 Relative to the project root, one folder per project (project.yml, brief.md, state.md, log.md). Part of the workspace:
                 versioned with it on the git screen. A chat opened in a project starts with all of it as context.
+              </Hint>
+            </>
+          )}
+        </FormStack>
+      </Panel>
+
+      <Panel title="boards" actions={<Button size="sm" icon="view_kanban" href="/boards">open boards</Button>}>
+        <FormStack>
+          <Checkbox checked={boards.enabled} onChange={(on) => setBoardsField({ enabled: on })}>
+            keep the work as boards of tasks — columns Draft, Todo, In progress, Review, Done; each task a folder with task.md, log.md and its files, per project and workspace-wide; agents are woken when a task is assigned to them
+          </Checkbox>
+          {boards.enabled && (
+            <>
+              <Field label="boards root">
+                <TextField value={boards.root} placeholder="kraftwerk-data/boards" onChange={(e) => setBoardsField({ root: e.target.value })} />
+              </Field>
+              <Hint>
+                Relative to the project root, one folder per board under the root (workspace boards); a project's boards live in <code>projects/&lt;slug&gt;/boards/</code>. Part of the workspace:
+                versioned with it on the git screen. Agents read and write them with <code>kraftwerk tasks</code>.
               </Hint>
             </>
           )}

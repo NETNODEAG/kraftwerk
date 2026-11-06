@@ -28,6 +28,7 @@ async function backendTuning(meta: ChatMeta, seat: Seat): Promise<BackendTuning>
   const tuning: BackendTuning = {};
   const agentSlug = scope.kind === "agent" ? scope.slug : scope.kind === "channel" ? seat.key : undefined;
   if (agentSlug) {
+    tuning.agent = agentSlug;
     const def = await getAgent(agentSlug).catch(() => null);
     if (def?.model) tuning.model = def.model;
     if (def?.effort) tuning.effort = def.effort;
@@ -102,7 +103,7 @@ export async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatB
             href: `${chatHref(state.meta)}?focus=${encodeURIComponent(requestId)}`,
           });
           if (!state.pendingInfo.has(requestId)) await dismissKey(notifyKey);
-        });
+        }).catch(() => {});
         if (isUnattended(state.meta.scope)) {
           deadline = setTimeout(() => {
             const pending = state.pendingPermissions.get(requestId);
@@ -149,7 +150,7 @@ export async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatB
             href: `${chatHref(state.meta)}?focus=${encodeURIComponent(requestId)}`,
           });
           if (!state.pendingInfo.has(requestId)) await dismissKey(notifyKey);
-        });
+        }).catch(() => {});
         if (isUnattended(state.meta.scope)) {
           deadline = setTimeout(() => {
             const pending = state.pendingElicitations.get(requestId);

@@ -1,4 +1,5 @@
 import { listAgents } from "./agents.js";
+import { getBoard, listAllBoards } from "./boards.js";
 import { waitingRequests } from "./chat/sessions.js";
 import { chatHref, listNotifications } from "./notifications.js";
 import { listProjects } from "./projects.js";
@@ -33,8 +34,8 @@ export interface AttentionOwner {
 export interface AttentionItem {
   /** The request id (live requests) or the notification id (failures). */
   id: string;
-  /** runner: routines without a runner, or naming a retired identity of this machine (see routines.ts). */
-  kind: "approval" | "question" | "failed" | "runner";
+  /** runner: routines without a runner, or naming a retired identity of this machine (see routines.ts); review: a task waits in a review column (boards.ts). */
+  kind: "approval" | "question" | "failed" | "runner" | "review";
   /** What is asked, or what went wrong. */
   title: string;
   /** The session it sits in. */
@@ -55,11 +56,12 @@ export interface AttentionView {
 }
 
 export async function listAttention(): Promise<AttentionView> {
-  const [agents, projects, notes, runners] = await Promise.all([
+  const [agents, projects, notes, runners, boards] = await Promise.all([
     listAgents().catch(() => []),
     listProjects().catch(() => ({ projects: [] })),
     listNotifications().catch(() => ({ items: [] })),
     runnerFindings().catch(() => ({ unassigned: [], retired: [] }) as Awaited<ReturnType<typeof runnerFindings>>),
+    listAllBoards().catch(() => []),
   ]);
   const agentOf = (slug: string): AttentionOwner["agent"] => {
     const a = agents.find((x) => x.slug === slug);
@@ -150,6 +152,24 @@ export async function listAttention(): Promise<AttentionView> {
     });
   }
 
-  const items = [...waiting, ...failed, ...runner].sort((a, b) => a.since.localeCompare(b.since));
+  // Tasks in a review column: the agents are done, a human decides. One item per task, placed in its project (workspace boards: general).
+  const review: AttentionItem[] = [];
+  for (const b of boards) {
+    const detail = await getBoard(b).catch(() => null);
+    if (!detail) continue;
+    const reviewCols = new Set(detail.columns.filter((c) => c.review).map((c) => c.slug));
+    for (const t of detail.items.filter((t) => reviewCols.has(t.status))) {
+      review.push({
+        id: `review:${t.ref}`,
+        kind: "review",
+        title: `${t.number} ${t.title} waits for your review${t.lastLog ? ` — ${t.lastLog}` : ""}`,
+        href: b.project ? `/projects/${b.project}/boards/${b.board}/${t.slug}` : `/boards/${b.board}/${t.slug}`,
+        since: t.updatedAt ?? new Date(0).toISOString(),
+        owner: b.project ? { project: projectOf(b.project) } : { general: true },
+      });
+    }
+  }
+
+  const items = [...waiting, ...failed, ...runner, ...review].sort((a, b) => a.since.localeCompare(b.since));
   return { items };
 }

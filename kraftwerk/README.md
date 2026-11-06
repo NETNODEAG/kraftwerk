@@ -259,6 +259,7 @@ kraftwerk workspaces                    # every workspace on this machine; works
 kraftwerk devices                       # paired devices (a phone, another computer); devices pair|revoke
 kraftwerk remote on|off|pair            # reach this machine from anywhere through the relay, end to end encrypted
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
+kraftwerk boards|tasks                  # task boards per project or workspace; tasks create|show|move|assign|log|pick|remove
 kraftwerk contacts|places|events        # who, where and when, one Markdown file each; … show|create|set|remove, events --from/--to
 kraftwerk ref <kind:slug>               # resolve a reference (contact:anna-meier, project:relaunch, …); --file <md> resolves every one in a file
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
@@ -633,6 +634,57 @@ kraftwerk projects remove relaunch-netnode-ch
 
 The registry of workspaces on this machine, which answered to
 `kraftwerk projects` until 0.48, is `kraftwerk workspaces` now.
+
+## Boards and tasks
+
+Turn on `boards:` in `kraftwerk.yml` (or the checkbox in settings) and every
+project can have task boards, and the workspace its own:
+
+```yaml
+boards:
+  root: kraftwerk-data/boards   # default; the workspace's boards (a project's live in projects/<slug>/boards/)
+  columns: [draft, todo, progress, review, done]   # default for boards that name none
+```
+
+```
+projects/<slug>/boards/<board>/board.md            # title, columns, default agent, stale_after + the board's rules
+projects/<slug>/boards/<board>/tasks/<n>-<slug>/   # one task: task.md, log.md, its files
+kraftwerk-data/boards/<board>/…                    # workspace boards, same shape
+```
+
+A column is a slug or `{slug, label, limit, done, review}`: `review: true`
+means tasks there wait for a human (they count as attention), `done: true`
+means finished. The column is a field of `task.md`, so a move is a one-line
+diff and the task's folder never moves. Task folders are numbered per board
+(`50-write-a-press-release`); the number names the task in the CLI, the
+folder name is its reference (`task:50-write-a-press-release`). The log is in
+the journal format: `## 2026-11-05` days, `* 16:40 Moved Todo → In progress:
+starting (lisa/claude)` lines, newest first; kraftwerk writes it on every
+create, move, assign, pick and file change, and agents and humans add lines.
+
+```
+kraftwerk boards [--project <p>] [--all]            # the boards; boards show|create|set|remove
+kraftwerk tasks [--project <p>] [--board <b>]       # the tasks of a board (default: the project's `tasks` board)
+kraftwerk tasks create "<title>" --status todo --assign lisa --file $KRAFTWERK_TEMP/task.md -m "…"
+kraftwerk tasks show 50 | move 50 review -m "…" | assign 50 max -m "…" | assign 50 human | log 50 "…" | pick --as lisa | remove 50
+```
+
+**Agents and the board.** A project chat and every agent see the boards
+in their context: columns with counts, the open tasks, the rules written
+in `board.md`, and the commands. Inside a session the CLI knows who it is
+(`KRAFTWERK_AGENT`, `KRAFTWERK_ACTOR`), so `tasks pick` and `tasks log` need
+no name. Waking is event-based: whenever a task has an agent as assignee
+and sits in a work column — created there, moved there, assigned, handed
+over — that agent gets a session with the task as its scope (the task
+block: `task.md`, the files, the whole log, so a hand-over reads like a
+message from the previous agent), or the message is posted into its open
+session for that task. Draft, Review and Done never wake anyone; an agent
+acting on its own task does not wake itself; a board's `agent:` is the
+default assignee for tasks entering Todo unassigned. The events are lines in
+`<output>/boards/events.jsonl`, local to the machine, so a clone of the
+workspace never starts the same work twice. Only a human moves a task into a
+done column; `tasks assign <n> human` clears the assignee and puts the task
+into Review.
 
 ## Contacts, places and events
 

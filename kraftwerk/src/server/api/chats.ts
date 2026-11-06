@@ -26,6 +26,7 @@ import {
 import { attachmentPath, readMeta, saveAttachment } from "../../core/chat/store.js";
 import type { ChatAgentId, ChatPerson, ChatScope } from "../../core/chat/types.js";
 import { remoteCaller, type Trust } from "../trust.js";
+import { findTask } from "../../core/boards.js";
 import { getProject } from "../../core/projects.js";
 import { MIME } from "./mime.js";
 import { projectErrors } from "./projects.js";
@@ -51,10 +52,12 @@ const Said = z.object({
 /** Where a new chat runs; unknown kinds fall back to a general chat. */
 const NewChat = z.object({
   agent: z.string().optional(),
-  scope: z.object({ kind: z.string(), runId: z.string().optional(), bundle: z.string().optional(), slug: z.string().optional() }).optional(),
+  scope: z.object({ kind: z.string(), runId: z.string().optional(), bundle: z.string().optional(), slug: z.string().optional(), task: z.string().optional() }).optional(),
   resume: z.string().optional(),
   /** An agent's chat started in a project: listed with the project (meta.project). */
   project: z.string().optional(),
+  /** The board task the chat works on (<project>/<board>/<task> or <board>/<task>): listed on the task's page (meta.task). */
+  task: z.string().optional(),
 });
 
 /** An action on a running chat: `{ok}` when it went through, 409 with the reason when the chat refused. */
@@ -82,7 +85,8 @@ async function scopeOf(body: z.output<typeof NewChat>): Promise<{ agent: string;
   if (s?.kind === "agent" && s.slug) {
     const def = await getAgent(s.slug).catch(() => null);
     if (!def) fail(404, "agent not found");
-    return { agent: def.harness, scope: { kind: "agent", slug: def.slug } };
+    // `task`: the session is opened for a board task (<project>/<board>/<task>): its context carries the task, and it runs unattended like a routine's.
+    return { agent: def.harness, scope: { kind: "agent", slug: def.slug, ...(s.task ? { task: s.task } : {}) } };
   }
   if (s?.kind === "project" && s.slug) {
     // A project chat needs its folder; a missing one is a 404 here, not a chat that apologizes.
@@ -142,19 +146,21 @@ export const chatRoutes = [
     const chats = await listChats();
     return { chats: remoteCaller(c.trust) ? chats.filter((x) => !x.private) : chats };
   }),
-  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?}", body: NewChat }, async (c) => {
+  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?, task?}", errors: 404, body: NewChat }, async (c) => {
     // `resume` continues one of the agent's own sessions (see agents.sessions).
     const body = await c.body();
     const { agent, scope } = await scopeOf(body);
     if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, or pi");
     if (body.project && scope.kind !== "agent") fail(400, "only an agent's chat takes a project");
     const project = body.project ? await projectSlug(body.project) : undefined;
+    const task = body.task ? ((await findTask(body.task).catch(() => null)) ?? fail(404, `no task "${body.task}"`)).ref : undefined;
     try {
       return await createChat({
         agent: agent as ChatAgentId,
         scope,
         author: await personOf(c.trust),
         ...(project ? { project } : {}),
+        ...(task ? { task } : {}),
         ...(body.resume ? { resume: body.resume } : {}),
       });
     } catch (err) {

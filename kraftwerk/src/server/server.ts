@@ -11,6 +11,7 @@ import { startGitSync, stopGitSync } from "../core/git.js";
 import { disposeAllDevs, disposeWorkspaceDevs } from "../core/vibeables.js";
 import { proxyUpgrade, serveVibeable } from "./preview.js";
 import { startRoutineScheduler, stopRoutineScheduler } from "../core/routines.js";
+import { startBoardWake, stopBoardWake } from "../core/board-wake.js";
 import { readWorkspaceDotenv } from "../core/env.js";
 import { closeWatches } from "./live.js";
 import { MACHINE_PATHS, runInHub } from "./hub-context.js";
@@ -474,6 +475,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     runInHub(hub, () =>
       ws.run(() => {
         startRoutineScheduler();
+        startBoardWake();
         startGitSync();
         // Best-effort, in the background: none of them may hold up (or, failing, break) the open.
         entry.registered = registerInstance(entry.aliasPort ?? port, abs, opts.daemon ? { hub: true, slug, url: entry.url } : {}).catch(() => {});
@@ -498,6 +500,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
     await runInHub(hub, () =>
       entry.ws.run(async () => {
         stopRoutineScheduler();
+        stopBoardWake();
         stopGitSync();
         closeWatches();
         disposeWorkspaceBackends();

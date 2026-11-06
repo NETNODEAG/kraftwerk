@@ -61,6 +61,8 @@ export async function createChat(opts: {
   resume?: string;
   /** The project an agent's chat works in (meta.project); the caller checks that it exists. */
   project?: string;
+  /** The board task the chat works on (meta.task); the caller checks that it exists. */
+  task?: string;
   /** Who starts it; default this machine's person. */
   author?: ChatPerson;
   /** A private routine's run: hidden from remote callers (meta.private). */
@@ -76,6 +78,7 @@ export async function createChat(opts: {
     cwd,
     scope: opts.scope,
     ...(opts.project && opts.scope.kind === "agent" ? { project: opts.project } : {}),
+    ...(opts.task ? { task: opts.task } : {}),
     ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
     author,
     ...(opts.private ? { private: true } : {}),

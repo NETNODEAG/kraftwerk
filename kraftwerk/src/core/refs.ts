@@ -1,5 +1,6 @@
 import { listAgents } from "./agents.js";
 import { CONTACTS, EVENTS, listEntities, PLACES } from "./entities.js";
+import { boardKey, listAllBoards, type BoardSummary } from "./boards.js";
 import { knowledgeIndex } from "./knowledge.js";
 import { listProjects } from "./projects.js";
 import { listRepos } from "./repos.js";
@@ -22,7 +23,7 @@ import { listWorkflows } from "./workflows.js";
  * never an error — the same rule project links have always followed.
  */
 
-export const REF_KIND_NAMES = ["knowledge", "vibeables", "repos", "workflows", "agents", "projects", "contacts", "places", "events"] as const;
+export const REF_KIND_NAMES = ["knowledge", "vibeables", "repos", "workflows", "agents", "projects", "contacts", "places", "events", "boards", "tasks"] as const;
 /** The kind's plural: the link-list name in project.yml and the folder/route name. */
 export type RefKind = (typeof REF_KIND_NAMES)[number];
 
@@ -121,7 +122,30 @@ export const REF_KINDS: readonly RefKindDef[] = [
     noun: "event",
     list: async () => (await safe(listEntities(EVENTS), { items: [] })).items.map((e) => ({ slug: e.slug, label: EVENTS.describe(e), href: `/events/${e.slug}` })),
   },
+  {
+    kind: "boards",
+    token: "board",
+    noun: "board",
+    // A board's slug is unique within its project; across the workspace the first match wins and the label names where it is.
+    list: async () => (await safe(listAllBoards(), [] as BoardSummary[])).map((b) => ({ slug: b.board, label: b.project ? `${b.title} · project ${b.project}` : b.title, href: boardHref(b) })),
+  },
+  {
+    kind: "tasks",
+    token: "task",
+    noun: "task",
+    list: async () => {
+      const { getBoard } = await import("./boards.js");
+      const out: RefTarget[] = [];
+      for (const b of await safe(listAllBoards(), [] as BoardSummary[])) {
+        const detail = await safe(getBoard(b), null);
+        for (const t of detail?.items ?? []) out.push({ slug: t.slug, label: `${t.title} · ${boardKey(b)} (${t.status})`, href: `${boardHref(b)}/${t.slug}` });
+      }
+      return out;
+    },
+  },
 ];
+
+const boardHref = (b: { project?: string; board: string }): string => (b.project ? `/projects/${b.project}/boards/${b.board}` : `/boards/${b.board}`);
 
 const byKind = new Map(REF_KINDS.map((d) => [d.kind, d]));
 const byToken = new Map(REF_KINDS.map((d) => [d.token, d]));

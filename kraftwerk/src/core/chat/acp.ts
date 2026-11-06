@@ -24,7 +24,7 @@ import {
   type AcpAgent,
   type AcpExtensionNotification,
 } from "../../acp.js";
-import type { BackendHooks, BackendTuning, ChatBackend, PromptFile, TurnEnd } from "./backend.js";
+import { identityEnv, type BackendHooks, type BackendTuning, type ChatBackend, type PromptFile, type TurnEnd } from "./backend.js";
 import { tempEnv } from "../temp.js";
 import { unattendedMode } from "./permissions.js";
 import type {
@@ -429,7 +429,7 @@ export async function startAcpBackend(
 
   const { child, conn } = await connectAcp(agent, {
     cwd,
-    env: { ...adapterEnv(agent, tuning), ...(tuning.temp ? tempEnv(tuning.temp) : {}) },
+    env: { ...adapterEnv(agent, tuning), ...(tuning.temp ? tempEnv(tuning.temp) : {}), ...identityEnv(agent, tuning) },
     client,
     clientName: "kraftwerk-inspector",
     elicitation: true,

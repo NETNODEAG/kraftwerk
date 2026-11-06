@@ -4,6 +4,7 @@ import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
 import { resolveWorkspace } from "../config.js";
 import { workspaceRoot } from "./context.js";
+import { findTask, noteTaskFile, TASK_FILE, TASK_LOG } from "./boards.js";
 import { listProjects, openProjects, safeProjectSlug } from "./projects.js";
 import { moveToTrash } from "./trash.js";
 
@@ -30,7 +31,7 @@ export const LOCAL_OVER_BYTES = 25 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const IGNORE_HEAD = "# kraftwerk: files over 25 MB stay local (not in git)";
 
-/** "workspace" or "project:<slug>". */
+/** "workspace", "project:<slug>" or "task:<board>/<task>" / "task:<project>/<board>/<task>" (a task's folder). */
 export type FilesScope = string;
 
 export interface FileEntry {
@@ -106,6 +107,12 @@ export async function scopeRoot(scope: FilesScope): Promise<{ abs: string; rel: 
   if (scope === "workspace") {
     const abs = path.join(workspace, WORKSPACE_FILES_DIR);
     return { abs, rel: WORKSPACE_FILES_DIR, label: "Workspace", workspace };
+  }
+  const task = /^task:(.+)$/.exec(scope);
+  if (task) {
+    const t = await findTask(task[1]);
+    if (!t) throw new Error(`no task "${task[1]}"`);
+    return { abs: t.path, rel: path.relative(workspace, t.path).split(path.sep).join("/"), label: `${t.number} ${t.title}`, workspace };
   }
   const m = /^project:(.+)$/.exec(scope);
   if (!m) throw new Error(`invalid files scope "${scope}"`);
@@ -188,8 +195,11 @@ export async function listFiles(scope: FilesScope, rel = ""): Promise<FilesListi
   const local = new Set(await readIgnore(root.abs));
   const kids = st ? await fs.readdir(dir, { withFileTypes: true }) : [];
   const entries: FileEntry[] = [];
+  const taskScope = scope.startsWith("task:");
   for (const k of kids) {
     if (k.name.startsWith(".")) continue;
+    // A task's own markdown and log are the task, not its files.
+    if (taskScope && dir === root.abs && (k.name === TASK_FILE || k.name === TASK_LOG)) continue;
     const abs = path.join(dir, k.name);
     const s = await fs.stat(abs).catch(() => null);
     if (!s) continue;
@@ -257,6 +267,7 @@ export async function saveUpload(scope: FilesScope, dirRel: string, name: string
   }
   const p = toPosix(path.relative(root.abs, abs));
   if (size > LOCAL_OVER_BYTES) await markLocal(root.abs, p, true);
+  if (scope.startsWith("task:")) await noteTaskFile(scope.slice(5), "added", p).catch(() => {});
   return { name: final, path: p, type: "file", size, modifiedAt: new Date().toISOString(), mime: mimeOf(final), ...(size > LOCAL_OVER_BYTES ? { local: true } : {}) };
 }
 
@@ -295,9 +306,11 @@ export async function deleteFile(scope: FilesScope, rel: string): Promise<void> 
   const st = await fs.stat(abs).catch(() => null);
   if (!st) throw new Error(`no file "${rel}"`);
   const p = toPosix(path.relative(root.abs, abs));
-  const owner = scope === "workspace" ? "workspace" : `projects/${scope.slice("project:".length)}`;
+  if (scope.startsWith("task:") && (p === TASK_FILE || p === TASK_LOG)) throw new Error("the task's own files cannot be removed");
+  const owner = scope === "workspace" ? "workspace" : scope.startsWith("task:") ? `tasks/${scope.slice(5)}` : `projects/${scope.slice("project:".length)}`;
   await moveToTrash("files", `${owner}/${p}`, abs);
   if (st.isFile() && st.size > LOCAL_OVER_BYTES) await markLocal(root.abs, p, false);
+  if (scope.startsWith("task:")) await noteTaskFile(scope.slice(5), "removed", p).catch(() => {});
 }
 
 /* ---------- context for agents ---------- */

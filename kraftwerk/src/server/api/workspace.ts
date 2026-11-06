@@ -38,6 +38,7 @@ const SettingsFields = z.looseObject({
   contacts: RootBlock.optional(),
   places: RootBlock.optional(),
   events: RootBlock.optional(),
+  boards: RootBlock.optional(),
 });
 
 /** A start's answer; `here` (with its slug) when the hub answering serves it now. */
@@ -115,6 +116,7 @@ export const workspaceRoutes = [
       contacts: (ws?.config.contacts && ws.config.contacts.enabled !== false) === true,
       places: (ws?.config.places && ws.config.places.enabled !== false) === true,
       events: (ws?.config.events && ws.config.events.enabled !== false) === true,
+      boards: (ws?.config.boards && ws.config.boards.enabled !== false) === true,
       /** @deprecated Always "": the Cloudflare Tunnel that set it was removed in 0.65. Removed with protocol 2. */
       publicUrl: "",
       // The machine's cloud record (only the daemon registers one); `included`: this workspace rides along (no cloud.enabled: false veto).

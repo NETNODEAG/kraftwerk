@@ -50,6 +50,8 @@ export interface BackendTuning {
   addDirs?: string[];
   /** The session's scratch folder (core/temp.ts): handed to the process as TMPDIR and KRAFTWERK_TEMP. */
   temp?: string;
+  /** The agent this seat is (its slug), handed to the process as KRAFTWERK_AGENT, with KRAFTWERK_ACTOR = <slug>/<harness>; absent for a project assistant or Ralv. */
+  agent?: string;
   /**
    * Nobody is watching this session live (routine runs). The backend selects
    * the harness's own hands-off permission mode — the harness keeps deciding
@@ -59,6 +61,17 @@ export interface BackendTuning {
   /** ACP agents: the session id to continue (from ChatMeta.sessions) instead of opening a new one. */
   resume?: string;
 }
+
+/**
+ * Who the process is, for the CLI it runs: `kraftwerk tasks pick`, `tasks log`,
+ * `journal` and `knowledge put` read KRAFTWERK_AGENT / KRAFTWERK_ACTOR so an
+ * agent never has to name itself. A seat that is no agent (a project
+ * assistant, Ralv) is the actor `kraftwerk-chat/<harness>` — the name its
+ * context already tells it to write with — and has no KRAFTWERK_AGENT, so
+ * `tasks pick` still asks who picks.
+ */
+export const identityEnv = (harness: string, tuning: BackendTuning): Record<string, string> =>
+  tuning.agent ? { KRAFTWERK_AGENT: tuning.agent, KRAFTWERK_ACTOR: `${tuning.agent}/${harness}` } : { KRAFTWERK_ACTOR: `kraftwerk-chat/${harness}` };
 
 /**
  * How a turn ended. `failure` is the typed session failure the agent

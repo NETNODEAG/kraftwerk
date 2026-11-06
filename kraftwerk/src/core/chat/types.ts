@@ -13,7 +13,8 @@ export type ChatScope =
   | { kind: "kraftwerk" }
   | { kind: "run"; runId: string }
   | { kind: "knowledge"; bundle?: string }
-  | { kind: "agent"; slug: string; routine?: string }
+  /** `routine`: a scheduled run; `task`: opened for a task (<project>/<board>/<task>) the agent was assigned — both unattended. */
+  | { kind: "agent"; slug: string; routine?: string; task?: string }
   /** A project: the chat carries its brief, state, systems of record and links; see projects.ts. */
   | { kind: "project"; slug: string }
   /** A channel: several agents (and humans) share one transcript; see channels.ts. */
@@ -48,6 +49,13 @@ export interface ChatMeta {
    * the project and hands every seat the project's context.
    */
   project?: string;
+  /**
+   * The board task this chat works on (<project>/<board>/<task> or
+   * <board>/<task>) when the scope is not the agent's task session itself:
+   * "work on this" from the task page. The task page lists the chat as one
+   * of its sessions, and every seat gets the task block in its context.
+   */
+  task?: string;
   /**
    * The agent's own session id per seat ("main", or the agent slug in a
    * channel): after a restart or the idle reaper, the next backend resumes

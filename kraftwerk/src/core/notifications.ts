@@ -18,7 +18,7 @@ import type { ChatMeta } from "./chat/types.js";
  * and disappears again the moment someone answers (dismissKey).
  */
 
-export type NotificationKind = "approval" | "routine_done" | "routine_failed" | "run_done" | "run_failed";
+export type NotificationKind = "approval" | "routine_done" | "routine_failed" | "run_done" | "run_failed" | "task_woken" | "task_wake_failed";
 
 /**
  * What a "diagnose" on a failure item should look at: a workflow run (chat

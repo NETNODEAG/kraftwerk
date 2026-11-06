@@ -5,7 +5,7 @@ import { api, useApi } from "./api";
 import { Icon, Link, PROJECT_ASSISTANT, useExpertMode, useFeatures } from "./shared";
 import { SortableProjects, freshSectionName } from "./rail-sort";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
-import type { Agent, AgentStatus, ChannelView, ProjectLayout, ProjectsView, VibeablesView } from "./types";
+import type { Agent, AgentStatus, BoardSummary, ChannelView, ProjectLayout, ProjectsView, VibeablesView } from "./types";
 
 /**
  * The first column: who can be talked to. The general chat, every project,
@@ -23,6 +23,11 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const status = useApi("agents.status", {}, { interval: 5000 });
   const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 15_000 });
   const vibeSlugs = new Set((vibes?.vibeables ?? []).map((v) => v.slug));
+  // Every board at once (?all=1): a project's under it, the workspace's in their own group.
+  const boards = useApi("boards.list", features.boards ? { query: { all: "1" } } : null, { interval: 15_000 });
+  const boardList: BoardSummary[] = boards?.boards ?? [];
+  const boardsOf = (project: string) => boardList.filter((b) => b.project === project);
+  const workspaceBoards = boardList.filter((b) => !b.project);
   const seg = chatPath.split("/").filter(Boolean);
   const at = (kind: string, slug?: string) =>
     seg[0] === kind && (slug === undefined || (seg[1] ? decodeURIComponent(seg[1]) : undefined) === slug);
@@ -128,6 +133,36 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
               leading={<span aria-hidden>{a.emoji || "🤖"}</span>}
               title={<span className="font-medium">{a.name}</span>}
               titleExtra={<AgentMarks n={attentionFor.agent(waiting, a.slug).length} st={status?.[a.slug]} />}
+            />
+          ))}
+        {/* The project's boards: its work as columns of tasks; none yet, the row that creates the default one. */}
+        {open &&
+          features.boards &&
+          (boardsOf(p.slug).length > 0 ? (
+            boardsOf(p.slug).map((b) => (
+              <ListRow
+                key={`board:${b.board}`}
+                className={NESTED}
+                size="sm"
+                href={`/projects/${encodeURIComponent(p.slug)}/boards/${encodeURIComponent(b.board)}`}
+                active={at("projects", p.slug) && seg[2] === "boards" && (seg[3] ? decodeURIComponent(seg[3]) : undefined) === b.board}
+                onClick={() => setHeld(p.slug)}
+                innerProps={{ title: `${b.title}: ${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}${b.review ? `, ${b.review} for review` : ""}`, "data-nested": "board" }}
+                leading={<Icon name="view_kanban" className="ms-sm" />}
+                title={<span className="font-medium">{b.title}</span>}
+                titleExtra={<Badge n={b.review} title="waiting for review" />}
+              />
+            ))
+          ) : (
+            <ListRow
+              className={NESTED}
+              size="sm"
+              href={`/projects/${encodeURIComponent(p.slug)}/boards`}
+              active={at("projects", p.slug) && seg[2] === "boards"}
+              onClick={() => setHeld(p.slug)}
+              innerProps={{ title: "the project's tasks as a board, created on first use", "data-nested": "board" }}
+              leading={<Icon name="view_kanban" className="ms-sm" />}
+              title={<span className="font-medium">tasks</span>}
             />
           ))}
         {/* The apps pinned to the project (its linked vibeables): open beside the project's chat. */}
@@ -238,6 +273,24 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             );
           })}
         </Group>
+
+        {features.boards && (
+          <Group label="boards" href="/boards" add={boards?.enabled ? { href: "/boards/new", label: "new board" } : undefined}>
+            {workspaceBoards.map((b) => (
+              <ListRow
+                key={b.board}
+                href={`/boards/${encodeURIComponent(b.board)}`}
+                active={at("boards", b.board)}
+                innerProps={{ title: `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}${b.review ? `, ${b.review} for review` : ""}` }}
+                leading={<Icon name="view_kanban" className="ms-sm" />}
+                title={b.title}
+                titleExtra={<Badge n={b.review} title="waiting for review" />}
+                sub={b.configError ? "unreadable board.md" : `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
+                subTone={b.configError ? "bad" : "plain"}
+              />
+            ))}
+          </Group>
+        )}
 
         <Group label="channels" href="/channels" add={{ href: "/channels/new", label: "new channel" }}>
           {(channels?.channels ?? []).map((c) => (

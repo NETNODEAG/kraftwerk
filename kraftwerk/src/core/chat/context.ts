@@ -8,6 +8,7 @@ import { listRepos } from "../repos.js";
 import { listVibeables, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeables.js";
 import { projectContext } from "../projects.js";
 import { entitiesContext } from "../entities.js";
+import { boardsContext, taskContext } from "../boards.js";
 import { unattendedTimeoutLabel } from "./permissions.js";
 import type { ChatAgentId, ChatMeta, ChatScope } from "./types.js";
 import { getChannel } from "../channels.js";
@@ -305,8 +306,9 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       (await agentFilesContext(def)) +
       `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
       `say so and suggest which agent or tool fits better.` +
-      (scope.routine
-        ? `\n\nThis session was started automatically by your scheduled routine "${scope.routine}" — ` +
+      (scope.task ? `\n\n${await taskContext(scope.task)}` : "") +
+      (scope.routine || scope.task
+        ? `\n\nThis session was started automatically by ${scope.routine ? `your scheduled routine "${scope.routine}"` : `the board: task ${scope.task} was given to you`} — ` +
           `nobody may be watching live. Complete the task autonomously. Edits inside the project ` +
           `need no approval; anything your harness asks about (shell commands, network, files ` +
           `outside the project) is shown to a human who may look later — say in one line why you ` +
@@ -433,7 +435,7 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
   const agent = seat.harness;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, vibe, skills, channel, project, entities] = await Promise.all([
+  const [base, repos, vibe, skills, channel, project, entities, boards] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
@@ -443,11 +445,21 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
     meta.scope.kind === "channel" && meta.project ? projectContext(meta.project, `${seat.key}/${agent}`, { member: true }) : Promise.resolve(""),
     // Who, where and when: the workspace's contacts, places and events, wherever the chat works (a run discusses its own artifacts only).
     scope.kind === "run" ? Promise.resolve("") : entitiesContext().catch(() => ""),
+    // Boards: a project chat sees the project's boards; an agent sees the workspace boards narrowed to its tasks, plus its project's when filed under one.
+    scope.kind === "project"
+      ? boardsContext(scope.slug, `kraftwerk-chat/${agent}`).catch(() => "")
+      : scope.kind === "agent"
+        ? Promise.all([boardsContext(undefined, `${scope.slug}/${agent}`, scope.slug), meta.project ? boardsContext(meta.project, `${scope.slug}/${agent}`, scope.slug) : Promise.resolve("")])
+            .then((xs) => xs.filter(Boolean).join("\n\n"))
+            .catch(() => "")
+        : Promise.resolve(""),
   ]);
   // Every session has a scratch folder of its own (core/temp.ts), named by its absolute path: a run chat or a
   // vibeable session works in another folder than the workspace root. The block comes after the files blocks it refers to.
   const temp = await sessionTemp(meta.id).catch(() => null);
-  return [base, channel, project, repos, entities, vibe, temp ? tempContext(temp.abs) : "", RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  // "Work on this" from a task page: the chat is tagged with the task (meta.task) and reads it like the agent's own task session would.
+  const task = meta.task && !(scope.kind === "agent" && scope.task === meta.task) ? await taskContext(meta.task).catch(() => "") : "";
+  return [base, channel, project, boards, task, repos, entities, vibe, temp ? tempContext(temp.abs) : "", RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */

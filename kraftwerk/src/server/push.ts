@@ -50,7 +50,7 @@ export function sealPush(keyBase64: string, content: PushContent): string {
   return Buffer.concat([nonce, ct, cipher.getAuthTag()]).toString("base64");
 }
 
-const LABEL: Record<AttentionItem["kind"], string> = { approval: "Approval", question: "Question", failed: "Failed", runner: "Routines" };
+const LABEL: Record<AttentionItem["kind"], string> = { approval: "Approval", question: "Question", failed: "Failed", runner: "Routines", review: "Review" };
 
 export function contentOf(item: AttentionItem, workspace: { slug: string; name: string }): PushContent {
   return {

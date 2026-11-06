@@ -47,6 +47,9 @@ export type { GitFile, GitStatus, GitDiff } from "../../src/core/git";
 export type { AgentSearch, EntityHit, WorkspaceAgents } from "../../src/core/search";
 export type { ContactDef, EntityBase, EntityDetail, EntitiesView, EventDef, PlaceDef } from "../../src/core/entities";
 export type { ResolvedRef } from "../../src/core/refs";
+export type { BoardDef, BoardDetail, BoardRef, BoardSummary, BoardsView, Column, TaskDetail, TaskSummary } from "../../src/core/boards";
+export type { TaskSession } from "../../src/core/board-wake";
+export type { TaskHit } from "../../src/core/search";
 export type {
   Routine,
   RoutineRunner,

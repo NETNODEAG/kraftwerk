@@ -175,6 +175,30 @@ export interface EntitiesConfig {
 }
 
 export const ENTITY_KINDS = ["contacts", "places", "events"] as const;
+
+/**
+ * Boards: the work as columns of tasks, one folder per task (task.md, log.md,
+ * files) under a board folder — inside a project (projects/<p>/boards/) or
+ * at the workspace level under the boards root. Part of the workspace and
+ * synced by the workspace git; agents are woken by events on this machine.
+ */
+export interface BoardsConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where the workspace boards live, relative to the project root. Default: kraftwerk-data/boards */
+  root?: string;
+  /** Default columns for boards that name none (slugs or {slug, label, limit, done, review}). Default: draft, todo, progress, review, done. */
+  columns?: unknown;
+}
+
+export const BOARDS_DEFAULT_ROOT = "kraftwerk-data/boards";
+
+/** Absolute workspace boards root when the feature is on, undefined otherwise. */
+export function boardsRootFor(project: ResolvedWorkspace): string | undefined {
+  const b = project.config.boards;
+  if (!b || b.enabled === false) return undefined;
+  return path.resolve(project.root, b.root ?? BOARDS_DEFAULT_ROOT);
+}
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 /** Where a kind's files live when its `root` is not set. */
@@ -276,6 +300,8 @@ export interface WorkspaceConfig {
   places?: EntitiesConfig;
   /** Events: dated entries (one-off), one Markdown file each. Absent = off. */
   events?: EntitiesConfig;
+  /** Boards: tasks as folders in columns, per project and workspace-wide. Absent = off. */
+  boards?: BoardsConfig;
   /** The machine's cloud record lists this workspace. Absent = listed; `enabled: false` leaves it out. */
   cloud?: CloudConfig;
 }
@@ -430,7 +456,7 @@ export async function addWorkspaceId(configPath: string): Promise<string> {
   return id;
 }
 
-const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "cloud"];
+const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "cloud"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -492,6 +518,9 @@ async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig
     } else if (key === "projects" || key === "contacts" || key === "places" || key === "events") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, key, config[key]);
+    } else if (key === "boards") {
+      if (config[key] === null) config[key] = {};
+      validateBoards(configPath, config[key]);
     } else if (key === "cloud") {
       if (config[key] === null) config[key] = {};
       validateCloud(configPath, config[key]);
@@ -597,7 +626,16 @@ function validateGit(configPath: string, value: unknown): void {
  * anything outside it — it is what remove/delete operate under, and what
  * the workspace git may stage.
  */
-function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects" | EntityKind, value: unknown): void {
+/** `boards`: the root block plus `columns`, which core/boards.ts reads (a bad list falls back to the defaults there). */
+function validateBoards(configPath: string, value: unknown): void {
+  const file = path.basename(configPath);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${file}: boards must be a mapping (enabled, root, columns)`);
+  const { columns, ...rest } = value as Record<string, unknown>;
+  if (columns !== undefined && columns !== null && !Array.isArray(columns)) throw new Error(`${file}: boards.columns must be a list of columns`);
+  validateRootBlock(configPath, "boards", rest);
+}
+
+function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects" | "boards" | EntityKind, value: unknown): void {
   const file = path.basename(configPath);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${file}: ${block} must be a mapping (enabled, root)`);

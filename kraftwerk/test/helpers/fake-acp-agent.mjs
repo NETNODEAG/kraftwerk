@@ -23,7 +23,13 @@ new AgentSideConnection(
     async prompt(params) {
       const text = params.prompt.map((b) => (b.type === "text" ? b.text : "")).join(" ");
       let said;
-      if (/where is temp/i.test(text)) {
+      if (/(handed to you|created for you|moved to \S+ for you) by /.test(text)) {
+        // A board woke this agent for a task (core/board-wake.ts): acknowledge, ask nothing.
+        said = `on it: ${/Task (\S+) \(/.exec(text)?.[1] ?? "?"}`;
+      } else if (/who am i/i.test(text)) {
+        // The identity the process was handed (chat/backend.ts identityEnv) and whether a task block briefed it (core/boards.ts).
+        said = `agent: ${process.env.KRAFTWERK_AGENT ?? ""}|${process.env.KRAFTWERK_ACTOR ?? ""}|${/## Your task: /.test(text) ? "task" : "no-task"}`;
+      } else if (/where is temp/i.test(text)) {
         // What the process was handed for scratch, and whether the prompt briefed it (core/temp.ts).
         said = `temp: ${process.env.KRAFTWERK_TEMP ?? ""}|${process.env.TMPDIR ?? ""}|${/## Temporary files/.test(text) ? "briefed" : "unbriefed"}`;
       } else if (/ask a question/i.test(text)) {

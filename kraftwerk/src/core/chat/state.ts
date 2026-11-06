@@ -80,7 +80,7 @@ export const isBusy = (state: ChatState): boolean => [...state.seats.values()].s
 export const seatAuthor = (seat: Seat): Author | undefined => (seat.key === MAIN ? undefined : { kind: "agent", slug: seat.key });
 
 /** Routine-fired sessions: nobody is expected to be watching live. */
-export const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && !!scope.routine;
+export const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && (!!scope.routine || !!scope.task);
 
 /** Diagnose handle for a failed routine session (only called for unattended agent scopes). */
 export function routineRef(meta: ChatMeta): DiagnoseRef | undefined {

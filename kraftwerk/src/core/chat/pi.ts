@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { BackendHooks, BackendTuning, ChatBackend } from "./backend.js";
+import { identityEnv, type BackendHooks, type BackendTuning, type ChatBackend } from "./backend.js";
 import { workspaceEnv } from "../env.js";
 import { tempEnv } from "../temp.js";
 
@@ -59,7 +59,7 @@ export function startPiBackend(
         const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...tuningArgs], {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
-          env: { ...workspaceEnv(), ...(tuning.temp ? tempEnv(tuning.temp) : {}) },
+          env: { ...workspaceEnv(), ...(tuning.temp ? tempEnv(tuning.temp) : {}), ...identityEnv("pi", tuning) },
         });
         child = proc;
         proc.stdin.write(text);

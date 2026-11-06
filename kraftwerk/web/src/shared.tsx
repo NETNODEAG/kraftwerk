@@ -63,7 +63,12 @@ export function setPageTitle(t: string): void {
 
 /** Routes that are a conversation (the middle column); everything else is the workspace column. */
 export const CHAT_ROUTES = new Set(["agents", "team", "chats", "projects", "channels"]);
-export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path.split("?")[0].split("/").filter(Boolean)[0] ?? "") ? "chat" : "side");
+/** A project's board page (#/projects/<slug>/boards/…): a page of its own, not the project's conversation. */
+export const isBoardPath = (path: string): boolean => {
+  const seg = path.split("?")[0].split("/").filter(Boolean);
+  return seg[0] === "projects" && seg[2] === "boards";
+};
+export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path.split("?")[0].split("/").filter(Boolean)[0] ?? "") && !isBoardPath(path) ? "chat" : "side");
 
 /** A column's screen resolved where it wants to be without touching the hash (see navigate). */
 export const COLUMN_PATH_EVENT = "kw-column-path";
@@ -208,7 +213,7 @@ export function useExpertMode(): boolean {
 
 /* ---------- feature flags ---------- */
 
-// Which optional features kraftwerk.yml turns on (git, repos, vibeables, projects, contacts, places, events).
+// Which optional features kraftwerk.yml turns on (git, repos, vibeables, projects, contacts, places, events, boards).
 // app.tsx sets them from /api/meta; screens read them to show or hide
 // entry points, so a chat never offers a vibeable in a workspace without them.
 export interface Features {
@@ -219,9 +224,10 @@ export interface Features {
   contacts: boolean;
   places: boolean;
   events: boolean;
+  boards: boolean;
 }
-const FEATURE_KEYS = ["git", "repos", "vibeables", "projects", "contacts", "places", "events"] as const;
-let features: Features = { git: false, repos: false, vibeables: false, projects: false, contacts: false, places: false, events: false };
+const FEATURE_KEYS = ["git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards"] as const;
+let features: Features = { git: false, repos: false, vibeables: false, projects: false, contacts: false, places: false, events: false, boards: false };
 const featureListeners = new Set<() => void>();
 
 export function setFeatures(next: Features): void {

@@ -37,6 +37,7 @@ skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packag
 # contacts:                       # people and organisations, one Markdown file each under ${DATA_DIR}/contacts — referenced as contact:<slug> (uncomment to enable)
 # places:                         # addresses and points of interest, one Markdown file each under ${DATA_DIR}/places — referenced as place:<slug> (uncomment to enable)
 # events:                         # dated one-off entries with place, contacts and project, one Markdown file each under ${DATA_DIR}/events — referenced as event:<slug> (uncomment to enable)
+# boards:                         # tasks as folders in columns (Draft, Todo, In progress, Review, Done) per project and under ${DATA_DIR}/boards — agents are woken when a task is assigned to them (uncomment to enable)
 # cloud:                          # the daemon registers this MACHINE with the kraftwerk cloud and lists this workspace (\`kraftwerk login\` claims the machine)
 #   enabled: false                # uncomment both lines to leave this workspace out (\`kraftwerk cloud off\` turns the cloud off for the whole machine)
 `;

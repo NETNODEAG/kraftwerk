@@ -29,6 +29,7 @@ import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, Icon
  *   #/projects/<slug>                the project's latest chat, else the new-chat pane
  *   #/projects/<slug>/chat/<chatId>  one chat thread
  *   #/projects/<slug>/info           the project page
+ *   #/projects/<slug>/boards/…       the project's boards — a page of its own (app.tsx mounts boards.tsx there)
  */
 
 const STATUSES: ProjectStatus[] = ["active", "paused", "done", "archived"];

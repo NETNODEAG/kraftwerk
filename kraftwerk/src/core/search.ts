@@ -6,6 +6,7 @@ import { listChannels, toChannelSummary, type ChannelSummary } from "./channels.
 import { currentInstanceUrl, discoverWorkspaces, listWorkspaceRecords } from "./instances.js";
 import { CONTACTS, EVENTS, listEntities, PLACES, type EntityKindDef } from "./entities.js";
 import { listProjects, toProjectHit, type ProjectHit } from "./projects.js";
+import { getBoard, listAllBoards } from "./boards.js";
 
 /**
  * The ⌘K palette: every active agent, project and channel in every workspace
@@ -34,6 +35,34 @@ export interface WorkspaceAgents {
   projects: ProjectHit[];
   /** Contacts, places and events of this instance (the registry does not carry them); empty for other workspaces and while the features are off. */
   entities: EntityHit[];
+  /** Open tasks of this instance's boards; empty for other workspaces and while boards are off. */
+  tasks: TaskHit[];
+}
+
+/** What the palette needs of a task. */
+export interface TaskHit {
+  slug: string;
+  title: string;
+  board: string;
+  project?: string;
+  status: string;
+  /** Where it opens. */
+  href: string;
+}
+
+async function taskHits(): Promise<TaskHit[]> {
+  const out: TaskHit[] = [];
+  for (const b of await listAllBoards().catch(() => [])) {
+    const detail = await getBoard(b).catch(() => null);
+    if (!detail) continue;
+    const done = new Set(detail.columns.filter((c) => c.done).map((c) => c.slug));
+    for (const t of detail.items) {
+      if (t.configError || done.has(t.status)) continue;
+      const base = b.project ? `/projects/${b.project}/boards/${b.board}` : `/boards/${b.board}`;
+      out.push({ slug: t.slug, title: t.title, board: b.board, ...(b.project ? { project: b.project } : {}), status: t.status, href: `${base}/${t.slug}` });
+    }
+  }
+  return out;
 }
 
 /** What the palette needs of a contact, place or event. */
@@ -72,6 +101,7 @@ export async function searchAgents(): Promise<AgentSearch> {
     channels: (await listChannels().catch(() => [])).map(toChannelSummary),
     projects: (await listProjects().catch(() => ({ projects: [] }))).projects.filter((p) => p.status !== "archived").map(toProjectHit),
     entities: (await Promise.all([CONTACTS, PLACES, EVENTS].map(entityHits))).flat(),
+    tasks: await taskHits(),
   };
   const [workspaces, known] = await Promise.all([discoverWorkspaces(), listWorkspaceRecords()]);
   const records = new Map(known.map((p) => [p.root, p]));
@@ -89,6 +119,7 @@ export async function searchAgents(): Promise<AgentSearch> {
       channels: records.get(w.root!)?.channels ?? [],
       projects: records.get(w.root!)?.projects ?? [],
       entities: [],
+      tasks: [],
     }));
   return { workspaces: [self, ...others] };
 }

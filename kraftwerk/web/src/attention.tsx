@@ -58,9 +58,9 @@ export const attentionFor = {
 
 /** An item's icon and its short label ("needs approval", "no runner"), the same wherever the list is shown. */
 export const attentionIcon = (kind: AttentionItem["kind"]): string =>
-  kind === "approval" ? "front_hand" : kind === "question" ? "help" : kind === "runner" ? "event_busy" : "error";
+  kind === "approval" ? "front_hand" : kind === "question" ? "help" : kind === "runner" ? "event_busy" : kind === "review" ? "rate_review" : "error";
 export const attentionLabel = (kind: AttentionItem["kind"]): string =>
-  kind === "approval" ? "needs approval" : kind === "question" ? "asks you" : kind === "runner" ? "no runner" : "failed";
+  kind === "approval" ? "needs approval" : kind === "question" ? "asks you" : kind === "runner" ? "no runner" : kind === "review" ? "for review" : "failed";
 
 /** "📁 Relaunch · 🦊 Lisa", "🦊 Lisa", "#launch · 🐻 Max", "Ralv", "website-check run". */
 export function ownerText(o: AttentionOwner): string {
