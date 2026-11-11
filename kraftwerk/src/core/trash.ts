@@ -16,7 +16,7 @@ export const TRASH_DIR = "kraftwerk-data/trash";
 const TRASH_FILE = ".trashed.json";
 
 /** What can be in the trash; also the folder under trash/ it lands in. */
-export type TrashKind = "agents" | "agent-skills" | "projects" | "boards" | "tasks" | "contacts" | "places" | "events" | "workflows" | "knowledge" | "vibeables" | "channels" | "repos" | "chats" | "runs" | "files";
+export type TrashKind = "agents" | "agent-skills" | "projects" | "boards" | "tasks" | "presentations" | "contacts" | "places" | "events" | "workflows" | "knowledge" | "vibeables" | "channels" | "repos" | "chats" | "runs" | "files";
 
 export interface TrashEntry {
   /** Path inside the trash, forward slashes — the entry's handle. */

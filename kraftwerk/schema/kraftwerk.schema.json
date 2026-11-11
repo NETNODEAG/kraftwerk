@@ -225,6 +225,24 @@
         }
       }
     },
+    "presentations": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Presentations: slide decks as folders (deck.md, assets/, exports/) per project (projects/<p>/presentations/) and workspace-wide under the root, rendered from a template into PPTX, PDF and slide images. Absent = feature off, a bare `presentations:` = on with defaults.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn the feature off while keeping the config. Default: true when this block exists"
+        },
+        "root": {
+          "type": "string",
+          "description": "Where the workspace decks and templates live, relative to the project root. Default: kraftwerk-data/presentations"
+        }
+      }
+    },
     "boards": {
       "type": [
         "object",

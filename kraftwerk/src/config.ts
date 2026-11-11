@@ -201,6 +201,27 @@ export function boardsRootFor(project: ResolvedWorkspace): string | undefined {
 }
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
+/**
+ * Presentations: slide decks as folders (deck.md, assets/, exports/) under a
+ * project (projects/<p>/presentations/) or the workspace root below. Part of
+ * the workspace and synced by the workspace git.
+ */
+export interface PresentationsConfig {
+  /** false keeps the block but turns the feature off. Default: true. */
+  enabled?: boolean;
+  /** Where the workspace decks (and templates/) live, relative to the project root. Default: kraftwerk-data/presentations */
+  root?: string;
+}
+
+export const PRESENTATIONS_DEFAULT_ROOT = "kraftwerk-data/presentations";
+
+/** Absolute workspace presentations root when the feature is on, undefined otherwise. */
+export function presentationsRootFor(project: ResolvedWorkspace): string | undefined {
+  const b = project.config.presentations;
+  if (!b || b.enabled === false) return undefined;
+  return path.resolve(project.root, b.root ?? PRESENTATIONS_DEFAULT_ROOT);
+}
+
 /** Where a kind's files live when its `root` is not set. */
 export const entityDefaultRoot = (kind: EntityKind): string => `kraftwerk-data/${kind}`;
 
@@ -302,6 +323,8 @@ export interface WorkspaceConfig {
   events?: EntitiesConfig;
   /** Boards: tasks as folders in columns, per project and workspace-wide. Absent = off. */
   boards?: BoardsConfig;
+  /** Presentations: slide decks as folders, per project and workspace-wide. Absent = off. */
+  presentations?: PresentationsConfig;
   /** The machine's cloud record lists this workspace. Absent = listed; `enabled: false` leaves it out. */
   cloud?: CloudConfig;
 }
@@ -456,7 +479,7 @@ export async function addWorkspaceId(configPath: string): Promise<string> {
   return id;
 }
 
-const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "cloud"];
+const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "presentations", "cloud"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -515,7 +538,7 @@ async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig
     } else if (key === "vibeables") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, "vibeables", config[key]);
-    } else if (key === "projects" || key === "contacts" || key === "places" || key === "events") {
+    } else if (key === "projects" || key === "contacts" || key === "places" || key === "events" || key === "presentations") {
       if (config[key] === null) config[key] = {};
       validateRootBlock(configPath, key, config[key]);
     } else if (key === "boards") {
@@ -635,7 +658,7 @@ function validateBoards(configPath: string, value: unknown): void {
   validateRootBlock(configPath, "boards", rest);
 }
 
-function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects" | "boards" | EntityKind, value: unknown): void {
+function validateRootBlock(configPath: string, block: "repos" | "vibeables" | "projects" | "boards" | "presentations" | EntityKind, value: unknown): void {
   const file = path.basename(configPath);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${file}: ${block} must be a mapping (enabled, root)`);

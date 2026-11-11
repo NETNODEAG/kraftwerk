@@ -50,6 +50,7 @@ interface SettingsData {
     places?: { enabled?: boolean; root?: string };
     events?: { enabled?: boolean; root?: string };
     boards?: { enabled?: boolean; root?: string };
+    presentations?: { enabled?: boolean; root?: string };
   };
   resolved: { workflowsRoot: string | null; outputDir: string; port: number };
 }
@@ -97,6 +98,13 @@ function projectsForm(d: SettingsData): ReposForm {
 /** The boards block, same shape. */
 function boardsForm(d: SettingsData): ReposForm {
   const b = d.config.boards;
+  if (!b) return REPOS_OFF;
+  return { enabled: b.enabled !== false, root: b.root ?? "" };
+}
+
+/** The presentations block, same shape. */
+function presentationsForm(d: SettingsData): ReposForm {
+  const b = d.config.presentations;
   if (!b) return REPOS_OFF;
   return { enabled: b.enabled !== false, root: b.root ?? "" };
 }
@@ -296,6 +304,7 @@ export function SettingsScreen() {
   const [vibeables, setVibeables] = useState<ReposForm>(REPOS_OFF);
   const [projects, setProjects] = useState<ReposForm>(REPOS_OFF);
   const [boards, setBoards] = useState<ReposForm>(REPOS_OFF);
+  const [decks, setDecks] = useState<ReposForm>(REPOS_OFF);
   const [entities, setEntities] = useState<EntityForms>(ENTITIES_OFF);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -317,6 +326,7 @@ export function SettingsScreen() {
         setVibeables(vibeablesForm(d));
         setProjects(projectsForm(d));
         setBoards(boardsForm(d));
+        setDecks(presentationsForm(d));
         setEntities(entityForms(d));
       })
       .catch(() => setError("could not load settings"));
@@ -343,6 +353,7 @@ export function SettingsScreen() {
           vibeables,
           projects,
           boards,
+          presentations: decks,
           ...entities,
         },
       });
@@ -355,6 +366,7 @@ export function SettingsScreen() {
       setVibeables(vibeablesForm(d));
       setProjects(projectsForm(d));
       setBoards(boardsForm(d));
+      setDecks(presentationsForm(d));
       setEntities(entityForms(d));
       setDirty(false);
       setSaved(true);
@@ -388,6 +400,10 @@ export function SettingsScreen() {
   };
   const setBoardsField = (patch: Partial<ReposForm>): void => {
     setBoards((b) => ({ ...b, ...patch }));
+    touch();
+  };
+  const setDecksField = (patch: Partial<ReposForm>): void => {
+    setDecks((b) => ({ ...b, ...patch }));
     touch();
   };
   const setEntityField = (kind: EntityKind, patch: Partial<ReposForm>): void => {
@@ -635,6 +651,25 @@ export function SettingsScreen() {
               <Hint>
                 Relative to the project root, one folder per board under the root (workspace boards); a project's boards live in <code>projects/&lt;slug&gt;/boards/</code>. Part of the workspace:
                 versioned with it on the git screen. Agents read and write them with <code>kraftwerk tasks</code>.
+              </Hint>
+            </>
+          )}
+        </FormStack>
+      </Panel>
+
+      <Panel title="presentations" actions={<Button size="sm" icon="slideshow" href="/presentations">open presentations</Button>}>
+        <FormStack>
+          <Checkbox checked={decks.enabled} onChange={(on) => setDecksField({ enabled: on })}>
+            make slide decks — each a folder with a deck.md (markdown slides on a template's layouts) and its pictures, per project and workspace-wide; previewed, presented and exported as PowerPoint or PDF from the same render
+          </Checkbox>
+          {decks.enabled && (
+            <>
+              <Field label="presentations root">
+                <TextField value={decks.root} placeholder="kraftwerk-data/presentations" onChange={(e) => setDecksField({ root: e.target.value })} />
+              </Field>
+              <Hint>
+                Relative to the project root, one folder per deck under the root (workspace decks) and <code>templates/&lt;slug&gt;/template.yml</code> for your own templates; a project's decks live in{" "}
+                <code>projects/&lt;slug&gt;/presentations/</code>. Part of the workspace: versioned with it on the git screen. Agents write and render them with <code>kraftwerk presentations</code>.
               </Hint>
             </>
           )}

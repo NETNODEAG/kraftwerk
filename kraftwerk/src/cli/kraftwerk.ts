@@ -14,6 +14,7 @@ import { runInit } from "./init.js";
 import { registerKnowledgeCommands } from "./knowledge.js";
 import { registerProjectCommands } from "./projects.js";
 import { registerBoardCommands } from "./boards.js";
+import { registerPresentationCommands } from "./presentations.js";
 import { registerContactCommands, registerEventCommands, registerPlaceCommands, registerRefCommand } from "./entities.js";
 import { registerWorkspaceCommands } from "./workspaces.js";
 import { registerRepoCommands } from "./repos.js";
@@ -47,6 +48,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk workspaces ...          known workspaces on this machine (list/start/stop/forget)
  *   kraftwerk projects ...            goal-scoped project folders (list/create/show/link/log/remove)
  *   kraftwerk boards|tasks ...        task boards per project or workspace: list/show/create; tasks list/show/create/move/assign/log/pick/remove
+ *   kraftwerk presentations ...       slide decks per project or workspace: list/show/create/check/render/remove/templates
  *   kraftwerk contacts|places|events  who, where and when: one Markdown file each (list/show/create/set/remove)
  *   kraftwerk ref <kind:slug>         resolve a reference (contact:anna-meier) or every one in a file
  *   kraftwerk vibeables ...           small apps built live in a chat (list/create/remove)
@@ -342,6 +344,7 @@ registerRoutineCommands(program);
 registerWorkspaceCommands(program);
 registerProjectCommands(program);
 registerBoardCommands(program);
+registerPresentationCommands(program);
 registerContactCommands(program);
 registerPlaceCommands(program);
 registerEventCommands(program);

@@ -76,6 +76,20 @@ places: [netnode-office]
 events: [2026-11-03-kickoff]
 ```
 
+**Presentations.** Slide decks as folders: a `deck.md` with the slides in
+markdown or HTML (Slidev-style: `---` between slides, `layout:` per slide,
+`::slot::` markers for a layout's slots, `::notes::` for the speaker notes)
+and an `assets/` folder for the pictures. Slides are live HTML in a theme —
+a template is `template.yml` (layouts, colors, fonts, ready-made pieces)
+plus `theme.css` with its fonts — so a slide can show anything a browser
+can: cards, key figures, SVG, charts, embedded pages. The editor works on
+the slide itself (select, move with guides, resize, type in place, undo),
+present mode and the PDF and PNG exports show the same HTML, and the
+PowerPoint export is a native, editable model of the same slots. Projects
+have decks under `projects/<slug>/presentations/`, the workspace under
+`kraftwerk-data/presentations/`. Switched on by `presentations:` in
+`kraftwerk.yml`.
+
 **Boards and tasks.** The work of a project as columns of cards, stored as
 plain folders. A board has columns (Draft, Todo, In progress, Review, Done
 by default, configured in its `board.md`); a task is a numbered folder with

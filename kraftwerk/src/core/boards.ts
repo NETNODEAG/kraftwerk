@@ -7,7 +7,7 @@ import { getOutputDir, workspaceRoot } from "./context.js";
 import { mergeDays } from "./journal.js";
 import { newestMtime } from "./mtime.js";
 import { openProjects, safeProjectSlug } from "./projects.js";
-import { findRefs } from "./refs.js";
+import { findRefs, resolveTokens, type RefKind } from "./refs.js";
 import { SLUG_RE, slugify } from "./slug.js";
 import { moveToTrash } from "./trash.js";
 
@@ -1025,6 +1025,50 @@ export async function boardsContext(project: string | undefined, actor: string, 
 }
 
 /** The block a session gets when it was opened for one task: the task, its files and its whole log. */
+/** The task's refs for its agent: each target with its label, a deck with its folder and how to open it. */
+async function linkedBlock(refs: string[]): Promise<string> {
+  const parsed = refs.flatMap((r) => findRefs(r)).map((r) => ({ kind: r.kind as RefKind, slug: r.slug }));
+  if (!parsed.length) return "";
+  const resolved = await resolveTokens(parsed).catch(() => []);
+  const { listAllDecks, presentationCliScope } = await import("./presentations/index.js");
+  const decks = resolved.some((r) => r.kind === "presentations") ? await listAllDecks().catch(() => []) : [];
+  const lines = resolved.map((r) => {
+    if (!r.found) return `- ${r.token} — not found (renamed or removed?)`;
+    const deck = r.kind === "presentations" ? decks.find((d) => d.name === r.slug) : undefined;
+    return deck
+      ? `- ${r.token} — "${deck.title}"${deck.project ? ` in project ${deck.project}` : ""}, ${deck.slides} slides, folder ${deck.path} (\`npx kraftwerk presentations show ${deck.name}${deck.project ? ` ${presentationCliScope({ name: deck.name, project: deck.project })}` : ""}\`)`
+      : `- ${r.token}${r.label ? ` — ${r.label}` : ""}`;
+  });
+  return `\n### Linked\n${lines.join("\n")}\n`;
+}
+
+/** A task that links something, as the linked thing's page lists it. */
+export interface LinkingTask {
+  ref: string;
+  number: number;
+  title: string;
+  status: string;
+  assignee?: string;
+  board: string;
+  project?: string;
+  /** The task's page (a hash route). */
+  href: string;
+}
+
+/** Every task whose refs name the token (presentation:town-hall), across the workspace's boards. */
+export async function tasksReferencing(token: string): Promise<LinkingTask[]> {
+  const out: LinkingTask[] = [];
+  for (const b of await listAllBoards().catch(() => [] as BoardSummary[])) {
+    const detail = await getBoard(b).catch(() => null);
+    for (const t of detail?.items ?? []) {
+      if (!t.refs.includes(token)) continue;
+      const base = b.project ? `/projects/${b.project}/boards/${b.board}` : `/boards/${b.board}`;
+      out.push({ ref: t.ref, number: t.number, title: t.title, status: t.status, ...(t.assignee ? { assignee: t.assignee } : {}), board: b.board, ...(b.project ? { project: b.project } : {}), href: `${base}/${t.slug}` });
+    }
+  }
+  return out;
+}
+
 export async function taskContext(reference: string): Promise<string> {
   const t = await findTask(reference);
   if (!t) return `You were opened for task ${reference}, but it does not exist any more (removed, or its board is gone). Tell the user.`;
@@ -1036,6 +1080,7 @@ export async function taskContext(reference: string): Promise<string> {
     `Board ${boardKey(ref)}${board ? ` (columns: ${cols})` : ""}; status ${t.status}${t.assignee ? `, assigned to ${t.assignee}` : ""}${t.due ? `, due ${t.due}` : ""}. Folder: ${t.path}\n` +
     (board?.notes.trim() ? `Board rules: ${board.notes.trim()}\n` : "") +
     `\n### task.md\n${t.notes.trim() || "(no description — ask the user what done looks like and write it with `tasks set <n> --notes-file`)"}\n` +
+    (await linkedBlock(t.refs)) +
     `\n### Files\n${t.fileList.length ? t.fileList.map((f) => `- ${f}`).join("\n") : "(none yet)"}\n` +
     `\n### Log (newest first)\n${t.log.trim() || "(empty)"}\n\n` +
     `Work it through the CLI (${cliBoard(ref)}, the number ${t.number} names the task): \`npx kraftwerk tasks move ${t.number} progress ${cliBoard(ref)}\` when you start, ` +

@@ -30,6 +30,7 @@
     "@mdxeditor/editor": "^4.2.3",
     "dompurify": "^3.4.14",
     "marked": "^18.0.11",
-    "qrcode-generator": "^2.0.4"
+    "qrcode-generator": "^2.0.4",
+    "yaml": "2.9.1"
   }
 }

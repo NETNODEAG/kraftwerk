@@ -18,6 +18,7 @@ export const REF_ROUTES: Record<string, string> = {
   contact: "contacts",
   place: "places",
   event: "events",
+  presentation: "presentations",
 };
 
 export const REF_TOKEN_RE = new RegExp(`(?<![\\w/:.@-])(${Object.keys(REF_ROUTES).join("|")}):([a-z0-9][a-z0-9-]{0,48})(?![\\w-])`, "g");

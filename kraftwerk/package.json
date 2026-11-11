@@ -1,7 +1,7 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.82.0",
-  "description": "Open-source agentic workspace for teams \u2014 where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
+  "version": "0.83.0",
+  "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
     "workflow",
@@ -72,11 +72,15 @@
     "@agentclientprotocol/codex-acp": "^1.10.0",
     "@agentclientprotocol/sdk": "^1.4.0",
     "@inquirer/prompts": "^8.7.1",
+    "@office-kit/pptx": "0.28.0",
+    "@office-kit/pptx-preview": "0.21.0",
     "ajv": "^8.20.0",
     "chalk": "^6.0.0",
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
+    "marked": "18.0.11",
     "ora": "^9.4.1",
+    "playwright-core": "1.63.0",
     "yaml": "^2.9.0",
     "zod": "^4.6.5"
   },

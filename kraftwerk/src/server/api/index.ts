@@ -11,6 +11,7 @@ import { hubRoutes } from "./hub.js";
 import { fileRoutes } from "./files.js";
 import { gitRoutes } from "./git.js";
 import { knowledgeRoutes } from "./knowledge.js";
+import { presentationRoutes } from "./presentations.js";
 import { projectRoutes } from "./projects.js";
 import { createRouter, route, type BodyInputOf, type PathOf, type ResultOf, type Route } from "./router.js";
 import { runRoutes } from "./runs.js";
@@ -35,6 +36,7 @@ const domainRoutes = [
   ...channelRoutes,
   ...projectRoutes,
   ...boardRoutes,
+  ...presentationRoutes,
   ...contactRoutes,
   ...placeRoutes,
   ...eventRoutes,

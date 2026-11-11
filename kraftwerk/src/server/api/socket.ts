@@ -1,6 +1,10 @@
 import { subscribeChat } from "../../core/chat/sessions.js";
 import { watch } from "../live.js";
 import { resolveVibeable, subscribeVibeable } from "../../core/vibeables.js";
+import { existingDeckDir } from "../../core/presentations/index.js";
+import { leavePresence, subscribePresence, watchDeckFiles } from "../../core/presentations/presence.js";
+import { changed } from "../../core/changes.js";
+import { AsyncResource } from "node:async_hooks";
 import type { Workspace } from "../../core/workspace.js";
 import { MACHINE_ROUTES, runInHub } from "../hub-context.js";
 import type { Hub } from "../server.js";
@@ -22,7 +26,10 @@ import { apiRouter, PROTOCOL_VERSION, routes } from "./index.js";
  *   → `{watch: key, data}` now and whenever it changes. `{unwatch: key}` stops.
  * - `{sub: key, topic, after?}` follows an event stream: `chat.<id>` (events
  *   after seq `after`, then new ones) or `vibeable.<slug>` (file changes, dev
- *   server state) → `{event: key, data}` per event. `{unsub: key}` stops.
+ *   server state) or `deck.<project>/<name>[@<client>]` (who has the deck
+ *   open, where: the whole list on each change; with `@<client>`, that
+ *   editor leaves the deck when the subscription or the socket ends) → `{event: key, data}` per event.
+ *   `{unsub: key}` stops.
  *
  * `key`s are the client's own names, unique per connection. A refusal of a
  * message is `{id?, watch?, sub?, error}`.
@@ -94,6 +101,20 @@ export function serveSocket(
     else if (kind === "vibeable" && name) {
       const dir = await resolveVibeable(name).then((v) => v.dir, () => null);
       if (dir) unsubscribe = subscribeVibeable(name, dir, push);
+    } else if (kind === "deck" && name) {
+      const [deck, client] = name.split("@");
+      const [a, b] = deck.split("/");
+      const dir = await existingDeckDir(b ? { project: a, name: b } : { name: a }).catch(() => null);
+      if (dir) {
+        const stopFollowing = subscribePresence(dir, (viewers) => push({ viewers }));
+        // A file changed on disk (an agent, the CLI): the watched routes re-evaluate now, in this connection's workspace.
+        const stopFiles = watchDeckFiles(dir, AsyncResource.bind(() => changed()));
+        unsubscribe = () => {
+          stopFollowing();
+          stopFiles();
+          if (client) leavePresence(dir, client);
+        };
+      }
     } else {
       if (stops.get(key) === placeholder) stops.delete(key);
       return send({ sub: key, error: `unknown topic ${topic}` });

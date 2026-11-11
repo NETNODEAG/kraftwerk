@@ -49,7 +49,8 @@ export type { ContactDef, EntityBase, EntityDetail, EntitiesView, EventDef, Plac
 export type { ResolvedRef } from "../../src/core/refs";
 export type { BoardDef, BoardDetail, BoardRef, BoardSummary, BoardsView, Column, TaskDetail, TaskSummary } from "../../src/core/boards";
 export type { TaskSession } from "../../src/core/board-wake";
-export type { TaskHit } from "../../src/core/search";
+export type { DeckDoc, SlideDef, LayoutInfo, SlotInfo, PresentationDetail, PresentationRef, PresentationSummary, PresentationsView, RenderWarning, TemplateSummary } from "../../src/core/presentations/index";
+export type { TaskHit, DeckHit } from "../../src/core/search";
 export type {
   Routine,
   RoutineRunner,

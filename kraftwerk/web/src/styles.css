@@ -154,3 +154,9 @@
 @utility focus-flash {
   animation: focus-flash 1.8s ease-out;
 }
+
+/* Presentations editor: a box's frame shows on hover; present mode fades between slides. */
+[role="group"][aria-label="slide"] .deck-slot:hover { outline: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: -1px; }
+@keyframes deckfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes deckslide { from { opacity: 0; translate: 8% 0; } to { opacity: 1; translate: 0 0; } }
+@keyframes deckzoom { from { opacity: 0; scale: .92; } to { opacity: 1; scale: 1; } }

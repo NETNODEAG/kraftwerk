@@ -20,6 +20,7 @@ export function GlobalNav({ path }: { path: string }) {
     { id: "workflows", href: "/workflows", label: "workflows", icon: "account_tree" },
     { id: "knowledge", href: "/knowledge", label: "knowledge", icon: "menu_book" },
     { id: "files", href: "/files", label: "files", icon: "folder_open" },
+    ...(features.presentations ? [{ id: "presentations", href: "/presentations", label: "presentations", icon: "slideshow" }] : []),
     ...(features.vibeables ? [{ id: "vibeables", href: "/vibeables", label: "apps", icon: "web" }] : []),
     { id: "skills", href: "/skills", label: "skills", icon: "extension" },
     ...(features.repos ? [{ id: "repos", href: "/repos", label: "repositories", icon: "source" }] : []),

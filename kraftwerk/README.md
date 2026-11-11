@@ -260,6 +260,7 @@ kraftwerk devices                       # paired devices (a phone, another compu
 kraftwerk remote on|off|pair            # reach this machine from anywhere through the relay, end to end encrypted
 kraftwerk projects                      # goal-scoped project folders; projects create|show|link|log|remove
 kraftwerk boards|tasks                  # task boards per project or workspace; tasks create|show|move|assign|log|pick|remove
+kraftwerk presentations                 # slide decks (HTML slides, themes, PPTX/PDF/HTML export) per project or workspace; show|create|check|render|remove|templates
 kraftwerk contacts|places|events        # who, where and when, one Markdown file each; … show|create|set|remove, events --from/--to
 kraftwerk ref <kind:slug>               # resolve a reference (contact:anna-meier, project:relaunch, …); --file <md> resolves every one in a file
 kraftwerk trash                         # what was deleted; trash restore|purge <id>, trash empty
@@ -685,6 +686,180 @@ default assignee for tasks entering Todo unassigned. The events are lines in
 workspace never starts the same work twice. Only a human moves a task into a
 done column; `tasks assign <n> human` clears the assignee and puts the task
 into Review.
+
+## Presentations
+
+Turn on `presentations:` in `kraftwerk.yml` (or the checkbox in settings)
+and every project can have slide decks, and the workspace its own:
+
+```yaml
+presentations:
+  root: kraftwerk-data/presentations   # default; the workspace's decks and templates (a project's decks live in projects/<slug>/presentations/)
+```
+
+```
+projects/<slug>/presentations/<name>/deck.md     # the slides: markdown (and HTML) on a template's layouts
+projects/<slug>/presentations/<name>/assets/     # the pictures the slides show
+projects/<slug>/presentations/<name>/exports/    # what `render` wrote: .pptx, .pdf, .html, slides/NN.png
+kraftwerk-data/presentations/<name>/…            # workspace decks, same shape
+kraftwerk-data/presentations/templates/<slug>/   # your own themes: template.yml, theme.css, fonts and pictures beside them
+```
+
+A deck is one markdown file. The headmatter names the title, the template
+and, optionally, CSS of the deck's own; a `---` line starts the next slide,
+and an optional YAML block right after it sets the slide's `layout:` (and
+`background:`, `slots:`). The content before the first `::slot::` marker is
+the slide's title (a leading heading) and body; `::left::`, `::image::`,
+`::chart::`, … fill the layout's named slots, `::notes::` are the speaker
+notes. A slot holds markdown, raw HTML, a picture (`![caption](assets/x.png)`),
+a table, or a fenced `chart` block (YAML: `kind` column | bar | line | pie |
+doughnut | area, `categories`, `series` with `name` and `values`).
+
+```markdown
+---
+title: Why we move to NodeHive
+template: netnode
+layout: title
+---
+# Why we move to NodeHive
+::subtitle::
+Content pipeline review · November 2026
+::notes::
+Open with the migration timeline.
+
+---
+layout: content
+slots:
+  title: { size: 30 }
+  figures: { kind: html, x: 0.44, y: 3.2, w: 9.12, h: 1.6 }
+---
+# One source, every channel
+- Editors write **once**, in markdown
+- Every channel reads the same API
+::figures::
+<div class="kpis"><div class="kpi"><strong>−60%</strong><span>time per text</span></div></div>
+```
+
+**Slides are HTML.** The editor, the thumbnails, present mode, the HTML
+file, the PDF and the PNGs all show the same live HTML in the template's
+theme; PDF and PNG are printed from it by a headless browser (Playwright's
+Chromium when installed, else the installed Chrome; without either the
+PowerPoint model's raster stands in, with a warning). The PowerPoint file
+is a native model of the same slots — text, lists, pictures, native charts
+and tables stay editable — its HTML pieces placed as pictures of
+themselves. A slide may move or restyle a layout's slot, or add boxes of
+its own, in its `slots:` (positions in inches on a 10 × 5.625 canvas);
+kinds are `text`, `markdown`, `image`, `chart`, `table`, `html` and
+`embed` (a URL, or a whole page with scripts, run sandboxed).
+
+**The design** is the template: `template.yml` names the canvas, fonts,
+colors, layouts (slots placed in inches, decorations behind them) and
+snippets — the theme's ready-made pieces (cards, key figures, a flow, a
+timeline …) for the editor's insert menu — and `theme.css` styles the
+slides, scoped to them (`:root` means the slide; `@font-face` fonts sit
+beside the file). `kraftwerk presentations templates init <slug>` copies
+the built-in one to start from; the deck's own `css:` goes on top for one
+deck. What a slot cannot show (an empty required slot, an unknown layout,
+a missing picture, a broken chart block) is a warning with the slide and
+the slot, in the editor, in `show` and in `check`.
+
+```
+kraftwerk presentations [--project <p>] [--all]            # the decks; presentations show|create|check|render|remove
+kraftwerk presentations create "<title>" --project relaunch [--template netnode] [--from deck.md]
+kraftwerk presentations show nodehive-pitch --project relaunch     # slides, the template's layouts and slots, its pieces, the warnings
+kraftwerk presentations check nodehive-pitch --project relaunch    # exit 1 on errors
+kraftwerk presentations render nodehive-pitch --project relaunch --png --pdf --pptx --html [--out <dir>]
+kraftwerk presentations templates [init <slug>]
+```
+
+**The editor** (`#/projects/<slug>/presentations/<name>`) is the slide
+itself, live, and works like ChatGPT's presentation editor:
+
+- **Slides.** A numbered strip (drag to reorder; right click to duplicate,
+  hide, move or delete), a grid of all slides, a new slide from a picture of
+  each layout, zoom from fit to 150 %. Hidden slides stay in the deck and
+  out of present mode and the exports.
+- **On the slide.** Every slot is a box: click to select, ⇧-click or drag a
+  frame for several, drag to move with guides to the slide's edges and
+  middle and to the other boxes, resize from the corners (⇧ keeps the
+  proportions), rotate from the handle below, nudge with the arrows,
+  ⌘C/⌘V/⌘D, Delete, ⌘Z/⇧⌘Z. A double click types into a box where it
+  stands in the slide's own fonts, or opens the source of HTML, charts and
+  embeds beside the slide, which follows as you type.
+- **Format.** The bar over a box sets font, size, bold, italic, alignment
+  and color; the Format panel adds position, rotation, alignment to the
+  slide, underline and strikethrough, text and fill colors (the theme's or
+  any), corners, border, shadow, opacity and how a picture fits; several
+  boxes align to each other; right click orders the layers. With nothing
+  selected it sets the slide's background, a color or a picture.
+- **Insert.** Text, a picture (uploaded into `assets/`, or dropped onto
+  the slide), a chart, a table, shapes (rectangle, rounded, circle, line,
+  arrow, star), HTML, an embed, and the theme's pieces.
+- **Design.** The design panel switches the theme with a preview of the
+  slide in each and takes CSS for this deck; slides carry their number
+  (`data-n`, `data-nn`, `data-of`) for the theme to show.
+- **Agent.** "Ask an agent" under the slide opens a chat docked beside the
+  deck with the deck and the slide named; the agent edits `deck.md` and the
+  slide changes in front of you (the server watches an open deck's folder,
+  so an agent's save shows at once). "ask" on a box has one-click
+  requests: shorten, rewrite clearer, bullet points, make it a chart,
+  translate to English or German, speaker notes, or something else.
+- **From a brief.** A new deck can start from what it is about, typed or
+  from notes files (md, txt, csv, json, html, yaml): the agent beside it
+  answers with the outline, then writes the slides in the theme while you
+  watch.
+- **Review.** Comments on a slide or on one box (right click → Comment…,
+  or the comments button): a pin on the box, a count on the slide and in
+  the bar, answers, resolve and reopen. They live in `comments.json` beside
+  `deck.md`, pointing at the slide's `id:` (given when its first comment
+  lands), so they follow the slide when it moves. Agents read and resolve
+  them: `kraftwerk presentations comments|comment|resolve`.
+- **Share.** Copy a link to the editor or to present mode (for anyone who
+  reaches this workspace: paired devices, members), or download the deck
+  as one HTML file that opens anywhere.
+- **Several editors.** A person, an agent and another window can work on
+  one deck: every save names the version it was made on, a save over a
+  newer file is refused (409) and the editor merges slide by slide — both
+  sides' changes stay; a slide changed on both sides keeps theirs and says
+  so (⌘Z brings yours back).
+- **Charts.** A chart opens as a data grid beside the slide: kind, title,
+  a row per category, a column per series (add, rename, remove); the
+  source tab shows the same block as YAML.
+- **Version history.** Earlier versions of the deck are kept in
+  `.history/` beside `deck.md`: before saves (once a minute while you edit)
+  and whenever an agent or a tool changes the file; the newest 50 stay.
+  The history panel shows each version's slides and restores one as an
+  ordinary edit (⌘Z takes it back).
+- **Transitions.** Each slide comes in with a fade (the default), a slide,
+  a zoom or a cut (`transition:` in its head, or the Format panel with
+  nothing selected); present mode and the HTML file play them, the
+  PowerPoint file gets fade, push and zoom.
+- **Linked from tasks and chats.** A task's links (its `refs:`) take a
+  deck from a list; the chip opens it, and the agent working the task
+  gets the deck's folder with the task. In a chat, `presentation:` offers
+  the decks and the sent `presentation:<name>` links to the deck. The
+  deck's share menu copies that reference and lists the tasks that link
+  it.
+- **Slide numbers.** On by default, drawn by the theme bottom right
+  (not on title and section slides). The Format panel with nothing
+  selected turns them off for the deck (`numbers: false` in the
+  headmatter) or for one slide (`number: false` in its head). The
+  PowerPoint file carries them as slide-number fields, so they keep
+  counting when slides move there.
+- **Who else is here.** Everyone with the deck open (other people, other
+  tabs) shows as an avatar in the bar and a dot on the slide they are on;
+  the box they have selected is outlined in their color with their name.
+  Click an avatar to go to their slide. It lives in memory only and
+  follows the live connection: a closed tab is gone at once.
+- **Present.** `…/present[/<n>]` full screen (arrows, space, Escape, N for
+  the notes, F for fullscreen, a clock); `…/presenter[/<n>]` is the
+  presenter view with the current and the next slide, the notes and the
+  clock. PowerPoint, PDF and HTML download from the bar.
+
+**Agents and the deck.** A project chat and every agent see the project's
+decks in their context with the format, the theme's pieces and the
+commands; agents write `deck.md` directly, put pictures into `assets/`, and
+look at the slide images `render --png` writes before handing the deck over.
 
 ## Contacts, places and events
 

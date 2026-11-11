@@ -9,6 +9,7 @@ import { listVibeables, vibeableStatus, VIBEABLE_CONFIG_FILE } from "../vibeable
 import { projectContext } from "../projects.js";
 import { entitiesContext } from "../entities.js";
 import { boardsContext, taskContext } from "../boards.js";
+import { presentationsContext } from "../presentations/index.js";
 import { unattendedTimeoutLabel } from "./permissions.js";
 import type { ChatAgentId, ChatMeta, ChatScope } from "./types.js";
 import { getChannel } from "../channels.js";
@@ -435,7 +436,7 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
   const agent = seat.harness;
   // The repositories block reads every clone from git, so it runs alongside
   // the rest instead of adding its spawns to the first prompt's latency.
-  const [base, repos, vibe, skills, channel, project, entities, boards] = await Promise.all([
+  const [base, repos, vibe, skills, channel, project, entities, boards, decks] = await Promise.all([
     baseScopeContext(scope, agent),
     scope.kind === "agent" || scope.kind === "kraftwerk" ? reposContext() : Promise.resolve(""),
     meta.vibeable ? vibeableContext(meta.vibeable, meta.cwd) : Promise.resolve(""),
@@ -453,13 +454,21 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
             .then((xs) => xs.filter(Boolean).join("\n\n"))
             .catch(() => "")
         : Promise.resolve(""),
+    // Presentations: a project chat sees the project's decks; an agent the workspace's, plus its project's when filed under one.
+    scope.kind === "project"
+      ? presentationsContext(scope.slug).catch(() => "")
+      : scope.kind === "agent"
+        ? Promise.all([presentationsContext(undefined), meta.project ? presentationsContext(meta.project) : Promise.resolve("")])
+            .then((xs) => xs.filter(Boolean).join("\n\n"))
+            .catch(() => "")
+        : Promise.resolve(""),
   ]);
   // Every session has a scratch folder of its own (core/temp.ts), named by its absolute path: a run chat or a
   // vibeable session works in another folder than the workspace root. The block comes after the files blocks it refers to.
   const temp = await sessionTemp(meta.id).catch(() => null);
   // "Work on this" from a task page: the chat is tagged with the task (meta.task) and reads it like the agent's own task session would.
   const task = meta.task && !(scope.kind === "agent" && scope.task === meta.task) ? await taskContext(meta.task).catch(() => "") : "";
-  return [base, channel, project, boards, task, repos, entities, vibe, temp ? tempContext(temp.abs) : "", RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
+  return [base, channel, project, boards, task, decks, repos, entities, vibe, temp ? tempContext(temp.abs) : "", RENDERING_BLOCK, skillsBlock(skills)].filter(Boolean).join("\n\n");
 }
 
 /** The channel block a member agent gets once per process: who is here, how turns work, how to hand over. */

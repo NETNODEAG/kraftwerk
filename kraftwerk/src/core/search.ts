@@ -7,6 +7,7 @@ import { currentInstanceUrl, discoverWorkspaces, listWorkspaceRecords } from "./
 import { CONTACTS, EVENTS, listEntities, PLACES, type EntityKindDef } from "./entities.js";
 import { listProjects, toProjectHit, type ProjectHit } from "./projects.js";
 import { getBoard, listAllBoards } from "./boards.js";
+import { listAllDecks } from "./presentations/index.js";
 
 /**
  * The ⌘K palette: every active agent, project and channel in every workspace
@@ -37,6 +38,21 @@ export interface WorkspaceAgents {
   entities: EntityHit[];
   /** Open tasks of this instance's boards; empty for other workspaces and while boards are off. */
   tasks: TaskHit[];
+  /** Decks of this instance; empty for other workspaces and while presentations are off. */
+  decks: DeckHit[];
+}
+
+/** What the palette needs of a presentation. */
+export interface DeckHit {
+  name: string;
+  title: string;
+  project?: string;
+  slides: number;
+  href: string;
+}
+
+async function deckHits(): Promise<DeckHit[]> {
+  return (await listAllDecks().catch(() => [])).map((d) => ({ name: d.name, title: d.title, ...(d.project ? { project: d.project } : {}), slides: d.slides, href: d.project ? `/projects/${d.project}/presentations/${d.name}` : `/presentations/${d.name}` }));
 }
 
 /** What the palette needs of a task. */
@@ -102,6 +118,7 @@ export async function searchAgents(): Promise<AgentSearch> {
     projects: (await listProjects().catch(() => ({ projects: [] }))).projects.filter((p) => p.status !== "archived").map(toProjectHit),
     entities: (await Promise.all([CONTACTS, PLACES, EVENTS].map(entityHits))).flat(),
     tasks: await taskHits(),
+    decks: await deckHits(),
   };
   const [workspaces, known] = await Promise.all([discoverWorkspaces(), listWorkspaceRecords()]);
   const records = new Map(known.map((p) => [p.root, p]));
@@ -120,6 +137,7 @@ export async function searchAgents(): Promise<AgentSearch> {
       projects: records.get(w.root!)?.projects ?? [],
       entities: [],
       tasks: [],
+      decks: [],
     }));
   return { workspaces: [self, ...others] };
 }

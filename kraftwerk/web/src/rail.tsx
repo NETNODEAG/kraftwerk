@@ -5,7 +5,7 @@ import { api, useApi } from "./api";
 import { Icon, Link, PROJECT_ASSISTANT, useExpertMode, useFeatures } from "./shared";
 import { SortableProjects, freshSectionName } from "./rail-sort";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
-import type { Agent, AgentStatus, BoardSummary, ChannelView, ProjectLayout, ProjectsView, VibeablesView } from "./types";
+import type { Agent, AgentStatus, BoardSummary, ChannelView, PresentationSummary, ProjectLayout, ProjectsView, VibeablesView } from "./types";
 
 /**
  * The first column: who can be talked to. The general chat, every project,
@@ -28,6 +28,11 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const boardList: BoardSummary[] = boards?.boards ?? [];
   const boardsOf = (project: string) => boardList.filter((b) => b.project === project);
   const workspaceBoards = boardList.filter((b) => !b.project);
+  // Every deck at once (?all=1): a project's under it, the workspace's in their own group.
+  const decks = useApi("presentations.list", features.presentations ? { query: { all: "1" } } : null, { interval: 15_000 });
+  const deckList: PresentationSummary[] = decks?.presentations ?? [];
+  const decksOf = (project: string) => deckList.filter((d) => d.project === project);
+  const workspaceDecks = deckList.filter((d) => !d.project);
   const seg = chatPath.split("/").filter(Boolean);
   const at = (kind: string, slug?: string) =>
     seg[0] === kind && (slug === undefined || (seg[1] ? decodeURIComponent(seg[1]) : undefined) === slug);
@@ -165,6 +170,35 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
               title={<span className="font-medium">tasks</span>}
             />
           ))}
+        {/* The project's presentations: one row per deck, and the row that opens the list when it has none. */}
+        {open &&
+          features.presentations &&
+          (decksOf(p.slug).length > 0 ? (
+            decksOf(p.slug).map((d) => (
+              <ListRow
+                key={`deck:${d.name}`}
+                className={NESTED}
+                size="sm"
+                href={`/projects/${encodeURIComponent(p.slug)}/presentations/${encodeURIComponent(d.name)}`}
+                active={at("projects", p.slug) && seg[2] === "presentations" && (seg[3] ? decodeURIComponent(seg[3]) : undefined) === d.name}
+                onClick={() => setHeld(p.slug)}
+                innerProps={{ title: `${d.title}: ${d.slides} ${d.slides === 1 ? "slide" : "slides"}`, "data-nested": "presentation" }}
+                leading={<Icon name="slideshow" className="ms-sm" />}
+                title={<span className="font-medium">{d.title}</span>}
+              />
+            ))
+          ) : (
+            <ListRow
+              className={NESTED}
+              size="sm"
+              href={`/projects/${encodeURIComponent(p.slug)}/presentations`}
+              active={at("projects", p.slug) && seg[2] === "presentations"}
+              onClick={() => setHeld(p.slug)}
+              innerProps={{ title: "the project's slide decks", "data-nested": "presentation" }}
+              leading={<Icon name="slideshow" className="ms-sm" />}
+              title={<span className="font-medium">presentations</span>}
+            />
+          ))}
         {/* The apps pinned to the project (its linked vibeables): open beside the project's chat. */}
         {open &&
           apps.map((v) => (
@@ -287,6 +321,23 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
                 titleExtra={<Badge n={b.review} title="waiting for review" />}
                 sub={b.configError ? "unreadable board.md" : `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
                 subTone={b.configError ? "bad" : "plain"}
+              />
+            ))}
+          </Group>
+        )}
+
+        {features.presentations && (
+          <Group label="presentations" href="/presentations" add={decks?.enabled ? { href: "/presentations/new", label: "new presentation" } : undefined}>
+            {workspaceDecks.map((d) => (
+              <ListRow
+                key={d.name}
+                href={`/presentations/${encodeURIComponent(d.name)}`}
+                active={at("presentations", d.name)}
+                innerProps={{ title: `${d.slides} ${d.slides === 1 ? "slide" : "slides"}` }}
+                leading={<Icon name="slideshow" className="ms-sm" />}
+                title={d.title}
+                sub={d.error ? "unreadable deck.md" : `${d.slides} ${d.slides === 1 ? "slide" : "slides"}`}
+                subTone={d.error ? "bad" : "plain"}
               />
             ))}
           </Group>

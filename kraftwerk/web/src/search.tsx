@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentSummary, AgentSearch, ChannelSummary, EntityHit, ProjectHit, TaskHit, WorkspaceAgents } from "./types";
+import type { AgentSummary, AgentSearch, ChannelSummary, DeckHit, EntityHit, ProjectHit, TaskHit, WorkspaceAgents } from "./types";
 import { api } from "./api";
 import { Icon, navigate, startWorkspace, workspaceHref } from "./shared";
 import { cn, Kbd } from "./ui";
@@ -19,6 +19,7 @@ type Hit = { ws: WorkspaceAgents; key: string } & (
   | { kind: "channel"; channel: ChannelSummary }
   | { kind: "entity"; entity: EntityHit }
   | { kind: "task"; task: TaskHit }
+  | { kind: "deck"; deck: DeckHit }
 );
 
 const MAX_SHOWN = 40;
@@ -35,10 +36,11 @@ const flatten = (data: AgentSearch | null): Hit[] =>
     ...(ws.entities ?? []).map((entity): Hit => ({ kind: "entity", entity, ws, key: `${ws.url}|${entity.kind}|${entity.slug}` })),
     // Tasks are this workspace's only: the registry carries none for the others.
     ...(ws.current ? (ws.tasks ?? []) : []).map((task): Hit => ({ kind: "task", task, ws, key: `${ws.url}|task|${task.project ?? ""}|${task.board}|${task.slug}` })),
+    ...(ws.current ? (ws.decks ?? []) : []).map((deck): Hit => ({ kind: "deck", deck, ws, key: `${ws.url}|deck|${deck.project ?? ""}|${deck.name}` })),
   ]);
 
 const nameOf = (hit: Hit): string =>
-  hit.kind === "agent" ? hit.agent.name : hit.kind === "project" ? hit.project.title : hit.kind === "entity" ? hit.entity.title : hit.kind === "task" ? hit.task.title : hit.channel.name;
+  hit.kind === "agent" ? hit.agent.name : hit.kind === "project" ? hit.project.title : hit.kind === "entity" ? hit.entity.title : hit.kind === "task" ? hit.task.title : hit.kind === "deck" ? hit.deck.title : hit.channel.name;
 const subOf = (hit: Hit): string | undefined =>
   hit.kind === "agent"
     ? hit.agent.description
@@ -48,7 +50,9 @@ const subOf = (hit: Hit): string | undefined =>
         ? hit.entity.detail
         : hit.kind === "task"
           ? `${hit.task.project ? `${hit.task.project} · ` : ""}${hit.task.board} · ${hit.task.status}`
-          : hit.channel.purpose;
+          : hit.kind === "deck"
+            ? `${hit.deck.project ? `${hit.deck.project} · ` : ""}${hit.deck.slides} ${hit.deck.slides === 1 ? "slide" : "slides"}`
+            : hit.channel.purpose;
 const hrefOf = (hit: Hit): string =>
   hit.kind === "agent"
     ? `/agents/${encodeURIComponent(hit.agent.slug)}`
@@ -58,7 +62,9 @@ const hrefOf = (hit: Hit): string =>
         ? `/${hit.entity.kind}/${encodeURIComponent(hit.entity.slug)}`
         : hit.kind === "task"
           ? hit.task.href
-          : `/channels/${encodeURIComponent(hit.channel.slug)}`;
+          : hit.kind === "deck"
+            ? hit.deck.href
+            : `/channels/${encodeURIComponent(hit.channel.slug)}`;
 /** The singular of a hit's kind, for the tag beside its name: contact, place, event. */
 const ENTITY_WORD: Record<EntityHit["kind"], string> = { contacts: "contact", places: "place", events: "event" };
 const ENTITY_ICON: Record<EntityHit["kind"], string> = { contacts: "person", places: "location_on", events: "event" };
@@ -73,6 +79,8 @@ const emojiOf = (hit: Hit): React.ReactNode =>
     <Icon name={ENTITY_ICON[hit.entity.kind]} className="text-[18px] text-fg-2" />
   ) : hit.kind === "task" ? (
     <Icon name="task" className="text-[18px] text-fg-2" />
+  ) : hit.kind === "deck" ? (
+    <Icon name="slideshow" className="text-[18px] text-fg-2" />
   ) : (
     <Icon name="forum" className="text-[18px] text-fg-2" />
   );
@@ -104,7 +112,9 @@ function filter(hits: Hit[], query: string): Hit[] {
             ? [hit.entity.slug, hit.entity.detail ?? "", ENTITY_WORD[hit.entity.kind], `${ENTITY_WORD[hit.entity.kind]}:${hit.entity.slug}`]
             : hit.kind === "task"
               ? [hit.task.slug, `task:${hit.task.slug}`, hit.task.board, hit.task.project ?? "", hit.task.status, "task"]
-              : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
+              : hit.kind === "deck"
+                ? [hit.deck.name, `presentation:${hit.deck.name}`, hit.deck.project ?? "", "presentation", "deck"]
+                : [hit.channel.slug, hit.channel.purpose ?? "", "channel"];
     const hay = [name, ...own, hit.ws.name].join(" ").toLowerCase();
     if (!tokens.every((t) => hay.includes(t))) continue;
     const score = name.startsWith(tokens[0]) ? 0 : name.includes(tokens[0]) ? 1 : 2;
@@ -272,7 +282,7 @@ function Palette({ onClose }: { onClose: () => void }) {
                   {starting === hit.key ? (
                     <Icon name="progress_activity" className="ms-sm" />
                   ) : (
-                    hit.kind !== "agent" && <span className={cn(PALETTE_TAG, "text-fg-2")}>{hit.kind === "entity" ? ENTITY_WORD[hit.entity.kind] : hit.kind}</span>
+                    hit.kind !== "agent" && <span className={cn(PALETTE_TAG, "text-fg-2")}>{hit.kind === "entity" ? ENTITY_WORD[hit.entity.kind] : hit.kind === "deck" ? "presentation" : hit.kind}</span>
                   )}
                 </li>
               );
@@ -311,7 +321,7 @@ function Palette({ onClose }: { onClose: () => void }) {
               setQuery(e.target.value);
               setActive(0);
             }}
-            placeholder="jump to an agent, project, channel, task, contact, place or event…"
+            placeholder="jump to an agent, project, channel, task, presentation, contact, place or event…"
             aria-label="search"
             autoComplete="off"
             spellCheck={false}

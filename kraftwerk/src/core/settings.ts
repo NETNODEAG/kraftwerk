@@ -1,8 +1,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseDocument } from "yaml";
-import { BOARDS_DEFAULT_ROOT, ENTITY_KINDS, entityDefaultRoot, ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type EntitiesConfig, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
+import { BOARDS_DEFAULT_ROOT, PRESENTATIONS_DEFAULT_ROOT, ENTITY_KINDS, entityDefaultRoot, ignoreEntryFor, PROJECTS_DEFAULT_ROOT, REPOS_DEFAULT_ROOT, resolveWorkspace, VIBEABLES_DEFAULT_ROOT, type EntitiesConfig, type GitConfig, type WorkspaceConfig, type ProjectsConfig, type ReposConfig, type SwitcherEntry, type VibeablesConfig, isSafeGitName } from "../config.js";
 import { ensureBoardsRoot } from "./boards.js";
+import { ensurePresentationsRoot } from "./presentations/index.js";
 import { ensureEntitiesRoot } from "./entities.js";
 import { ensureProjectsRoot } from "./projects.js";
 import { disposeAllDevs, ensureVibeablesRoot } from "./vibeables.js";
@@ -50,6 +51,8 @@ export interface SaveSettingsInput {
   events?: ReposSettingsInput;
   /** Omitted = untouched. Same shape and rules as repos (boards.columns in the file is kept). */
   boards?: ReposSettingsInput;
+  /** Omitted = untouched. Same shape and rules as repos. */
+  presentations?: ReposSettingsInput;
 }
 
 export interface ReposSettingsInput {
@@ -133,6 +136,7 @@ const ROOT_DEFAULTS = {
   places: entityDefaultRoot("places"),
   events: entityDefaultRoot("events"),
   boards: BOARDS_DEFAULT_ROOT,
+  presentations: PRESENTATIONS_DEFAULT_ROOT,
 } as const;
 
 /** The repos, vibeables, projects, contacts, places or events block to write; null when the feature is off and nothing else is set. */
@@ -217,6 +221,12 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
     else doc.set("boards", { ...(block ?? { enabled: false }), ...(columns ? { columns } : {}) });
   }
 
+  if (input.presentations !== undefined) {
+    const block = cleanRootBlock("presentations", input.presentations, project.root);
+    if (block === null) doc.delete("presentations");
+    else doc.set("presentations", block);
+  }
+
   await fs.writeFile(configPath, doc.toString());
   // Turning repositories on prepares the folder so the first clone and the
   // workspace git both find it in the right state.
@@ -225,5 +235,6 @@ export async function saveSettings(input: SaveSettingsInput): Promise<SettingsVi
   if (input.projects?.enabled) await ensureProjectsRoot().catch(() => {});
   for (const kind of ENTITY_KINDS) if (input[kind]?.enabled) await ensureEntitiesRoot(kind).catch(() => {});
   if (input.boards?.enabled) await ensureBoardsRoot().catch(() => {});
+  if (input.presentations?.enabled) await ensurePresentationsRoot().catch(() => {});
   return getSettings();
 }

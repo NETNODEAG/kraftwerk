@@ -68,7 +68,12 @@ export const isBoardPath = (path: string): boolean => {
   const seg = path.split("?")[0].split("/").filter(Boolean);
   return seg[0] === "projects" && seg[2] === "boards";
 };
-export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path.split("?")[0].split("/").filter(Boolean)[0] ?? "") && !isBoardPath(path) ? "chat" : "side");
+/** A project's presentations page (#/projects/<slug>/presentations/…): a page of its own, like its boards. */
+export const isPresentationPath = (path: string): boolean => {
+  const seg = path.split("?")[0].split("/").filter(Boolean);
+  return seg[0] === "projects" && seg[2] === "presentations";
+};
+export const columnOf = (path: string): "chat" | "side" => (CHAT_ROUTES.has(path.split("?")[0].split("/").filter(Boolean)[0] ?? "") && !isBoardPath(path) && !isPresentationPath(path) ? "chat" : "side");
 
 /** A column's screen resolved where it wants to be without touching the hash (see navigate). */
 export const COLUMN_PATH_EVENT = "kw-column-path";
@@ -225,9 +230,10 @@ export interface Features {
   places: boolean;
   events: boolean;
   boards: boolean;
+  presentations: boolean;
 }
-const FEATURE_KEYS = ["git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards"] as const;
-let features: Features = { git: false, repos: false, vibeables: false, projects: false, contacts: false, places: false, events: false, boards: false };
+const FEATURE_KEYS = ["git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "presentations"] as const;
+let features: Features = { git: false, repos: false, vibeables: false, projects: false, contacts: false, places: false, events: false, boards: false, presentations: false };
 const featureListeners = new Set<() => void>();
 
 export function setFeatures(next: Features): void {

@@ -1,6 +1,7 @@
 import { listAgents } from "./agents.js";
 import { CONTACTS, EVENTS, listEntities, PLACES } from "./entities.js";
 import { boardKey, listAllBoards, type BoardSummary } from "./boards.js";
+import { listAllDecks, type PresentationSummary } from "./presentations/index.js";
 import { knowledgeIndex } from "./knowledge.js";
 import { listProjects } from "./projects.js";
 import { listRepos } from "./repos.js";
@@ -23,7 +24,7 @@ import { listWorkflows } from "./workflows.js";
  * never an error — the same rule project links have always followed.
  */
 
-export const REF_KIND_NAMES = ["knowledge", "vibeables", "repos", "workflows", "agents", "projects", "contacts", "places", "events", "boards", "tasks"] as const;
+export const REF_KIND_NAMES = ["knowledge", "vibeables", "repos", "workflows", "agents", "projects", "contacts", "places", "events", "boards", "tasks", "presentations"] as const;
 /** The kind's plural: the link-list name in project.yml and the folder/route name. */
 export type RefKind = (typeof REF_KIND_NAMES)[number];
 
@@ -142,6 +143,13 @@ export const REF_KINDS: readonly RefKindDef[] = [
       }
       return out;
     },
+  },
+  {
+    kind: "presentations",
+    token: "presentation",
+    noun: "presentation",
+    // A deck's name is unique within its project; across the workspace the first match wins and the label names where it is.
+    list: async () => (await safe(listAllDecks(), [] as PresentationSummary[])).map((d) => ({ slug: d.name, label: d.project ? `${d.title} · project ${d.project}` : d.title, href: d.project ? `/projects/${d.project}/presentations/${d.name}` : `/presentations/${d.name}` })),
   },
 ];
 

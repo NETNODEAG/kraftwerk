@@ -4,7 +4,7 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type Dr
 import { api, failure, useApi } from "./api";
 import { FileBrowser } from "./files";
 import { linkRefs } from "./refs";
-import { fmtAgo, Icon, Link, navigate } from "./shared";
+import { fmtAgo, Icon, Link, navigate, useFeatures } from "./shared";
 import {
   Badge,
   Button,
@@ -402,6 +402,62 @@ interface LogLine {
 }
 
 /** log.md (`## YYYY-MM-DD` days, `* HH:MM text (actor)` lines, newest first) as a list. */
+const REF_ICONS: Record<string, string> = { presentations: "slideshow", contacts: "person", places: "location_on", events: "event", projects: "folder", knowledge: "menu_book", workflows: "account_tree", agents: "smart_toy", repos: "source", vibeables: "web", boards: "view_kanban", tasks: "task_alt" };
+
+/**
+ * What the task points at (its `refs:` — presentation:town-hall, contact:anna-meier …): one chip per
+ * target opening its page, a missing one struck through; decks are linked from a list of them. The
+ * agent working the task gets the same list in its context (taskContext), a deck with its folder.
+ */
+function TaskLinks({ refs, busy, onChange }: { refs: string[]; busy: boolean; onChange: (refs: string[]) => void }) {
+  const features = useFeatures();
+  const decks = useApi("presentations.list", features.presentations ? { query: { all: "1" } } : null, { interval: 30_000 });
+  const [resolved, setResolved] = useState<{ kind: string; token: string; found: boolean; label?: string; href: string }[]>([]);
+  const key = refs.join(",");
+  useEffect(() => {
+    if (!refs.length) return setResolved([]);
+    let alive = true;
+    void api.request("refs.resolve", { body: { tokens: refs } }).then((r) => alive && r.ok && setResolved(r.data.refs));
+    return () => {
+      alive = false;
+    };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const unlinked = (decks?.presentations ?? []).filter((d) => !refs.includes(`presentation:${d.name}`));
+  if (!refs.length && !features.presentations) return null;
+  return (
+    <Field label="links" hint="what this task is about: its agent gets them with the task">
+      <div className="flex flex-wrap items-center gap-1.5" role="list" aria-label="links">
+        {refs.map((token) => {
+          const r = resolved.find((x) => x.token === token);
+          return (
+            <span key={token} role="listitem" className="inline-flex max-w-full items-center gap-1 rounded-full border border-line bg-surface py-0.5 pl-2 pr-1 text-xs">
+              <Icon name={REF_ICONS[r?.kind ?? ""] ?? "link"} className="ms-sm text-fg-2" />
+              {r?.found ? (
+                <Link href={r.href} className="min-w-0 truncate text-fg no-underline hover:underline" title={token}>
+                  {r.label || token}
+                </Link>
+              ) : (
+                <span className={cn("min-w-0 truncate", r && "text-fg-2 line-through")} title={r ? `${token} — not found` : token}>{token}</span>
+              )}
+              <IconButton icon="close" label={`unlink ${token}`} size="sm" disabled={busy} onClick={() => onChange(refs.filter((x) => x !== token))} />
+            </span>
+          );
+        })}
+        {features.presentations && unlinked.length > 0 && (
+          <Select value="" aria-label="link a presentation" className="h-7 w-auto text-xs" disabled={busy} onChange={(e) => e.target.value && onChange([...refs, e.target.value])}>
+            <option value="">+ link a presentation…</option>
+            {unlinked.map((d) => (
+              <option key={`${d.project ?? ""}/${d.name}`} value={`presentation:${d.name}`}>
+                {d.title}{d.project ? ` · ${d.project}` : ""}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+    </Field>
+  );
+}
+
 export function parseLog(md: string): LogLine[] {
   const out: LogLine[] = [];
   let day = "";
@@ -444,7 +500,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
   const [comment, setComment] = useState("");
   const [filesAt, setFilesAt] = useState<{ dir: string; file?: string }>({ dir: "" });
 
-  const save = async (body: { title?: string; status?: string; assignee?: string | null; due?: string | null; tags?: string[] }) => {
+  const save = async (body: { title?: string; status?: string; assignee?: string | null; due?: string | null; tags?: string[]; refs?: string[] }) => {
     setBusy(true);
     setError("");
     const msg = message.trim();
@@ -678,6 +734,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
               <TextField value={tags ?? detail.tags.join(", ")} placeholder="comma-separated" aria-label="tags" onChange={(e) => setTags(e.target.value)} onBlur={() => commit("tags", tags)} onKeyDown={onEnter(() => commit("tags", tags))} />
             </Field>
           </FieldRow>
+          <TaskLinks refs={detail.refs} busy={busy} onChange={(refs) => void save({ refs })} />
           <Field label="note for the log" hint="sent with the next status or assignee change">
             <TextField value={message} placeholder="why, or what to look at (optional)" aria-label="note for the log" onChange={(e) => setMessage(e.target.value)} />
           </Field>

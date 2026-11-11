@@ -8,8 +8,8 @@ import type {
   ChatScope,
   SkillInfo,
 } from "../types";
-import { api } from "../api";
-import { Icon } from "../shared";
+import { api, useApi } from "../api";
+import { Icon, useFeatures } from "../shared";
 import { Button, cn, IconButton, Notice, TextField } from "../ui";
 import { myName, setMyName, useSpeaker } from "./helpers";
 
@@ -127,6 +127,11 @@ export function Composer({
     atMatch && channel
       ? channel.members.filter((m) => m.startsWith(atMatch[2].toLowerCase()) || (agentMap?.get(m)?.name ?? "").toLowerCase().startsWith(atMatch[2].toLowerCase()))
       : [];
+  // "presentation:partial" at the caret offers the decks; the token links in the message and tells the agent which deck.
+  const features = useFeatures();
+  const refMatch = !dismissed && features.presentations ? /(^|\s)presentation:([a-z0-9-]*)$/.exec(text.slice(0, caret)) : null;
+  const decks = useApi("presentations.list", refMatch ? { query: { all: "1" } } : null, { interval: 60_000 });
+  const deckMatches = refMatch ? (decks?.presentations ?? []).filter((d) => d.name.startsWith(refMatch[2]) || d.title.toLowerCase().includes(refMatch[2])) : [];
   const allMatches: Array<{ id: string; label: string; hint?: string; src?: string; pick: () => void }> = [
     ...skillMatches.map((s) => ({
       id: `/${s.name}`,
@@ -154,6 +159,20 @@ export function Composer({
       hint: agentMap?.get(m)?.name,
       pick: () => {
         const before = text.slice(0, caret).replace(/@[a-z0-9-]*$/i, `@${m} `);
+        setText(before + text.slice(caret));
+        setSel(0);
+        requestAnimationFrame(() => {
+          const el = taRef.current;
+          if (el) el.selectionStart = el.selectionEnd = before.length;
+        });
+      },
+    })),
+    ...deckMatches.map((d) => ({
+      id: `presentation:${d.project ?? ""}/${d.name}`,
+      label: `▶ presentation:${d.name}`,
+      hint: `${d.title}${d.project ? ` · ${d.project}` : ""} · ${d.slides} slides`,
+      pick: () => {
+        const before = text.slice(0, caret).replace(/presentation:[a-z0-9-]*$/, `presentation:${d.name} `);
         setText(before + text.slice(caret));
         setSel(0);
         requestAnimationFrame(() => {

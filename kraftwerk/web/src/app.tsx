@@ -4,7 +4,7 @@ import { api, useApi, type ApiResponse, type ApiResult } from "./api";
 import { attentionIcon, attentionLabel, NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
 import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
-import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, isBoardPath, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures, workspaceHref } from "./shared";
+import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, isBoardPath, isPresentationPath, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures, workspaceHref } from "./shared";
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { DashboardScreen } from "./dashboard";
@@ -23,6 +23,7 @@ import { VibeablesScreen } from "./vibeables";
 import { ProjectsScreen } from "./projects";
 import { EntitiesScreen } from "./entities";
 import { BoardsScreen } from "./boards";
+import { PresentationsScreen } from "./presentations";
 import { SearchPalette } from "./search";
 import { ConversationsRail } from "./rail";
 import { GlobalNav } from "./workspace-tabs";
@@ -123,7 +124,8 @@ export function App() {
   // last path meanwhile and comes back with the next conversation link.
   // A project's boards (#/projects/<slug>/boards/…) are a page: a board needs the width the conversation column lacks.
   const isBoardPage = isBoardPath(path);
-  const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "") && !isBoardPage;
+  const isDeckPage = isPresentationPath(path);
+  const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "") && !isBoardPage && !isDeckPage;
   // Home (#/) is today's dashboard, in the middle column with the rail beside it.
   const isHome = seg.length === 0;
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
@@ -176,7 +178,7 @@ export function App() {
         setWorkspaceNamed(d.workspaceNamed !== false);
         setWorkspaceRootLabel(d.workspaceRootLabel ?? "");
         setWorkspaceRootAbs(d.workspaceRoot ?? "");
-        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects, contacts: !!d.contacts, places: !!d.places, events: !!d.events, boards: !!d.boards });
+        setFeatures({ git: !!d.git, repos: !!d.repos, vibeables: !!d.vibeables, projects: !!d.projects, contacts: !!d.contacts, places: !!d.places, events: !!d.events, boards: !!d.boards, presentations: !!d.presentations });
         setSwitcher(Array.isArray(d.switcher) ? (d.switcher as SwitcherEntry[]) : []);
   }, [meta]);
   // Browser-tab title + favicon carry the instance identity so multiple
@@ -205,6 +207,7 @@ export function App() {
 
   let globalScreen: React.ReactNode = null;
   if (isBoardPage) globalScreen = <BoardsScreen seg={seg.slice(3)} project={decodeURIComponent(seg[1])} />;
+  else if (isDeckPage) globalScreen = <PresentationsScreen seg={seg.slice(3)} project={decodeURIComponent(seg[1])} />;
   else if (seg[0] === "runs" && seg[1]) globalScreen = <RunsScreen id={seg[1]} workflow={runsFilter} />;
   else if (seg[0] === "runs") globalScreen = <LatestRun />;
   else if (seg[0] === "workflows")
@@ -236,6 +239,7 @@ export function App() {
   else if (seg[0] === "repos") globalScreen = <ReposScreen slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "contacts" || seg[0] === "places" || seg[0] === "events") globalScreen = <EntitiesScreen kind={seg[0]} slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "boards") globalScreen = <BoardsScreen seg={seg.slice(1)} />;
+  else if (seg[0] === "presentations") globalScreen = <PresentationsScreen seg={seg.slice(1)} />;
 
   // The workspace colour is the accent: derive the primary roles from it and
   // hand them to the stylesheet ([data-ws-accent] in tokens.css). Set only
