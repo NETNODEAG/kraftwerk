@@ -109,7 +109,7 @@ test.describe("workflows screen", () => {
     // The rail is part of the conversation view; the pages sit under the top bar on their own.
     await page.goto("/#/agents/chats");
     const rail = page.locator(".rail");
-    await expect(rail.locator("a", { hasText: "channels" })).toBeVisible();
+    await expect(rail.locator("a", { hasText: "channels" })).toHaveCount(0);
     await expect(rail.locator("a", { hasText: "agents" })).toBeVisible();
     // Simple mode has no top navigation at all; expert mode brings every page.
     await expect(page.locator(".global-nav")).toHaveCount(0);

@@ -28,7 +28,7 @@ test.describe("projects", () => {
 
   test("the nav has no projects entry until settings turn the feature on", async ({ page }) => {
     await page.goto("/#/agents/chats");
-    await expect(page.getByRole("heading", { name: "new chat" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "new session" })).toBeVisible();
     await expect(page.locator("nav a[href='#/projects']")).toHaveCount(0);
 
     await page.goto("/#/settings");
@@ -75,10 +75,12 @@ test.describe("projects", () => {
 
   test("a chat opened in the project lists under it and not under the general chats", async ({ page, request }) => {
     await page.goto("/#/projects/relaunch-the-website");
-    // No chat yet: the new-chat pane names the project and starts a chat on its harness.
-    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^start chat/ })).toContainText("claude");
-    await page.getByRole("button", { name: /^start chat/ }).click();
+    // The overview: a composer for a new session (the project's assistant by default) and the recent sessions, none yet.
+    await expect(page.getByRole("textbox", { name: "new session" })).toHaveAttribute("placeholder", "New session in Relaunch the website");
+    await expect(page.getByRole("button", { name: "session with" })).toContainText("Assistant");
+    await expect(page.locator("section[aria-label='recent sessions']")).toContainText("No sessions yet");
+    // Started without a message: no agent spawns.
+    await page.getByRole("button", { name: "start session" }).click();
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/chat-/);
     chatId = page.url().split("/chat/")[1];
 
@@ -86,7 +88,9 @@ test.describe("projects", () => {
     const mine = chats.chats.find((c) => c.id === chatId);
     expect(mine?.scope).toEqual({ kind: "project", slug: "relaunch-the-website" });
 
-    // A project chat can take coworkers, like an agent session.
+    // No tabs: the session is named next to the project's title, and its chat actions follow it.
+    await expect(page.locator(".session-tab")).toHaveCount(0);
+    await expect(page.locator(".space-title .session-crumb")).toBeVisible();
     await expect(page.getByRole("button", { name: "add coworker" })).toBeVisible();
 
     // The context column's overview reads the project's memory: where it stands (state.md) and lately (log.md).
@@ -95,38 +99,36 @@ test.describe("projects", () => {
     await expect(ctx.locator("section", { hasText: "where it stands" })).toContainText("Nothing recorded yet");
     await expect(ctx.locator("section", { hasText: "lately" })).toContainText("Created");
 
-    // The chat is a tab above the project's chat; the general chats do not know it.
-    const tab = page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`);
-    await expect(tab).toBeVisible();
+    // Renamed from the session menu; the title row and the overview's recents show the new name.
+    await page.getByRole("button", { name: "session menu" }).click();
+    await page.getByRole("menuitem", { name: "rename" }).click();
+    await page.getByRole("textbox", { name: "chat name" }).fill("Kickoff");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".space-title .session-crumb")).toContainText("Kickoff");
+
+    // The general chats do not know it.
     await page.goto("/#/agents/chats");
     await expect(page.locator(`a[href='#/agents/chats/${chatId}']`)).toHaveCount(0);
 
-    // The full list is hidden until asked for; it names the chat too.
+    // The project's title leads back to the overview, which lists the session.
     await page.goto(`/#/projects/relaunch-the-website/chat/${chatId}`);
-    await expect(page.locator(".sessions-side")).toHaveCount(0);
-    await page.getByRole("button", { name: "chats list" }).click();
-    await expect(page.locator(`.sessions-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toBeVisible();
-    await page.getByRole("button", { name: "hide the list" }).click();
-    await expect(page.locator(".sessions-side")).toHaveCount(0);
-
-    // Closing the tab keeps the chat and lands on a fresh pane.
-    await tab.hover();
-    await tab.getByRole("button", { name: /^close / }).click();
-    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
-    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
-    await expect(page.locator(".session-tab")).toHaveCount(0);
+    await page.locator(".space-title .project-home-link").click();
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website$/);
+    const recent = page.locator(`.recent-session[data-chat='${chatId}']`);
+    await expect(recent).toContainText("Kickoff");
+    // Every recent row says who the session is with: here the project's assistant.
+    await expect(recent.locator(".recent-agent")).toHaveText("🧭 Assistant");
 
     // The pencil on the sign edits the project in a modal over the conversation; escape closes it.
     await page.getByRole("link", { name: /edit the project/ }).click();
     await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/info$/);
     await expect(page.getByRole("dialog", { name: "edit" }).getByRole("textbox", { name: "goal" })).toHaveValue("Ship the new site by November");
-    await expect(page.getByRole("heading", { name: "🧭 Assistant · Relaunch the website" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website$/);
     await expect(page.getByRole("dialog", { name: "edit" })).toHaveCount(0);
 
-    // A bare project URL now lands on that chat.
-    await page.goto("/#/projects/relaunch-the-website");
+    // A bare project URL stays on the overview; a recent row opens its session.
+    await recent.getByRole("link").click();
     await expect(page).toHaveURL(new RegExp(`#/projects/relaunch-the-website/chat/${chatId}$`));
   });
 
@@ -141,10 +143,11 @@ test.describe("projects", () => {
     await expect(page.getByRole("heading", { name: "#relaunch-crew" })).toBeVisible();
     await expect(page.locator(".channel-members .member-handle", { hasText: "@crew-planner" })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`#/projects/relaunch-the-website/chat/${chatId}$`));
-    await expect(page.locator(`.session-tab[href='#/projects/relaunch-the-website/chat/${chatId}']`)).toContainText("Relaunch crew");
-    await page.getByRole("button", { name: "chats list" }).click();
-    const row = page.locator(`.sessions-side a[href='#/projects/relaunch-the-website/chat/${chatId}']`);
-    await expect(row).toContainText("with coworkers");
+    await expect(page.locator(".space-title .session-crumb")).toContainText("Relaunch crew");
+    await page.locator(".space-title .project-home-link").click();
+    const row = page.locator(`.recent-session[data-chat='${chatId}']`);
+    await expect(row).toContainText("Relaunch crew");
+    await expect(row.locator(".recent-agent")).toContainText("coworkers");
     await expect(row).toContainText("#relaunch-crew");
   });
 

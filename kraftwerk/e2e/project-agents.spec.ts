@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 /**
  * An agent's chat filed under a project, in the browser: the project's
- * new-chat page offers its agents, a chat started there opens in the
- * project as the agent (named in the tab list), and an agent's own chat
+ * overview's picker offers its agents, a chat started there opens in the
+ * project as the agent (named in the recents), and an agent's own chat
  * can be filed under a project, or under none, from the strip. No message
  * is sent, so no agent spawns.
  */
@@ -24,18 +24,21 @@ test.describe("agents' chats in projects", () => {
   });
 
   test("the project's agents start a chat filed under it, opened in the project", async ({ page, request }) => {
-    await page.goto("/#/projects/moon-base/chat/new");
-    const panel = page.getByText("or with an agent of the project");
-    await expect(panel).toBeVisible();
-    await page.getByRole("button", { name: /Desk Scout/ }).click();
+    await page.goto("/#/projects/moon-base");
+    // The picker under the composer: the project's assistant by default, the project's agents next.
+    await page.getByRole("button", { name: "session with" }).click();
+    await expect(page.getByRole("menu")).toContainText("agents of the project");
+    await page.getByRole("menuitemradio", { name: /Desk Scout/ }).click();
+    await expect(page.getByRole("button", { name: "session with" })).toContainText("Desk Scout");
+    await page.getByRole("button", { name: "start session" }).click();
     await expect(page).toHaveURL(/#\/projects\/moon-base\/chat\/chat-[\w-]+$/);
     const id = page.url().split("/chat/")[1];
     chats.push(id);
     const meta = (await (await request.get(`/api/chats/${id}`)).json()) as { meta: { scope: { kind: string; slug: string }; project?: string } };
     expect(meta.meta.scope).toMatchObject({ kind: "agent", slug: "desk-scout" });
     expect(meta.meta.project).toBe("moon-base");
-    await page.getByRole("button", { name: "chats list" }).click();
-    await expect(page.locator(`.sessions-side a[href='#/projects/moon-base/chat/${id}']`)).toContainText("with 🔭 Desk Scout");
+    await page.locator(".space-title .project-home-link").click();
+    await expect(page.locator(`.recent-session[data-chat='${id}'] .recent-agent`)).toHaveText("🔭 Desk Scout");
   });
 
   test("an agent's chat is filed under a project from the strip, and under none again", async ({ page, request }) => {
@@ -47,8 +50,15 @@ test.describe("agents' chats in projects", () => {
     await expect(pick).toHaveValue("");
     await pick.selectOption("moon-base");
     await expect.poll(async () => ((await (await request.get(`/api/chats/${id}`)).json()) as { meta: { project?: string } }).meta.project).toBe("moon-base");
-    await page.getByRole("button", { name: "chats list" }).click();
-    await expect(page.locator(`.sessions-side a[href='#/agents/desk-scout/chat/${id}']`)).toContainText("📁 Moon base");
+    await expect(page.locator(".space-title .session-crumb")).toBeVisible();
+    // The agent's overview (its title in the title row) lists the session with its project.
+    await page.locator(".space-title .project-home-link").click();
+    await expect(page).toHaveURL(/#\/agents\/desk-scout$/);
+    // Like a project and Ralv: a composer with the agent, no session tabs.
+    await expect(page.getByRole("textbox", { name: "new session" })).toHaveAttribute("placeholder", "New session with Desk Scout");
+    await expect(page.locator(".session-tab")).toHaveCount(0);
+    await expect(page.locator(`.recent-session[data-chat='${id}'] .recent-place`)).toHaveText("📁 Moon base");
+    await page.locator(`.recent-session[data-chat='${id}'] a`).click();
     await pick.selectOption("");
     await expect.poll(async () => ((await (await request.get(`/api/chats/${id}`)).json()) as { meta: { project?: string } }).meta.project).toBeUndefined();
   });

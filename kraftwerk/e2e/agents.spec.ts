@@ -42,9 +42,17 @@ test.describe("general chats landing", () => {
     for (const id of ids) await request.delete(`/api/chats/${id}`);
   });
 
-  test("lands on the latest general chat, /chats/new on a fresh pane", async ({ page, request }) => {
+  test("Ralv's overview: a composer and the recent chats; an open chat is named next to Ralv, without tabs", async ({ page, request }) => {
     await page.goto("/#/agents/chats");
-    await expect(page.getByRole("button", { name: "start chat" })).toBeVisible();
+    // The rail's row to Ralv is plainly "Chat".
+    const chatRow = page.locator(".rail").getByRole("link", { name: "Chat", exact: true });
+    await expect(chatRow).toHaveAttribute("href", "#/agents/chats");
+    await expect(chatRow).toHaveAttribute("aria-current", "page");
+    // Second, after Home and above Artifacts.
+    await expect(page.locator(".rail a").nth(1)).toHaveAttribute("href", "#/agents/chats");
+    await expect(page.locator(".rail a").nth(2)).toHaveAttribute("href", "#/artifacts");
+    await expect(page.getByRole("textbox", { name: "new session" })).toHaveAttribute("placeholder", "New chat with Ralv");
+    await expect(page.getByRole("button", { name: "session with" })).toContainText("Ralv");
 
     const older = await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "general" } } });
     ids.push(((await older.json()) as { id: string }).id);
@@ -52,19 +60,24 @@ test.describe("general chats landing", () => {
     const latest = ((await newer.json()) as { id: string }).id;
     ids.push(latest);
 
-    // Same hash as before, so a plain goto would not re-enter the route.
+    // The bare route stays on the overview and lists both, newest first, each with Ralv.
     await page.reload();
-    await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
+    await expect(page).toHaveURL(/#\/agents\/chats$/);
+    const rows = page.locator("section[aria-label='recent sessions'] .recent-session");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toHaveAttribute("data-chat", latest);
+    await expect(rows.first().locator(".recent-agent")).toHaveText("🎩 Ralv");
     await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", "#/agents/chats");
 
-    await page.locator("a[href='#/agents/chats/new']").click();
-    await expect(page).toHaveURL(/#\/agents\/chats\/new$/);
-    await expect(page.getByRole("button", { name: "start chat" })).toBeVisible();
-
-    // The sidebar entry itself goes back to the latest chat.
-    await page.locator(".rail a[href='#/agents/chats']").click();
+    await rows.first().locator("a").click();
     await expect(page).toHaveURL(new RegExp(`#/agents/chats/${latest}$`));
+    await expect(page.locator(".session-tab")).toHaveCount(0);
+    await expect(page.locator(".space-title .session-crumb")).toContainText("new chat");
+    // The title leads back to the overview.
+    await page.locator(".space-title .project-home-link").click();
+    await expect(page).toHaveURL(/#\/agents\/chats$/);
   });
+
 });
 
 /**

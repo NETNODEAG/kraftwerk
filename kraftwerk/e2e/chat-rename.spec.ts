@@ -14,23 +14,25 @@ test.describe("chat rename", () => {
     if (chatId) await request.delete(`/api/chats/${chatId}`);
   });
 
-  test("the active tab renames its chat; Escape keeps the name", async ({ page, request }) => {
+  test("the session menu next to Ralv renames the chat; Escape keeps the name", async ({ page, request }) => {
     await page.goto(`/#/agents/chats/${chatId}`);
-    const tab = page.getByRole("tab", { name: /new chat/ });
-    await expect(tab).toBeVisible();
+    const crumb = page.locator(".space-title .session-crumb");
+    await expect(crumb).toContainText("new chat");
 
-    await tab.hover();
-    await page.getByRole("button", { name: "rename new chat" }).click();
+    await crumb.click();
+    await page.getByRole("menuitem", { name: "rename" }).click();
     const field = page.getByRole("textbox", { name: "chat name" });
     await expect(field).toBeFocused();
     await field.fill("Repo setup");
     await field.press("Enter");
-    await expect(page.getByRole("tab", { name: /Repo setup/ })).toBeVisible();
+    await expect(crumb).toContainText("Repo setup");
     await expect.poll(async () => ((await (await request.get(`/api/chats/${chatId}`)).json()) as { meta: { title: string } }).meta.title).toBe("Repo setup");
 
-    await page.getByRole("tab", { name: /Repo setup/ }).dblclick();
+    await crumb.click();
+    await page.getByRole("menuitem", { name: "rename" }).click();
     await field.fill("something else");
     await field.press("Escape");
-    await expect(page.getByRole("tab", { name: /Repo setup/ })).toBeVisible();
+    await expect(crumb).toContainText("Repo setup");
   });
+
 });

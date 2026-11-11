@@ -29,7 +29,7 @@ test.describe("devices", () => {
     await p.getByRole("textbox", { name: "pairing code" }).fill(code.toLowerCase());
     await p.getByRole("textbox", { name: "device name" }).fill("e2e phone");
     await p.getByRole("button", { name: "pair" }).click();
-    await expect(p.getByRole("heading", { name: "new chat" })).toBeVisible();
+    await expect(p.getByRole("textbox", { name: "new session" })).toBeVisible();
     // Settings on the device says what it is, and offers no device management.
     await p.goto(`${remote}/#/settings`);
     await expect(p.getByText("this browser is paired as “e2e phone”")).toBeVisible();

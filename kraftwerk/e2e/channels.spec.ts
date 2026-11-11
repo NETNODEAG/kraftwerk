@@ -43,7 +43,8 @@ test.describe("channels", () => {
     await expect(page.locator(".channel-head h1")).toHaveText("#launch-week");
     await expect(page.locator(".member-chip")).toHaveCount(2);
     await expect(page.locator(".channel-purpose")).toHaveText("coordinate the launch");
-    await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", "#/channels/launch-week");
+    // Channels have no rail group; they open from a project's recents or #/channels.
+    await expect(page.locator(".rail a[href^='#/channels']")).toHaveCount(0);
 
     // Name yourself, then post. Nobody is mentioned and there is no
     // responder, so the message just lands in the transcript.

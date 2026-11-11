@@ -598,9 +598,12 @@ Links are one-directional lists of slugs. A target that does not exist is
 shown as "not found" on the project page and told to the agent, never an
 error — the same rule an agent's knowledge list follows.
 
-**Working in a project is chat.** The Projects screen lists the projects,
-the chats of the selected one, and the thread; opening a project opens its
-latest chat. A session scoped to a project starts with the brief, the
+**Working in a project is chat.** Opening a project shows its overview:
+a box to start a new session — with the project's assistant, or with any
+agent picked under the box — and the recent sessions, each with a menu to
+rename or delete it. An open session is named next to the project's title
+("Project / Session"); the title leads back to the overview, and the
+project's context stays beside both. A session scoped to a project starts with the brief, the
 current state, the records, every link with how to reach it, and the rule
 for keeping the project current: `state.md` is rewritten at the end of a
 session that changed something, so the next session (by anyone) continues
@@ -611,10 +614,35 @@ directory stays the workspace root, so linked repositories and knowledge
 are reachable by path; opening a vibeable moves it into the app folder as
 in any chat.
 
-**In the rail.** The agents linked to a project and its apps (the linked
-vibeables) are listed under the project. Pin an app from the vibeables tab
-of the project's context column, or unpin it there; clicking it in the rail
-opens the project with the app beside its chat (`#/projects/<slug>?app=<vibeable>`).
+**Artifacts.** The rail's third row, under Chat, lists everything made in the
+workspace and its projects — apps, presentations, boards, contacts, places
+and events — newest first, with the project each belongs to. A tile per
+enabled kind makes a new one; chips filter by kind; the search matches
+titles. A row opens the thing where it lives.
+
+**Chat** (Ralv) works like a project's overview: the rail's "Chat" row shows a composer that
+starts a chat with Ralv (or, from the picker, with a specific agent, which
+opens in that agent's sessions) and Ralv's recent chats. An open chat is
+named next to the workspace's title; there are no tabs.
+
+**An agent** works the same way: clicking it in the rail shows a composer
+that starts a session with that agent and its recent sessions, each with
+the project it is filed under. An open session is named next to the
+agent's name, which leads back; there are no tabs.
+
+**In the rail.** Home, Chat, Artifacts, the projects and the agents —
+nothing else. Boards and presentations are on the Artifacts page (and in a
+project's context column); channels open from a project's recents or
+`#/channels`. A project is one row, with nothing under it. Its agents
+are in the overview's session picker, and every recent session names who it
+is with (the assistant, an agent, or coworkers). Its apps (the linked
+vibeables) are cards on the overview, between the composer and the recents:
+pin an app from the apps tab of the project's context column, or unpin it
+there; a card opens the project with the app at full size
+(`#/projects/<slug>?app=<vibeable>`). The project's boards and presentations
+are tabs of the context column — the boards tab shows each board as its
+columns side by side, the presentations tab lists the decks with a "new
+presentation".
 
 **Coworkers.** "Add coworker" on a project chat works as on an agent
 session: the chat becomes a channel whose members are the agents you pick,
@@ -1025,8 +1053,7 @@ same colleague next week, whichever chat you open.
 question it asked, plus failures nobody has opened yet, is one list
 (`GET /api/attention`), oldest first, each item with its owner: the agent,
 the project or the channel. The rail puts a red count on every row that
-leads there: the agent, the project (its own chats and its agents'), the
-channel, Ralv, and the projects header while folded. The bell lists these
+leads there: the agent, the project (its own chats and its agents'), Ralv, and the projects header while folded. The bell lists these
 items under "needs you", grouped by owner, with finished runs and routines
 below as "updates". **next** in the top bar (⌥N) opens the next waiting
 item where it lives: the chat, scrolled to the card, which lights up, with
@@ -1036,8 +1063,7 @@ Notification titles name the owner first ("🦊 Lisa needs approval").
 Under each agent's name the rail shows what it is doing now: waiting for
 you (an approval or a question, with a red light), working (in which chat,
 for how long, with a pulsing light), the next routine due within a day and
-a half, or when it was last active (`GET /api/agent-status`). Agents linked
-to a project are listed under the project too.
+a half, or when it was last active (`GET /api/agent-status`).
 
 A chat keeps the agent's own session. The ACP session id is stored with the
 chat (`sessions` in `meta.json`), and the next process — after an inspector

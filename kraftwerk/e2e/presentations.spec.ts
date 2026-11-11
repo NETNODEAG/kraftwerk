@@ -7,8 +7,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (): string => (JSON.parse(readFileSync(path.join(here, ".fixture.json"), "utf8")) as { root: string }).root;
 
 /**
- * Presentations in the browser: the flag hides the rail rows, settings turn
- * it on, a project's deck is created from its rail row and lands on disk as
+ * Presentations in the browser: the flag hides the tab, settings turn
+ * it on, a project's deck is created from its context tab and lands on disk as
  * a folder, the editor shows the slides' renders and saves an edit (the
  * file changes, the warning shows), present mode steps through the slides,
  * the palette finds the deck, and removal moves the folder to the trash.
@@ -26,9 +26,9 @@ test.describe("presentations", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false }, presentations: { enabled: false } } });
   });
 
-  test("the rail and the top navigation have no presentations until settings turn the feature on", async ({ page }) => {
+  test("the context column and the top navigation have no presentations until settings turn the feature on", async ({ page }) => {
     await page.goto(`/#/projects/${project}`);
-    await expect(page.locator(".rail [data-nested='presentation']")).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /presentations/ })).toHaveCount(0);
     await expect(page.locator(".rail a[href='#/presentations']")).toHaveCount(0);
     await expect(page.locator(".global-nav a", { hasText: "files" })).toBeVisible();
     await expect(page.locator(".global-nav a[href='#/presentations']")).toHaveCount(0);
@@ -40,20 +40,22 @@ test.describe("presentations", () => {
     expect(readFileSync(path.join(fixture(), "kraftwerk.yml"), "utf8")).toMatch(/^presentations: \{\}$/m);
 
     await page.goto(`/#/projects/${project}`);
-    await expect(page.locator(".rail a[href='#/presentations']")).toBeVisible();
-    await expect(page.locator(".rail [data-nested='presentation']")).toContainText("presentations");
+    // A project's decks are a tab of its context column; the rail has neither a presentations group nor rows under a project.
+    await expect(page.locator(".rail a[href='#/presentations']")).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /presentations/ })).toBeVisible();
+    await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
     // Expert mode's top navigation gets the page too; simple mode has no top navigation at all.
     await page.locator(".global-nav a[href='#/presentations']").click();
     await expect(page).toHaveURL(/#\/presentations$/);
     await expect(page.locator(".global-nav a[href='#/presentations']")).toHaveAttribute("aria-current", "page");
   });
 
-  test("a deck is created from the project's row and is a folder; the editor shows its slides", async ({ page }) => {
+  test("a deck is created from the project's presentations tab and is a folder; the editor shows its slides", async ({ page }) => {
     await page.goto(`/#/projects/${project}`);
-    await page.locator(".rail [data-nested='presentation']").click();
-    await expect(page).toHaveURL(new RegExp(`#/projects/${project}/presentations$`));
-    // Scoped to the page: the rail's "+" carries the same name and stays hidden while the list is still loading.
-    await page.locator(".shell-global").getByRole("link", { name: "new presentation" }).click();
+    await page.getByRole("tab", { name: /presentations/ }).click();
+    await expect(page.locator(".ctx").getByText("No presentations linked.")).toBeVisible();
+    await page.locator(".ctx").getByRole("link", { name: "new presentation" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/projects/${project}/presentations/new$`));
     await page.getByRole("textbox", { name: "presentation title" }).fill("Town hall");
     await page.getByRole("button", { name: "create presentation" }).click();
     await expect(page).toHaveURL(new RegExp(`#/projects/${project}/presentations/town-hall$`));

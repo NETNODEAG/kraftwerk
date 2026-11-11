@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Agent } from "../types";
-import { ChatThread, NewChat } from "../chat";
+import { ChatThread } from "../chat";
 import { api, useApi } from "../api";
 import { Icon, useExpertMode } from "../shared";
-import { useSessionsList } from "../sessions";
 import { Button, cn, EmptyState, Eyebrow, Hint, IconButton, ListRow, SideHead, SideList, TextField } from "../ui";
 import { KnowledgeSide } from "./knowledge-side";
-import { AgentLanding, NewAgentSession, GeneralChatsLanding, AgentSessions, GeneralSessions, AgentsLanding, AgentsHome } from "./landing";
+import { AgentHome, RalvHome, AgentsLanding, AgentsHome } from "./landing";
 import { AgentView } from "./profile";
 import { AgentEditor } from "./editor";
 
@@ -26,8 +25,8 @@ const GROUP_EMPTY = "px-2.5 pt-1.5 pb-2 text-2xs text-fg-2";
 export function AgentsScreen({ seg }: { seg: string[] }) {
   // seg (after /agents): [] | [new] | [chats] | [chats, new] | [chats, chatId] |
   // [slug] | [slug, info] | [slug, edit] | [slug, chat, chatId]. A bare slug
-  // lands on the agent's most recent session and a bare /chats on the most
-  // recent general chat; the profile lives at /info, a fresh chat at /chats/new.
+  // (or /chat/new) is the agent's overview and a bare /chats Ralv's; the
+  // profile lives at /info.
   const slug =
     seg[0] && seg[0] !== "new" && seg[0] !== "chats" ? decodeURIComponent(seg[0]) : undefined;
   const mode =
@@ -49,7 +48,6 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
 
   const data = useApi("agents.list", {});
   const expert = useExpertMode();
-  const listOpen = useSessionsList();
 
   // Agent groups: persisted per agent (agent.yml `group:`); a freshly created,
   // still-empty group lives in localStorage until an agent is dropped into it.
@@ -203,7 +201,8 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
   let main: React.ReactNode;
   if (mode === "new") main = <AgentEditor key="new" />;
   else if (mode === "edit" && slug) main = <AgentEditor key={slug} slug={slug} />;
-  else if (mode === "chat" && slug && chatId === "new") main = <NewAgentSession key={slug} slug={slug} name={agents.find((m) => m.slug === slug)?.name} />;
+  // Bare or /chat/new: the agent's overview (new session, recents); no tabs.
+  else if (mode === "chat" && slug && chatId === "new") main = <AgentHome key={slug} slug={slug} />;
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
@@ -220,13 +219,12 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
       <div className="chat-main">
         <ChatThread key={chatId} id={chatId} />
       </div>
-    ) : newChat ? (
-      <NewChat />
     ) : (
-      <GeneralChatsLanding />
+      // Bare or /new: Ralv's overview (new chat, recents); no tabs.
+      <RalvHome />
     );
   else if (mode === "info" && slug) main = <AgentView key={slug} slug={slug} />;
-  else if (slug) main = <AgentLanding key={slug} slug={slug} name={agents.find((m) => m.slug === slug)?.name} />;
+  else if (slug) main = <AgentHome key={slug} slug={slug} />;
   else if (!data) main = <EmptyState>loading…</EmptyState>;
   else if (active.length) main = <AgentsLanding agents={active} />;
   else main = <AgentsHome />;
@@ -251,7 +249,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
 
   return (
     <div
-      className={`runs-screen agents-screen ${slug || mode === "chats" ? "has-tabs" : ""} ${(slug || mode === "chats") && listOpen ? "has-sessions" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
+      className={`runs-screen agents-screen ${slug ? "in-agent" : ""} ${showKnowledge ? "has-knowledge" : ""}`}
       style={showKnowledge ? ({ "--kside-w": `${kWidth}px` } as React.CSSProperties) : undefined}
     >
       <aside className="runs-side">
@@ -371,8 +369,6 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
             ))}
         </SideList>
       </aside>
-      {slug && <AgentSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
-      {mode === "chats" && <GeneralSessions chatId={chatId} />}
       <div className="runs-main">{main}</div>
       {showKnowledge && (
         <KnowledgeSide bundles={kBundles} onHide={() => toggleKnowledge(false)} onResize={resizeKnowledge} />

@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Folding projects in the rail: a project shows its agents while it is the
- * one you were last in (also while you visit them) or opened with the chevron, the choice survives a reload,
- * and the whole group collapses to the project you are in.
+ * Projects in the rail: one row each, no sublinks (the assistant, agents,
+ * boards, decks and apps live in the project's overview, session picker and
+ * context column), and the whole group collapses to the project you are in.
  */
 test.describe("rail folding", () => {
   const PROJECTS = ["fold-alpha", "fold-beta", "fold-gamma"];
@@ -21,55 +21,27 @@ test.describe("rail folding", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false } } });
   });
 
-  test("per project, remembered, and the whole group", async ({ page }) => {
+  test("a project is one row; its agents are in the session picker, not the rail", async ({ page }) => {
+    await page.goto("/#/projects/fold-alpha");
+    const row = page.locator(".rail a[data-project='fold-alpha']");
+    await expect(row).toHaveAttribute("aria-current", "page");
+    await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^(expand|collapse) fold-/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "session with" }).click();
+    await expect(page.getByRole("menuitemradio", { name: /Fold Helper/ })).toBeVisible();
+  });
+
+  test("the whole group collapses to the project you are in", async ({ page }) => {
     const projectRow = (slug: string) => page.locator(`.rail a[data-project='${slug}']`);
-    // A nested agent row follows its project's row and the assistant row.
-    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div + div > a[data-nested='agent']`);
-
-    await page.goto("/#/projects/fold-alpha/chat/new");
-    await expect(helperUnder("fold-alpha")).toBeVisible();
-    // The project's assistant is its first row and is where you are; the project row steps back.
-    const assistant = page.locator(".rail div:has(> a[data-project='fold-alpha']) + div > a[data-nested='assistant']");
-    await expect(assistant).toContainText("Assistant");
-    await expect(assistant).toHaveAttribute("aria-current", "page");
-    await expect(projectRow("fold-alpha")).not.toHaveAttribute("aria-current", "page");
-    await expect(helperUnder("fold-beta")).toHaveCount(0);
-
-    await page.getByRole("button", { name: "expand fold-beta" }).click();
-    await expect(helperUnder("fold-beta")).toBeVisible();
-    await page.getByRole("button", { name: "collapse fold-alpha" }).click();
-    await expect(helperUnder("fold-alpha")).toHaveCount(0);
-
-    await page.reload();
-    await expect(helperUnder("fold-beta")).toBeVisible();
-    await expect(helperUnder("fold-alpha")).toHaveCount(0);
-
+    await page.goto("/#/projects/fold-alpha");
     await page.getByRole("button", { name: "collapse projects" }).click();
     await expect(projectRow("fold-alpha")).toBeVisible();
     await expect(projectRow("fold-beta")).toHaveCount(0);
     await expect(projectRow("fold-gamma")).toHaveCount(0);
+    await page.reload();
+    await expect(projectRow("fold-beta")).toHaveCount(0);
     await page.locator(".rail").getByRole("button", { name: /\d+ more$/ }).click();
     await expect(projectRow("fold-gamma")).toBeVisible();
-    await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
-  });
-
-  test("selecting a project's agent keeps the project open", async ({ page }) => {
-    const projectRow = (slug: string) => page.locator(`.rail a[data-project='${slug}']`);
-    const helperUnder = (slug: string) => page.locator(`.rail div:has(> a[data-project='${slug}']) + div + div > a[data-nested='agent']`);
-    await page.goto("/#/projects/fold-gamma/chat/new");
-    await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
-    await page.reload();
-
-    await helperUnder("fold-gamma").click();
-    await expect(page).toHaveURL(/#\/agents\/fold-helper/);
-    await expect(helperUnder("fold-gamma")).toBeVisible();
-    await expect(helperUnder("fold-gamma")).toHaveAttribute("aria-current", "page");
-
-    // Collapsed to where you are, the project stays while you are in its agent.
-    await page.getByRole("button", { name: "collapse projects" }).click();
-    await expect(projectRow("fold-gamma")).toBeVisible();
-    await expect(projectRow("fold-alpha")).toHaveCount(0);
-    await expect(helperUnder("fold-gamma")).toBeVisible();
     await page.evaluate(() => localStorage.removeItem("kw-rail-fold"));
   });
 });

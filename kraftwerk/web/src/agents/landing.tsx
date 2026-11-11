@@ -1,126 +1,66 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { Agent } from "../types";
-import { NewChat, createChatAndOpen } from "../chat";
+import { SessionHome, createSession, type HomeChat } from "../session-home";
 import { api, useApi } from "../api";
 import { navigate, useExpertMode } from "../shared";
-import { NewTabButton, SessionsPane, type Session } from "../sessions";
-import { Button, EmptyState, Page, Panel, Title } from "../ui";
+import type { Session } from "../sessions";
+import { Button, EmptyState } from "../ui";
 
 /**
- * Landings and session lists: where a bare agent or chats URL goes, the
- * fresh pane of an agent, and the session tabs above the chat.
+ * Landings: the overviews of an agent and of Ralv (`SessionHome`), and
+ * where a bare #/agents goes.
  */
 
 /**
- * A bare #/agents/<slug> URL jumps straight into the agent's most recent
- * session; with no sessions yet it offers a first one (the profile is the
- * pencil on the sign).
+ * A bare #/agents/<slug> (and /chat/new): the agent's overview, like a
+ * project's and Ralv's — a composer that starts a session with the agent (or,
+ * from the picker, with another agent, which opens in that agent's place) and
+ * the agent's recent sessions. An open session is named next to the agent in
+ * the title row; there are no tabs.
  */
-export function AgentLanding({ slug, name }: { slug: string; name?: string }) {
-  const [noSessions, setNoSessions] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    setNoSessions(false);
-    api
-      .call("chats.list")
-      .then((d) => {
-        if (!alive) return;
-        // /api/chats is sorted by updatedAt desc — first match is the latest.
-        const latest = d.chats.find((c) => c.scope.kind === "agent" && c.scope.slug === slug);
-        if (latest) {
-          navigate(`/agents/${encodeURIComponent(slug)}/chat/${latest.id}`, { replace: true });
-        } else setNoSessions(true);
-      })
-      .catch(() => alive && setNoSessions(true));
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-  if (!noSessions) return <EmptyState>loading…</EmptyState>;
-  return <NewAgentSession slug={slug} name={name} />;
-}
-
-/** The fresh pane of an agent: what shows when no session is open. */
-export function NewAgentSession({ slug, name }: { slug: string; name?: string }) {
-  const [creating, setCreating] = useState(false);
+export function AgentHome({ slug }: { slug: string }) {
+  const agents = useApi("agents.list", {}, { interval: 30_000 });
+  const chats = useApi("chats.list", {});
+  const projects = useApi("projects.list", {}, { interval: 60_000 });
+  const projectTitle = (p: string) => projects?.projects.find((x) => x.slug === p)?.title ?? p;
+  const a = agents?.agents.find((x) => x.slug === slug);
+  const name = a?.name ?? slug;
+  const href = (agent: string, id: string) => `/agents/${encodeURIComponent(agent)}/chat/${id}`;
   return (
-    <Page width="narrow">
-      <Title>new session with {name ?? slug}</Title>
-      <Panel>
-        <div className="p-4">
-          <button
-            type="button"
-            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-card border border-transparent bg-accent-soft px-3.5 py-3 text-left text-on-accent-soft transition-colors hover:brightness-[0.98] disabled:cursor-default disabled:opacity-60"
-            disabled={creating}
-            onClick={async () => {
-              setCreating(true);
-              await createChatAndOpen("claude", { kind: "agent", slug });
-              setCreating(false);
-            }}
-          >
-            <b className="text-base font-medium">{creating ? "starting…" : "start chat"}</b>
-            <span className="text-xs">on the agent's harness, with its role, knowledge and skills</span>
-          </button>
-        </div>
-      </Panel>
-    </Page>
+    <SessionHome
+      key={slug}
+      placeholder={`New session with ${name}`}
+      byDefault={{ emoji: a?.emoji || "🤖", name, sub: a?.description, hint: `${a?.harness ?? "claude"} · its role, knowledge and skills` }}
+      agentHint="opens in that agent's sessions"
+      exclude={slug}
+      placeOf={(c) => (c.project ? `📁 ${projectTitle(c.project)}` : undefined)}
+      sessions={chats ? (chats.chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === slug) as HomeChat[]) : null}
+      hrefOf={(c) => href(slug, c.id)}
+      create={(agent) => createSession({ agent: "claude", scope: { kind: "agent", slug: agent ?? slug } }, (id) => href(agent ?? slug, id))}
+    />
   );
 }
 
 /**
- * A bare #/agents/chats (the "Ralv" entry) opens the most recent
- * general chat, like an agent's entry opens its latest session; with none
- * yet it shows the new-chat pane, which otherwise lives at /chats/new.
+ * A bare #/agents/chats (the "Ralv" entry, and /agents/chats/new): Ralv's
+ * overview, like a project's — a composer that starts a chat with Ralv or
+ * with a specific agent (that one opens in the agent's sessions), and Ralv's
+ * recent chats. An open chat is named next to "Ralv" in the title row; there
+ * are no tabs.
  */
-export function GeneralChatsLanding() {
-  const [none, setNone] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    api
-      .call("chats.list")
-      .then((d) => {
-        if (!alive) return;
-        // /api/chats is sorted by updatedAt desc — first match is the latest.
-        const latest = d.chats.find((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
-        if (latest) navigate(`/agents/chats/${latest.id}`, { replace: true });
-        else setNone(true);
-      })
-      .catch(() => alive && setNone(true));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  if (!none) return <EmptyState>loading…</EmptyState>;
-  return <NewChat />;
-}
-
-/* ---------- sessions: tabs above the chat, the list on request ---------- */
-
-export function AgentSessions({ slug, chatId }: { slug: string; chatId?: string }) {
-  const [creating, setCreating] = useState(false);
-  const filter = useCallback((chats: Session[]) => chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === slug), [slug]);
-  const hrefOf = useCallback((c: Session) => `/agents/${encodeURIComponent(slug)}/chat/${c.id}`, [slug]);
-  const projects = useApi("projects.list", {}, { interval: 60_000 });
-  const projectTitle = (p: string) => projects?.projects.find((x) => x.slug === p)?.title ?? p;
+export function RalvHome() {
+  const chats = useApi("chats.list", {});
   return (
-    <SessionsPane
-      storeKey={`agent:${slug}`}
-      label="chats"
-      fallbackTitle="new chat"
-      chatId={chatId}
-      filter={filter}
-      hrefOf={hrefOf}
-      closeHref={`/agents/${encodeURIComponent(slug)}/chat/new`}
-      subOf={(c) => (c.project ? `📁 ${projectTitle(c.project)}` : c.agent)}
-      actions={
-        <NewTabButton
-          busy={creating}
-          onClick={async () => {
-            setCreating(true);
-            await createChatAndOpen("claude", { kind: "agent", slug: slug });
-            setCreating(false);
-          }}
-        />
+    <SessionHome
+      placeholder="New chat with Ralv"
+      byDefault={{ emoji: "🎩", name: "Ralv", sub: "chief of staff: knows the workspace, advises, launches things", hint: "claude · knows the workspace" }}
+      agentHint="opens in the agent's sessions"
+      sessions={chats ? (generalChats(chats.chats) as HomeChat[]) : null}
+      hrefOf={generalHref}
+      create={(agent) =>
+        agent
+          ? createSession({ agent: "claude", scope: { kind: "agent", slug: agent } }, (id) => `/agents/${encodeURIComponent(agent)}/chat/${id}`)
+          : createSession({ agent: "claude", scope: { kind: "kraftwerk" } }, (id) => `/agents/chats/${id}`)
       }
     />
   );
@@ -130,34 +70,6 @@ export function AgentSessions({ slug, chatId }: { slug: string; chatId?: string 
 const generalChats = (chats: Session[]): Session[] => chats.filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
 const generalHref = (c: Session): string => `/agents/chats/${c.id}`;
 
-export function GeneralSessions({ chatId }: { chatId?: string }) {
-  return (
-    <SessionsPane
-      storeKey="general"
-      label="chats"
-      fallbackTitle="new chat"
-      chatId={chatId}
-      filter={generalChats}
-      hrefOf={generalHref}
-      closeHref="/agents/chats/new"
-      subOf={(c) => (
-        <>
-          {c.agent}
-          {c.scope.kind === "run"
-            ? ` · ${c.scope.runId}`
-            : c.scope.kind === "kraftwerk"
-              ? " · kraftwerk"
-              : c.scope.kind === "knowledge"
-                ? ` · knowledge${c.scope.bundle ? `:${c.scope.bundle}` : ""}`
-                : ""}
-        </>
-      )}
-      actions={
-        <NewTabButton href="/agents/chats/new" />
-      }
-    />
-  );
-}
 
 /* ---------- home ---------- */
 

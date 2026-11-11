@@ -1193,72 +1193,70 @@ export function BoardGlance({ project, board }: BoardAt) {
         titleExtra={<Badge n={data.review} title="waiting for review" />}
         meta={n === 0 ? "empty" : `${n} task${n === 1 ? "" : "s"}`}
       />
-      {/* The pipeline: one pill per column, left to right as on the board. */}
-      <div className="flex flex-wrap gap-1 px-2.5" aria-label="columns">
-        {groups.map(({ col: c, tasks }) => {
-          const over = c.limit !== undefined && tasks.length > c.limit;
-          return (
-            <Link
-              key={c.slug || "~"}
-              href={boardHref(at)}
-              title={`${c.label}: ${tasks.length}${c.limit !== undefined ? ` of ${c.limit}` : ""}`}
-              className={cn(
-                "inline-flex h-5 items-center gap-1 rounded-full px-2 text-2xs font-medium no-underline transition-colors",
-                tasks.length === 0 && "bg-transparent text-fg-2 ring-1 ring-inset ring-line hover:text-fg",
-                tasks.length > 0 && !c.review && !over && "bg-surface-2 text-fg hover:bg-accent-soft hover:text-on-accent-soft",
-                tasks.length > 0 && c.review && !over && "bg-ask-soft text-on-ask-soft",
-                over && "bg-bad-soft text-on-bad-soft",
-              )}
-            >
-              {c.label}
-              <span className="font-semibold tabular-nums">{tasks.length}</span>
-            </Link>
-          );
-        })}
-      </div>
       {n === 0 && (
         <p className="m-0 px-2.5 text-xs text-fg-2">
           Nothing on the board yet. <Link href={boardHref(at)} className="text-accent">Add a task</Link>
         </p>
       )}
-      {groups
-        .filter(({ tasks }) => tasks.length > 0)
-        .map(({ col: c, tasks }) => {
+      {/* The board itself, small: its columns side by side, left to right, scrolling sideways. */}
+      <div className="board-glance flex gap-2 overflow-x-auto px-2.5 pb-1" aria-label="columns">
+        {groups.map(({ col: c, tasks }) => {
+          const over = c.limit !== undefined && tasks.length > c.limit;
           const max = c.done ? 3 : 8;
           return (
-            <div key={c.slug || "~"} className="flex flex-col gap-1 px-2.5">
-              <div className="flex items-baseline gap-1.5 pt-0.5">
-                <Eyebrow className={cn(c.review && "text-on-ask-soft")}>{c.label}</Eyebrow>
-                <span className="text-2xs tabular-nums text-fg-2">{tasks.length}</span>
-              </div>
+            <div
+              key={c.slug || "~"}
+              role="group"
+              aria-label={c.label}
+              className={cn(
+                "flex w-[168px] flex-none flex-col gap-1 rounded-card bg-surface-2 p-1.5",
+                c.review && tasks.length > 0 && "bg-ask-soft",
+                over && "bg-bad-soft",
+              )}
+            >
+              <Link
+                href={boardHref(at)}
+                title={`${c.label}: ${tasks.length}${c.limit !== undefined ? ` of ${c.limit}` : ""}`}
+                className="flex items-baseline gap-1.5 px-1 pt-0.5 pb-1 no-underline"
+              >
+                <Eyebrow className={cn("truncate", c.review && "text-on-ask-soft", over && "text-on-bad-soft")}>{c.label}</Eyebrow>
+                <span className="text-2xs tabular-nums text-fg-2">
+                  {tasks.length}
+                  {c.limit !== undefined ? `/${c.limit}` : ""}
+                </span>
+              </Link>
               {tasks.slice(0, max).map((t) => {
                 const a = t.assignee ? who(t.assignee) : undefined;
                 return (
                   <Link
                     key={t.slug}
                     href={taskHref(at, t.slug)}
-                    className={cn("flex min-w-0 items-center gap-2 rounded-control border border-line bg-surface px-2 py-1.5 text-xs text-fg no-underline transition-colors hover:border-accent hover:bg-surface-2", c.done && "opacity-70")}
+                    title={t.title}
+                    className={cn("flex min-w-0 flex-col gap-1 rounded-control border border-line bg-surface px-2 py-1.5 text-xs text-fg no-underline transition-colors hover:border-accent", c.done && "opacity-70")}
                   >
-                    <span className="flex-none font-mono text-2xs text-fg-2">#{t.number}</span>
-                    <span className="min-w-0 flex-1 truncate font-medium">{t.title}</span>
-                    {t.due && <span className="flex-none text-2xs tabular-nums text-fg-2">{t.due.slice(5)}</span>}
-                    {t.stale && <Icon name="hourglass_bottom" className="ms-sm flex-none text-[13px] text-on-ask-soft" />}
-                    {t.assignee && (
-                      <span className="flex-none text-2xs text-fg-2" title={a ? `${a.name} (${t.assignee})` : t.assignee}>
-                        {a?.emoji ? a.emoji : t.assignee}
-                      </span>
-                    )}
+                    <span className="line-clamp-2 font-medium">{t.title}</span>
+                    <span className="flex items-center gap-1.5 text-2xs text-fg-2">
+                      <span className="font-mono">#{t.number}</span>
+                      {t.due && <span className="tabular-nums">{t.due.slice(5)}</span>}
+                      {t.stale && <Icon name="hourglass_bottom" className="ms-sm text-[13px] text-on-ask-soft" />}
+                      {t.assignee && (
+                        <span className="ml-auto" title={a ? `${a.name} (${t.assignee})` : t.assignee}>
+                          {a?.emoji ? a.emoji : t.assignee}
+                        </span>
+                      )}
+                    </span>
                   </Link>
                 );
               })}
               {tasks.length > max && (
                 <Link href={boardHref(at)} className="px-1 text-2xs text-fg-2 no-underline hover:text-fg">
-                  {tasks.length - max} more in {c.label}
+                  {tasks.length - max} more
                 </Link>
               )}
             </div>
           );
         })}
+      </div>
     </section>
   );
 }

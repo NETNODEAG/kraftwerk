@@ -7,10 +7,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = (): string => (JSON.parse(readFileSync(path.join(here, ".fixture.json"), "utf8")) as { root: string }).root;
 
 /**
- * Boards in the browser: the flag hides the rail rows, settings turn it on,
- * a project's first board is created on first use from its rail row, a task
+ * Boards in the browser: the flag hides the tab, settings turn it on,
+ * a project's first board is created on first use from its boards tab, a task
  * is added from a column and lands on disk as a folder, its page logs a
- * comment and a status change, the review badge shows in the rail, the
+ * comment and a status change, the review count shows on the tab, the
  * palette finds the task, and removal moves the folder to the trash. No
  * agent is woken: nothing is assigned.
  */
@@ -27,9 +27,9 @@ test.describe("boards", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false }, boards: { enabled: false } } });
   });
 
-  test("the rail has no board rows until settings turn the feature on", async ({ page }) => {
+  test("the project has no boards tab until settings turn the feature on", async ({ page }) => {
     await page.goto(`/#/projects/${project}`);
-    await expect(page.locator(".rail [data-nested='board']")).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /boards/ })).toHaveCount(0);
     await expect(page.locator(".rail a[href='#/boards']")).toHaveCount(0);
 
     await page.goto("/#/settings");
@@ -39,13 +39,16 @@ test.describe("boards", () => {
     expect(readFileSync(path.join(fixture(), "kraftwerk.yml"), "utf8")).toMatch(/^boards: \{\}$/m);
 
     await page.goto(`/#/projects/${project}`);
-    await expect(page.locator(".rail a[href='#/boards']")).toBeVisible();
-    await expect(page.locator(".rail [data-nested='board']")).toContainText("tasks");
+    // A project's boards are a tab of its context column; the rail has neither a boards group nor rows under a project.
+    await expect(page.locator(".rail a[href='#/boards']")).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /boards/ })).toBeVisible();
+    await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
   });
 
-  test("the project's tasks row creates the default board on first use; a task added from a column is a folder", async ({ page }) => {
+  test("the boards tab opens the default board, created on first use; a task added from a column is a folder", async ({ page }) => {
     await page.goto(`/#/projects/${project}`);
-    await page.locator(".rail [data-nested='board']").click();
+    await page.getByRole("tab", { name: /boards/ }).click();
+    await page.locator(".ctx").getByRole("link", { name: "Open the tasks board" }).click();
     await expect(page).toHaveURL(new RegExp(`#/projects/${project}/boards/tasks$`));
     expect(existsSync(path.join(boardDir(), "board.md"))).toBe(true);
     for (const col of ["Draft", "Todo", "In progress", "Review", "Done"]) await expect(page.getByRole("region", { name: col })).toBeVisible();
@@ -61,7 +64,7 @@ test.describe("boards", () => {
     expect(readFileSync(path.join(dir, "log.md"), "utf8")).toMatch(/Created in Todo \(human:user\)/);
   });
 
-  test("the task page logs a comment and a status change; a task in review shows as a badge in the rail", async ({ page }) => {
+  test("the task page logs a comment and a status change; a task in review counts on the project's boards tab", async ({ page }) => {
     await page.goto(`/#/projects/${project}/boards/tasks/1-write-a-press-release`);
     await expect(page.getByRole("textbox", { name: "task title" })).toHaveValue("Write a press release");
     await page.getByRole("textbox", { name: "log entry" }).fill("draft is on its way");
@@ -73,9 +76,15 @@ test.describe("boards", () => {
     await page.getByRole("combobox", { name: "status" }).selectOption("review");
     await expect.poll(() => readFileSync(path.join(boardDir(), "tasks", "1-write-a-press-release", "task.md"), "utf8")).toMatch(/^status: review$/m);
     await expect.poll(log).toMatch(/Moved Todo → Review \(human:user\)/);
-    // The board is a page of its own; the rail (with the project's board row and its review badge) is back in the conversation columns.
+    // The board is a page of its own; back in the project, its boards tab counts what waits for review.
     await page.goto(`/#/projects/${project}`);
-    await expect(page.locator(".rail [data-nested='board'] [data-ui='badge']")).toHaveText("1");
+    await expect(page.getByRole("tab", { name: /boards/ })).toContainText("1");
+    // The tab shows the board as columns side by side, the task as a card in its column.
+    await page.getByRole("tab", { name: /boards/ }).click();
+    const columns = page.locator(".ctx .board-glance");
+    for (const col of ["Draft", "Todo", "In progress", "Review", "Done"]) await expect(columns.getByRole("group", { name: col })).toBeVisible();
+    await expect(columns.getByRole("group", { name: "Review" })).toContainText("Write a press release");
+    await expect(columns.getByRole("group", { name: "Todo" })).not.toContainText("Write a press release");
   });
 
   test("the palette finds the task and opens it", async ({ page }) => {

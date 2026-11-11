@@ -11,22 +11,22 @@ import type {
   SystemOfRecord,
 } from "./types";
 import { api, failure, useApi } from "./api";
-import { ChatThread, createChatAndOpen } from "./chat";
+import { ChatThread } from "./chat";
 import { EFFORTS, Icon, Link, navigate, fmtAgo, useExpertMode, PROJECT_ASSISTANT, useFeatures } from "./shared";
-import { NewTabButton, SessionsPane, useSessionsList, type Session } from "./sessions";
+import { SessionHome, createSession } from "./session-home";
 import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
 /**
  * Projects: a goal with everything the agents need to reach it in one
  * folder (kraftwerk-data/projects/<slug>/): brief, systems of record,
  * links to knowledge, vibeables, repositories, workflows and agents.
- * Working in a project is chat. The screen is a double sidebar like the
- * agents screen: projects on the left, the selected project's chats next
- * to it, and the main pane shows a chat thread, the project page (/info)
- * or the new-chat pane. Routes:
+ * Working in a project is chat. The project's overview starts sessions and
+ * lists the recent ones; an open session is named next to the project's
+ * title above it (context-panel.tsx), which leads back to the overview.
+ * Routes:
  *   #/projects                       latest project (or the create form)
  *   #/projects/new                   create form
- *   #/projects/<slug>                the project's latest chat, else the new-chat pane
+ *   #/projects/<slug>                the overview: a new session (assistant or an agent) and the recent ones
  *   #/projects/<slug>/chat/<chatId>  one chat thread
  *   #/projects/<slug>/info           the project page
  *   #/projects/<slug>/boards/…       the project's boards — a page of its own (app.tsx mounts boards.tsx there)
@@ -83,7 +83,6 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   const [view, setView] = useState<ProjectsView | null>(null);
   const [loadError, setLoadError] = useState("");
   const expert = useExpertMode();
-  const listOpen = useSessionsList();
 
   const reload = useCallback(async () => {
     try {
@@ -141,7 +140,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
   else if (mode === "new" || (mode === "home" && projects.length === 0)) main = <NewProject root={view.root} onCreated={reload} />;
   else if (mode === "home") main = <EmptyState>loading…</EmptyState>;
   else if (slug && !current) main = <EmptyState icon="folder_off">no project named {slug}</EmptyState>;
-  else if (mode === "chat" && slug && chatId === "new") main = <NewProjectChat key={slug} slug={slug} title={current?.title ?? slug} />;
+  else if (mode === "chat" && slug && chatId === "new") main = <ProjectHome key={slug} slug={slug} title={current?.title ?? slug} />;
   else if (mode === "chat" && slug && chatId)
     main = (
       <div className="chat-main">
@@ -149,11 +148,11 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
       </div>
     );
   else if (mode === "info" && slug) main = <ProjectPage key={slug} slug={slug} onChanged={reload} />;
-  else if (slug) main = <ProjectLanding key={slug} slug={slug} title={current?.title ?? slug} />;
+  else if (slug) main = <ProjectHome key={slug} slug={slug} title={current?.title ?? slug} />;
   else main = <EmptyState>loading…</EmptyState>;
 
   return (
-    <div className={`runs-screen agents-screen projects-screen ${slug && current ? "has-tabs" : ""} ${slug && current && listOpen ? "has-sessions" : ""}`}>
+    <div className={`runs-screen agents-screen projects-screen ${slug && current ? "in-project" : ""}`}>
       <aside className="runs-side">
         <SideHead
           title="projects"
@@ -186,7 +185,6 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
           {loadError && <Notice tone="bad">{loadError}</Notice>}
         </SideList>
       </aside>
-      {slug && current && <ProjectSessions slug={slug} chatId={chatId === "new" ? undefined : chatId} />}
       <div className="runs-main">{main}</div>
     </div>
   );
@@ -255,106 +253,60 @@ function NewProject({ root, onCreated }: { root?: string; onCreated: () => Promi
   );
 }
 
-/* ---------- landing + chats sidebar ---------- */
+/* ---------- overview: new session + recents ---------- */
 
+/** Who a new session is with: the project's assistant ("") or an agent's slug. */
 /**
- * A bare #/projects/<slug> jumps into the project's most recent chat; with
- * none yet it offers to start one.
+ * A bare #/projects/<slug>: the project's overview (`SessionHome`): a composer
+ * that starts a session with the project's assistant or with any agent, filed
+ * under the project; the apps pinned to it; the recent sessions. The context
+ * column beside it stays the project's.
  */
-function ProjectLanding({ slug, title }: { slug: string; title: string }) {
-  const [none, setNone] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    setNone(false);
-    api
-      .call("chats.list")
-      .then((d) => {
-        if (!alive) return;
-        // /api/chats is sorted by updatedAt desc — first match is the latest.
-        const latest = d.chats.find((c) => c.scope.kind === "project" && c.scope.slug === slug);
-        if (latest) navigate(`/projects/${encodeURIComponent(slug)}/chat/${latest.id}`, { replace: true });
-        else setNone(true);
-      })
-      .catch(() => alive && setNone(true));
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
-  if (!none) return <EmptyState>loading…</EmptyState>;
-  return <NewProjectChat slug={slug} title={title} />;
-}
-
-function NewProjectChat({ slug, title }: { slug: string; title: string }) {
-  const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [creating, setCreating] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    api
-      .call("projects.get", { slug })
-      .then((p) => alive && setProject(p))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
+function ProjectHome({ slug, title }: { slug: string; title: string }) {
+  const features = useFeatures();
+  const project = useApi("projects.get", { slug });
+  const chats = useApi("chats.list", {});
   const harness = HARNESSES.find((h) => h.id === project?.harness) ?? HARNESSES[0];
-  const agents = useApi("agents.list", {});
-  // The project's agents: a chat with one of them is filed under the project and works in its context.
-  const team = (project?.links.agents ?? []).flatMap((l) => agents?.agents.filter((a) => a.slug === l.slug) ?? []);
-  const [starting, setStarting] = useState<string | null>(null);
+  // The apps pinned to the project (its linked vibeables), between the composer and the recents.
+  const apps = features.vibeables ? (project?.links.vibeables ?? []).filter((l) => l.found).map((l) => l.slug) : [];
+  const href = (id: string) => `/projects/${encodeURIComponent(slug)}/chat/${id}`;
   return (
-    <Page width="narrow">
-      <Title size="lg">
-        {PROJECT_ASSISTANT.emoji} {PROJECT_ASSISTANT.name} · {title}
-      </Title>
-      <Panel title="runs on">
-        <div className="p-4">
-          <button
-            type="button"
-            className="flex w-full cursor-pointer flex-col gap-0.5 rounded-card border border-transparent bg-accent-soft px-3.5 py-3 text-left text-on-accent-soft transition-[filter] hover:enabled:brightness-[0.97] disabled:cursor-default disabled:opacity-60"
-            disabled={creating || !project}
-            onClick={async () => {
-              setCreating(true);
-              await createChatAndOpen(harness.id, { kind: "project", slug });
-              setCreating(false);
-            }}
-          >
-            <b className="text-base font-medium">{creating ? "starting…" : "start chat"}</b>
-            <span className="text-xs">{project ? `${runsOn(project)} — ${harness.hint}` : "…"}</span>
-          </button>
-        </div>
-        <Hint className="px-[18px] pb-3.5">
-          The chat starts with the project's brief, state, systems of record and links as context. Harness, model and effort are set on
-          the <Link href={`/projects/${encodeURIComponent(slug)}/info`}>project page</Link>, like an agent's.
-        </Hint>
-      </Panel>
-      {team.length > 0 && (
-        <Panel title="or with an agent of the project">
-          <div className="flex flex-col gap-2 p-4">
-            {team.map((a) => (
-              <button
-                key={a.slug}
-                type="button"
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-card border border-line bg-transparent px-3.5 py-2.5 text-left text-fg transition-colors hover:enabled:bg-surface-2 disabled:cursor-default disabled:opacity-60"
-                disabled={starting !== null}
-                onClick={async () => {
-                  setStarting(a.slug);
-                  await createChatAndOpen("claude", { kind: "agent", slug: a.slug }, undefined, slug);
-                  setStarting(null);
-                }}
+    <SessionHome
+      placeholder={`New session in ${title}`}
+      byDefault={{
+        ...PROJECT_ASSISTANT,
+        sub: project ? `the project's assistant · ${runsOn(project)}` : "the project's assistant",
+        hint: project ? runsOn(project) : "",
+      }}
+      // The project's agents first, then everyone else: any agent can work in the project's context.
+      firstGroup={{ label: "agents of the project", slugs: new Set((project?.links.agents ?? []).map((l) => l.slug)) }}
+      agentHint="works with the project's context"
+      sessions={chats ? chatsOf(chats.chats, slug) : null}
+      hrefOf={(c) => chatHref(c, slug)}
+      create={(agent) =>
+        createSession(agent ? { agent: "claude", scope: { kind: "agent", slug: agent }, project: slug } : { agent: harness.id, scope: { kind: "project", slug } }, href)
+      }
+    >
+      {apps.length > 0 && (
+        <section className="flex flex-col gap-1" aria-label="pinned apps">
+          <h2 className="m-0 px-3 pb-1 text-sm font-medium text-fg-2">Apps</h2>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2 px-1">
+            {apps.map((v) => (
+              <Link
+                key={v}
+                href={`/projects/${encodeURIComponent(slug)}?app=${encodeURIComponent(v)}`}
+                className="pinned-app flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-fg no-underline hover:bg-surface-2"
+                title={`open ${v} beside the project's chat`}
+                data-app={v}
               >
-                <span className="text-lg">{a.emoji || "🤖"}</span>
-                <span className="flex min-w-0 flex-col">
-                  <b className="text-base font-medium">{starting === a.slug ? "starting…" : a.name}</b>
-                  {a.description && <span className="truncate text-xs text-fg-2">{a.description}</span>}
-                </span>
-              </button>
+                <Icon name="web" className="ms-sm text-fg-2" />
+                <span className="min-w-0 truncate font-medium">{v}</span>
+              </Link>
             ))}
           </div>
-          <Hint className="px-[18px] pb-3.5">The agent works with its own instructions and the project's context; the chat is listed here and with the agent.</Hint>
-        </Panel>
+        </section>
       )}
-    </Page>
+    </SessionHome>
   );
 }
 
@@ -397,40 +349,6 @@ function ProjectChatMain({ chatId, title, goal }: { chatId: string; title: strin
     return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={a ? `${a.emoji || "🤖"} ${a.name}` : agentSlug} agentDescription={a?.description} onConverted={() => setGen((g) => g + 1)} />;
   }
   return <ChatThread key={`${chatId}:${gen}`} id={chatId} agentName={title} agentDescription={goal} onConverted={() => setGen((g) => g + 1)} />;
-}
-
-/** The project's chats: open ones as tabs above the chat, all of them in the list on request. */
-function ProjectSessions({ slug, chatId }: { slug: string; chatId?: string }) {
-  const [creating, setCreating] = useState(false);
-  const filter = useCallback((chats: Session[]) => chatsOf(chats, slug), [slug]);
-  const hrefOf = useCallback((c: Session) => chatHref(c, slug), [slug]);
-  const agents = useApi("agents.list", {}, { interval: 30_000 });
-  const agentLabel = (s: string) => {
-    const a = agents?.agents.find((x) => x.slug === s);
-    return a ? `${a.emoji || "🤖"} ${a.name}` : s;
-  };
-  return (
-    <SessionsPane
-      storeKey={`project:${slug}`}
-      label="chats"
-      fallbackTitle="new chat"
-      chatId={chatId}
-      filter={filter}
-      hrefOf={hrefOf}
-      closeHref={`/projects/${encodeURIComponent(slug)}/chat/new`}
-      subOf={(c) => (c.scope.kind === "channel" ? `with coworkers · #${c.scope.slug}` : c.scope.kind === "agent" ? `with ${agentLabel(c.scope.slug)}` : c.agent)}
-      actions={
-        <NewTabButton
-          busy={creating}
-          onClick={async () => {
-            setCreating(true);
-            await createChatAndOpen("claude", { kind: "project", slug });
-            setCreating(false);
-          }}
-        />
-      }
-    />
-  );
 }
 
 /* ---------- project page ---------- */

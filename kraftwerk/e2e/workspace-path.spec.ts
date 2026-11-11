@@ -13,7 +13,7 @@ test("the UI works under /w/<slug>/ and its requests carry the prefix", async ({
   });
   const socket = page.waitForEvent("websocket");
   await page.goto("/w/project/#/agents/chats");
-  await expect(page.getByRole("heading", { name: "new chat" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "new session" })).toBeVisible();
   expect(new URL((await socket).url()).pathname).toBe("/w/project/api/ws");
   expect(api.length).toBeGreaterThan(0);
   expect(api.every((p) => p.startsWith("/w/project/api/")), api.join(", ")).toBe(true);

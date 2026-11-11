@@ -8,6 +8,7 @@ import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, isBoardPath, isPresentationPa
 import { RunsScreen } from "./runs";
 import { WorkflowsScreen } from "./workflows";
 import { DashboardScreen } from "./dashboard";
+import { ArtifactsScreen } from "./artifacts";
 import { KnowledgeScreen } from "./knowledge";
 import { SkillsScreen } from "./skills";
 import { AgentsScreen } from "./agents";
@@ -128,6 +129,9 @@ export function App() {
   const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "") && !isBoardPage && !isDeckPage;
   // Home (#/) is today's dashboard, in the middle column with the rail beside it.
   const isHome = seg.length === 0;
+  // Artifacts (#/artifacts) sits there too: everything made in the workspace, the workspace's context beside it.
+  const isArtifacts = seg[0] === "artifacts";
+  const inColumn = isHome || isArtifacts;
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
   // Editing the thing you talk to (its /info or /edit route) is a modal over the conversation.
   const editScreen = isChatRoute ? editScreenOf(path) : null;
@@ -299,17 +303,17 @@ export function App() {
       </header>
       {globalScreen && <main className="shell shell-global">{globalScreen}</main>}
       <main
-        className={`shell three${isHome ? " home" : ""}`}
+        className={`shell three${inColumn ? " home" : ""}`}
         data-focus={focus}
         hidden={!!globalScreen}
         style={ctxW ? ({ "--ctx-w": `${ctxW}px` } as React.CSSProperties) : undefined}
       >
-        <ConversationsRail chatPath={isHome ? "/" : effChat} />
-        <section className="col-chat" aria-label={isHome ? "Dashboard" : "Conversation"}>
-          {isHome ? <DashboardScreen /> : chatScreen}
+        <ConversationsRail chatPath={isHome ? "/" : isArtifacts ? "/artifacts" : effChat} />
+        <section className="col-chat" aria-label={isHome ? "Dashboard" : isArtifacts ? "Artifacts" : "Conversation"}>
+          {isHome ? <DashboardScreen /> : isArtifacts ? <ArtifactsScreen /> : chatScreen}
           <SplitHandle onResize={resizeCtx} />
         </section>
-        <ContextPanel chatPath={isHome ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />
+        <ContextPanel chatPath={inColumn ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />
         {editScreen && <EditModal back={effChat}>{editScreen}</EditModal>}
       </main>
       {/* Phones show one column at a time; this picks which. */}

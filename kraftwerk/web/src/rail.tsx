@@ -1,15 +1,15 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { statusLine } from "../../src/core/status-line";
 import { attentionFor, useAttention } from "./attention";
 import { api, useApi } from "./api";
-import { Icon, Link, PROJECT_ASSISTANT, useExpertMode, useFeatures } from "./shared";
+import { Icon, Link, useExpertMode, useFeatures } from "./shared";
 import { SortableProjects, freshSectionName } from "./rail-sort";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
-import type { Agent, AgentStatus, BoardSummary, ChannelView, PresentationSummary, ProjectLayout, ProjectsView, VibeablesView } from "./types";
+import type { Agent, AgentStatus, ProjectLayout, ProjectsView } from "./types";
 
 /**
  * The first column: who can be talked to. The general chat, every project,
- * every agent and every channel, each a link into the conversation routes
+ * every agent, each a link into the conversation routes
  * the screens already answer. It replaces the roster sidebars those screens
  * carry on wide windows (shell.css hides them there).
  */
@@ -17,34 +17,14 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const features = useFeatures();
   const expert = useExpertMode();
   const agents = useApi("agents.list", {}, { interval: 15_000 });
-  const channels = useApi("channels.list", {}, { interval: 6000 });
   // A pin, an unpin or a new order arrives pushed, like any other change.
   const projects = useApi("projects.list", features.projects ? {} : null, { interval: 15_000 });
   const status = useApi("agents.status", {}, { interval: 5000 });
-  const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 15_000 });
-  const vibeSlugs = new Set((vibes?.vibeables ?? []).map((v) => v.slug));
-  // Every board at once (?all=1): a project's under it, the workspace's in their own group.
-  const boards = useApi("boards.list", features.boards ? { query: { all: "1" } } : null, { interval: 15_000 });
-  const boardList: BoardSummary[] = boards?.boards ?? [];
-  const boardsOf = (project: string) => boardList.filter((b) => b.project === project);
-  const workspaceBoards = boardList.filter((b) => !b.project);
-  // Every deck at once (?all=1): a project's under it, the workspace's in their own group.
-  const decks = useApi("presentations.list", features.presentations ? { query: { all: "1" } } : null, { interval: 15_000 });
-  const deckList: PresentationSummary[] = decks?.presentations ?? [];
-  const decksOf = (project: string) => deckList.filter((d) => d.project === project);
-  const workspaceDecks = deckList.filter((d) => !d.project);
   const seg = chatPath.split("/").filter(Boolean);
   const at = (kind: string, slug?: string) =>
     seg[0] === kind && (slug === undefined || (seg[1] ? decodeURIComponent(seg[1]) : undefined) === slug);
   const general = seg[0] === "agents" && seg[1] === "chats";
   const [fold, setFold] = useFold();
-  // The project you were last in: it stays open while you visit its agents and
-  // apps (or anything else); only its chevron, or going into another project, folds it.
-  const [held, setHeld] = useState<string>();
-  const inProject = seg[0] === "projects" && seg[1] && seg[1] !== "new" ? decodeURIComponent(seg[1]) : undefined;
-  useEffect(() => {
-    if (inProject) setHeld(inProject);
-  }, [inProject]);
   // What waits for you, counted on every row that leads there.
   const waiting = useAttention() ?? [];
   const agentBySlug = new Map((agents?.agents ?? []).filter((a) => !a.archived).map((a) => [a.slug, a]));
@@ -52,9 +32,8 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const projectList = projects?.projects ?? [];
   const teamOf = (p: ProjectsView["projects"][number]) =>
     (p.agents ?? []).map((slug) => agentBySlug.get(slug)).filter((a): a is Agent => !!a);
-  // Where you are: in the project, or in one of its agents having come from it.
-  const here = (p: ProjectsView["projects"][number]) =>
-    at("projects", p.slug) || (p.slug === held && teamOf(p).some((a) => at("agents", a.slug)));
+  // Where you are: in the project.
+  const here = (p: ProjectsView["projects"][number]) => at("projects", p.slug);
   const projectBySlug = new Map(projectList.map((p) => [p.slug, p]));
   const ordered = projects?.layout
     ? [...projects.layout.top, ...projects.layout.sections.flatMap((x) => x.projects)].map((slug) => projectBySlug.get(slug)).filter((p): p is (typeof projectList)[number] => !!p)
@@ -71,149 +50,27 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
     if (await saveLayout({ ...projects.layout, sections: [...projects.layout.sections, { name, projects: [] }] })) setNewSection(name);
   };
 
-  /** One project's rows: its own and, open, its assistant, agents and apps. */
+  /** One project's row: no sublinks; its agents are in the session picker, its apps, boards and decks in the project's overview and context. */
   const renderProject = (p: (typeof projectList)[number]) => {
-    const team = teamOf(p);
-    const apps = features.vibeables ? (p.vibeables ?? []).filter((v) => vibeSlugs.has(v)) : [];
-    // Open: as its chevron left it; untouched, the project you were last in. Every project
-    // has its assistant under it, so every project folds.
-    const open = fold.open[p.slug] ?? p.slug === (inProject ?? held);
-    const busy = team.map((a) => status?.[a.slug]).filter((s): s is AgentStatus => !!s);
-    const working = !open && busy.some((s) => s.working.length && !s.waiting.length);
+    const busy = teamOf(p).map((a) => status?.[a.slug]).filter((s): s is AgentStatus => !!s);
+    const working = busy.some((s) => s.working.length && !s.waiting.length);
     return (
-      <>
-        <ListRow
-          size="sm"
-          href={`/projects/${encodeURIComponent(p.slug)}`}
-          // Open, the assistant row below is where you are; folded, the project row says it.
-          active={at("projects", p.slug) && !open}
-          innerProps={{ "data-project": p.slug, title: p.goal ? `${p.title}: ${p.goal}` : p.title }}
-          leading={<span aria-hidden>{p.status === "done" ? "✅" : p.status === "paused" ? "⏸️" : p.status === "archived" ? "🗄️" : "📁"}</span>}
-          title={p.title}
-          titleExtra={
-            <>
-              <Badge n={attentionFor.project(waiting, p.slug, p.agents).length} title="waiting for you" />
-              {working && <Dot tone="working" title="an agent is working" />}
-            </>
-          }
-          // The title only, on up to two lines; the goal is a tooltip here and leads the context column's overview.
-          titleLines={2}
-          // The chevron shows on hover, and always on the open project.
-          actionsAlways={open}
-          actions={
-            <IconButton
-              size="sm"
-              icon={open ? "expand_more" : "chevron_right"}
-              label={`${open ? "collapse" : "expand"} ${p.title}`}
-              aria-expanded={open}
-              title={open ? "hide its assistant, agents and apps" : ["the assistant", team.length && `${team.length} agent${team.length === 1 ? "" : "s"}`, apps.length && `${apps.length} app${apps.length === 1 ? "" : "s"}`].filter(Boolean).join(", ")}
-              onClick={() => setFold((f) => ({ ...f, open: { ...f.open, [p.slug]: !open } }))}
-            />
-          }
-        />
-        {/* The project's assistant first, like Ralv for the workspace: the project's own chats. */}
-        {open && (
-          <ListRow
-            className={NESTED}
-            size="sm"
-            href={`/projects/${encodeURIComponent(p.slug)}`}
-            active={at("projects", p.slug)}
-            innerProps={{ title: `${p.title}'s assistant: knows its brief, state and links`, "data-nested": "assistant" }}
-            leading={<span aria-hidden>{PROJECT_ASSISTANT.emoji}</span>}
-            title={<span className="font-medium">{PROJECT_ASSISTANT.name}</span>}
-            titleExtra={<Badge n={waiting.filter((i) => i.owner.project?.slug === p.slug && !i.owner.agent).length} title="waiting for you" />}
-          />
-        )}
-        {/* The agents linked to the project, one level in: who works on it. */}
-        {open &&
-          team.map((a) => (
-            <ListRow
-              key={a.slug}
-              className={NESTED}
-              size="sm"
-              href={`/agents/${encodeURIComponent(a.slug)}`}
-              active={at("agents", a.slug)}
-              onClick={() => setHeld(p.slug)}
-              innerProps={{ title: a.description || a.name, "data-nested": "agent" }}
-              leading={<span aria-hidden>{a.emoji || "🤖"}</span>}
-              title={<span className="font-medium">{a.name}</span>}
-              titleExtra={<AgentMarks n={attentionFor.agent(waiting, a.slug).length} st={status?.[a.slug]} />}
-            />
-          ))}
-        {/* The project's boards: its work as columns of tasks; none yet, the row that creates the default one. */}
-        {open &&
-          features.boards &&
-          (boardsOf(p.slug).length > 0 ? (
-            boardsOf(p.slug).map((b) => (
-              <ListRow
-                key={`board:${b.board}`}
-                className={NESTED}
-                size="sm"
-                href={`/projects/${encodeURIComponent(p.slug)}/boards/${encodeURIComponent(b.board)}`}
-                active={at("projects", p.slug) && seg[2] === "boards" && (seg[3] ? decodeURIComponent(seg[3]) : undefined) === b.board}
-                onClick={() => setHeld(p.slug)}
-                innerProps={{ title: `${b.title}: ${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}${b.review ? `, ${b.review} for review` : ""}`, "data-nested": "board" }}
-                leading={<Icon name="view_kanban" className="ms-sm" />}
-                title={<span className="font-medium">{b.title}</span>}
-                titleExtra={<Badge n={b.review} title="waiting for review" />}
-              />
-            ))
-          ) : (
-            <ListRow
-              className={NESTED}
-              size="sm"
-              href={`/projects/${encodeURIComponent(p.slug)}/boards`}
-              active={at("projects", p.slug) && seg[2] === "boards"}
-              onClick={() => setHeld(p.slug)}
-              innerProps={{ title: "the project's tasks as a board, created on first use", "data-nested": "board" }}
-              leading={<Icon name="view_kanban" className="ms-sm" />}
-              title={<span className="font-medium">tasks</span>}
-            />
-          ))}
-        {/* The project's presentations: one row per deck, and the row that opens the list when it has none. */}
-        {open &&
-          features.presentations &&
-          (decksOf(p.slug).length > 0 ? (
-            decksOf(p.slug).map((d) => (
-              <ListRow
-                key={`deck:${d.name}`}
-                className={NESTED}
-                size="sm"
-                href={`/projects/${encodeURIComponent(p.slug)}/presentations/${encodeURIComponent(d.name)}`}
-                active={at("projects", p.slug) && seg[2] === "presentations" && (seg[3] ? decodeURIComponent(seg[3]) : undefined) === d.name}
-                onClick={() => setHeld(p.slug)}
-                innerProps={{ title: `${d.title}: ${d.slides} ${d.slides === 1 ? "slide" : "slides"}`, "data-nested": "presentation" }}
-                leading={<Icon name="slideshow" className="ms-sm" />}
-                title={<span className="font-medium">{d.title}</span>}
-              />
-            ))
-          ) : (
-            <ListRow
-              className={NESTED}
-              size="sm"
-              href={`/projects/${encodeURIComponent(p.slug)}/presentations`}
-              active={at("projects", p.slug) && seg[2] === "presentations"}
-              onClick={() => setHeld(p.slug)}
-              innerProps={{ title: "the project's slide decks", "data-nested": "presentation" }}
-              leading={<Icon name="slideshow" className="ms-sm" />}
-              title={<span className="font-medium">presentations</span>}
-            />
-          ))}
-        {/* The apps pinned to the project (its linked vibeables): open beside the project's chat. */}
-        {open &&
-          apps.map((v) => (
-            <ListRow
-              key={`app:${v}`}
-              className={NESTED}
-              size="sm"
-              href={`/projects/${encodeURIComponent(p.slug)}?app=${encodeURIComponent(v)}`}
-              onClick={() => setHeld(p.slug)}
-              innerProps={{ title: `open ${v} beside the project's chat`, "data-nested": "app" }}
-              leading={<Icon name="web" className="ms-sm" />}
-              title={<span className="font-medium">{v}</span>}
-            />
-          ))}
-      </>
+      <ListRow
+        size="sm"
+        href={`/projects/${encodeURIComponent(p.slug)}`}
+        active={at("projects", p.slug)}
+        innerProps={{ "data-project": p.slug, title: p.goal ? `${p.title}: ${p.goal}` : p.title }}
+        leading={<span aria-hidden>{p.status === "done" ? "✅" : p.status === "paused" ? "⏸️" : p.status === "archived" ? "🗄️" : "📁"}</span>}
+        title={p.title}
+        titleExtra={
+          <>
+            <Badge n={attentionFor.project(waiting, p.slug, p.agents).length} title="waiting for you" />
+            {working && <Dot tone="working" title="an agent is working" />}
+          </>
+        }
+        // The title only, on up to two lines; the goal is a tooltip here and leads the context column's overview.
+        titleLines={2}
+      />
     );
   };
 
@@ -230,10 +87,17 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
         <ListRow
           href="/agents/chats"
           active={general}
-          leading={<span aria-hidden>🎩</span>}
-          title="Ralv"
+          leading={<Icon name="chat" />}
+          title="Chat"
           titleExtra={<Badge n={attentionFor.general(waiting).length} title="waiting for you" />}
-          innerProps={{ title: "Chief of staff: knows the workspace, advises, launches things" }}
+          innerProps={{ title: "Chat with Ralv, the chief of staff: knows the workspace, advises, launches things" }}
+        />
+        <ListRow
+          href="/artifacts"
+          active={chatPath === "/artifacts"}
+          leading={<Icon name="category" />}
+          title="Artifacts"
+          innerProps={{ title: "Everything made here: apps, presentations, boards, contacts, places, events" }}
         />
 
         {features.projects && (
@@ -307,67 +171,10 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
             );
           })}
         </Group>
-
-        {features.boards && (
-          <Group label="boards" href="/boards" add={boards?.enabled ? { href: "/boards/new", label: "new board" } : undefined}>
-            {workspaceBoards.map((b) => (
-              <ListRow
-                key={b.board}
-                href={`/boards/${encodeURIComponent(b.board)}`}
-                active={at("boards", b.board)}
-                innerProps={{ title: `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}${b.review ? `, ${b.review} for review` : ""}` }}
-                leading={<Icon name="view_kanban" className="ms-sm" />}
-                title={b.title}
-                titleExtra={<Badge n={b.review} title="waiting for review" />}
-                sub={b.configError ? "unreadable board.md" : `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
-                subTone={b.configError ? "bad" : "plain"}
-              />
-            ))}
-          </Group>
-        )}
-
-        {features.presentations && (
-          <Group label="presentations" href="/presentations" add={decks?.enabled ? { href: "/presentations/new", label: "new presentation" } : undefined}>
-            {workspaceDecks.map((d) => (
-              <ListRow
-                key={d.name}
-                href={`/presentations/${encodeURIComponent(d.name)}`}
-                active={at("presentations", d.name)}
-                innerProps={{ title: `${d.slides} ${d.slides === 1 ? "slide" : "slides"}` }}
-                leading={<Icon name="slideshow" className="ms-sm" />}
-                title={d.title}
-                sub={d.error ? "unreadable deck.md" : `${d.slides} ${d.slides === 1 ? "slide" : "slides"}`}
-                subTone={d.error ? "bad" : "plain"}
-              />
-            ))}
-          </Group>
-        )}
-
-        <Group label="channels" href="/channels" add={{ href: "/channels/new", label: "new channel" }}>
-          {(channels?.channels ?? []).map((c) => (
-            <ListRow
-              key={c.slug}
-              href={`/channels/${encodeURIComponent(c.slug)}`}
-              active={at("channels", c.slug)}
-              leading={<span aria-hidden className="font-semibold">#</span>}
-              title={c.name}
-              titleExtra={
-                <>
-                  <Badge n={attentionFor.channel(waiting, c.slug).length} title="waiting for you" />
-                  {c.busy && !c.awaitingApproval && <Dot tone="working" title="an agent is working" />}
-                </>
-              }
-              sub={c.purpose || (c.members.length ? `with ${c.members.map((m) => `@${m}`).join(" ")}` : "no agents yet")}
-            />
-          ))}
-        </Group>
       </div>
     </nav>
   );
 }
-
-/** One level in, on a thread line: an agent or an app under its project. */
-const NESTED = "ml-5 rounded-l-none border-l border-line";
 
 /** A group of the rail: its heading (a link to the full page), a "+" to add one, and its rows. */
 function Group({
@@ -419,7 +226,7 @@ interface Fold {
   all: boolean;
   /** Per section (by name): folded away, the project you are in excepted. */
   sections: Record<string, boolean>;
-  /** Per project: its assistant, agents and apps shown (true) or hidden (false); absent = open while it is the project you were last in. */
+  /** Unused since projects have no sublinks; kept so stored values still parse. */
   open: Record<string, boolean>;
 }
 

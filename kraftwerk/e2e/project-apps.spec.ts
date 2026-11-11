@@ -2,9 +2,10 @@ import { expect, test } from "@playwright/test";
 
 /**
  * Apps in a project: a vibeable pinned in the project's context column
- * shows under the project in the rail, opens from there at full size
- * (and back beside the project's chat), and leaves the rail when unpinned. No message is sent, so no
- * agent spawns.
+ * shows on the project's overview, between the new-session composer and the
+ * recents, opens from there at full size (and back beside the project's
+ * chat), and leaves the overview when unpinned. The rail has no rows under
+ * a project. No message is sent, so no agent spawns.
  */
 test.describe("project apps", () => {
   const PROJECT = "apps-probe";
@@ -19,35 +20,27 @@ test.describe("project apps", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false }, vibeables: { enabled: false } } });
   });
 
-  test("pin an app, open it from the rail, unpin it", async ({ page, request }) => {
-    const chat = await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "project", slug: PROJECT } } });
-    const { id } = (await chat.json()) as { id: string };
-    await page.goto(`/#/projects/${PROJECT}/chat/${id}`);
-
-    const appRow = page.locator(`.rail a[data-nested='app'][href='#/projects/${PROJECT}?app=kanban']`);
-    await expect(appRow).toHaveCount(0);
+  test("pin an app, open it from the overview, unpin it", async ({ page, request }) => {
+    await page.goto(`/#/projects/${PROJECT}`);
+    const card = page.locator(`.projects-screen a.pinned-app[data-app='kanban']`);
+    await expect(page.getByRole("region", { name: "recent sessions" })).toBeVisible();
+    await expect(card).toHaveCount(0);
 
     await page.getByRole("tab", { name: /apps/ }).click();
     await page.getByRole("combobox", { name: "pin an app to this project" }).selectOption("kanban");
-    await expect(appRow).toBeVisible();
-    await expect(appRow).toContainText("kanban");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("kanban");
+    await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
     // Pinned apps leave the picker.
     await expect(page.getByRole("combobox", { name: "pin an app to this project" }).locator("option", { hasText: "kanban" })).toHaveCount(0);
     expect(((await (await request.get(`/api/projects/${PROJECT}`)).json()) as { vibeables: string[] }).vibeables).toEqual(["kanban"]);
 
-    // From elsewhere, the rail entry brings the project back with the app open beside its chat.
-    await page.goto("/#/agents/chats");
-    await page.getByRole("tab", { name: /workflows/ }).click();
-    // The project you were last in stays open elsewhere; only its chevron folds it.
-    await expect(appRow).toBeVisible();
-    await page.getByRole("button", { name: "collapse Apps probe" }).click();
-    await expect(appRow).toHaveCount(0);
-    await page.getByRole("button", { name: "expand Apps probe" }).click();
-    await appRow.click();
-    await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}/chat/${id}$`));
+    // The card opens the app at full size, in the chat's place, under the project's title.
+    await page.getByRole("tab", { name: /overview/ }).click();
+    await card.click();
+    await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}\\?app=kanban$`));
     await expect(page.getByRole("tab", { name: /apps/ })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator(".ctx-embed-vibe:not([hidden])")).toBeVisible();
-    // From the rail the app opens at full size, in the chat's place, under the project's title.
     await expect(page.locator(".ctx[data-full]")).toBeVisible();
     await expect(page.locator(".col-chat")).toBeHidden();
     await expect(page.locator(".space-title")).toContainText("Apps probe");
@@ -58,6 +51,6 @@ test.describe("project apps", () => {
     await page.getByRole("button", { name: /Back to the list/ }).click();
     await page.locator(".ctx a[href='#/vibeables/kanban']").hover();
     await page.getByRole("button", { name: "unpin kanban" }).click();
-    await expect(appRow).toHaveCount(0);
+    await expect(card).toHaveCount(0);
   });
 });

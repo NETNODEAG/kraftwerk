@@ -16,7 +16,7 @@ test("a workspace at <slug>.localhost: the UI works and talks to its own host on
   });
   const socket = page.waitForEvent("websocket");
   await page.goto(`http://project.localhost:${daemonPort}/#/agents/chats`);
-  await expect(page.getByRole("heading", { name: "new chat" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "new session" })).toBeVisible();
   expect(new URL((await socket).url()).host).toBe(`project.localhost:${daemonPort}`);
   expect([...hosts]).toEqual([`project.localhost:${daemonPort}`]);
 });

@@ -6,6 +6,7 @@ import { BoardGlance } from "./boards";
 import { FileBrowser } from "./files";
 import { Overview } from "./overview";
 import { Button, cn, Dot, IconButton, ListRow, Select, Tabs, type DotTone } from "./ui";
+import { SessionCrumb } from "./sessions";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
 import { RunForm } from "./run-launcher";
@@ -91,6 +92,19 @@ export function ContextPanel({ chatPath, workspace }: {
   workspace: { name: string; icon: string };
 }) {
   const ctx = contextOf(chatPath);
+  // The open session of a project (#/projects/<slug>/chat/<id>), an agent (#/agents/<slug>/chat/<id>) or Ralv (#/agents/chats/<id>): named in the title row.
+  const pathSeg = chatPath.split("/").filter(Boolean);
+  const ralv = pathSeg[0] === "agents" && pathSeg[1] === "chats";
+  const agentHere = pathSeg[0] === "agents" && ctx.kind === "agent";
+  const sessionId =
+    (pathSeg[0] === "projects" || agentHere) && pathSeg[2] === "chat" && pathSeg[3] && pathSeg[3] !== "new"
+      ? pathSeg[3]
+      : ralv && pathSeg[2] && pathSeg[2] !== "new"
+        ? pathSeg[2]
+        : undefined;
+  // Where the title leads: a project's overview, an agent's, or Ralv's.
+  const homeHref =
+    ctx.kind === "project" ? `/projects/${encodeURIComponent(ctx.slug)}` : agentHere ? `/agents/${encodeURIComponent(ctx.slug)}` : ralv ? "/agents/chats" : undefined;
   const key = `${ctx.kind}:${"slug" in ctx ? ctx.slug : ""}`;
   const features = useFeatures();
   const expert = useExpertMode();
@@ -116,6 +130,9 @@ export function ContextPanel({ chatPath, workspace }: {
   // A project's boards, for the board tab: its columns at a glance.
   const boards = useApi("boards.list", features.boards && ctx.kind === "project" ? { query: { project: ctx.slug } } : null, { interval: 15_000 });
   const projectBoards = ctx.kind === "project" ? (boards?.boards ?? []) : [];
+  // A project's slide decks, for the presentations tab (the rail lists none).
+  const decks = useApi("presentations.list", features.presentations && ctx.kind === "project" ? { query: { project: ctx.slug } } : null, { interval: 15_000 });
+  const projectDecks = ctx.kind === "project" ? (decks?.presentations ?? []) : [];
   const [links, setLinks] = useState<Links | null>(null);
   const [version, setVersion] = useState(0);
   // One category at a time, as tabs; remembered per browser.
@@ -209,6 +226,9 @@ export function ContextPanel({ chatPath, workspace }: {
     // A project's work as columns of tasks; the count is what waits for review.
     ...(features.boards && ctx.kind === "project"
       ? [{ id: "board", label: "boards", count: projectBoards.reduce((n, b) => n + b.review, 0) || undefined, allHref: `/projects/${encodeURIComponent(ctx.slug)}/boards` }]
+      : []),
+    ...(features.presentations && ctx.kind === "project"
+      ? [{ id: "presentations", label: "presentations", count: projectDecks.length, allHref: `/projects/${encodeURIComponent(ctx.slug)}/presentations` }]
       : []),
     // Expert detail: the clones a project or agent works on.
     ...(expert && showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
@@ -319,9 +339,21 @@ export function ContextPanel({ chatPath, workspace }: {
       {/* The space's title, top left above the chat and this column (shell.css places it): only its pencil is a target. */}
       <div className="space-title flex min-w-0 items-center gap-2 px-1">
         {/* Keyed by the name: a new context fades its title in. */}
-        <span key={links?.title ?? ""} className="min-w-0 truncate text-[22px] leading-[1.15] font-[750] tracking-[-0.015em] text-fg animate-fade max-[800px]:text-lg" title={links?.title}>
-          {links ? links.title : "…"}
-        </span>
+        {homeHref ? (
+          // A project's (or Ralv's) title leads back to its overview (new session, recents); an open session follows it.
+          <Link
+            key={links?.title ?? ""}
+            href={homeHref}
+            className="project-home-link min-w-0 truncate rounded-control text-[22px] leading-[1.15] font-[750] tracking-[-0.015em] text-fg no-underline animate-fade hover:text-accent max-[800px]:text-lg"
+            title={`${links?.title ?? ""} · all sessions`}
+          >
+            {links ? links.title : "…"}
+          </Link>
+        ) : (
+          <span key={links?.title ?? ""} className="min-w-0 truncate text-[22px] leading-[1.15] font-[750] tracking-[-0.015em] text-fg animate-fade max-[800px]:text-lg" title={links?.title}>
+            {links ? links.title : "…"}
+          </span>
+        )}
         {editHref && (
           // ctx-edit: the tests open the editor by it.
           <Link
@@ -333,6 +365,7 @@ export function ContextPanel({ chatPath, workspace }: {
             <Icon name="edit" className="ms-sm" />
           </Link>
         )}
+        {sessionId && homeHref && <SessionCrumb key={sessionId} id={sessionId} fallbackTitle={ralv || agentHere ? "new chat" : "new session"} backHref={homeHref} />}
       </div>
       <aside className="ctx" aria-label="Context" data-full={fullShown || undefined}>
         <Tabs className="flex-none gap-y-0.5 pt-2" label="Categories" items={tabs} value={current} onChange={pickTab} />
@@ -542,6 +575,29 @@ export function ContextPanel({ chatPath, workspace }: {
               {projectBoards.map((b) => (
                 <BoardGlance key={b.board} project={ctx.slug} board={b.board} />
               ))}
+            </>
+          )}
+
+          {current === "presentations" && ctx.kind === "project" && (
+            <>
+              {decks && !decks.enabled && <p className="m-0 px-2.5 py-3 text-sm text-fg-2">{decks.error}</p>}
+              {decks?.enabled && projectDecks.length === 0 && empty("presentations")}
+              {projectDecks.map((d) => (
+                <ListRow
+                  key={d.name}
+                  href={`/projects/${encodeURIComponent(ctx.slug)}/presentations/${encodeURIComponent(d.name)}`}
+                  innerProps={{ "data-deck": d.name }}
+                  leading={<Icon name="slideshow" className="ms-sm" />}
+                  title={d.title}
+                  sub={d.error ? "unreadable deck.md" : `${d.slides} ${d.slides === 1 ? "slide" : "slides"}${d.updatedAt ? ` · ${fmtAgo(d.updatedAt)}` : ""}`}
+                  subTone={d.error ? "bad" : "plain"}
+                />
+              ))}
+              {decks?.enabled && (
+                <Button variant="quiet" size="sm" icon="add" className="justify-start" href={`/projects/${encodeURIComponent(ctx.slug)}/presentations/new`}>
+                  new presentation
+                </Button>
+              )}
             </>
           )}
 

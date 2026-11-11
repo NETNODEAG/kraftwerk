@@ -99,8 +99,7 @@ body.kw-resizing iframe { pointer-events: none; }
 /* ---------- a screen: its sidebar beside its main pane ---------- */
 .runs-screen { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; }
 .agents-screen { grid-template-columns: 240px minmax(0, 1fr); }
-.agents-screen.has-sessions { grid-template-columns: 240px 260px minmax(0, 1fr); }
-.agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr) var(--kside-w, 460px); }
+.agents-screen.has-knowledge { grid-template-columns: 240px minmax(0, 1fr) var(--kside-w, 460px); }
 .channels-screen, .vibeables-screen { grid-template-columns: 280px minmax(0, 1fr); }
 
 .runs-side {
@@ -139,8 +138,6 @@ body.kw-resizing iframe { pointer-events: none; }
 /* ---------- a screen inside the conversation column fills the column ---------- */
 .col-chat > .runs-screen { flex: 1; min-height: 0; overflow: hidden; }
 .col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); height: 100%; align-items: stretch; }
-.col-chat .runs-screen.has-tabs { grid-template-rows: auto minmax(0, 1fr); }
-.col-chat .agents-screen.has-sessions { grid-template-columns: 240px minmax(0, 1fr); }
 .col-chat .runs-side { position: static; height: auto; min-height: 0; align-self: stretch; background: none; }
 .col-chat .runs-main { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 .col-chat .chat-main { flex: 1; height: auto; min-height: 0; }
@@ -163,11 +160,10 @@ body.kw-resizing iframe { pointer-events: none; }
   .col-chat .agents-screen > aside.runs-side:first-child,
   .col-chat .channels-screen > aside.runs-side:first-child { display: flex; }
   .col-chat .runs-screen { grid-template-columns: 220px minmax(0, 1fr); }
-  .col-chat .agents-screen.has-sessions { grid-template-columns: 220px 220px minmax(0, 1fr); }
 }
 @media (max-width: 1099px) {
   .knowledge-side, .kside-reopen { display: none; }
-  .agents-screen.has-sessions.has-knowledge { grid-template-columns: 240px 260px minmax(0, 1fr); }
+  .agents-screen.has-knowledge { grid-template-columns: 240px minmax(0, 1fr); }
 }
 @media (max-width: 940px) {
   /* A page's sidebar (workflows, bundles, apps, files, runs) stacks above it instead of beside it. */
@@ -176,7 +172,7 @@ body.kw-resizing iframe { pointer-events: none; }
   .chat-main { height: auto; min-height: calc(100vh - var(--topbar-h)); }
 }
 @media (max-width: 900px) {
-  .agents-screen, .agents-screen.has-sessions, .agents-screen.has-sessions.has-knowledge { grid-template-columns: 1fr; }
+  .agents-screen, .agents-screen.has-knowledge { grid-template-columns: 1fr; }
 }
 /* Phone: one column at a time, picked from the bar at the bottom (data-focus). */
 @media (max-width: 800px) {
@@ -194,12 +190,10 @@ body.kw-resizing iframe { pointer-events: none; }
   .col-chat .runs-screen { grid-template-columns: minmax(0, 1fr); }
   .col-chat .agents-screen > aside.runs-side:first-child,
   .col-chat .channels-screen > aside.runs-side:first-child { display: flex; }
-  .col-chat .agents-screen.has-sessions { grid-template-columns: minmax(0, 1fr); }
-  /* As specific as the rule above that shows the roster, so a chat with its tabs hides it again. */
-  .col-chat .agents-screen.has-sessions > aside.runs-side:first-child,
-  .col-chat .agents-screen.has-sessions > .runs-side,
-  /* In a chat with its tabs the chat is the screen; Home is where you pick another agent or project. */
-  .col-chat .runs-screen.has-tabs > aside.runs-side:first-child { display: none; }
+  /* At an agent (its overview or a session) that is the screen; the rail is where you pick another. As specific as the rule above that shows the roster. */
+  .col-chat .agents-screen.in-agent > aside.runs-side:first-child,
+  /* Inside a project the overview is the screen; the project list is Home's. */
+  .col-chat .runs-screen.projects-screen.in-project > aside.runs-side:first-child { display: none; }
   .places {
     position: sticky;
     bottom: 0;
