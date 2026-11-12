@@ -1,15 +1,34 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import {
-  ClientSideConnection,
+  client as clientApp,
+  methods,
   ndJsonStream,
   PROTOCOL_VERSION,
-  type Client,
+  type CancelNotification,
+  type ClientContext,
+  type CloseSessionRequest,
+  type DeleteSessionRequest,
+  type ForkSessionRequest,
+  type InitializeRequest,
+  type ListSessionsRequest,
+  type NewSessionRequest,
+  type PromptRequest,
+  type ResumeSessionRequest,
+  type SetSessionConfigOptionRequest,
+  type SetSessionModeRequest,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type McpServer,
+  type RequestPermissionRequest,
+  type RequestPermissionResponse,
   type SessionConfigOption,
   type SessionModeState,
-} from "@agentclientprotocol/sdk";
+  type SessionNotification,
+} from "@agentclientprotocol/sdk/unstable";
 import type { McpServerConfig } from "./harness.js";
 import { workspaceEnv } from "./core/env.js";
 
@@ -26,9 +45,21 @@ import { workspaceEnv } from "./core/env.js";
 export type AcpAgent = "claude" | "codex";
 
 const ADAPTERS: Record<AcpAgent, string> = {
-  claude: "@agentclientprotocol/claude-agent-acp/dist/index.js",
-  codex: "@agentclientprotocol/codex-acp/dist/index.js",
+  claude: "@agentclientprotocol/claude-agent-acp",
+  codex: "@agentclientprotocol/codex-acp",
 };
+
+/**
+ * The adapter's executable: its package's `bin` (the packages' `exports`
+ * may hide dist/, and claude-agent-acp's main is a library, not the CLI).
+ */
+function adapterEntry(agent: AcpAgent): string {
+  const pkgPath = fileURLToPath(import.meta.resolve(`${ADAPTERS[agent]}/package.json`));
+  const bin = (JSON.parse(readFileSync(pkgPath, "utf8")) as { bin?: string | Record<string, string> }).bin;
+  const rel = typeof bin === "string" ? bin : Object.values(bin ?? {})[0];
+  if (!rel) throw new Error(`${ADAPTERS[agent]} names no executable`);
+  return path.join(path.dirname(pkgPath), rel);
+}
 
 /** Effort tier -> Claude thinking budget (the adapter reads MAX_THINKING_TOKENS). */
 const CLAUDE_THINKING_BUDGET: Record<string, number> = {
@@ -239,9 +270,43 @@ export function divertExtensionUpdates(
 
 /* ---------- process + session ---------- */
 
+/**
+ * What kraftwerk answers when the agent calls: plain callbacks, wired to
+ * the SDK's client app by connectAcp. `extNotification` gets every
+ * notification the SDK has no handler for (the `_`-prefixed extensions),
+ * with its full wire name.
+ */
+export interface AcpClient {
+  sessionUpdate(params: SessionNotification): void | Promise<void>;
+  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse>;
+  createElicitation?(params: CreateElicitationRequest): Promise<CreateElicitationResponse>;
+  extNotification?(method: string, params: Record<string, unknown>): void | Promise<void>;
+}
+
+/** The calls kraftwerk makes to the agent, by name, over one connection. */
+function agentCalls(ctx: ClientContext) {
+  const a = methods.agent;
+  return {
+    initialize: (p: InitializeRequest) => ctx.request(a.initialize, p),
+    newSession: (p: NewSessionRequest) => ctx.request(a.session.new, p),
+    resumeSession: (p: ResumeSessionRequest) => ctx.request(a.session.resume, p),
+    listSessions: (p: ListSessionsRequest) => ctx.request(a.session.list, p),
+    deleteSession: (p: DeleteSessionRequest) => ctx.request(a.session.delete, p),
+    forkSession: (p: ForkSessionRequest) => ctx.request(a.session.fork, p),
+    prompt: (p: PromptRequest) => ctx.request(a.session.prompt, p),
+    setSessionMode: (p: SetSessionModeRequest) => ctx.request(a.session.setMode, p),
+    setSessionConfigOption: (p: SetSessionConfigOptionRequest) => ctx.request(a.session.setConfigOption, p),
+    closeSession: (p: CloseSessionRequest) => ctx.request(a.session.close, p),
+    cancel: (p: CancelNotification) => ctx.notify(a.session.cancel, p),
+    /** An extension request (`_`-prefixed wire name). */
+    extMethod: (method: string, params: Record<string, unknown>) => ctx.request<Record<string, unknown>>(method, params),
+  };
+}
+export type AcpConnection = ReturnType<typeof agentCalls>;
+
 export interface AcpProcess {
   child: ChildProcessWithoutNullStreams;
-  conn: ClientSideConnection;
+  conn: AcpConnection;
 }
 
 /**
@@ -259,7 +324,7 @@ export async function connectAcp(
   opts: {
     cwd: string;
     env: NodeJS.ProcessEnv;
-    client: Client;
+    client: AcpClient;
     clientName: string;
     onExtension?: (n: AcpExtensionNotification) => void;
     /** The client answers form elicitations (`createElicitation` on the Client): agents may ask questions. */
@@ -269,7 +334,7 @@ export async function connectAcp(
   }
 ): Promise<AcpProcess> {
   // KRAFTWERK_ACP_ADAPTER: a script standing in for the adapter (the tests' scripted fake agent).
-  const entry = process.env.KRAFTWERK_ACP_ADAPTER || fileURLToPath(import.meta.resolve(ADAPTERS[agent]));
+  const entry = process.env.KRAFTWERK_ACP_ADAPTER || adapterEntry(agent);
   const child = spawn(process.execPath, [entry], {
     cwd: opts.cwd,
     stdio: ["pipe", "pipe", "pipe"],
@@ -286,7 +351,16 @@ export async function connectAcp(
   let output = Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>;
   if (opts.onExtension) output = divertExtensionUpdates(output, opts.onExtension);
   const stream = ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, output);
-  const conn = new ClientSideConnection(() => opts.client, stream);
+  const c = opts.client;
+  let app = clientApp({ name: opts.clientName })
+    .onNotification(methods.client.session.update, ({ params }) => c.sessionUpdate(params))
+    .onRequest(methods.client.session.requestPermission, ({ params }) => c.requestPermission(params))
+    .onNotification("*", ({ method, params }) => c.extNotification?.(method, (params ?? {}) as Record<string, unknown>));
+  if (c.createElicitation) {
+    const elicit = c.createElicitation.bind(c);
+    app = app.onRequest(methods.client.elicitation.create, ({ params }) => elicit(params));
+  }
+  const conn = agentCalls(app.connect(stream).agent);
   await conn.initialize({
     protocolVersion: PROTOCOL_VERSION,
     clientCapabilities: {
@@ -307,7 +381,7 @@ export async function connectAcp(
 export async function withAdapter<T>(
   agent: AcpAgent,
   cwd: string,
-  fn: (conn: ClientSideConnection) => Promise<T>
+  fn: (conn: AcpConnection) => Promise<T>
 ): Promise<T> {
   const { child, conn } = await connectAcp(agent, {
     cwd,
@@ -330,7 +404,7 @@ export async function withAdapter<T>(
 }
 
 /** The subset of the connection a session open needs (a test can stand in for it). */
-export type SessionOpener = Pick<ClientSideConnection, "newSession" | "resumeSession">;
+export type SessionOpener = Pick<AcpConnection, "newSession" | "resumeSession">;
 
 export interface OpenedSession {
   sessionId: string;

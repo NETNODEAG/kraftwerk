@@ -3,7 +3,6 @@ import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
   RequestError,
-  type Client,
   type ContentBlock,
   type CreateElicitationRequest,
   type CreateElicitationResponse,
@@ -11,7 +10,7 @@ import {
   type RequestPermissionResponse,
   type SessionConfigOption,
   type SessionNotification,
-} from "@agentclientprotocol/sdk";
+} from "@agentclientprotocol/sdk/unstable";
 import {
   adapterEnv,
   airMeta,
@@ -22,6 +21,7 @@ import {
   openSession,
   withAdapter,
   type AcpAgent,
+  type AcpClient,
   type AcpExtensionNotification,
 } from "../../acp.js";
 import { identityEnv, type BackendHooks, type BackendTuning, type ChatBackend, type PromptFile, type TurnEnd } from "./backend.js";
@@ -390,7 +390,7 @@ export async function startAcpBackend(
   // Usage arrives after nearly every chunk; the thread keeps a step per
   // percent of the window and every cost total (turn ends), not each tick.
   let usagePercent = -1;
-  const client: Client = {
+  const client: AcpClient = {
     sessionUpdate(params: SessionNotification): void {
       const ev = translateUpdate(sessionId, params);
       if (!ev) return;
@@ -530,7 +530,7 @@ export async function startAcpBackend(
     async fork(): Promise<string> {
       if (dead) throw new Error(`${agent} agent process is gone`);
       try {
-        const res = await conn.unstable_forkSession({ sessionId, ...sessionReq });
+        const res = await conn.forkSession({ sessionId, ...sessionReq });
         return res.sessionId;
       } catch (err) {
         return fail(err, "cannot fork this session");

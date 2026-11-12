@@ -1,14 +1,12 @@
 import {
   RequestError,
-  type Client,
-  type ClientSideConnection,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
-} from "@agentclientprotocol/sdk";
+} from "@agentclientprotocol/sdk/unstable";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { AgentInvocation, AgentResult, Harness, HarnessId } from "../harness.js";
-import { acpMcpServers, adapterEnv, connectAcp, openSession, type AcpAgent } from "../acp.js";
+import { acpMcpServers, adapterEnv, connectAcp, openSession, type AcpAgent, type AcpClient, type AcpConnection } from "../acp.js";
 import { declineOption, unattendedMode } from "../core/chat/permissions.js";
 
 /**
@@ -49,7 +47,7 @@ interface Live {
   agent: AcpAgent;
   cwd: string;
   child: ChildProcessWithoutNullStreams;
-  conn: ClientSideConnection;
+  conn: AcpConnection;
   sessionId: string;
   dead: boolean;
   /** Why the adapter is gone, once it is. */
@@ -111,7 +109,7 @@ async function open(agent: AcpAgent, inv: AgentInvocation, resume?: string): Pro
     state.exit ??= why;
     ended(state.exit);
   };
-  const client: Client = {
+  const client: AcpClient = {
     sessionUpdate(params: SessionNotification): void {
       const u = params.update as {
         sessionUpdate: string;

@@ -1,6 +1,6 @@
 {
   "name": "@netnodeag/kraftwerk",
-  "version": "0.85.0",
+  "version": "0.86.0",
   "description": "Open-source agentic workspace for teams — where people and AI agents get work done together: agents (Claude Code, Codex, Pi), skills, shared knowledge, repeatable workflows, and deterministic verification",
   "keywords": [
     "agents",
@@ -62,27 +62,27 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
-    "@types/node": "^26.4.1",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "^0.75.1",
-    "@agentclientprotocol/codex-acp": "^1.10.0",
-    "@agentclientprotocol/sdk": "^1.4.0",
-    "@inquirer/prompts": "^8.7.1",
+    "@agentclientprotocol/claude-agent-acp": "^0.106.0",
+    "@agentclientprotocol/codex-acp": "^2.6.0",
+    "@agentclientprotocol/sdk": "^2.6.0",
+    "@inquirer/prompts": "^8.7.5",
     "@office-kit/pptx": "0.28.0",
     "@office-kit/pptx-preview": "0.21.0",
     "ajv": "^8.20.0",
     "chalk": "^6.0.0",
     "cli-table3": "^0.6.5",
-    "commander": "^15.0.0",
-    "marked": "18.0.11",
+    "commander": "^15.1.0",
+    "marked": "^18.2.0",
     "ora": "^9.4.1",
-    "playwright-core": "1.63.0",
+    "playwright-core": "^1.65.0",
     "yaml": "^2.9.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "bin": {
     "kraftwerk": "bin/kraftwerk.js"
