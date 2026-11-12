@@ -1602,3 +1602,48 @@ function PresentMode({ project, name, presenter, start }: DeckAt & { presenter: 
     </div>
   );
 }
+
+/* ---------- glance ---------- */
+
+/**
+ * A deck at a glance, for a side column (the artifacts page's preview): its
+ * slides one under the other at the column's width, hidden ones faint, each
+ * opening the editor on that slide.
+ */
+export function DeckGlance({ project, name }: DeckAt) {
+  const at: DeckAt = { project, name };
+  const detail = useApi("presentations.get", { name, query: queryOf(project) }, { interval: 10_000 });
+  const theme = detail?.theme;
+  useDeckCss(theme ? [theme] : [], detail?.deck.css);
+  const asset = useMemo(() => assetOf(at, detail?.updatedAt ?? ""), [name, project, detail?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const box = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setW(Math.floor(el.clientWidth)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const slides = detail?.deck.slides ?? [];
+  const numbers = detail?.deck.numbers !== false;
+  return (
+    <div ref={box} className="deck-glance flex flex-col gap-3" aria-label="slides">
+      {!detail && <EmptyState>loading…</EmptyState>}
+      {detail && slides.length === 0 && <EmptyState icon="slideshow">No slides yet.</EmptyState>}
+      {theme &&
+        w > 0 &&
+        slides.map((s, i) => (
+          <Link
+            key={i}
+            href={deckHref(at)}
+            className={cn("block overflow-hidden rounded-lg border border-line no-underline shadow-sm transition-shadow hover:shadow-md", isHidden(s) && "opacity-40")}
+            title={`slide ${i + 1}`}
+            data-slide={i + 1}
+          >
+            <Thumb slide={s} theme={theme} asset={asset} width={w - 2} number={numbers ? { n: i + 1, of: slides.length } : undefined} />
+          </Link>
+        ))}
+    </div>
+  );
+}

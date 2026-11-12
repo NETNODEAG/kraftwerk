@@ -195,7 +195,7 @@ function RefStates({ links, refKind }: { links: LinkState[] | undefined; refKind
   );
 }
 
-function EntityPage({ kind, slug }: { kind: EntityKind; slug: string }) {
+export function EntityPage({ kind, slug }: { kind: EntityKind; slug: string }) {
   const spec = KINDS[kind];
   const [entity, setEntity] = useState<Entity | null>(null);
   const [loadError, setLoadError] = useState("");

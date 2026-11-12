@@ -42,21 +42,24 @@ export function AgentHome({ slug }: { slug: string }) {
 }
 
 /**
- * A bare #/agents/chats (the "Ralv" entry, and /agents/chats/new): Ralv's
+ * A bare #/agents/chats (the rail's "Chats", and /agents/chats/new): Ralv's
  * overview, like a project's — a composer that starts a chat with Ralv or
- * with a specific agent (that one opens in the agent's sessions), and Ralv's
- * recent chats. An open chat is named next to "Ralv" in the title row; there
+ * with a specific agent (that one opens in the agent's sessions), and the
+ * recent chats: Ralv's and every project's, which open in their project. An open chat is named next to "Ralv" in the title row; there
  * are no tabs.
  */
 export function RalvHome() {
   const chats = useApi("chats.list", {});
+  const projects = useApi("projects.list", {}, { interval: 60_000 });
+  const projectTitle = (p: string) => projects?.projects.find((x) => x.slug === p)?.title ?? p;
   return (
     <SessionHome
       placeholder="New chat with Ralv"
       byDefault={{ emoji: "🎩", name: "Ralv", sub: "chief of staff: knows the workspace, advises, launches things", hint: "claude · knows the workspace" }}
       agentHint="opens in the agent's sessions"
-      sessions={chats ? (generalChats(chats.chats) as HomeChat[]) : null}
-      hrefOf={generalHref}
+      placeOf={(c) => (projectOf(c) ? `📁 ${projectTitle(projectOf(c)!)}` : undefined)}
+      sessions={chats ? (allChats(chats.chats) as HomeChat[]) : null}
+      hrefOf={allHref}
       create={(agent) =>
         agent
           ? createSession({ agent: "claude", scope: { kind: "agent", slug: agent } }, (id) => `/agents/${encodeURIComponent(agent)}/chat/${id}`)
@@ -66,9 +69,16 @@ export function RalvHome() {
   );
 }
 
-// Chats that belong to no agent, channel or project — Ralv's.
-const generalChats = (chats: Session[]): Session[] => chats.filter((c) => c.scope.kind !== "agent" && c.scope.kind !== "channel" && c.scope.kind !== "project");
-const generalHref = (c: Session): string => `/agents/chats/${c.id}`;
+// The project a chat is filed under: a project's own session, or an agent's or channel's filed there.
+const projectOf = (c: Session): string | undefined => (c.scope.kind === "project" ? c.scope.slug : c.project || undefined);
+// The rail's "Chats": Ralv's (no agent, channel or project) and every chat filed under a project.
+const allChats = (chats: Session[]): Session[] =>
+  chats.filter((c) => projectOf(c) || (c.scope.kind !== "agent" && c.scope.kind !== "channel"));
+// A project's chat opens in the project, so its context column and title row become the project's.
+const allHref = (c: Session): string => {
+  const p = projectOf(c);
+  return p ? `/projects/${encodeURIComponent(p)}/chat/${c.id}` : `/agents/chats/${c.id}`;
+};
 
 
 /* ---------- home ---------- */

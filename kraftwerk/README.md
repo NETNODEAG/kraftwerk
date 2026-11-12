@@ -614,23 +614,34 @@ directory stays the workspace root, so linked repositories and knowledge
 are reachable by path; opening a vibeable moves it into the app folder as
 in any chat.
 
-**Artifacts.** The rail's third row, under Chat, lists everything made in the
-workspace and its projects — apps, presentations, boards, contacts, places
-and events — newest first, with the project each belongs to. A tile per
-enabled kind makes a new one; chips filter by kind; the search matches
-titles. A row opens the thing where it lives.
+**Artifacts.** The rail's third row, under Chats, lists everything made in the
+workspace and its projects — workflows, knowledge bundles, apps,
+presentations, boards,
+contacts, places and events — newest first, with the project each belongs to. A tile per
+enabled kind filters the list to that kind (click again for everything),
+and the + beside its label makes a new one; the search matches titles.
+Selecting a row shows the thing in the right column — a workflow's own
+view (run it from there), a knowledge bundle with its concepts, a deck's
+slides, the
+app running, a board's columns, a contact to edit — with "open" to go
+where it lives. Places show on an OpenStreetMap map (all of them; a
+selected place is zoomed to, with its details under the map, and a dot on
+the map selects its place), events on a month calendar (a selected event
+brings its month, with its details under it).
 
-**Chat** (Ralv) works like a project's overview: the rail's "Chat" row shows a composer that
+**Chats** (Ralv) works like a project's overview: the rail's "Chats" row shows a composer that
 starts a chat with Ralv (or, from the picker, with a specific agent, which
-opens in that agent's sessions) and Ralv's recent chats. An open chat is
-named next to the workspace's title; there are no tabs.
+opens in that agent's sessions) and the recent chats — Ralv's and every
+chat in a project, tagged with the project. A project's chat opens in the
+project, with its context beside it. An open chat is named next to the
+workspace's title; there are no tabs.
 
 **An agent** works the same way: clicking it in the rail shows a composer
 that starts a session with that agent and its recent sessions, each with
 the project it is filed under. An open session is named next to the
 agent's name, which leads back; there are no tabs.
 
-**In the rail.** Home, Chat, Artifacts, the projects and the agents —
+**In the rail.** Home, Chats, Artifacts, the projects and the agents —
 nothing else. Boards and presentations are on the Artifacts page (and in a
 project's context column); channels open from a project's recents or
 `#/channels`. A project is one row, with nothing under it. Its agents

@@ -44,8 +44,8 @@ test.describe("general chats landing", () => {
 
   test("Ralv's overview: a composer and the recent chats; an open chat is named next to Ralv, without tabs", async ({ page, request }) => {
     await page.goto("/#/agents/chats");
-    // The rail's row to Ralv is plainly "Chat".
-    const chatRow = page.locator(".rail").getByRole("link", { name: "Chat", exact: true });
+    // The rail's row to Ralv is "Chats".
+    const chatRow = page.locator(".rail").getByRole("link", { name: "Chats", exact: true });
     await expect(chatRow).toHaveAttribute("href", "#/agents/chats");
     await expect(chatRow).toHaveAttribute("aria-current", "page");
     // Second, after Home and above Artifacts.
@@ -78,6 +78,28 @@ test.describe("general chats landing", () => {
     await expect(page).toHaveURL(/#\/agents\/chats$/);
   });
 
+  test("project chats are listed too and open in their project", async ({ page, request }) => {
+    const PROJECT = "chats-probe";
+    expect((await request.put("/api/settings", { data: { projects: { enabled: true } } })).ok()).toBeTruthy();
+    expect((await request.post("/api/projects", { data: { title: "Chats probe", slug: PROJECT } })).status()).toBe(201);
+    try {
+      const r = await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "project", slug: PROJECT } } });
+      const id = ((await r.json()) as { id: string }).id;
+      ids.push(id);
+
+      await page.goto("/#/agents/chats");
+      const row = page.locator(`section[aria-label='recent sessions'] .recent-session[data-chat='${id}']`);
+      await expect(row.locator(".recent-place")).toHaveText("📁 Chats probe");
+      await expect(row.locator(".recent-agent")).toHaveText("🧭 Assistant");
+      await row.locator("a").click();
+      // The context switches to the project: its route, its row in the rail.
+      await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}/chat/${id}$`));
+      await expect(page.locator(".rail a[aria-current='page']")).toHaveAttribute("href", `#/projects/${PROJECT}`);
+    } finally {
+      await request.delete(`/api/projects/${PROJECT}`);
+      await request.put("/api/settings", { data: { projects: { enabled: false } } });
+    }
+  });
 });
 
 /**

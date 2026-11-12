@@ -52,6 +52,8 @@ export interface WorkflowSummary {
   /** False when no step reads `${{ request }}` — the ▶ button runs it straight away. */
   usesRequest: boolean;
   error?: string;
+  /** When its workflow.yml last changed (ISO), for "newest first" lists. */
+  updatedAt?: string;
 }
 
 export interface WorkflowDetail {
@@ -165,6 +167,7 @@ export async function listWorkflows(): Promise<{ root?: string; workflows: Workf
   const located = await locate();
   const workflows = await Promise.all(
     located.map(async (l): Promise<WorkflowSummary> => {
+      const updatedAt = await fs.stat(l.yamlPath).then((st) => st.mtime.toISOString(), () => undefined);
       try {
         const raw = await parseRaw(l);
         return {
@@ -174,9 +177,10 @@ export async function listWorkflows(): Promise<{ root?: string; workflows: Workf
           agents: Object.keys(raw?.agents ?? {}).length,
           steps: (raw?.steps ?? []).length,
           usesRequest: await stepsUseRequest(raw, l.baseDir),
+          updatedAt,
         };
       } catch (err) {
-        return { slug: l.slug, agents: 0, steps: 0, usesRequest: true, error: (err as Error).message };
+        return { slug: l.slug, agents: 0, steps: 0, usesRequest: true, error: (err as Error).message, updatedAt };
       }
     })
   );

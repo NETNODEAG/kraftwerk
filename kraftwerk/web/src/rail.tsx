@@ -88,9 +88,9 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
           href="/agents/chats"
           active={general}
           leading={<Icon name="chat" />}
-          title="Chat"
+          title="Chats"
           titleExtra={<Badge n={attentionFor.general(waiting).length} title="waiting for you" />}
-          innerProps={{ title: "Chat with Ralv, the chief of staff: knows the workspace, advises, launches things" }}
+          innerProps={{ title: "Every chat with Ralv and in the projects; start a new one with Ralv, the chief of staff" }}
         />
         <ListRow
           href="/artifacts"

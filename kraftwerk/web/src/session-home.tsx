@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, failure, useApi } from "./api";
-import { Icon, Link, fmtAgo, navigate } from "./shared";
+import { Icon, Link, PROJECT_ASSISTANT, fmtAgo, navigate } from "./shared";
 import { ChatNameInput, SessionMenuItem, sessionTitle } from "./sessions";
 import { Dot, IconButton, Notice, Popover } from "./ui";
 import type { Agent, ChatAgentId, ChatMeta } from "./types";
@@ -196,7 +196,9 @@ export function SessionHome({
                 ? `👥 coworkers · #${c.scope.slug}`
                 : c.scope.kind === "agent"
                   ? labelOf(c.scope.slug)
-                  : `${byDefault.emoji} ${byDefault.name}`
+                  : c.scope.kind === "project"
+                    ? `${PROJECT_ASSISTANT.emoji} ${PROJECT_ASSISTANT.name}`
+                    : `${byDefault.emoji} ${byDefault.name}`
             }
           />
         ))}

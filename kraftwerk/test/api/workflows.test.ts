@@ -57,6 +57,8 @@ describe("workflows API", () => {
     assert.equal(by.ask.agents, 1);
     assert.equal(by.tick.usesRequest, false);
     assert.equal(by.env.usesRequest, true);
+    // When its yml last changed, for the Artifacts page's newest-first order.
+    assert.ok(by.ask.updatedAt && !Number.isNaN(Date.parse(by.ask.updatedAt)));
     assert.equal(by.py.usesRequest, true, "REQUEST read from python in a script file counts");
     assert.equal(by.shout.usesRequest, false, "the word in a prompt is not the variable");
     assert.ok(by.broken.error, "a broken yml is listed with its error");
