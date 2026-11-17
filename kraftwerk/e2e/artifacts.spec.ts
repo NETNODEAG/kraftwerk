@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -173,6 +174,154 @@ test.describe("artifacts", () => {
       await expect(preview).toContainText("Pricing");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("skills are artifacts too: the workspace's skill, its page on the right", async ({ page }) => {
+    const dir = path.join(fixture(), "skills", "artifact-skill");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "SKILL.md"), "---\nname: artifact-skill\ndescription: writes the weekly digest\n---\n# Digest\n\nCollect the week's runs.\n");
+    try {
+      await page.goto("/#/artifacts");
+      await page.getByRole("region", { name: "kinds" }).getByRole("button", { name: "show only skills" }).click();
+      await expect(page).toHaveURL(/kind=skills/);
+      const row = page.locator(".artifact-row", { hasText: "/artifact-skill" });
+      await expect(row).toContainText("writes the weekly digest");
+      await row.click();
+      const preview = page.getByRole("complementary", { name: "Preview" });
+      await expect(preview.getByRole("heading", { level: 2, name: "/artifact-skill" })).toBeVisible();
+      await expect(preview.getByRole("link", { name: "open" })).toHaveAttribute("href", "#/skills/artifact-skill");
+      await expect(preview).toContainText("Collect the week's runs.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("repositories are artifacts while the feature is on: branch and state on the row, changes on the right", async ({ page, request }) => {
+    const tiles = page.getByRole("region", { name: "kinds" });
+    await page.goto("/#/artifacts");
+    await expect(tiles.getByRole("button", { name: "show only repos" })).toHaveCount(0);
+
+    const ROOT = "kraftwerk-data/artifact-repos";
+    // Turning repos on ignores their root in .gitignore: the fixture is shared (git-sync counts its changes), so it goes back as it was.
+    const ignore = path.join(fixture(), ".gitignore");
+    const ignoreBefore = existsSync(ignore) ? readFileSync(ignore, "utf8") : null;
+    const dir = path.join(fixture(), ROOT, "probe-repo");
+    mkdirSync(dir, { recursive: true });
+    const g = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+    g("init", "-q", "-b", "main");
+    g("config", "user.email", "probe@example.com");
+    g("config", "user.name", "probe");
+    g("config", "commit.gpgsign", "false");
+    writeFileSync(path.join(dir, "README.md"), "# probe\n");
+    g("add", ".");
+    g("commit", "-qm", "first");
+    writeFileSync(path.join(dir, "README.md"), "# probe\nchanged\n");
+    expect((await request.put("/api/settings", { data: { repos: { enabled: true, root: ROOT } } })).ok()).toBeTruthy();
+    try {
+      await page.reload();
+      await tiles.getByRole("button", { name: "show only repos" }).click();
+      await expect(page).toHaveURL(/kind=repos/);
+      const row = page.locator(".artifact-row", { hasText: "probe-repo" });
+      await expect(row).toContainText("main · 1 changed");
+      await row.click();
+      const preview = page.getByRole("complementary", { name: "Preview" });
+      await expect(preview.getByRole("heading", { level: 2, name: "probe-repo" })).toBeVisible();
+      await expect(preview.getByRole("link", { name: "open" })).toHaveAttribute("href", "#/repos/probe-repo");
+      // The repo's own page, without its way back: the changed file and the commit.
+      await expect(preview.locator(".repo-file[data-file='README.md']")).toBeVisible();
+      await expect(preview.locator(".repo-commit")).toContainText("first");
+      await expect(preview.getByRole("link", { name: "repositories" })).toHaveCount(0);
+    } finally {
+      await request.put("/api/settings", { data: { repos: { enabled: false } } });
+      rmSync(path.join(fixture(), ROOT), { recursive: true, force: true });
+      if (ignoreBefore === null) rmSync(ignore, { force: true });
+      else writeFileSync(ignore, ignoreBefore);
+    }
+  });
+
+  test("routines: an agent's own is listed and shown; a new one is defined on its own, with a project and an agent", async ({ page, request }) => {
+    const yml = () => readFileSync(path.join(fixture(), "agents", "routines.yml"), "utf8");
+    expect((await request.post("/api/agents", { data: { name: "Routine Owner", emoji: "🦉", harness: "claude", system: "x" } })).ok()).toBeTruthy();
+    expect((await request.post("/api/agents/routine-owner/routines", { data: { name: "Night watch", schedule: "0 3 * * *", prompt: "Look over the logs." } })).ok()).toBeTruthy();
+    page.on("dialog", (d) => void d.accept());
+    try {
+      await page.goto("/#/artifacts");
+      const tiles = page.getByRole("region", { name: "kinds" });
+      await tiles.getByRole("button", { name: "show only routines" }).click();
+      await expect(page).toHaveURL(/kind=routines/);
+      const preview = page.getByRole("complementary", { name: "Preview" });
+
+      // The agent's own routine: who it asks, when next; shown, and edited on the agent's profile.
+      const own = page.locator(".artifact-row", { hasText: "Night watch" });
+      await expect(own).toContainText("🦉 Routine Owner");
+      await expect(own).toContainText("next");
+      await own.click();
+      await expect(preview.getByRole("heading", { level: 2, name: "Night watch" })).toBeVisible();
+      await expect(preview.locator(".routine-view")).toContainText("Look over the logs.");
+      await expect(preview.getByRole("link", { name: /edit on Routine Owner's profile/ })).toHaveAttribute("href", "#/agents/routine-owner/info");
+
+      // + makes one of the workspace's own: in the artifacts-probe project, for the agent.
+      await tiles.getByRole("link", { name: "new routine" }).click();
+      await expect(preview.getByRole("heading", { level: 2, name: "New routine" })).toBeVisible();
+      await preview.getByRole("textbox", { name: "name" }).fill("Weekly digest");
+      await preview.getByRole("textbox", { name: /prompt/ }).fill("Summarize the week.");
+      const where = preview.getByRole("combobox", { name: "runs in" });
+      const who = preview.getByRole("combobox", { name: "who" });
+      await expect(who.locator("option").first()).toHaveText("🎩 Ralv");
+      await where.selectOption("artifacts-probe");
+      await expect(who.locator("option").first()).toHaveText("🧭 the project's assistant");
+      await who.selectOption("routine-owner");
+      await preview.getByRole("button", { name: "add the routine" }).click();
+      await expect(page).toHaveURL(/open=routines%3A_%3Aweekly-digest/);
+      await expect(preview.getByRole("heading", { level: 2, name: "Weekly digest" })).toBeVisible();
+      const row = page.locator(".artifact-row", { hasText: "Weekly digest" });
+      await expect(row).toContainText("🦉 Routine Owner");
+      await expect(row).toContainText("📁 Artifacts probe");
+      expect(yml()).toMatch(/project: artifacts-probe\n\s+agent: routine-owner/);
+
+      // Back to the project's assistant: saved in place.
+      await who.selectOption("");
+      await preview.getByRole("button", { name: "save", exact: true }).click();
+      await expect(row).toContainText("🧭 Assistant");
+      expect(yml()).not.toContain("agent: routine-owner");
+      expect(yml()).toContain("project: artifacts-probe");
+
+      await preview.getByRole("button", { name: "delete" }).click();
+      await expect(row).toHaveCount(0);
+      await expect(preview).toContainText("Pick an artifact");
+    } finally {
+      await request.delete("/api/routines/weekly-digest");
+      await request.delete("/api/agents/routine-owner");
+      rmSync(path.join(fixture(), "agents", "routines.yml"), { force: true });
+    }
+  });
+
+  test("chats are artifacts too: the first tile, a row per chat, the conversation on the right", async ({ page, request }) => {
+    const id = ((await (await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "kraftwerk" } } })).json()) as { id: string }).id;
+    try {
+      expect((await request.patch(`/api/chats/${id}`, { data: { title: "Plan the offsite" } })).ok()).toBeTruthy();
+      await page.goto("/#/artifacts");
+      const tiles = page.getByRole("region", { name: "kinds" });
+      // First, before Workflows.
+      await expect(tiles.getByRole("button").first()).toHaveAttribute("aria-label", "show only chats");
+      await expect(tiles.getByRole("link", { name: "new chat" })).toHaveAttribute("href", "#/agents/chats");
+      await tiles.getByRole("button", { name: "show only chats" }).click();
+      await expect(page).toHaveURL(/kind=chats/);
+      await expect(page.locator(".artifact-row:not([data-artifact='chats'])")).toHaveCount(0);
+
+      const row = page.locator(".artifact-row", { hasText: "Plan the offsite" });
+      await expect(row).toContainText("Ralv");
+      await row.click();
+      const preview = page.getByRole("complementary", { name: "Preview" });
+      await expect(preview.getByRole("heading", { level: 2, name: "Plan the offsite" })).toBeVisible();
+      // The conversation itself, to write in; "open" leads to it in the chat screen.
+      await expect(preview.locator(".artifact-chat textarea")).toBeVisible();
+      await expect(preview.getByRole("link", { name: "open" })).toHaveAttribute("href", `#/agents/chats/${id}`);
+      // The rail keeps its Chats entry.
+      await expect(page.locator(".rail a[href='#/agents/chats']")).toBeVisible();
+    } finally {
+      await request.delete(`/api/chats/${id}`);
     }
   });
 });

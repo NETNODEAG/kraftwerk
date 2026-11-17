@@ -31,14 +31,14 @@ const runLamp = (s: RunListItem["status"]) =>
 const runStatusLabel = (s: RunListItem["status"]) =>
   s === "ok" ? "done" : s === "running" ? "working" : s === "aborted" ? "stopped" : "failed";
 
-function chatHref(c: ChatMeta): string {
+export function chatHref(c: ChatMeta): string {
   if (c.scope.kind === "channel") return `/channels/${c.scope.slug}`;
   if (c.scope.kind === "project") return `/projects/${c.scope.slug}/chat/${c.id}`;
   return c.scope.kind === "agent" ? `/agents/${c.scope.slug}/chat/${c.id}` : `/agents/chats/${c.id}`;
 }
 
 /** Whose a chat is, the way a person says it: "🐻 Max", "📁 Relaunch netnode.ch", "#launch", "🎩 Ralv". */
-function chatOwner(c: ChatMeta, agents: Agent[], projectTitle: (slug: string) => string): string {
+export function chatOwner(c: ChatMeta, agents: Agent[], projectTitle: (slug: string) => string): string {
   switch (c.scope.kind) {
     case "agent": {
       const slug = c.scope.slug;

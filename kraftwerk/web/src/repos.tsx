@@ -48,14 +48,16 @@ const ITEM_BUTTON =
   "group/item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-0.5 text-left font-[inherit] text-fg";
 const ITEM_PATH = "min-w-0 truncate font-mono text-[12.5px] group-hover/item:underline";
 
-function BackHead({ title, children }: { title: string; children?: React.ReactNode }) {
+function BackHead({ title, embedded, children }: { title: string; embedded?: boolean; children?: React.ReactNode }) {
   return (
     <header className="flex flex-wrap items-center gap-3">
-      <Button size="sm" variant="quiet" icon="arrow_back" href="/repos" title="all repositories">
-        repositories
-      </Button>
-      <Icon name="folder_data" className="text-[26px] text-fg-2" />
-      <Title>{title}</Title>
+      {!embedded && (
+        <Button size="sm" variant="quiet" icon="arrow_back" href="/repos" title="all repositories">
+          repositories
+        </Button>
+      )}
+      {!embedded && <Icon name="folder_data" className="text-[26px] text-fg-2" />}
+      {!embedded && <Title>{title}</Title>}
       {children}
     </header>
   );
@@ -74,7 +76,8 @@ export function ReposScreen({ slug }: { slug?: string }) {
  * counts, and the recent commits (click for the patch). Polled, so an agent
  * working in the clone is watched live.
  */
-function RepoPage({ slug }: { slug: string }) {
+/** One clone's page; `embedded` (the Artifacts preview, which names it already) drops the way back and the title. */
+export function RepoPage({ slug, embedded }: { slug: string; embedded?: boolean }) {
   const [detail, setDetail] = useState<RepoDetail | null>(null);
   // A 404 (removed), 409 (feature off) or any other answer is shown, not swallowed.
   const [loadError, setLoadError] = useState("");
@@ -129,7 +132,7 @@ function RepoPage({ slug }: { slug: string }) {
   if (loadError && !detail) {
     return (
       <Page className="repo-page">
-        <BackHead title={slug} />
+        <BackHead title={slug} embedded={embedded} />
         <Notice tone="bad">{loadError}</Notice>
       </Page>
     );
@@ -140,7 +143,7 @@ function RepoPage({ slug }: { slug: string }) {
 
   return (
     <Page className="repo-page">
-      <BackHead title={detail.slug}>
+      <BackHead title={detail.slug} embedded={embedded}>
         {detail.branch && <span className={BRANCH}>{detail.branch}</span>}
         {detail.upstream && <span className={NOTE} title="upstream">→ {detail.upstream}</span>}
         <StateWord {...st} />

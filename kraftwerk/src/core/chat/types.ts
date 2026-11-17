@@ -10,13 +10,14 @@ export type ChatAgentId = "claude" | "codex" | "pi";
 
 export type ChatScope =
   | { kind: "general" }
-  | { kind: "kraftwerk" }
+  /** Ralv. `routine`: a scheduled run of a workspace routine with no project and no agent — unattended. */
+  | { kind: "kraftwerk"; routine?: string }
   | { kind: "run"; runId: string }
   | { kind: "knowledge"; bundle?: string }
   /** `routine`: a scheduled run; `task`: opened for a task (<project>/<board>/<task>) the agent was assigned — both unattended. */
   | { kind: "agent"; slug: string; routine?: string; task?: string }
-  /** A project: the chat carries its brief, state, systems of record and links; see projects.ts. */
-  | { kind: "project"; slug: string }
+  /** A project: the chat carries its brief, state, systems of record and links; see projects.ts. `routine`: a scheduled run for the project's assistant — unattended. */
+  | { kind: "project"; slug: string; routine?: string }
   /** A channel: several agents (and humans) share one transcript; see channels.ts. */
   | { kind: "channel"; slug: string };
 

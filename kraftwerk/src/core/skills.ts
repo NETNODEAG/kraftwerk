@@ -43,6 +43,8 @@ export interface SkillInfo {
   source: "workspace" | "project" | "user" | "agent";
   /** For source "agent": the owning agent's slug. */
   agent?: string;
+  /** SKILL.md's last change (lists sort by it). */
+  updatedAt?: string;
 }
 
 export interface SkillDetail extends SkillInfo {
@@ -94,12 +96,14 @@ async function scanRoot(root: string, source: SkillInfo["source"]): Promise<Skil
       const fm = frontmatter(md);
       const name = String(fm.name ?? dirName).trim() || dirName;
       if (!NAME_RE.test(name)) return null;
+      const mtime = await fs.stat(file).then((st) => st.mtime.toISOString(), () => undefined);
       return {
         name,
         description: String(fm.description ?? "").trim(),
         path: file,
         dir,
         source,
+        ...(mtime ? { updatedAt: mtime } : {}),
       };
     })
   );

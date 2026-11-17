@@ -3,17 +3,28 @@ import path from "node:path";
 import { parse, stringify } from "yaml";
 import { getOutputDir, workspaceRoot } from "./context.js";
 import { perWorkspace } from "./workspace.js";
+import { changed } from "./changes.js";
 import { getAgent, listAgents, safeAgentSlug, agentsRoot } from "./agents.js";
+import { getProject } from "./projects.js";
+import type { ChatAgentId, ChatScope } from "./chat/types.js";
 import { chatAwaitingApproval, createChat, postMessage } from "./chat/sessions.js";
 import { pushNotification } from "./notifications.js";
 import { isIdentityString, localIdentity, readIdentity, identityString } from "./identity.js";
 import { gitCommit, repoRootFor } from "./git.js";
 
 /**
- * Routines: per-agent scheduled prompts — "message your agent every
- * weekday at 9". Definitions live next to the agent (git-tracked):
+ * Routines: scheduled prompts — "message your agent every weekday at 9".
+ * Definitions are git-tracked, in one of two places:
  *
- *   agents/<slug>/routines.yml    # list of { id, name, schedule, prompt, enabled }
+ *   agents/<slug>/routines.yml    # an agent's own: list of { id, name, schedule, prompt, enabled }
+ *   agents/routines.yml           # the workspace's: the same, each with optional `project` and `agent`
+ *
+ * A workspace routine is defined on its own, not on an agent: `project`
+ * names the project it runs in (absent: globally) and `agent` who gets the
+ * prompt (absent: the project's assistant, or Ralv when it runs globally).
+ * The functions here take an `owner`: an agent's slug, or WORKSPACE_ROUTINES
+ * for the workspace's file (which sits in the agents root because that
+ * folder is always among the synced paths).
  *
  * Runtime state (last run / last session / errors) is run-state, not
  * config, so it lives in <output>/routines-state.json. The scheduler is a
@@ -48,7 +59,14 @@ export interface Routine {
   runsOn?: string;
   /** Its runs' chats stay off remote callers' listings, and out of the cloud's report. */
   private?: boolean;
+  /** The project its runs are filed under and briefed with. Absent: it runs globally. */
+  project?: string;
+  /** A workspace routine's agent (slug). Absent: the project's assistant, or Ralv globally. An agent's own routine never carries it. */
+  agent?: string;
 }
+
+/** The owner of the workspace's routines (agents/routines.yml): never a valid agent slug. */
+export const WORKSPACE_ROUTINES = "_";
 
 /**
  * Who fires a routine, seen from this machine: here, on another identity,
@@ -158,8 +176,9 @@ export function nextRun(schedule: string, from = new Date()): string | undefined
 
 /* ---------- definition CRUD (agents/<slug>/routines.yml) ---------- */
 
-async function routinesFile(slug: string): Promise<string> {
-  return path.join(await agentsRoot(), safeAgentSlug(slug), "routines.yml");
+async function routinesFile(owner: string): Promise<string> {
+  if (owner === WORKSPACE_ROUTINES) return path.join(await agentsRoot(), "routines.yml");
+  return path.join(await agentsRoot(), safeAgentSlug(owner), "routines.yml");
 }
 
 function normalizeRoutine(raw: Record<string, unknown>): Routine | null {
@@ -173,6 +192,8 @@ function normalizeRoutine(raw: Record<string, unknown>): Routine | null {
     enabled: raw.enabled !== false,
     ...(typeof raw.runs_on === "string" && raw.runs_on.trim() ? { runsOn: raw.runs_on.trim() } : {}),
     ...(typeof raw.private === "boolean" ? { private: raw.private } : {}),
+    ...(typeof raw.project === "string" && raw.project.trim() ? { project: raw.project.trim() } : {}),
+    ...(typeof raw.agent === "string" && raw.agent.trim() ? { agent: raw.agent.trim() } : {}),
   };
 }
 
@@ -186,6 +207,8 @@ function serializeRoutine(r: Routine): Record<string, unknown> {
     enabled: r.enabled,
     ...(r.runsOn ? { runs_on: r.runsOn } : {}),
     ...(r.private !== undefined ? { private: r.private } : {}),
+    ...(r.project ? { project: r.project } : {}),
+    ...(r.agent ? { agent: r.agent } : {}),
   };
 }
 
@@ -194,21 +217,29 @@ function runsOnError(value: string): string | undefined {
   return isIdentityString(value) ? undefined : `runs_on must be <handle>@<machine> (lowercase letters, digits, ".", "_", "-"), got "${value}"`;
 }
 
-export async function listRoutines(slug: string): Promise<Routine[]> {
+export async function listRoutines(owner: string): Promise<Routine[]> {
   let raw: unknown;
   try {
-    raw = parse(await fs.readFile(await routinesFile(slug), "utf8"));
+    raw = parse(await fs.readFile(await routinesFile(owner), "utf8"));
   } catch {
     return [];
   }
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((r) => normalizeRoutine((r ?? {}) as Record<string, unknown>))
-    .filter(Boolean) as Routine[];
+  const all = raw.map((r) => normalizeRoutine((r ?? {}) as Record<string, unknown>)).filter(Boolean) as Routine[];
+  // An agent's own routine is that agent's: an `agent` key in its file means nothing.
+  return owner === WORKSPACE_ROUTINES ? all : all.map(({ agent: _ignored, ...r }) => r);
+}
+
+/** Every place routines are defined: the agents (archived ones too — the scheduler fires theirs), then the workspace. */
+async function routineOwners(): Promise<string[]> {
+  return [...(await listAgents()).map((a) => a.slug), WORKSPACE_ROUTINES];
 }
 
 async function writeRoutines(slug: string, routines: Routine[]): Promise<void> {
-  await fs.writeFile(await routinesFile(slug), stringify(routines.map(serializeRoutine)));
+  const file = await routinesFile(slug);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, stringify(routines.map(serializeRoutine)));
+  changed();
 }
 
 export interface SaveRoutineInput {
@@ -220,6 +251,10 @@ export interface SaveRoutineInput {
   /** Absent: kept as it is (a new routine gets this machine's identity). null or "": unassigned. */
   runsOn?: string | null;
   private?: boolean;
+  /** Absent: kept as it is. null or "": no project — it runs globally. */
+  project?: string | null;
+  /** Workspace routines only. Absent: kept as it is. null or "": the project's assistant, or Ralv globally. */
+  agent?: string | null;
 }
 
 export async function saveRoutine(slug: string, input: SaveRoutineInput): Promise<Routine> {
@@ -246,6 +281,12 @@ export async function saveRoutine(slug: string, input: SaveRoutineInput): Promis
   const existing = i >= 0 ? routines[i] : undefined;
   const runsOn = given === undefined ? (existing ? existing.runsOn : await localIdentity()) : given || undefined;
   const priv = input.private ?? existing?.private;
+  // Who and where: an unknown project or agent is refused here, not at 9 the next morning.
+  const pick = (v: string | null | undefined, kept: string | undefined) => (v === undefined ? kept : v?.trim() || undefined);
+  const project = pick(input.project, existing?.project);
+  if (project && project !== existing?.project && !(await getProject(project))) throw new Error(`project "${project}" not found`);
+  const agent = slug === WORKSPACE_ROUTINES ? pick(input.agent, existing?.agent) : undefined;
+  if (agent && agent !== existing?.agent && !(await getAgent(agent).catch(() => null))) throw new Error(`agent "${agent}" not found`);
   const routine: Routine = {
     id,
     name,
@@ -254,6 +295,8 @@ export async function saveRoutine(slug: string, input: SaveRoutineInput): Promis
     enabled: input.enabled !== false,
     ...(runsOn ? { runsOn } : {}),
     ...(priv !== undefined ? { private: priv } : {}),
+    ...(project ? { project } : {}),
+    ...(agent ? { agent } : {}),
   };
   if (i >= 0) routines[i] = routine;
   else routines.push(routine);
@@ -288,6 +331,7 @@ async function readState(): Promise<Record<string, RoutineState>> {
 async function writeState(state: Record<string, RoutineState>): Promise<void> {
   await fs.mkdir(getOutputDir(), { recursive: true });
   await fs.writeFile(stateFile(), JSON.stringify(state, null, 2));
+  changed();
 }
 
 /**
@@ -304,15 +348,30 @@ export function mentionsWorkflow(prompt: string, w: { slug: string; name?: strin
   });
 }
 
-/** Every agent's routines with their run state, each with the workflows its prompt names (GET /api/routines). */
-export async function allRoutines(workflows: { slug: string; name?: string }[]): Promise<(RoutineStatus & { agent: { slug: string; name: string; emoji: string }; workflows: string[] })[]> {
+/** A routine in the workspace-wide listing: where it is defined, who gets its prompt, the workflows it names. */
+export type ListedRoutine = Omit<RoutineStatus, "agent"> & {
+  /** Where it is defined: an agent's slug, or WORKSPACE_ROUTINES. */
+  owner: string;
+  /** Who gets the prompt. Absent (workspace routines only): the project's assistant, or Ralv globally — or the agent named is gone. */
+  agent?: { slug: string; name: string; emoji: string };
+  workflows: string[];
+};
+
+/** Every routine — the agents' and the workspace's — with its run state and the workflows its prompt names (GET /api/routines). */
+export async function allRoutines(workflows: { slug: string; name?: string }[]): Promise<ListedRoutine[]> {
   const agents = (await listAgents()).filter((a) => !a.archived);
+  const face = (slug: string | undefined) => {
+    const a = agents.find((x) => x.slug === slug);
+    return a ? { agent: { slug: a.slug, name: a.name, emoji: a.emoji } } : {};
+  };
+  const names = (prompt: string) => workflows.filter((w) => mentionsWorkflow(prompt, w)).map((w) => w.slug);
   const per = await Promise.all(
-    agents.map(async (a) =>
-      (await routineStatuses(a.slug).catch(() => [])).map((r) => ({
+    [...agents.map((a) => a.slug), WORKSPACE_ROUTINES].map(async (owner) =>
+      (await routineStatuses(owner).catch(() => [])).map(({ agent, ...r }): ListedRoutine => ({
         ...r,
-        agent: { slug: a.slug, name: a.name, emoji: a.emoji },
-        workflows: workflows.filter((w) => mentionsWorkflow(r.prompt, w)).map((w) => w.slug),
+        owner,
+        ...face(owner === WORKSPACE_ROUTINES ? agent : owner),
+        workflows: names(r.prompt),
       }))
     )
   );
@@ -343,13 +402,28 @@ export async function routineStatuses(slug: string): Promise<RoutineStatus[]> {
 
 /* ---------- firing ---------- */
 
-/** Open a fresh session for the agent and post the routine's prompt. */
-async function fireRoutine(slug: string, routine: Routine): Promise<string> {
-  const def = await getAgent(slug);
-  if (!def) throw new Error(`agent "${slug}" not found`);
+/**
+ * Where a routine's run happens: the agent's own session (filed under the
+ * project when it names one), else the project's assistant, else Ralv.
+ */
+async function routineTarget(owner: string, routine: Routine): Promise<{ agent: ChatAgentId; scope: ChatScope; project?: string }> {
+  const project = routine.project ? await getProject(routine.project) : null;
+  if (routine.project && !project) throw new Error(`project "${routine.project}" not found`);
+  const slug = owner === WORKSPACE_ROUTINES ? routine.agent : owner;
+  if (slug) {
+    const def = await getAgent(slug).catch(() => null);
+    if (!def) throw new Error(`agent "${slug}" not found`);
+    return { agent: def.harness, scope: { kind: "agent", slug: def.slug, routine: routine.id }, ...(project ? { project: project.slug } : {}) };
+  }
+  if (project) return { agent: project.harness, scope: { kind: "project", slug: project.slug, routine: routine.id } };
+  return { agent: "claude", scope: { kind: "kraftwerk", routine: routine.id } };
+}
+
+/** Open a fresh session where the routine runs and post its prompt. */
+async function fireRoutine(owner: string, routine: Routine): Promise<string> {
+  const target = await routineTarget(owner, routine);
   const meta = await createChat({
-    agent: def.harness,
-    scope: { kind: "agent", slug: slug, routine: routine.id },
+    ...target,
     title: `⏰ ${routine.name}`,
     ...(routine.private ? { private: true } : {}),
   });
@@ -358,14 +432,18 @@ async function fireRoutine(slug: string, routine: Routine): Promise<string> {
   return meta.id;
 }
 
+/** Where a routine is looked at and fixed: its agent's profile, or Artifacts for the workspace's. */
+export const routineHref = (owner: string, id: string): string =>
+  owner === WORKSPACE_ROUTINES ? `/artifacts?kind=routines&open=${encodeURIComponent(`routines:${owner}:${id}`)}` : `/agents/${owner}`;
+
 /** A routine could not even start (agent gone, harness missing): the bell says so. */
 function notifyRoutineFailed(slug: string, routine: Routine, message: string): Promise<unknown> {
   return pushNotification({
     kind: "routine_failed",
     title: `⏰ ${routine.name} could not start`,
     body: message,
-    href: `/agents/${slug}`,
-    diagnose: { kind: "routine", agent: slug, routine: routine.id },
+    href: routineHref(slug, routine.id),
+    diagnose: { kind: "routine", agent: slug === WORKSPACE_ROUTINES ? (routine.agent ?? "") : slug, routine: routine.id },
   }).catch(() => {});
 }
 
@@ -434,11 +512,11 @@ const scheduler = perWorkspace(() => ({ timer: null as ReturnType<typeof setInte
 export async function dueRoutines(now: Date, me?: string): Promise<{ slug: string; routine: Routine }[]> {
   const identity = me ?? (await localIdentity());
   const out: { slug: string; routine: Routine }[] = [];
-  for (const m of await listAgents()) {
-    for (const r of await listRoutines(m.slug).catch(() => [] as Routine[])) {
+  for (const owner of await routineOwners()) {
+    for (const r of await listRoutines(owner).catch(() => [] as Routine[])) {
       if (!firesHere(r, identity)) continue;
       try {
-        if (cronMatches(parseCron(r.schedule), now)) out.push({ slug: m.slug, routine: r });
+        if (cronMatches(parseCron(r.schedule), now)) out.push({ slug: owner, routine: r });
       } catch {
         // invalid schedule — surfaced by validation on save, skip here
       }
@@ -482,6 +560,7 @@ async function tick(): Promise<void> {
 /* ---------- runners: who fires what (runs_on) ---------- */
 
 export interface RunnerRef {
+  /** Where it is defined: the agent's slug, or WORKSPACE_ROUTINES. */
   agent: string;
   id: string;
   name: string;
@@ -504,7 +583,7 @@ export async function runnerFindings(): Promise<RunnerFindings> {
   const out: RunnerFindings = { unassigned: [], retired: [] };
   let since = 0;
   // Archived agents included: the scheduler fires their routines too.
-  for (const a of await listAgents()) {
+  for (const a of (await routineOwners()).map((slug) => ({ slug }))) {
     const routines = await listRoutines(a.slug).catch(() => [] as Routine[]);
     let hit = false;
     for (const r of routines) {
@@ -546,7 +625,7 @@ export async function adoptRoutines(pick: (agent: string, r: Routine, previous: 
   const me = identityString(id);
   const adopted: RunnerRef[] = [];
   const written: string[] = [];
-  for (const a of await listAgents()) {
+  for (const a of (await routineOwners()).map((slug) => ({ slug }))) {
     const routines = await listRoutines(a.slug).catch(() => [] as Routine[]);
     let changed = false;
     for (const r of routines) {
@@ -583,7 +662,7 @@ async function commitFiles(abs: string[], message: string): Promise<{ ok: boolea
 
 /** Adopt one routine (whatever its runs_on said). */
 export async function adoptRoutine(slug: string, id: string): Promise<AdoptResult & { routine: RoutineStatus }> {
-  const safe = safeAgentSlug(slug);
+  const safe = slug === WORKSPACE_ROUTINES ? slug : safeAgentSlug(slug);
   if (!(await listRoutines(safe)).some((r) => r.id === id)) throw new Error("routine not found");
   const result = await adoptRoutines((agent, r) => agent === safe && r.id === id);
   const routine = (await routineStatuses(safe)).find((r) => r.id === id)!;

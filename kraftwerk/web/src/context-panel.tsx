@@ -10,6 +10,7 @@ import { SessionCrumb } from "./sessions";
 import { VIBE_ATTACH_EVENT, VIBE_SLOT_ID, VibePane, type VibeAttachment } from "./vibeables";
 import { WorkflowView } from "./workflow-view";
 import { RunForm } from "./run-launcher";
+import { routineWho } from "./routines";
 import { BROWSE_EVENT, ContextBrowser } from "./context-browser";
 import type { AgentDetail, ChannelView, LinkState, ProjectDetail, WorkflowSummary } from "./types";
 
@@ -466,14 +467,14 @@ export function ContextPanel({ chatPath, workspace }: {
                     {/* A routine whose prompt names the workflow: who runs it, and when next. */}
                     {scheduled.map((r) => (
                       <Link
-                        key={`${r.agent.slug}/${r.id}`}
-                        href={`/agents/${encodeURIComponent(r.agent.slug)}/info`}
+                        key={`${r.owner}/${r.id}`}
+                        href={r.owner === "_" ? `/artifacts?kind=routines&open=${encodeURIComponent(`routines:_:${r.id}`)}` : `/agents/${encodeURIComponent(r.owner)}/info`}
                         className="routine-line flex min-w-0 items-center gap-1.5 pt-0.5 pb-2 pl-[46px] pr-3 text-xs text-fg-2 no-underline hover:text-fg"
-                        title={`${r.agent.name}'s routine "${r.name}" (${r.schedule}) runs this workflow: ${r.prompt}`}
+                        title={`${r.agent ? `${r.agent.name}'s routine` : "The routine"} "${r.name}" (${r.schedule}) runs this workflow: ${r.prompt}`}
                       >
                         <Icon name="schedule" className="ms-sm flex-none text-[14px]" />
                         <span className="min-w-0 truncate">
-                          {r.agent.emoji} {r.agent.name} · {r.name} · {r.enabled ? (r.nextRunAt ? `next ${fmtNext(r.nextRunAt)}` : r.schedule) : "paused"}
+                          {routineWho(r)} · {r.name} · {r.enabled ? (r.nextRunAt ? `next ${fmtNext(r.nextRunAt)}` : r.schedule) : "paused"}
                         </span>
                       </Link>
                     ))}

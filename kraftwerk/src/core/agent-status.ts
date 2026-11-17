@@ -1,6 +1,6 @@
 import { listAgents } from "./agents.js";
 import { agentActivity, listChats, type AgentActivity } from "./chat/sessions.js";
-import { routineStatuses } from "./routines.js";
+import { routineStatuses, WORKSPACE_ROUTINES } from "./routines.js";
 
 /**
  * What each agent is up to, for the status line under its name: waiting on
@@ -19,13 +19,14 @@ export interface AgentStatus {
 }
 
 export async function agentStatuses(): Promise<Record<string, AgentStatus>> {
-  const [agents, chats] = await Promise.all([listAgents(), listChats()]);
+  const [agents, chats, shared] = await Promise.all([listAgents(), listChats(), routineStatuses(WORKSPACE_ROUTINES).catch(() => [])]);
   const live = agentActivity();
   const out: Record<string, AgentStatus> = {};
   await Promise.all(
     agents.map(async (a) => {
       const act = live.get(a.slug);
-      const routines = await routineStatuses(a.slug).catch(() => []);
+      // Its own routines, and the workspace's that name it.
+      const routines = [...(await routineStatuses(a.slug).catch(() => [])), ...shared.filter((r) => r.agent === a.slug)];
       const next = routines
         .filter((r) => r.nextRunAt)
         .sort((x, y) => x.nextRunAt!.localeCompare(y.nextRunAt!))[0];

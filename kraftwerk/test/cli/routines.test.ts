@@ -104,4 +104,32 @@ describe("kraftwerk routines", () => {
     assert.match(yml, /runs_on: anna@laptop/);
     assert.match((await run(["adopt"])).stdout, /nothing to adopt/);
   });
+
+  it("a workspace routine (_) is defined on its own: --agent names who gets it, and only there", async () => {
+    const shared = () => readFile(path.join(dir.root, "kraftwerk-data", "agents", "routines.yml"), "utf8");
+    const r = await run(["add", "_", "--name", "Weekly digest", "--schedule", "@weekly", "--prompt", "Summarize the week.", "--agent", "max"]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.stdout, /✔ created _\/weekly-digest/);
+    assert.match(await shared(), /id: weekly-digest[\s\S]*agent: max/);
+    assert.doesNotMatch(await file(), /weekly-digest/, "not in max's own file");
+
+    const all = json<Record<string, (Status & { agent?: string })[]>>(await run(["list", "--json"]));
+    assert.equal(all._.find((x) => x.id === "weekly-digest")?.agent, "max");
+    assert.match((await run([])).stdout, /_ \(workspace\)\n.*weekly-digest.*→ max/);
+
+    // Nobody in particular: Ralv.
+    assert.equal((await run(["add", "_", "--id", "weekly-digest", "--name", "Weekly digest", "--schedule", "@weekly", "--prompt", "Summarize the week.", "--agent", ""])).code, 0);
+    assert.doesNotMatch(await shared(), /agent:/);
+    assert.match((await run([])).stdout, /weekly-digest.*→ Ralv/);
+
+    const ghost = await run(["add", "_", "--name", "Ghost", "--schedule", "@daily", "--prompt", "p", "--agent", "ghost"]);
+    assert.equal(ghost.code, 2);
+    assert.match(ghost.stderr, /agent "ghost" not found/);
+    const own = await run(["add", "max", "--name", "Mine", "--schedule", "@daily", "--prompt", "p", "--agent", "max"]);
+    assert.equal(own.code, 2);
+    assert.match(own.stderr, /--agent is for workspace routines/);
+
+    assert.equal((await run(["remove", "_", "weekly-digest"])).code, 0);
+    assert.doesNotMatch(await shared(), /weekly-digest/);
+  });
 });

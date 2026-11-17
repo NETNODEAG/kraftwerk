@@ -615,14 +615,15 @@ are reachable by path; opening a vibeable moves it into the app folder as
 in any chat.
 
 **Artifacts.** The rail's third row, under Chats, lists everything made in the
-workspace and its projects — workflows, knowledge bundles, apps,
-presentations, boards,
+workspace and its projects — chats (the first tile; for now also still in the rail), workflows, routines, knowledge bundles, skills, apps,
+presentations, boards, repositories,
 contacts, places and events — newest first, with the project each belongs to. A tile per
 enabled kind filters the list to that kind (click again for everything),
 and the + beside its label makes a new one; the search matches titles.
-Selecting a row shows the thing in the right column — a workflow's own
-view (run it from there), a knowledge bundle with its concepts, a deck's
-slides, the
+Selecting a row shows the thing in the right column — a chat's conversation to
+continue, a workflow's own
+view (run it from there), a routine to edit and run, a knowledge bundle with its concepts, a skill's
+instructions, a repository's changes and commits, a deck's slides, the
 app running, a board's columns, a contact to edit — with "open" to go
 where it lives. Places show on an OpenStreetMap map (all of them; a
 selected place is zoomed to, with its details under the map, and a dot on
@@ -1203,6 +1204,25 @@ orders for an employee. Definitions live next to the agent in
 `agents/<slug>/routines.yml` and are git-tracked. Run state (last run, last
 session, errors) lives in `<output>/routines-state.json`.
 
+A routine can also be defined on its own, not on an agent: the workspace's
+routines live in `agents/routines.yml`, each with the project it runs in and
+who gets the prompt. Both are optional — no `project` runs it for the whole
+workspace, no `agent` asks the project's assistant (or Ralv, when there is
+no project either):
+
+```yaml
+# agents/routines.yml
+- id: weekly-digest
+  name: Weekly digest
+  schedule: "0 9 * * 1"
+  prompt: Summarize what happened this week and add it to the project's log.
+  project: relaunch      # its runs are filed under the project and briefed with it
+  agent: max             # who gets the prompt; leave out for the project's assistant
+  enabled: true
+```
+
+An agent's own routines look the same, without `agent`:
+
 ```yaml
 # agents/max/routines.yml
 - id: morning-check
@@ -1245,9 +1265,16 @@ system notification while any inspector tab is open. Items live in
 `output/notifications.json`; `GET /api/notifications` lists them,
 `POST /api/notifications/read` marks them, `DELETE /api/notifications` clears.
 
-Manage routines on the agent page, where you can create, edit and
-delete them, toggle enabled, hit "run now", and jump to the last run's
-session. Schedules missed while the server is down are skipped, not replayed.
+Every routine is listed on **Artifacts** under Routines, with who it asks
+and when it fires next. The + there makes a workspace routine — pick the
+project (or the whole workspace) and the agent (or the project's assistant)
+in the form — and selecting one edits it in place, with "run now" and
+delete. An agent's own routines are managed on the agent page, where you can
+create, edit and delete them, toggle enabled, hit "run now", and jump to the
+last run's session. On the command line a workspace routine is agent `_`:
+`kraftwerk routines add _ --name ... --schedule ... --prompt ... [--project
+<slug>] [--agent <slug>]`. Schedules missed while the server is down are
+skipped, not replayed.
 
 ## Channels
 

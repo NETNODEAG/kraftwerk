@@ -2,7 +2,7 @@ import path from "node:path";
 import { getOutputDir } from "./context.js";
 import { getAgent } from "./agents.js";
 import { getRun, type RunDetail } from "./runs.js";
-import { listRoutines } from "./routines.js";
+import { listRoutines, WORKSPACE_ROUTINES } from "./routines.js";
 import { createChat, getChat, postMessage } from "./chat/sessions.js";
 import type { ChatAgentId, ChatScope } from "./chat/types.js";
 import { chatHref, getNotification, markNotificationsRead, type DiagnoseRef } from "./notifications.js";
@@ -54,11 +54,19 @@ function runPrompt(run: RunDetail): string {
 }
 
 async function routinePrompt(ref: Extract<DiagnoseRef, { kind: "routine" }>, agentExists: boolean): Promise<string> {
-  const routine = (await listRoutines(ref.agent).catch(() => []))
-    .find((r) => r.id === ref.routine);
+  // The agent's own routine, else one of the workspace's (agents/routines.yml) — those may name no agent at all.
+  const own = ref.agent ? (await listRoutines(ref.agent).catch(() => [])).find((r) => r.id === ref.routine) : undefined;
+  const shared = own ? undefined : (await listRoutines(WORKSPACE_ROUTINES).catch(() => [])).find((r) => r.id === ref.routine);
+  const routine = own ?? shared;
+  const whose = shared
+    ? `the workspace (agents/routines.yml${shared.project ? `, project "${shared.project}"` : ""}${ref.agent ? `, agent "${ref.agent}"` : ""})`
+    : `agent "${ref.agent}"`;
   const head = routine
-    ? `The routine "${routine.name}" (schedule ${routine.schedule}) of agent "${ref.agent}" failed.\nIts prompt was:\n"""\n${routine.prompt}\n"""\n`
-    : `A routine (${ref.routine}) of agent "${ref.agent}" failed.\n`;
+    ? `The routine "${routine.name}" (schedule ${routine.schedule}) of ${whose} failed.\nIts prompt was:\n"""\n${routine.prompt}\n"""\n`
+    : `A routine (${ref.routine}) of ${whose} failed.\n`;
+  if (shared && !ref.chatId) {
+    return `${head}\nThe session could not even start. Check the routine in agents/routines.yml: the project and agent it names must exist, and the harness must be installed and authenticated.\n\nPlease diagnose this failure.\n\n${FIX_INSTRUCTIONS}\nRe-run from Artifacts ("run" on the routine) or wait for the next scheduled time.`;
+  }
   let evidence: string;
   if (ref.chatId) {
     const chat = await getChat(ref.chatId).catch(() => null);

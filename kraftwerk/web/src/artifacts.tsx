@@ -9,27 +9,40 @@ import { EntityPage } from "./entities";
 import { VibePane } from "./vibeables";
 import { WorkflowView, type WorkflowTab } from "./workflow-view";
 import { BundleView } from "./knowledge";
+import { RepoPage } from "./repos";
+import { SkillView } from "./skills";
+import { ChatThread } from "./chat";
+import { chatHref, chatOwner } from "./dashboard";
+import { NEW_ROUTINE, RoutinePreview, WORKSPACE_ROUTINES, routineWhen, routineWho } from "./routines";
 import { Button, cn, EmptyState } from "./ui";
 import type { EntitiesView, EntityBase } from "./types";
 
 /**
- * #/artifacts: everything the workspace has made, in one list — apps
- * (vibeables), presentations, boards, contacts, places and events, the
+ * #/artifacts: everything the workspace has made, in one list — chats, workflows,
+ * routines, knowledge, skills, apps (vibeables), presentations, boards, repositories,
+ * contacts, places and events, the
  * workspace's and every project's — newest first, like a desktop app's
  * artifacts page. The tiles on top are the filter (one kind each, pressed
  * again for everything) and each has a + to make a new one; the search goes
  * by title. A row selects the thing: it shows in the right column (`ArtifactPreview`, #/artifacts?open=<key>), whose "open"
  * leads to where it lives. Only the kinds whose feature is on show.
  */
-type Kind = "workflows" | "knowledge" | "vibeables" | "presentations" | "boards" | "contacts" | "places" | "events";
+type Kind = "chats" | "workflows" | "routines" | "knowledge" | "skills" | "vibeables" | "presentations" | "boards" | "repos" | "contacts" | "places" | "events";
 
 const KINDS: { id: Kind; label: string; one: string; icon: string; hue: string; newHref: string; newTitle?: string }[] = [
+  // Chats are here to try out: the rail keeps listing them too. A row shows the conversation itself in the right column.
+  { id: "chats", label: "Chats", one: "Chat", icon: "chat", hue: "#4f46e5", newHref: "/agents/chats", newTitle: "new chat" },
   // Workflows have no form of their own: Ralv (or the CLI) writes them.
   { id: "workflows", label: "Workflows", one: "Workflow", icon: "account_tree", hue: "#0e7490", newHref: "/agents/chats", newTitle: "ask Ralv to make a workflow" },
+  // A routine made here is the workspace's own (not an agent's): its form opens in the right column.
+  { id: "routines", label: "Routines", one: "Routine", icon: "schedule", hue: "#b45309", newHref: `/artifacts?kind=routines&open=${encodeURIComponent(`routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}`)}` },
   { id: "knowledge", label: "Knowledge", one: "Knowledge bundle", icon: "menu_book", hue: "#4d7c0f", newHref: "/knowledge/new" },
+  // Skills, like workflows, are written by Ralv (or by hand, as <skills root>/<name>/SKILL.md).
+  { id: "skills", label: "Skills", one: "Skill", icon: "extension", hue: "#9333ea", newHref: "/agents/chats", newTitle: "ask Ralv to make a skill" },
   { id: "presentations", label: "Presentations", one: "Slides", icon: "slideshow", hue: "#c2410c", newHref: "/presentations/new" },
   { id: "vibeables", label: "Apps", one: "App", icon: "web", hue: "#2563eb", newHref: "/vibeables" },
   { id: "boards", label: "Boards", one: "Board", icon: "view_kanban", hue: "#15803d", newHref: "/boards/new" },
+  { id: "repos", label: "Repos", one: "Repository", icon: "source", hue: "#475569", newHref: "/repos", newTitle: "clone a repository" },
   { id: "contacts", label: "Contacts", one: "Contact", icon: "person", hue: "#7c3aed", newHref: "/contacts/new" },
   { id: "places", label: "Places", one: "Place", icon: "location_on", hue: "#be123c", newHref: "/places/new" },
   { id: "events", label: "Events", one: "Event", icon: "event", hue: "#a16207", newHref: "/events/new" },
@@ -39,9 +52,12 @@ interface Item {
   key: string;
   kind: Kind;
   title: string;
-  href: string;
+  /** Where it lives, for "open"; absent when it lives right here (a workspace routine). */
+  href?: string;
   project?: string;
   updatedAt?: string;
+  /** What the row says on the right instead of "Edited …" (a routine: when it fires next). */
+  when?: string;
   broken?: boolean;
   /** More about it on the row's second line ("12 concepts"). */
   sub?: string;
@@ -54,8 +70,8 @@ interface Item {
 }
 
 const enc = encodeURIComponent;
-// Workflows and knowledge are always there; every other kind is a feature that can be off.
-const on = (f: Features, k: Kind) => k === "workflows" || k === "knowledge" || !!f[k];
+// Chats, workflows, routines, knowledge and skills are always there; every other kind is a feature that can be off.
+const on = (f: Features, k: Kind) => k === "chats" || k === "workflows" || k === "routines" || k === "knowledge" || k === "skills" || !!f[k];
 const specOf = (k: Kind) => KINDS.find((x) => x.id === k)!;
 
 /** The page's state in its hash: the kind filtered to (#/artifacts?kind=places) and the selected artifact (&open=<key>). */
@@ -76,8 +92,13 @@ const artifactsHref = ({ kind, open }: { kind?: Kind | "all"; open?: string }): 
 /** Everything made in the workspace, newest first, with the projects' titles. */
 function useArtifacts() {
   const features = useFeatures();
+  const chats = useApi("chats.list", {});
+  const agents = useApi("agents.list", {}, { interval: 30_000 })?.agents ?? [];
   const wfs = useApi("workflows.list", {}, { interval: 30_000 });
   const know = useApi("knowledge.list", {}, { interval: 30_000 });
+  const routines = useApi("routines.list", {}, { interval: 30_000 });
+  const skills = useApi("skills.list", {}, { interval: 30_000 });
+  const repos = useApi("repos.list", features.repos ? {} : null, { interval: 30_000 });
   const vibes = useApi("vibeables.list", features.vibeables ? {} : null, { interval: 30_000 });
   const decks = useApi("presentations.list", features.presentations ? { query: { all: "1" } } : null, { interval: 30_000 });
   const boards = useApi("boards.list", features.boards ? { query: { all: "1" } } : null, { interval: 30_000 });
@@ -88,8 +109,44 @@ function useArtifacts() {
   const projectTitle = (slug?: string) => (slug ? (projects?.projects.find((p) => p.slug === slug)?.title ?? slug) : undefined);
 
   const items: Item[] = ([
+    // Every conversation, a channel's included; whose it is on the second line.
+    ...(chats?.chats ?? []).map((c) => ({
+      key: `chats:${c.id}`,
+      kind: "chats" as const,
+      title: c.title || "New chat",
+      href: chatHref(c),
+      project: c.scope.kind === "project" ? c.scope.slug : c.project,
+      updatedAt: c.updatedAt,
+      // The project is on the row already: here only who is talked to.
+      sub: c.scope.kind === "project" ? "assistant" : chatOwner({ ...c, project: undefined }, agents, (slug) => slug),
+    })),
     ...(wfs?.workflows ?? []).map((w) => ({ key: `workflows:${w.slug}`, kind: "workflows" as const, title: w.name || w.slug, href: `/workflows/${enc(w.slug)}`, updatedAt: w.updatedAt, broken: !!w.error })),
     ...(know?.bundles ?? []).map((b) => ({ key: `knowledge:${b.name}`, kind: "knowledge" as const, title: b.name, href: `/knowledge/${enc(b.name)}`, updatedAt: b.updatedAt, sub: `${b.concepts} concept${b.concepts === 1 ? "" : "s"}` })),
+    // Every routine: the workspace's own (owner "_") and each agent's; newest run first, the ones that never ran last.
+    ...(routines?.routines ?? []).map((r) => ({
+      key: `routines:${r.owner}:${r.id}`,
+      kind: "routines" as const,
+      title: r.name,
+      ...(r.owner === WORKSPACE_ROUTINES ? {} : { href: `/agents/${enc(r.owner)}/info` }),
+      project: r.project,
+      updatedAt: r.lastRunAt,
+      when: routineWhen(r),
+      broken: !!r.lastError,
+      sub: routineWho(r),
+    })),
+    // The workspace's own skills: its skills root and its .claude/skills, not the personal ~/.claude/skills.
+    ...(skills?.skills ?? [])
+      .filter((sk) => sk.source === "workspace" || sk.source === "project")
+      .map((sk) => ({ key: `skills:${sk.name}`, kind: "skills" as const, title: `/${sk.name}`, href: `/skills/${enc(sk.name)}`, updatedAt: sk.updatedAt, sub: sk.description || undefined })),
+    ...(repos?.repos ?? []).map((r) => ({
+      key: `repos:${r.slug}`,
+      kind: "repos" as const,
+      title: r.slug,
+      href: `/repos/${enc(r.slug)}`,
+      updatedAt: r.updatedAt ?? r.committedAt,
+      broken: !!r.error,
+      sub: [r.branch, r.dirty ? `${r.dirty} changed` : r.ahead ? `${r.ahead} to push` : r.behind ? `${r.behind} behind` : r.error ? "" : "clean"].filter(Boolean).join(" · "),
+    })),
     ...(vibes?.vibeables ?? []).map((v) => ({ key: `vibeables:${v.slug}`, kind: "vibeables" as const, title: v.slug, href: `/vibeables/${enc(v.slug)}`, updatedAt: v.updatedAt, broken: !!v.configError })),
     ...(decks?.presentations ?? []).map((d) => ({
       key: `presentations:${d.project ?? ""}:${d.name}`,
@@ -122,7 +179,7 @@ function useArtifacts() {
       }),
     ),
   ] as Item[]).sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-  const loading = !wfs && !know && !vibes && !decks && !boards && !contacts && !places && !events;
+  const loading = !chats && !wfs && !routines && !know && !skills && !repos && !vibes && !decks && !boards && !contacts && !places && !events;
   return { items, loading, projectTitle };
 }
 
@@ -231,13 +288,19 @@ export function ArtifactsScreen() {
                   {k.one}
                   {i.sub ? ` · ${i.sub}` : ""}
                   {project ? ` · 📁 ${project}` : ""}
-                  {i.broken ? " · unreadable" : ""}
+                  {i.broken ? (i.kind === "routines" ? " · last run failed" : " · unreadable") : ""}
                 </span>
               </span>
-              {i.updatedAt && (
-                <span className="flex-none text-sm text-fg-2 tabular-nums" title={i.updatedAt}>
-                  Edited {fmtAgo(i.updatedAt)}
+              {i.when ? (
+                <span className="flex-none text-sm text-fg-2 tabular-nums" title={i.updatedAt ? `last run ${i.updatedAt}` : "never ran"}>
+                  {i.when}
                 </span>
+              ) : (
+                i.updatedAt && (
+                  <span className="flex-none text-sm text-fg-2 tabular-nums" title={i.updatedAt}>
+                    Edited {fmtAgo(i.updatedAt)}
+                  </span>
+                )
               )}
             </Link>
           );
@@ -260,7 +323,9 @@ export function ArtifactsScreen() {
 export function ArtifactPreview() {
   const { kind, open } = useArtifactsQuery();
   const { items, loading } = useArtifacts();
-  const item = open ? items.find((i) => i.key === open) : undefined;
+  // "+ routine": nothing to find yet — the form for a new one.
+  const NEW_KEY = `routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}`;
+  const item: Item | undefined = open === NEW_KEY ? { key: NEW_KEY, kind: "routines", title: "New routine" } : open ? items.find((i) => i.key === open) : undefined;
   const k = item ? specOf(item.kind) : undefined;
   const [, a = "", b = ""] = (open ?? "").split(":");
   const mapped = kind === "places" || item?.kind === "places";
@@ -278,9 +343,11 @@ export function ArtifactPreview() {
       <h2 className="m-0 min-w-0 flex-1 truncate text-base font-semibold text-fg" title={item.title}>
         {item.title}
       </h2>
-      <Button variant="quiet" size="sm" icon="open_in_new" href={item.href} title={`open the ${k.one.toLowerCase()} where it lives`}>
-        open
-      </Button>
+      {item.href && (
+        <Button variant="quiet" size="sm" icon="open_in_new" href={item.href} title={`open the ${k.one.toLowerCase()} where it lives`}>
+          open
+        </Button>
+      )}
       <Button variant="quiet" size="sm" icon="close" href={close} aria-label="close the preview" />
     </div>
   );
@@ -328,14 +395,23 @@ export function ArtifactPreview() {
         ) : (
           <>
             {head}
-            {item.kind === "vibeables" ? (
+            {item.kind === "chats" ? (
+              // The conversation itself, composer included: it fills the column and scrolls on its own.
+              // The thread is laid out for a column with 20px at its sides (its bands bleed into that), so the column gives it.
+              <div className="artifact-chat flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-3">
+                <ChatThread key={item.key} id={a} />
+              </div>
+            ) : item.kind === "vibeables" ? (
               <div className="ctx-body ctx-embed ctx-embed-vibe">
                 <VibePane key={item.key} slug={a} />
               </div>
             ) : (
               <div key={item.key} className="ctx-body ctx-embed">
                 {item.kind === "workflows" && <WorkflowPreview slug={a} />}
+                {item.kind === "routines" && <RoutinePreview owner={a} id={b} onOpen={(key) => navigate(artifactsHref({ kind, open: key }), { replace: true })} />}
                 {item.kind === "knowledge" && <BundlePreview name={a} />}
+                {item.kind === "skills" && <SkillView name={a} />}
+                {item.kind === "repos" && <RepoPage slug={a} embedded />}
                 {item.kind === "presentations" && <DeckGlance project={a || undefined} name={b} />}
                 {item.kind === "boards" && <BoardGlance project={a || undefined} board={b} />}
                 {item.kind === "contacts" && <EntityPage kind={item.kind} slug={a} />}

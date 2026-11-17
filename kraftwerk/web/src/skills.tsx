@@ -92,7 +92,7 @@ function SkillsHome({ root }: { root: string }) {
 
 /* ---------- detail ---------- */
 
-function SkillView({ name }: { name: string }) {
+export function SkillView({ name }: { name: string }) {
   const [skill, setSkill] = useState<SkillDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [view, setView] = useState<"rendered" | "source">("rendered");

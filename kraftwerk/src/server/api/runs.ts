@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import * as z from "zod";
 import { getOutputDir } from "../../core/context.js";
 import { decide } from "../../core/decisions.js";
-import { adoptUnassigned, allRoutines } from "../../core/routines.js";
+import { adoptRoutine, adoptUnassigned, allRoutines, deleteRoutine, listRoutines, runRoutineNow, saveRoutine, WORKSPACE_ROUTINES, type SaveRoutineInput } from "../../core/routines.js";
 import { dockerStatus, stopRun, triggerRun } from "../../core/runner.js";
 import { deleteRun, getRun, listRuns, readRunFile, safeRunDir } from "../../core/runs.js";
 import { deleteWorkflow, getWorkflow, listWorkflows } from "../../core/workflows.js";
@@ -35,6 +35,22 @@ const RunInput = z.object({ request: z.string().default(""), sandbox: z.boolean(
 /** A person's answer; decide() checks it against the offered options and the note rule. */
 const DecisionInput = z.object({ decision: z.string().optional(), note: z.string().optional() });
 
+/**
+ * A workspace routine: the fields of an agent's (see agents.ts), plus where it runs and who gets the prompt.
+ * project / agent absent keep what is stored; null or "" clears (globally / the project's assistant, or Ralv).
+ */
+const WorkspaceRoutine = z.object({
+  id: z.string().optional(),
+  name: z.string().optional(),
+  schedule: z.string().optional(),
+  prompt: z.string().optional(),
+  enabled: z.boolean().optional(),
+  runsOn: z.string().nullable().optional(),
+  private: z.boolean().optional(),
+  project: z.string().nullable().optional(),
+  agent: z.string().nullable().optional(),
+});
+
 /** Workflows, their runs, and the routines that start them. */
 export const runRoutes = [
   route({ name: "workflows.list", method: "GET", path: "/api/workflows", summary: "every workflow, with validation errors" }, async () => listWorkflows()),
@@ -61,9 +77,41 @@ export const runRoutes = [
     }
   }),
 
-  route({ name: "routines.list", method: "GET", path: "/api/routines", summary: "every agent's routines with run state and the workflows each one names" }, async () => ({
+  route({ name: "routines.list", method: "GET", path: "/api/routines", summary: "every routine — the agents' and the workspace's (owner \"_\") — with run state and the workflows each one names" }, async () => ({
     routines: await allRoutines((await listWorkflows()).workflows),
   })),
+  route(
+    {
+      name: "routines.save",
+      method: "POST",
+      path: "/api/routines",
+      summary: "create or update a workspace routine (agents/routines.yml): one defined on its own, with the project it runs in (none: globally) and the agent it messages (none: the project's assistant, or Ralv)",
+      errors: 400,
+      body: WorkspaceRoutine,
+    },
+    async (c) => saveRoutine(WORKSPACE_ROUTINES, (await c.body()) as SaveRoutineInput),
+  ),
+  route({ name: "routines.delete", method: "DELETE", path: "/api/routines/:id", summary: "delete a workspace routine", errors: 400 }, async (c) => {
+    await deleteRoutine(WORKSPACE_ROUTINES, c.params.id);
+    return { ok: true as const };
+  }),
+  route({ name: "routines.run", method: "POST", path: "/api/routines/:id/run", summary: "run a workspace routine now", errors: 400 }, async (c) => {
+    if (!(await listRoutines(WORKSPACE_ROUTINES)).some((r) => r.id === c.params.id)) fail(404, "routine not found");
+    return runRoutineNow(WORKSPACE_ROUTINES, c.params.id);
+  }),
+  route(
+    {
+      name: "routines.adoptOne",
+      method: "POST",
+      path: "/api/routines/:id/adopt",
+      summary: "run this workspace routine here: runs_on = this machine's identity, routines.yml committed",
+      errors: 400,
+    },
+    async (c) => {
+      if (!(await listRoutines(WORKSPACE_ROUTINES)).some((r) => r.id === c.params.id)) fail(404, "routine not found");
+      return adoptRoutine(WORKSPACE_ROUTINES, c.params.id);
+    },
+  ),
   route(
     {
       name: "routines.adopt",

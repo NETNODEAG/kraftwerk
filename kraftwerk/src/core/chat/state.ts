@@ -80,13 +80,14 @@ export const isBusy = (state: ChatState): boolean => [...state.seats.values()].s
 export const seatAuthor = (seat: Seat): Author | undefined => (seat.key === MAIN ? undefined : { kind: "agent", slug: seat.key });
 
 /** Routine-fired sessions: nobody is expected to be watching live. */
-export const isUnattended = (scope: ChatScope): boolean => scope.kind === "agent" && (!!scope.routine || !!scope.task);
+export const isUnattended = (scope: ChatScope): boolean =>
+  scope.kind === "agent" ? !!scope.routine || !!scope.task : (scope.kind === "project" || scope.kind === "kraftwerk") && !!scope.routine;
 
-/** Diagnose handle for a failed routine session (only called for unattended agent scopes). */
+/** Diagnose handle for a failed routine session (only called for unattended scopes); `agent` is "" when a project's assistant or Ralv ran it. */
 export function routineRef(meta: ChatMeta): DiagnoseRef | undefined {
   const scope = meta.scope;
-  if (scope.kind !== "agent" || !scope.routine) return undefined;
-  return { kind: "routine", agent: scope.slug, routine: scope.routine, chatId: meta.id };
+  if ((scope.kind !== "agent" && scope.kind !== "project" && scope.kind !== "kraftwerk") || !scope.routine) return undefined;
+  return { kind: "routine", agent: scope.kind === "agent" ? scope.slug : "", routine: scope.routine, chatId: meta.id };
 }
 
 /** How the bell names a chat: its title ("⏰ Morning digest"), else the agent, else "chat". */

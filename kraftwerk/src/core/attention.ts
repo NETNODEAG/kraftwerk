@@ -3,7 +3,7 @@ import { getBoard, listAllBoards } from "./boards.js";
 import { waitingRequests } from "./chat/sessions.js";
 import { chatHref, listNotifications } from "./notifications.js";
 import { listProjects } from "./projects.js";
-import { runnerFindings, type RunnerRef } from "./routines.js";
+import { runnerFindings, WORKSPACE_ROUTINES, type RunnerRef } from "./routines.js";
 
 /**
  * What needs you: every place where work is stuck on a human, with whose it
@@ -103,7 +103,8 @@ export async function listAttention(): Promise<AttentionView> {
     .filter((n) => !n.readAt && (n.kind === "routine_failed" || n.kind === "run_failed"))
     .map((n) => {
       const owner: AttentionOwner = {};
-      if (n.diagnose?.kind === "routine") owner.agent = agentOf(n.diagnose.agent);
+      // A workspace routine may name no agent (a project's assistant or Ralv ran it).
+      if (n.diagnose?.kind === "routine" && n.diagnose.agent) owner.agent = agentOf(n.diagnose.agent);
       if (n.diagnose?.kind === "run") owner.workflow = n.title.replace(/ run .*$/, "");
       return {
         id: n.id,
@@ -123,8 +124,10 @@ export async function listAttention(): Promise<AttentionView> {
   // to a chat). Routines of one agent: that profile and its rail entry; of several: the first agent's
   // profile, whose banner adopts across the whole workspace.
   const placed = (these: RunnerRef[]): Pick<AttentionItem, "href" | "owner"> => {
-    const slugs = [...new Set(these.map((r) => r.agent))];
-    return slugs.length === 1
+    const slugs = [...new Set(these.map((r) => r.agent))].filter((s) => s !== WORKSPACE_ROUTINES);
+    // Only the workspace's own routines (agents/routines.yml): they are on Artifacts.
+    if (slugs.length === 0) return { href: "/artifacts?kind=routines", owner: {} };
+    return slugs.length === 1 && these.every((r) => r.agent === slugs[0])
       ? { href: `/agents/${slugs[0]}/info`, owner: { agent: agentOf(slugs[0]) } }
       : { href: `/agents/${slugs[0]}/info`, owner: {} };
   };

@@ -239,7 +239,7 @@ export function ChatThread({
 
   // The chat names itself in its tab, and the tab's dot says whether it works or waits: no header of
   // its own. "add coworker" sits at the strip's right end; expert detail keeps a quiet line here.
-  const canCoworker = (meta.scope.kind === "agent" && !meta.scope.routine) || meta.scope.kind === "project";
+  const canCoworker = (meta.scope.kind === "agent" || meta.scope.kind === "project") && !meta.scope.routine;
   const signedOut = live.auth?.kind === "none";
   return (
     <>

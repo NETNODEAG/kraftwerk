@@ -42,7 +42,7 @@ import { runUi } from "./ui.js";
  *   kraftwerk run [workflow] [text]   run one (prompts interactively if omitted)
  *   kraftwerk runs [show <id>]        inspect past runs from their traces
  *   kraftwerk knowledge ...           Knowledge: OKF bundles (list/get/put/verify/...)
- *   kraftwerk routines ...            per-agent scheduled prompts (list/add/remove/enable/run/adopt)
+ *   kraftwerk routines ...            scheduled prompts, an agent's or the workspace's (list/add/remove/enable/run/adopt)
  *   kraftwerk whoami                  this machine's identity (handle@machine), the runner routines name
  *   kraftwerk ui                      start the inspector web UI (localhost:1981)
  *   kraftwerk workspaces ...          known workspaces on this machine (list/start/stop/forget)

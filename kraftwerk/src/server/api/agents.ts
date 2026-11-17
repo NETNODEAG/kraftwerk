@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { agentsRoot, deleteAgent, getAgent, listAgents, saveAgent, setAgentArchived, type SaveAgentInput } from "../../core/agents.js";
+import { agentsRoot, deleteAgent, getAgent, listAgents, safeAgentSlug, saveAgent, setAgentArchived, type SaveAgentInput } from "../../core/agents.js";
 import { appendJournal, readJournal } from "../../core/journal.js";
 import { UI_ACTOR } from "../../core/knowledge.js";
 import { adoptRoutine, deleteRoutine, listRoutines, routineStatuses, runRoutineNow, saveRoutine, type SaveRoutineInput } from "../../core/routines.js";
@@ -37,6 +37,9 @@ const RoutineFields = z.object({
   runsOn: z.string().nullable().optional(),
   private: z.boolean().optional(),
 });
+
+/** An agent's slug, checked: these routes are for an agent's own routines, never the workspace's (owner "_", see /api/routines). */
+const own = (slug: string): string => safeAgentSlug(slug);
 
 /** Agents (team members): definition, own skills, journal, routines. */
 export const agentRoutes = [
@@ -109,13 +112,13 @@ export const agentRoutes = [
   ),
 
   route({ name: "agents.routines", method: "GET", path: "/api/agents/:slug/routines", summary: "the agent's routines with run state", errors: 400 }, async (c) => ({
-    routines: await routineStatuses(c.params.slug),
+    routines: await routineStatuses(own(c.params.slug)),
   })),
   route({ name: "agents.saveRoutine", method: "POST", path: "/api/agents/:slug/routines", summary: "create or update a routine", errors: 400, body: RoutineFields }, async (c) =>
-    saveRoutine(c.params.slug, (await c.body()) as SaveRoutineInput),
+    saveRoutine(own(c.params.slug), (await c.body()) as SaveRoutineInput),
   ),
   route({ name: "agents.deleteRoutine", method: "DELETE", path: "/api/agents/:slug/routines/:id", summary: "delete a routine", errors: 400 }, async (c) => {
-    await deleteRoutine(c.params.slug, c.params.id);
+    await deleteRoutine(own(c.params.slug), c.params.id);
     return { ok: true };
   }),
   route(
@@ -127,11 +130,11 @@ export const agentRoutes = [
       errors: 400,
     },
     async (c) => {
-      if (!(await listRoutines(c.params.slug)).some((r) => r.id === c.params.id)) fail(404, "routine not found");
-      return adoptRoutine(c.params.slug, c.params.id);
+      if (!(await listRoutines(own(c.params.slug))).some((r) => r.id === c.params.id)) fail(404, "routine not found");
+      return adoptRoutine(own(c.params.slug), c.params.id);
     },
   ),
   route({ name: "agents.runRoutine", method: "POST", path: "/api/agents/:slug/routines/:id/run", summary: "run a routine now", errors: 400 }, async (c) =>
-    runRoutineNow(c.params.slug, c.params.id),
+    runRoutineNow(own(c.params.slug), c.params.id),
   ),
 ];

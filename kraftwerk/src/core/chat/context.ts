@@ -270,6 +270,16 @@ export async function vibeableContext(slug: string, cwd: string): Promise<string
   );
 }
 
+/** What an unattended session (a routine's run, a task the board handed over) is told about working alone. */
+const unattendedNote = (startedBy: string): string =>
+  `\n\nThis session was started automatically by ${startedBy} — ` +
+  `nobody may be watching live. Complete the task autonomously. Edits inside the project ` +
+  `need no approval; anything your harness asks about (shell commands, network, files ` +
+  `outside the project) is shown to a human who may look later — say in one line why you ` +
+  `need it, then continue with what you can. A request nobody answers within ` +
+  `${unattendedTimeoutLabel()} is declined: report what you could not do and why, do ` +
+  `not retry it another way. End with a clear, self-contained summary of what you did and found.`;
+
 /** Base context per scope; scopeContext() appends the shared skills block. */
 async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<string> {
   if (scope.kind === "agent") {
@@ -308,21 +318,13 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `The working directory is the project root. Stay within your role; if a request is clearly outside it, ` +
       `say so and suggest which agent or tool fits better.` +
       (scope.task ? `\n\n${await taskContext(scope.task)}` : "") +
-      (scope.routine || scope.task
-        ? `\n\nThis session was started automatically by ${scope.routine ? `your scheduled routine "${scope.routine}"` : `the board: task ${scope.task} was given to you`} — ` +
-          `nobody may be watching live. Complete the task autonomously. Edits inside the project ` +
-          `need no approval; anything your harness asks about (shell commands, network, files ` +
-          `outside the project) is shown to a human who may look later — say in one line why you ` +
-          `need it, then continue with what you can. A request nobody answers within ` +
-          `${unattendedTimeoutLabel()} is declined: report what you could not do and why, do ` +
-          `not retry it another way. End with a clear, self-contained summary of what you did and found.`
-        : "")
+      (scope.routine || scope.task ? unattendedNote(scope.routine ? `your scheduled routine "${scope.routine}"` : `the board: task ${scope.task} was given to you`) : "")
     );
   }
   if (scope.kind === "project") {
     // Everything the project gathered — brief, state, records, links — plus
     // how to keep it current; see projects.ts for the block.
-    return projectContext(scope.slug, `kraftwerk-chat/${agent}`);
+    return (await projectContext(scope.slug, `kraftwerk-chat/${agent}`)) + (scope.routine ? unattendedNote(`the scheduled routine "${scope.routine}" of this project`) : "");
   }
   if (scope.kind === "knowledge") {
     const { root, bundles } = await knowledgeIndex().catch(() => ({ root: "", bundles: [] }));
@@ -394,7 +396,8 @@ async function baseScopeContext(scope: ChatScope, agent: ChatAgentId): Promise<s
       `These are persistent agents (defined under agents/); the user talks to them on the ` +
       `Agents screen. Point the user there when a request clearly belongs to one of them.\n\n` +
       (await agentFilesContext({})) +
-      `Answer questions about workflows and runs by reading the files above. Do not modify run outputs unless asked.`
+      `Answer questions about workflows and runs by reading the files above. Do not modify run outputs unless asked.` +
+      (scope.routine ? unattendedNote(`the workspace's scheduled routine "${scope.routine}"`) : "")
     );
   }
   if (scope.kind === "run") {
