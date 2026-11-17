@@ -56,6 +56,12 @@ describe("workspace routines", () => {
   });
   after(async () => {
     delete process.env.KRAFTWERK_ACP_ADAPTER;
+    // "Run now" answers before the turn ends: wait for every run to finish, or one still going writes into a closed workspace.
+    for (let i = 0; i < 200; i++) {
+      const { chats } = (await (await fetch(`${srv.url}/api/chats`)).json()) as { chats: { busy: boolean }[] };
+      if (!chats.some((c) => c.busy)) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     const { disposeAllBackends } = await import("../../src/core/chat/sessions.js");
     await disposeAllBackends();
     await srv.close();

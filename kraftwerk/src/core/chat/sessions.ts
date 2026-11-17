@@ -229,7 +229,7 @@ export async function postMessage(
           body: failed ? lastEventText(state, turnStart, "error") : lastEventText(state, turnStart, "text"),
           href: chatHref(state.meta),
           ...(failed ? { diagnose: routineRef(state.meta) } : {}),
-        });
+        }).catch(() => {});
       }
     } catch (err) {
       emit(state, { type: "error", message: (err as Error).message });
@@ -240,7 +240,7 @@ export async function postMessage(
           body: (err as Error).message,
           href: chatHref(state.meta),
           diagnose: routineRef(state.meta),
-        });
+        }).catch(() => {});
       }
       // A failed turn may mean a dead subprocess; drop it so the next
       // message spawns a fresh agent (thread history stays on disk).
