@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hello vibe coderzzz ✨</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="mesh" aria-hidden="true">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+    <span class="blob b4"></span>
+  </div>
+  <div class="cursor-glow" id="glow" aria-hidden="true"></div>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <main class="stage">
+    <div class="pill">
+      <span class="dot"></span>
+      <span>now shipping · v0.0.1-vibes</span>
+    </div>
+
+    <h1 class="hero" id="hero" aria-label="hello vibe coderzzz">
+      <span class="line"><span class="word" data-text="hello">hello</span></span>
+      <span class="line"><span class="word italic" data-text="vibe coderzzz">vibe&nbsp;coderzzz</span></span>
+    </h1>
+
+    <p class="sub">
+      the <em>only</em> app you'll ever need. zero dependencies. infinite vibes. probably works.
+    </p>
+
+    <a class="url" href="https://google.com" target="_blank" rel="noopener">google.com</a>
+
+    <div class="cta">
+      <button class="btn primary" id="vibe" type="button">
+        <span class="shine"></span>
+        ✨ increase vibes
+      </button>
+      <button class="btn ghost" id="theme" type="button">🌙</button>
+    </div>
+
+    <div class="vibe-meter" aria-live="polite">
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <span class="vibe-label" id="vibe-label">vibe level: immaculate</span>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <span class="card"><span class="floaty">🚀</span> built in 4 minutes</span>
+    <span class="card"><span class="floaty">🎨</span> designed by feelings</span>
+    <span class="card"><span class="floaty">🤖</span> 100% vibe coded</span>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

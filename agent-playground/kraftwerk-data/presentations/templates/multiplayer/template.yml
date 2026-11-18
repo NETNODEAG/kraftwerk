@@ -1,0 +1,199 @@
+# Multiplayer Mode — the stage look of the «Multiplayer Mode» talk
+# (Vibe Code Fest Basel, 24 October 2026), ported from the vibeable of the
+# same name. Sofia Pro, warm page, sky accent, hairlines.
+#
+# Positions are inches on a 16:9 canvas (10 x 5.625, 160 px to the inch, so the
+# stage is the original's 1600 x 900). The numbers below are that stage measured
+# out: the page's 4em side padding is 0.54in, the head sits where the original's
+# `.slide-head` sat, and the body slot starts under the hairline. `body` holds a
+# piece's HTML and is sized 9.72pt = 21.6px, the base the theme's em values and
+# every piece in it are drawn from — change it and the whole slide zooms.
+name: Multiplayer Mode
+size: 16:9
+fonts:
+  heading: Sofia Pro
+  body: Sofia Pro
+colors:
+  background: "#F9F9F7"
+  surface: "#FCFCFB"
+  text: "#161310"
+  ink2: "#52514E"
+  muted: "#898781"
+  accent: "#0284C7"
+  onAccent: "#FFFFFF"
+  line: "#E1E0D9"
+default: content
+css: theme.css
+layouts:
+  content:
+    description: "A head and a body: the talk's workhorse — title left, label right, a hairline, the piece below"
+    default: body
+    shapes:
+      - kind: rect
+        x: 0.54
+        y: 0.7304
+        w: 8.92
+        h: 0.00625
+        fill: line
+    slots:
+      title:
+        kind: text
+        x: 0.54
+        y: 0.324
+        w: 8.92
+        h: 0.312
+        size: 20.41
+        font: heading
+        color: text
+        valign: top
+        required: true
+        placeholder: Title
+      eyebrow:
+        kind: text
+        x: 5.26
+        y: 0.4425
+        w: 4.2
+        h: 0.1605
+        size: 7.97
+        color: muted
+        align: right
+        valign: top
+        class: eyebrow
+        placeholder: hands up
+      body:
+        kind: html
+        x: 0.54
+        y: 0.8986
+        w: 8.92
+        h: 4.0244
+        size: 9.72
+        color: text
+        required: true
+        placeholder: |
+          <div class="cards">
+            <div class="card"><span class="num">01</span><h3>First</h3><p>What it is.</p></div>
+            <div class="card"><span class="num">02</span><h3>Second</h3><p>And why it matters.</p></div>
+          </div>
+  plain:
+    description: "No head: one piece over the whole page, centred — a question, a meme, a full-bleed screenshot"
+    default: body
+    shapes: []
+    slots:
+      body:
+        kind: html
+        x: 0.54
+        y: 0.324
+        w: 8.92
+        h: 4.599
+        size: 9.72
+        color: text
+        required: true
+        placeholder: '<p class="bigq">The question that carries the slide.</p>'
+  title:
+    description: "The opening: the logo row, the title, the sub, the address foot — spread over the page"
+    default: body
+    shapes: []
+    slots:
+      body:
+        kind: html
+        x: 0.54
+        y: 0.324
+        w: 8.92
+        h: 4.599
+        size: 9.72
+        color: text
+        required: true
+        placeholder: |
+          <div class="title-logos"><img src="assets/logo.svg" alt="NETNODE" class="title-logo netnode"><span class="eyebrow">Where · when</span></div>
+          <div class="title-main"><h1>Talk title</h1><p class="title-sub">What it is about</p></div>
+          <div class="title-foot"><address><strong>Name</strong><br>Role</address><span class="date">mail · site</span></div>
+  demo:
+    description: "The live demo: the word on the left, what will be shown on the right"
+    default: body
+    shapes: []
+    slots:
+      body:
+        kind: html
+        x: 0.54
+        y: 0.324
+        w: 8.92
+        h: 4.599
+        size: 9.72
+        color: text
+        required: true
+        placeholder: '<div class="demo-split"><div class="demo-main"><p class="demo-word">Demo</p></div></div>'
+  closing:
+    description: "The last slide: the question, the book, the contact, a code to scan — stays up for the Q&A"
+    default: body
+    shapes: []
+    slots:
+      body:
+        kind: html
+        x: 0.54
+        y: 0.324
+        w: 8.92
+        h: 4.599
+        size: 9.72
+        color: text
+        required: true
+        placeholder: '<div class="closing-grid"><div class="closing-text"><h1>Questions?</h1></div></div>'
+snippets:
+  - name: Timeline
+    description: Stations alternating above and below a thickening axis
+    kind: html
+    w: 8.92
+    h: 4.02
+    content: |
+      <div class="timeline">
+        <div class="tl-axis"></div>
+        <div class="tl-item up"><span class="tl-node">1</span><span class="tl-date">before 2025</span><h3>Tools</h3><p>What it was.</p></div>
+        <div class="tl-item down"><span class="tl-node">2</span><span class="tl-date">spring 2025</span><h3>The turn</h3><p>What changed.</p></div>
+        <div class="tl-item up now"><span class="tl-node">3</span><span class="tl-date">today</span><h3>Where we are</h3><p>What it is now.</p></div>
+      </div>
+  - name: Hands-up question
+    description: One question, nothing else on the slide
+    kind: html
+    w: 8.92
+    h: 2
+    content: '<p class="bigq">Could a colleague pick up your work tomorrow without an explanation?</p>'
+  - name: Numbered rows
+    description: A numbered row per point, title left, text right
+    kind: html
+    w: 8.92
+    h: 3.2
+    content: |
+      <div class="rows large">
+        <div class="row"><span class="n">1</span><h3>The first</h3><p>What it means.</p></div>
+        <div class="row"><span class="n">2</span><h3>The second</h3><p>What it means.</p></div>
+      </div>
+  - name: Before / after roles
+    description: Two cards, the right one zoomed, with the learning under them
+    kind: html
+    w: 8.92
+    h: 3.6
+    content: |
+      <div class="role-shift">
+        <div class="role from"><span class="mv-tag">until now</span><h3>Specialist</h3><p>Does the work by hand.</p></div>
+        <div class="arr">&rarr;</div>
+        <div class="role to"><span class="mv-tag">today</span><h3>Orchestrator</h3><p>Sets the goal, checks the work.</p></div>
+      </div>
+      <p class="role-learning">And the learning: <em>the limit was never the model.</em></p>
+  - name: Screenshot, full page
+    description: One picture over the whole body with a caption
+    kind: html
+    w: 8.92
+    h: 4.02
+    content: |
+      <figure class="shot-full">
+        <img src="assets/screenshot.png" alt="">
+        <figcaption><strong>What to look at.</strong> &middot; where it is from</figcaption>
+      </figure>
+  - name: Codes to scan
+    description: A row of CTAs, each with a picture, a name and a code
+    kind: html
+    w: 8.92
+    h: 3.6
+    content: |
+      <div class="ctas">
+        <div class="cta"><span class="cta-thumb"><img src="assets/cta.png" alt=""></span><span class="cta-name">kraftwerk</span><span class="cta-do">Clone it</span><span class="cta-qr"><img src="assets/qr.svg" alt=""></span><span class="cta-url">github.com/NETNODEAG/kraftwerk</span></div>
+      </div>

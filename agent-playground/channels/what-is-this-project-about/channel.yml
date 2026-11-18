@@ -1,0 +1,6 @@
+name: what is this project about?
+members:
+  - max
+responder: max
+maxHops: 3
+project: netnode-website

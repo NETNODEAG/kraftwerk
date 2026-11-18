@@ -3,7 +3,7 @@ type: Playbook
 title: Refund handling
 description: How support handles refund requests.
 tags: [ support, refunds ]
-generated: { by: helpdesk-agent/claude-sonnet-5, at: 2026-08-22T20:35:16Z }
+generated: { by: human:user, at: 2026-09-07T16:40:19Z }
 verified:
   - { by: human:user, at: 2026-08-22T20:35:23Z }
 ---

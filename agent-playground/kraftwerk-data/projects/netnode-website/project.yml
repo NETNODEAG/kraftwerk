@@ -16,6 +16,8 @@ knowledge:
   - competitor-watch
   - netnode-helpdesk
   - netnode-website
+vibeables:
+  - hello-world
 repos:
   - frontend.netnode.ch
 workflows:
@@ -26,3 +28,4 @@ workflows:
   - helpdesk-check
 agents:
   - max
+  - web

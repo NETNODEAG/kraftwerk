@@ -1,0 +1,1 @@
+KI-Agenten bleiben nicht im Chatfenster. Sie handeln in echten Systemen: Mail, CRM, Git, Shop. Bevor du einen einsetzt, stell dir drei Fragen: Als wer handelt der Agent? Worauf darf er zugreifen? Wer schaut zu, wenn er es tut? netnode setzt Agenten nur mit Rollen, Freigaben und einem Logbuch ein. Lies «KI-Agenten im Unternehmen: drei Fragen vor dem Start».

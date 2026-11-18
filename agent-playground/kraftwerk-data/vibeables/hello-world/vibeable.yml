@@ -1,0 +1,6 @@
+# vibeable.yml — how kraftwerk previews this app. Everything is optional.
+# Without a dev command the folder is served as-is (index.html, no build step).
+#
+# dev: npm run dev        # command that starts a dev server; it gets PORT in its environment
+# port: 5173              # the port that command listens on, when it ignores PORT
+# dir: dist               # folder to serve in static mode (default: this folder)
