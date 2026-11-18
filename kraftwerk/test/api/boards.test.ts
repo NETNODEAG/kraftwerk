@@ -304,6 +304,19 @@ describe("boards API", () => {
     assert.equal((await post("/api/boards/ops/tasks", { title: "x" })).status, 400, "no new tasks until fixed");
   });
 
+  it("an assignment with wake: false wakes nobody: the caller has started the session itself (\"work on this\" with an agent)", async () => {
+    const made = await post("/api/boards/tasks/tasks?project=netnode", { title: "Quiet hand-over" });
+    const t = (await made.json()) as TaskDetail;
+    assert.equal(made.status, 201, JSON.stringify(t));
+    const r = await put(`/api/boards/tasks/tasks/${t.number}?project=netnode`, { assignee: "max", wake: false });
+    const saved = (await r.json()) as TaskDetail;
+    assert.equal(r.status, 200, JSON.stringify(saved));
+    assert.equal(saved.assignee, "max");
+    assert.match(saved.log, /Assigned (lisa → )?max/);
+    await new Promise((res) => setTimeout(res, 600));
+    assert.equal((await chats()).some((c) => c.scope.kind === "agent" && c.scope.slug === "max" && c.scope.task === saved.ref), false, "no session was opened for max");
+  });
+
   it("DELETE moves a task, then a board, to the trash; settings turn the feature off", async () => {
     assert.equal((await del("/api/boards/tasks/tasks/2?project=netnode")).status, 200);
     assert.equal((await del("/api/boards/tasks/tasks/2?project=netnode")).status, 404);

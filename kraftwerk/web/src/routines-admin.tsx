@@ -1,22 +1,26 @@
 import { useState } from "react";
 import { useApi } from "./api";
-import { fmtWhen, Icon, Link } from "./shared";
-import { NEW_ROUTINE, WORKSPACE_ROUTINES, routineWhen, routineWho, runHref, type ListedRoutine } from "./routines";
+import { Modal } from "./new-thing";
+import { fmtWhen, Icon, Link, navigate, useHashPath } from "./shared";
+import { NEW_ROUTINE, RoutinePreview, WORKSPACE_ROUTINES, routineWhen, routineWho, runHref, type ListedRoutine } from "./routines";
 import { Button, EmptyState, Page, PageHeader, Panel, Tag, TextField } from "./ui";
 
-/** Where a routine opens: on Home, in the column beside the stream. */
-const openHref = (owner: string, id: string) => `/?kind=routines&open=${encodeURIComponent(`routines:${owner}:${id}`)}`;
+const HERE = "/settings/routines";
+/** Where a routine opens: in a window over this list, so the overview stays. */
+const openHref = (owner: string, id: string) => `${HERE}?open=${encodeURIComponent(`${owner}:${id}`)}`;
 
 /**
  * Every routine of the workspace on one page (#/settings/routines): the
  * workspace's own and each agent's, with who gets the prompt, where it
  * runs, when it fires next and how the last run went — the admin's view.
- * A routine itself opens (and is edited) on Home.
+ * A routine opens (and is edited) in a window over the list.
  */
 export function RoutinesAdmin() {
   const data = useApi("routines.list", {}, { interval: 30_000 });
   const projects = useApi("projects.list", {}, { interval: 60_000 });
   const [q, setQ] = useState("");
+  // #/settings/routines?open=<owner>:<id>: the routine in its window (linkable, and Back closes it).
+  const [owner, id] = (new URLSearchParams(useHashPath().split("?")[1] ?? "").get("open") ?? "").split(":");
 
   const all = data?.routines ?? [];
   const title = (slug: string) => projects?.projects.find((p) => p.slug === slug)?.title ?? slug;
@@ -69,6 +73,20 @@ export function RoutinesAdmin() {
           </div>
         )}
       </Panel>
+      {owner && id && (
+        <Modal label="routine" title={id === NEW_ROUTINE && owner === WORKSPACE_ROUTINES ? "New routine" : (all.find((r) => r.owner === owner && r.id === id)?.name ?? "Routine")} onClose={() => navigate(HERE)}>
+          <div className="-m-3">
+            <RoutinePreview
+              owner={owner}
+              id={id}
+              onOpen={(key) => {
+                const [, o, i] = (key ?? "").split(":");
+                navigate(o && i ? openHref(o, i) : HERE, { replace: true });
+              }}
+            />
+          </div>
+        </Modal>
+      )}
     </Page>
   );
 }

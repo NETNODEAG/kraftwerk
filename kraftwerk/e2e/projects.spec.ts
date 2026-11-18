@@ -64,10 +64,11 @@ test.describe("projects", () => {
     expect(readFileSync(path.join(dir, "project.yml"), "utf8")).toMatch(/^goal: Ship the new site$/m);
     expect(existsSync(path.join(dir, "brief.md"))).toBe(true);
 
-    await page.getByRole("textbox", { name: "goal" }).fill("Ship the new site by November");
-    await page.getByRole("button", { name: "save changes" }).click();
-    await expect(page.getByText("saved")).toBeVisible();
-    expect(readFileSync(path.join(dir, "project.yml"), "utf8")).toMatch(/^goal: Ship the new site by November$/m);
+    // No save button: the goal is saved when its field is left.
+    const goalField = page.getByRole("textbox", { name: "goal" });
+    await goalField.fill("Ship the new site by November");
+    await goalField.blur();
+    await expect.poll(() => readFileSync(path.join(dir, "project.yml"), "utf8")).toMatch(/^goal: Ship the new site by November$/m);
 
     // The sidebar lists it with its goal.
     await expect(page.locator(".rail [data-project='relaunch-the-website']")).toContainText("Relaunch the website");
@@ -77,16 +78,21 @@ test.describe("projects", () => {
     // The project's own page is its Home: everything in it, nothing yet; the + on chats leads to the composer.
     await page.goto("/#/projects/relaunch-the-website");
     await expect(page.getByRole("heading", { level: 1, name: "Relaunch the website" })).toBeVisible();
-    await page.getByRole("region", { name: "kinds" }).getByRole("link", { name: "new chat" }).click();
-    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/new$/);
-    // A composer for a new session (the project's assistant by default) and the recent sessions, none yet.
+    await page.getByRole("region", { name: "kinds" }).getByRole("button", { name: "new chat" }).click();
+    // A chat window over the project's Home: the project's assistant by default.
+    const making = page.getByRole("dialog", { name: "new chat" });
+    await expect(making.getByLabel("chat with").locator("option").first()).toHaveText("🧭 Assistant (default)");
+    // Started without a message: no agent spawns. The chat opens beside the list, the project's Home stays.
+    await making.getByRole("button", { name: "start chat" }).click();
+    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\?.*open=chats%3Achat-/);
+    chatId = decodeURIComponent(page.url()).split("open=chats:")[1];
+    await expect(page.getByRole("complementary", { name: "Preview" }).locator(".artifact-chat textarea")).toBeVisible();
+
+    // The composer page is still there (#/projects/<slug>/chat/new), with the recent sessions.
+    await page.goto("/#/projects/relaunch-the-website/chat/new");
     await expect(page.getByRole("textbox", { name: "new session" })).toHaveAttribute("placeholder", "New session in Relaunch the website");
     await expect(page.getByRole("button", { name: "session with" })).toContainText("Assistant");
-    await expect(page.locator("section[aria-label='recent sessions']")).toContainText("No sessions yet");
-    // Started without a message: no agent spawns.
-    await page.getByRole("button", { name: "start session" }).click();
-    await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/chat-/);
-    chatId = page.url().split("/chat/")[1];
+    await page.goto(`/#/projects/relaunch-the-website/chat/${chatId}`);
 
     const chats = (await (await request.get("/api/chats")).json()) as { chats: Array<{ id: string; scope: { kind: string; slug?: string } }> };
     const mine = chats.chats.find((c) => c.id === chatId);

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { api, failure, useApi } from "./api";
 import { FileBrowser } from "./files";
 import { linkRefs } from "./refs";
+import { ChatCard, WhoSelect, startChat, useOpen } from "./chat-card";
 import { fmtAgo, Icon, Link, navigate, useFeatures } from "./shared";
 import {
   Badge,
@@ -584,6 +585,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
   /** The "work on this" window: what to tell the agent, and which one (none: the project's assistant, or Ralv). */
   const [ask, setAsk] = useState("");
   const [who, setWho] = useState("");
+  const open = useOpen();
   // Edited in place; null = showing the server's value.
   const [title, setTitle] = useState<string | null>(null);
   const [due, setDue] = useState<string | null>(null);
@@ -621,25 +623,30 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
     navigate(boardHref(at), { replace: true });
   };
   /** A chat about the task — with the picked agent, else in the project (Ralv for a workspace board) — whose first message points the agent at the task and carries what the user added. */
-  const workOn = async () => {
+  const workOn = async (files: File[]) => {
     if (!detail || busy) return;
     setBusy(true);
     setError("");
-    const scope = who ? { kind: "agent", slug: who } : project ? { kind: "project", slug: project } : { kind: "general" };
-    // Tagged with the task: the chat gets the task block in its context and shows up in the task's sessions.
-    const r = await api.request("chats.create", { body: { agent: "claude", scope, task: detail.ref, ...(who && project ? { project } : {}) } as never });
-    if (!r.ok) {
-      setBusy(false);
-      return setError(failure(r));
-    }
-    const id = r.data.id;
     const show = `npx kraftwerk tasks show ${detail.number}${project ? ` --project ${project}` : ""} --board ${board}`;
     const extra = ask.trim();
-    const text = `Work on task ${detail.number} ${detail.title} (task:${detail.slug} on board ${board}): read it with \`${show}\`${extra ? `\n\n${extra}` : ""}`;
-    const m = await api.request("chats.message", { id, body: { text } });
+    // Tagged with the task: the chat gets the task block in its context and shows up in the task's sessions.
+    const r = await startChat({
+      who: who || undefined,
+      project,
+      scope: who ? undefined : project ? undefined : { kind: "general" },
+      task: detail.ref,
+      text: `Work on task ${detail.number} ${detail.title} (task:${detail.slug} on board ${board}): read it with \`${show}\`${extra ? `\n\n${extra}` : ""}`,
+      files,
+    });
+    if ("error" in r) {
+      setBusy(false);
+      return setError(r.error), false;
+    }
+    // Whoever is asked to work on it has it: an agent picked here becomes the assignee.
+    if (who && detail.assignee !== who) await api.request("tasks.save", { board, task, query, body: { assignee: who, wake: false } }).catch(() => null);
     setBusy(false);
-    if (!m.ok) return setError(failure(m));
-    navigate(project ? `/projects/${enc(project)}/chat/${id}` : who ? `/agents/${enc(who)}/chat/${id}` : `/agents/chats/${id}`);
+    setAsk("");
+    open(r.href);
   };
 
   /* The notes in the editor, saved ~1 s after the last change (knowledge.tsx does the same for a page). */
@@ -813,50 +820,30 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
 
         <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 @[880px]:grid-cols-[minmax(0,1fr)_280px] @[880px]:grid-rows-[auto_1fr]">
           <div className="flex min-w-0 flex-col gap-6 @[880px]:row-span-2">
-            {/* Work on it: a chat window, like a skill's — the task where the message starts, what to add, who, send. */}
-            <section className="flex flex-col gap-2" aria-label="work on this task">
-              <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
-                <div className="flex items-start gap-2 px-4 pt-3.5 pb-1">
-                  <code className="mt-px inline-flex flex-none items-center gap-1 rounded-control bg-accent-soft px-2 py-0.5 text-sm font-medium text-on-accent-soft" title="the chat starts with this task">
-                    <Icon name="task_alt" className="ms-sm" /> #{detail.number}
-                  </code>
-                  <textarea
-                    rows={1}
-                    value={ask}
-                    aria-label="what to do on the task"
-                    placeholder="Work on this — add what to do or look at (optional)"
-                    className="block max-h-[40vh] min-h-[28px] w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
-                    onChange={(e) => setAsk(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        void workOn();
-                      }
-                    }}
-                  />
-                </div>
-                <div className="flex items-center gap-2 px-2.5 pb-2.5">
-                  <Select aria-label="work with" value={who} onChange={(e) => setWho(e.target.value)} className="h-8 w-auto max-w-[240px] rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2">
-                    <option value="">{project ? "🧭 Assistant (default)" : "🎩 Ralv (default)"}</option>
-                    {team.map((a) => (
-                      <option key={a.slug} value={a.slug}>{a.emoji || "🤖"} {a.name}</option>
-                    ))}
-                  </Select>
-                  <span className="flex-1" />
-                  <span className="truncate text-xs text-fg-2 @max-[520px]:hidden">starts a chat about this task</span>
-                  <button
-                    type="button"
-                    aria-label="work on this"
-                    title="work on this (Enter)"
-                    className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
-                    disabled={busy}
-                    onClick={() => void workOn()}
-                  >
-                    <Icon name={busy ? "progress_activity" : "arrow_upward"} className="ms-sm" />
-                  </button>
-                </div>
-              </div>
-            </section>
+            {/* Work on it: the chat window — the task where the message starts, what to add, who, send. */}
+            <ChatCard
+              label="work on this task"
+              chip={
+                <>
+                  <Icon name="task_alt" className="ms-sm" /> #{detail.number}
+                </>
+              }
+              chipTitle="the chat starts with this task"
+              value={ask}
+              onChange={setAsk}
+              minRows={1}
+              inputLabel="what to do on the task"
+              placeholder="Work on this — add what to do or look at (optional)"
+              onSend={workOn}
+              sendLabel="work on this"
+              busy={busy}
+              skills
+              who={who}
+              onWho={(slug) => team.some((a) => a.slug === slug) && setWho(slug)}
+              attach
+              controls={<WhoSelect label="work with" value={who} onChange={setWho} agents={team} byDefault={project ? "🧭 Assistant (default)" : "🎩 Ralv (default)"} />}
+              hint="starts a chat about this task"
+            />
 
             <section className="flex flex-col gap-2" aria-label="description">
               <div className="flex items-center gap-2">

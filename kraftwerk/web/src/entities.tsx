@@ -374,6 +374,19 @@ export function EntityPage({ kind, slug }: { kind: EntityKind; slug: string }) {
 
 function NewEntity({ kind }: { kind: EntityKind }) {
   const spec = KINDS[kind];
+  return (
+    <Page>
+      <PageHeader icon={spec.icon} title={`new ${spec.singular}`} sub={`a Markdown file under the ${kind} root; the file name derives from the title`} />
+      <Panel>
+        <NewEntityForm kind={kind} />
+      </Panel>
+    </Page>
+  );
+}
+
+/** The form of a new contact, place or event: on its page, or in the "new" window of Home (which says what happens after). */
+export function NewEntityForm({ kind, onCreated, onCancel }: { kind: EntityKind; onCreated?: (slug: string) => void; onCancel?: () => void }) {
+  const spec = KINDS[kind];
   const [title, setTitle] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -385,7 +398,8 @@ function NewEntity({ kind }: { kind: EntityKind }) {
     try {
       const r = await createEntity(kind, { title, ...fields });
       if (!r.ok) throw new Error(failure(r));
-      navigate(`/${kind}/${encodeURIComponent((r.data as Entity).slug)}`, { replace: true });
+      if (onCreated) onCreated((r.data as Entity).slug);
+      else navigate(`/${kind}/${encodeURIComponent((r.data as Entity).slug)}`, { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -394,9 +408,6 @@ function NewEntity({ kind }: { kind: EntityKind }) {
   };
 
   return (
-    <Page>
-      <PageHeader icon={spec.icon} title={`new ${spec.singular}`} sub={`a Markdown file under the ${kind} root; the file name derives from the title`} />
-      <Panel>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -416,12 +427,10 @@ function NewEntity({ kind }: { kind: EntityKind }) {
               <Button variant="primary" type="submit" icon="add" busy={busy} disabled={!title.trim() || busy}>
                 create {spec.singular}
               </Button>
-              <Button variant="quiet" href={`/${kind}`}>cancel</Button>
+              {onCancel ? <Button variant="quiet" onClick={onCancel}>cancel</Button> : <Button variant="quiet" href={`/${kind}`}>cancel</Button>}
               {error && <span className="text-sm text-bad">{error}</span>}
             </FieldRow>
           </FormStack>
         </form>
-      </Panel>
-    </Page>
   );
 }

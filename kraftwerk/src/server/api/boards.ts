@@ -138,10 +138,10 @@ export const boardRoutes = [
     const task = (await getTask(refOf(c), c.params.task)) ?? fail(404, `no task "${c.params.task}"`);
     return { ...task, sessions: await taskSessions(task.ref) };
   }),
-  route({ name: "tasks.save", method: "PUT", path: "/api/boards/:board/tasks/:task", summary: "save fields and markdown; a status or assignee change is logged (message?)", errors: boardErrors, body: TaskFields }, async (c) => {
+  route({ name: "tasks.save", method: "PUT", path: "/api/boards/:board/tasks/:task", summary: "save fields and markdown; a status or assignee change is logged (message?) and wakes an agent assigned in a work column (unless wake: false)", errors: boardErrors, body: TaskFields.extend({ wake: z.boolean().optional() }) }, async (c) => {
     await requireOn();
-    const { actor, message, ...fields } = await c.body();
-    return saveTask(refOf(c), c.params.task, fields as TaskInput, { actor, message });
+    const { actor, message, wake, ...fields } = await c.body();
+    return saveTask(refOf(c), c.params.task, fields as TaskInput, { actor, message, quiet: wake === false });
   }),
   route(
     {

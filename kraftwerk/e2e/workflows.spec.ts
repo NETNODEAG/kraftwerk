@@ -130,7 +130,7 @@ test.describe("workflows screen", () => {
     await expect(nav.locator("a", { hasText: "skills" })).toBeVisible();
     // It stays on the overview it leads to.
     await nav.locator("a", { hasText: "workflows" }).click();
-    await expect(page).toHaveURL(/#\/workflows/);
+    await expect(page).toHaveURL(/#\/settings\/workflows$/);
     await expect(nav.locator("a", { hasText: "workflows" })).toHaveAttribute("aria-current", "page");
     await expect(nav.locator("a", { hasText: "base settings" })).not.toHaveAttribute("aria-current", "page");
 

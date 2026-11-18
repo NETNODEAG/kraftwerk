@@ -130,8 +130,9 @@ test.describe("agent vibeables", () => {
     const row = page.locator(".agent-view [data-link-kind=vibeables]");
     await expect(row).toContainText("none linked");
     await row.getByRole("button", { name: "edit" }).click();
+    // A tick saves right away; "done" (busy until it is stored) closes the checklist.
     await row.getByRole("checkbox", { name: new RegExp(APP) }).check();
-    await row.getByRole("button", { name: "save" }).click();
+    await row.getByRole("button", { name: "done" }).click();
     await expect(row.locator(`a[href='#/vibeables/${APP}']`)).toBeVisible();
     expect(readFileSync(path.join(fixture(), "agents", SLUG, "agent.yml"), "utf8")).toMatch(new RegExp(`^vibeables:\\n  - ${APP}$`, "m"));
 
@@ -146,7 +147,7 @@ test.describe("agent vibeables", () => {
     const modalRow = page.locator(".edit-modal [data-link-kind=vibeables]");
     await modalRow.getByRole("button", { name: "edit" }).click();
     await modalRow.getByRole("checkbox", { name: new RegExp(APP) }).uncheck();
-    await modalRow.getByRole("button", { name: "save" }).click();
+    await modalRow.getByRole("button", { name: "done" }).click();
     await expect(modalRow).toContainText("none linked");
     await page.getByRole("button", { name: "close" }).click();
     await expect(page.locator(".edit-modal")).toHaveCount(0);

@@ -8,22 +8,24 @@ interface NavItem {
   href: string;
   label: string;
   icon: string;
+  /** Keeps its label on a laptop's width; the others show their icon there and the label on hover. */
+  main?: boolean;
 }
 
 /** The overviews the settings navigation links to, as the workspace's features allow. */
 function useNavItems(): NavItem[] {
   const features = useFeatures();
   return [
-    { id: "settings", href: "/settings", label: "base settings", icon: "settings" },
-    { id: "agents", href: "/settings/agents", label: "agents", icon: "smart_toy" },
-    { id: "routines", href: "/settings/routines", label: "routines", icon: "schedule" },
-    { id: "workflows", href: "/workflows", label: "workflows", icon: "account_tree" },
-    { id: "knowledge", href: "/knowledge", label: "knowledge", icon: "menu_book" },
-    { id: "files", href: "/files", label: "files", icon: "folder_open" },
-    ...(features.boards ? [{ id: "boards", href: "/boards", label: "boards", icon: "view_kanban" }] : []),
+    { id: "settings", main: true, href: "/settings", label: "base settings", icon: "settings" },
+    { id: "agents", main: true, href: "/settings/agents", label: "agents", icon: "smart_toy" },
+    { id: "routines", main: true, href: "/settings/routines", label: "routines", icon: "schedule" },
+    { id: "workflows", main: true, href: "/settings/workflows", label: "workflows", icon: "account_tree" },
+    { id: "knowledge", main: true, href: "/settings/knowledge", label: "knowledge", icon: "menu_book" },
+    { id: "files", main: true, href: "/files", label: "files", icon: "folder_open" },
+    ...(features.boards ? [{ id: "boards", main: true, href: "/settings/boards", label: "boards", icon: "view_kanban" }] : []),
     ...(features.presentations ? [{ id: "presentations", href: "/presentations", label: "presentations", icon: "slideshow" }] : []),
-    ...(features.vibeables ? [{ id: "vibeables", href: "/vibeables", label: "apps", icon: "web" }] : []),
-    { id: "skills", href: "/skills", label: "skills", icon: "extension" },
+    ...(features.vibeables ? [{ id: "vibeables", href: "/settings/apps", label: "apps", icon: "web" }] : []),
+    { id: "skills", main: true, href: "/settings/skills", label: "skills", icon: "extension" },
     ...(features.repos ? [{ id: "repos", href: "/repos", label: "repositories", icon: "source" }] : []),
     ...(features.contacts ? [{ id: "contacts", href: "/contacts", label: "contacts", icon: "person" }] : []),
     ...(features.places ? [{ id: "places", href: "/places", label: "places", icon: "location_on" }] : []),
@@ -34,6 +36,9 @@ function useNavItems(): NavItem[] {
 
 /** The pages the settings navigation sits above: the settings and every overview it links to. */
 const SECTION = new Set(["settings", "workflows", "runs", "knowledge", "files", "boards", "presentations", "vibeables", "skills", "repos", "contacts", "places", "events", "workspaces"]);
+
+/** The overviews under #/settings/<id>, named like their entry in the navigation. */
+const OVERVIEWS = new Set(["agents", "routines", "workflows", "knowledge", "boards", "skills"]);
 
 /** Whether `path` is a page of the settings section (and so carries its navigation). */
 export function inSettingsSection(path: string): boolean {
@@ -46,12 +51,13 @@ export function inSettingsSection(path: string): boolean {
  * It is the way to those pages for everyone — the top bar has no
  * navigation of its own, and expert mode only decides how much a chat shows.
  * It stays on the overviews, so one leads to the next without going back.
+ * It fits a laptop without scrolling sideways: see the labels below.
  */
 export function SettingsNav({ path }: { path: string }) {
   const items = useNavItems();
   const [first = "", second = ""] = path.split("?")[0].split("/").filter(Boolean);
-  // The agents and routines overviews live under the settings (#/settings/agents); #/agents is the conversations.
-  const here = first === "settings" ? (second === "agents" || second === "routines" ? second : "settings") : first === "runs" ? "workflows" : first;
+  // The overviews live under the settings (#/settings/agents, …; apps are the vibeables); #/agents is the conversations.
+  const here = first === "settings" ? (OVERVIEWS.has(second) ? second : second === "apps" ? "vibeables" : "settings") : first === "runs" ? "workflows" : first;
   const active = (id: string) => here === id;
   return (
     // settings-nav: the tests find it by this name.
@@ -72,8 +78,11 @@ export function SettingsNav({ path }: { path: string }) {
               i === 0 && "mr-2"
             )}
             aria-current={on ? "page" : undefined}
+            aria-label={t.label}
+            title={t.label}
           >
-            <Icon name={t.icon} fill={on} /> {t.label}
+            {/* All fifteen labels need about 1700px: below that the lesser ones are icons (the one you are on keeps its label), on a phone all are. */}
+            <Icon name={t.icon} fill={on} /> <span className={cn(!on && (t.main ? "max-[1100px]:hidden" : "max-[1720px]:hidden"))}>{t.label}</span>
           </Link>
         );
       })}

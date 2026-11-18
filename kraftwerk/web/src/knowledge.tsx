@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { BundleDetail, ConceptDetail, KnowledgeIndex } from "./types";
-import { createChatAndOpen } from "./chat";
+import { ChatCard, startChat, useOpen } from "./chat-card";
 import { api, failure, useApi } from "./api";
 import { navigate, Icon, Link, LocalNav } from "./shared";
 import { Button, cn, Dot, EmptyState, Fact, Facts, Hint, ListRow, Notice, Panel, SideHead, SideList, SideNote, Tabs, Tag, TextField, Title } from "./ui";
@@ -143,6 +143,50 @@ const PRE = "m-0 max-h-[560px] overflow-auto px-[18px] py-3.5 font-mono text-xs 
 const ACTIVITY_ID = "@activity";
 
 /**
+ * Ask the bundle, or have it curated: the chat window with the bundle where
+ * the message starts. The chat is the bundle's own (its pages are its context).
+ */
+function BundleAsk({ name }: { name: string }) {
+  const open = useOpen();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const send = async (files: File[]) => {
+    setBusy(true);
+    setError("");
+    const r = await startChat({ scope: { kind: "knowledge", bundle: name }, text, files });
+    setBusy(false);
+    if ("error" in r) return setError(r.error), false;
+    setText("");
+    open(r.href);
+  };
+  return (
+    <ChatCard
+      label="ask this bundle"
+      className="bundle-ask"
+      chip={
+        <>
+          <Icon name="menu_book" className="ms-sm" /> {name}
+        </>
+      }
+      chipTitle="the chat knows this bundle's pages"
+      value={text}
+      onChange={setText}
+      minRows={1}
+      inputLabel="what to ask or change in the bundle"
+      placeholder="Ask it something, or say what to add or correct (optional)"
+      onSend={send}
+      sendLabel="curate in chat"
+      busy={busy}
+      error={error}
+      skills
+      attach
+      hint="starts a chat on this bundle"
+    />
+  );
+}
+
+/**
  * Bundle = small wiki: "pages" tab with a page sidebar + the selected
  * concept in the main area (first page by default), "activity" tab with
  * the OKF update log. The selected page lives in the URL so links stay
@@ -207,13 +251,11 @@ export function BundleView({ name, conceptId, onRemoved }: { name: string; conce
                 <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>cancel</Button>
               </>
             )}
-            <Button variant="primary" onClick={() => void createChatAndOpen("claude", { kind: "knowledge", bundle: name })}>
-              curate in chat
-            </Button>
           </>
         )}
       </div>
       {removeError && <Notice tone="bad">{removeError}</Notice>}
+      <BundleAsk name={name} />
 
       {tab === "activity" ? (
         data.log ? (

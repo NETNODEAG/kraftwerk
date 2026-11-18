@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -24,6 +24,7 @@ test.describe("palette", () => {
   });
   test.afterAll(async ({ request }) => {
     await request.put("/api/settings", { data: { projects: { enabled: false } } });
+    rmSync(path.join(fixture(), "skills", "palette-probe"), { recursive: true, force: true });
   });
 
   test("⌘K opens it grouped by workspace, typing filters, enter jumps to the agent", async ({ page }) => {
@@ -78,5 +79,46 @@ test.describe("palette", () => {
     await expect(dialog.getByText(/no agent, project or channel matches/)).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+  });
+
+  test("does things in place: a command opens its chat window, Tab uses a skill, ⌥C starts a chat from anywhere", async ({ page, request }) => {
+    mkdirSync(path.join(fixture(), "skills", "palette-probe"), { recursive: true });
+    writeFileSync(path.join(fixture(), "skills", "palette-probe", "SKILL.md"), "---\nname: palette-probe\ndescription: probes the palette\n---\n# Palette probe\n");
+    await page.goto("/#/");
+    await page.keyboard.press("ControlOrMeta+k");
+    const dialog = page.getByRole("dialog", { name: "jump to an agent, project or channel" });
+    const search = page.getByRole("textbox", { name: "search" });
+
+    // A command is done here: the chat window, and Escape leads back to the list.
+    await search.fill("new chat");
+    await expect(dialog.getByRole("option").first()).toContainText("New chat");
+    await page.keyboard.press("Enter");
+    await expect(dialog.getByRole("region", { name: "new chat" }).getByRole("textbox", { name: "message" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("region", { name: "new chat" })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+
+    // Things under Settings are found too.
+    await search.fill("all routines");
+    await expect(dialog.getByRole("option").first()).toContainText("All routines");
+
+    // A skill opens with Enter, and is used right here with Tab: its command, what to add, send.
+    await search.fill("palette-probe");
+    await expect(dialog.getByRole("option")).toHaveCount(1);
+    await expect(dialog.getByRole("option")).toContainText("/palette-probe");
+    await page.keyboard.press("Tab");
+    const use = dialog.getByRole("region", { name: "use this skill" });
+    await expect(use.locator("code")).toHaveText("/palette-probe");
+    await use.getByLabel("what to do with the skill").fill("from the palette");
+    await use.getByRole("button", { name: "send to a new chat" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
+    await expect(page.locator(".col-chat")).toContainText("/palette-probe from the palette");
+    await request.delete(`/api/chats/${page.url().split("/chats/")[1]}`);
+
+    // ⌥C from anywhere outside a field: straight to the chat window.
+    await page.goto("/#/workflows");
+    await page.locator("body").press("Alt+c");
+    await expect(dialog.getByRole("region", { name: "new chat" })).toBeVisible();
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, failure } from "./api";
 import { DiffView, FileStatus, NOTE, PANEL_EMPTY } from "./git";
-import { fmtAgo, Icon, Link, useExpertMode } from "./shared";
+import { fmtAgo, Icon, Link } from "./shared";
 import { Button, cn, EmptyState, Field, Notice, Page, PageHeader, Panel, Tag, TextField, Title } from "./ui";
 import type { RepoDetail, RepoInfo, ReposView } from "./types";
 
@@ -86,7 +86,6 @@ export function RepoPage({ slug, embedded }: { slug: string; embedded?: boolean 
   const [verb, setVerb] = useState("");
   const [actionError, setActionError] = useState("");
   const [version, setVersion] = useState(0);
-  const expert = useExpertMode();
 
   const reload = useCallback(async () => {
     try {
@@ -154,7 +153,7 @@ export function RepoPage({ slug, embedded }: { slug: string; embedded?: boolean 
       </BackHead>
       <div className={cn(NOTE, "flex flex-wrap gap-x-3.5 gap-y-1")}>
         {detail.url && <span title={detail.url}>{shortUrl(detail.url)}</span>}
-        {expert && <span title={detail.path}>{detail.path}</span>}
+        <span title={detail.path}>{detail.path}</span>
         {detail.head && <span>at <code>{detail.head}</code>{detail.committedAt ? ` · ${fmtAgo(detail.committedAt)}` : ""}</span>}
         {!!detail.ahead && <span>{detail.ahead} to push</span>}
         {!!detail.behind && <span>{detail.behind} behind</span>}
@@ -218,7 +217,6 @@ function ReposList() {
   const [branch, setBranch] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
-  const expert = useExpertMode();
 
   const reload = useCallback(async () => {
     try {
@@ -377,7 +375,7 @@ function ReposList() {
                     {r.updatedAt && <span className={NOTE} title={r.updatedAt}>changed {fmtAgo(r.updatedAt)}</span>}
                   </div>
                   {r.url && <div className="font-mono text-xs [overflow-wrap:anywhere] text-fg-2" title={r.url}>{shortUrl(r.url)}</div>}
-                  {expert && <div className="text-xs [overflow-wrap:anywhere] text-fg-2 opacity-70" title={r.path}>{r.path}</div>}
+                  <div className="text-xs [overflow-wrap:anywhere] text-fg-2 opacity-70" title={r.path}>{r.path}</div>
                   <div className={cn(NOTE, "flex flex-wrap gap-x-3.5 gap-y-1 [&_code]:text-[11.5px]")}>
                     {r.head && (
                       <span title={r.committedAt}>

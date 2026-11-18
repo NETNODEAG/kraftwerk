@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Agent } from "../types";
 import { ChatThread } from "../chat";
 import { api, useApi } from "../api";
-import { Icon, useExpertMode } from "../shared";
+import { Icon } from "../shared";
 import { Button, cn, EmptyState, Eyebrow, Hint, IconButton, ListRow, SideHead, SideList, TextField } from "../ui";
 import { KnowledgeSide } from "./knowledge-side";
 import { AgentHome, RalvHome, AgentsLanding, AgentsHome } from "./landing";
@@ -47,7 +47,6 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
   const chatId = mode === "chat" ? seg[2] : mode === "chats" && !newChat ? seg[1] : undefined;
 
   const data = useApi("agents.list", {});
-  const expert = useExpertMode();
 
   // Agent groups: persisted per agent (agent.yml `group:`); a freshly created,
   // still-empty group lives in localStorage until an agent is dropped into it.
@@ -140,10 +139,8 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
     }
   }
 
-  // Drop-target props for one group section ("" = ungrouped); expert only.
-  const dropProps = (g: string) =>
-    expert
-      ? {
+  // Drop-target props for one group section ("" = ungrouped).
+  const dropProps = (g: string) => ({
           onDragOver: (e: React.DragEvent) => {
             if (dragSlug == null) return;
             e.preventDefault();
@@ -157,15 +154,13 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
             setDragSlug(null);
             setDropGroup(null);
           },
-        }
-      : {};
+  });
 
   const memberRow = (m: Agent) => (
     <div
       key={m.slug}
       className={dragSlug === m.slug ? "opacity-40" : undefined}
       onDragStart={(e) => {
-        if (!expert) return e.preventDefault();
         e.dataTransfer.setData("text/plain", m.slug);
         e.dataTransfer.effectAllowed = "move";
         setDragSlug(m.slug);
@@ -256,11 +251,9 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
         <SideHead
           title="agents"
           action={
-            expert && (
-              <Button size="sm" variant="quiet" icon="add" href="/agents/new">
-                new
-              </Button>
-            )
+            <Button size="sm" variant="quiet" icon="add" href="/agents/new">
+              new
+            </Button>
           }
         />
         <SideList>
@@ -294,7 +287,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
                   )}
                   <span className="text-[10px] tabular-nums text-fg-2">{its.length}</span>
                   <span className="flex-1" />
-                  {expert && renaming !== g && (
+                  {renaming !== g && (
                     <IconButton
                       icon="edit"
                       label="Rename group"
@@ -306,7 +299,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
                       }}
                     />
                   )}
-                  {expert && its.length === 0 && extraGroups.includes(g) && (
+                  {its.length === 0 && extraGroups.includes(g) && (
                     <IconButton
                       icon="close"
                       label="Remove empty group"
@@ -317,7 +310,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
                   )}
                 </div>
                 {its.map(memberRow)}
-                {its.length === 0 && <div className={GROUP_EMPTY}>{expert ? "drag agents here" : "no agents"}</div>}
+                {its.length === 0 && <div className={GROUP_EMPTY}>drag agents here</div>}
               </div>
             );
           })}
@@ -338,8 +331,7 @@ export function AgentsScreen({ seg }: { seg: string[] }) {
             </div>
           )}
           {data && agents.length === 0 && <Hint className="py-1.5 px-2.5">no agents yet</Hint>}
-          {expert &&
-            (addingGroup ? (
+          {(addingGroup ? (
               <div className="px-2.5 pt-2.5 pb-1">
                 <TextField
                   className="h-8 text-sm"

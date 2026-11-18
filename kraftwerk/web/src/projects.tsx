@@ -1,5 +1,5 @@
 import { ArtifactsScreen } from "./artifacts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type {
@@ -13,7 +13,7 @@ import type {
 } from "./types";
 import { api, failure, useApi } from "./api";
 import { ChatThread } from "./chat";
-import { EFFORTS, Icon, Link, navigate, fmtAgo, useExpertMode, PROJECT_ASSISTANT, useFeatures } from "./shared";
+import { EFFORTS, Icon, Link, navigate, fmtAgo, PROJECT_ASSISTANT, useFeatures } from "./shared";
 import { SessionHome, createSession } from "./session-home";
 import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, IconButton, ListRow, Notice, Page, Panel, PanelRow, PanelRows, Select, SideHead, SideList, SideNote, Tag, TextArea, TextField, Title, type DotTone } from "./ui";
 
@@ -35,7 +35,6 @@ import { Avatar, Button, Dot, EmptyState, Field, FieldRow, FormStack, Hint, Icon
 
 const STATUSES: ProjectStatus[] = ["active", "paused", "done", "archived"];
 const STATUS_DOT: Record<ProjectStatus, DotTone> = { active: "working", paused: "idle", done: "ok", archived: "idle" };
-const STATUS_TAG: Record<ProjectStatus, "accent" | "ok" | "neutral"> = { active: "accent", paused: "neutral", done: "ok", archived: "neutral" };
 
 const RECORD_KINDS: Record<string, string> = {
   "my-netnode": "my.netnode.ch",
@@ -69,8 +68,8 @@ const chatsOf = (chats: ProjectChat[] | undefined, slug: string): ProjectChat[] 
 /** Every chat of a project opens here — a channel session too; it just renders in channel mode. */
 const chatHref = (c: ProjectChat, slug: string): string => `/projects/${encodeURIComponent(slug)}/chat/${c.id}`;
 
-async function putProject(slug: string, patch: Record<string, unknown>): Promise<ProjectDetail> {
-  const r = await api.request("projects.save", { slug, body: patch });
+async function putProject(slug: string, patch: Record<string, unknown>, keepalive = false): Promise<ProjectDetail> {
+  const r = await api.request("projects.save", { slug, body: patch, keepalive });
   if (!r.ok) throw new Error(failure(r));
   return r.data;
 }
@@ -83,7 +82,6 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
 
   const [view, setView] = useState<ProjectsView | null>(null);
   const [loadError, setLoadError] = useState("");
-  const expert = useExpertMode();
 
   const reload = useCallback(async () => {
     try {
@@ -160,8 +158,7 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
           title="projects"
           count={view?.enabled ? projects.length : undefined}
           action={
-            view?.enabled &&
-            (expert || projects.length === 0) && (
+            view?.enabled && (
               <Button size="sm" variant="quiet" icon="add" href="/projects/new">
                 new
               </Button>
@@ -371,81 +368,140 @@ const LINKS: Array<{ kind: LinkKind; label: string; icon: string; href?: (slug: 
 /** What the workspace offers for each link kind: slug + hint, for the add picker. */
 type Option = { slug: string; hint?: string };
 
+/** The project page's text fields: typed in place, saved when the field is left (brief and state also after a pause). */
+type TextKey = "title" | "goal" | "model" | "brief" | "state";
+const TEXT_KEYS: TextKey[] = ["title", "goal", "model", "brief", "state"];
+/** Whether what is typed is something else than what the project has; an emptied title is not (a project keeps its title). */
+const differs = (key: TextKey, text: string, p: ProjectDetail): boolean => {
+  if (key === "brief" || key === "state") return text !== p[key];
+  if (key === "title") return !!text.trim() && text.trim() !== p.title;
+  return text.trim() !== (p[key] ?? "");
+};
+
 export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () => Promise<void> }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [gone, setGone] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  // Head fields and the two documents are edited in place; lists and records save on each change.
-  const [title, setTitle] = useState("");
-  const [goal, setGoal] = useState("");
-  const [status, setStatus] = useState<ProjectStatus>("active");
-  const [harness, setHarness] = useState<ChatAgentId>("claude");
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
-  const [brief, setBrief] = useState("");
-  const [state, setState] = useState("");
-  const [dirty, setDirty] = useState(false);
+  // Typed in place; a field without a draft shows the server's value. Selects, lists and records save on each change.
+  const [drafts, setDrafts] = useState<Partial<Record<TextKey, string>>>({});
   const [logEntry, setLogEntry] = useState("");
-  const expert = useExpertMode();
   // Links to contacts, places and events show only while those features are on.
   const features = useFeatures();
+  // The project and the drafts as they stand now, for the saves that run later (after a pause, on leaving the page).
+  const projectRef = useRef<ProjectDetail | null>(null);
+  const draftsRef = useRef<Partial<Record<TextKey, string>>>({});
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const removedRef = useRef(false);
 
-  const apply = (p: ProjectDetail) => {
+  const show = (p: ProjectDetail) => {
+    projectRef.current = p;
     setProject(p);
-    setTitle(p.title);
-    setGoal(p.goal);
-    setStatus(p.status);
-    setHarness(p.harness);
-    setModel(p.model ?? "");
-    setEffort(p.effort ?? "");
-    setBrief(p.brief);
-    setState(p.state);
-    setDirty(false);
+  };
+  const draft = (next: Partial<Record<TextKey, string>>) => {
+    draftsRef.current = next;
+    setDrafts(next);
   };
 
   useEffect(() => {
     let alive = true;
     api
       .call("projects.get", { slug })
-      .then((p) => alive && apply(p))
+      .then((p) => alive && show(p))
       .catch(() => alive && setGone(true));
     return () => {
       alive = false;
     };
   }, [slug]);
 
-  const touch = () => {
-    setDirty(true);
-    setSaved(false);
-    setError("");
+  /** Saves go one after the other; a patch given as a function is worked out when its turn comes. */
+  const save = (patch: Record<string, unknown> | (() => Record<string, unknown> | null), keepalive = false): Promise<void> => {
+    pendingRef.current++;
+    setSaving(true);
+    const run = queueRef.current.then(async () => {
+      const body = typeof patch === "function" ? patch() : patch;
+      if (body && !removedRef.current) {
+        setError("");
+        try {
+          show(await putProject(slug, body, keepalive));
+          await onChanged();
+        } catch (err) {
+          setError((err as Error).message);
+          // Not saved: a select goes back to what the server has (what was typed stays in its field).
+          const stored = await api.call("projects.get", { slug }).catch(() => null);
+          if (stored) show(stored);
+        }
+      }
+      pendingRef.current--;
+      if (pendingRef.current === 0) setSaving(false);
+    });
+    queueRef.current = run;
+    return run;
+  };
+  /** A select of the side column: shown at once, saved right away. */
+  const set = (patch: Partial<Pick<ProjectDetail, "status" | "harness" | "effort">>) => {
+    if (projectRef.current) show({ ...projectRef.current, ...patch });
+    void save(patch);
   };
 
-  const save = async (patch: Record<string, unknown>, opts: { keepEdits?: boolean } = {}) => {
-    setSaving(true);
-    setError("");
-    try {
-      const p = await putProject(slug, patch);
-      if (opts.keepEdits) setProject(p);
-      else apply(p);
-      setSaved(!opts.keepEdits);
-      await onChanged();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSaving(false);
+  /** What is typed and not saved yet, as one patch. */
+  const unsaved = (): Record<string, string> | null => {
+    const p = projectRef.current;
+    if (!p) return null;
+    const patch: Record<string, string> = {};
+    for (const key of TEXT_KEYS) {
+      const text = draftsRef.current[key];
+      if (text !== undefined && differs(key, text, p)) patch[key] = text;
     }
+    return Object.keys(patch).length ? patch : null;
   };
+  const flush = (keepalive = false): Promise<void> => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    return unsaved() ? save(unsaved, keepalive) : Promise.resolve();
+  };
+  /** Typing: brief and state save ~1 s after the last change (boards.tsx does the same for a task's description). */
+  const type = (key: TextKey, text: string) => {
+    draft({ ...draftsRef.current, [key]: text });
+    if (key !== "brief" && key !== "state") return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => void flush(), 1000);
+  };
+  /** Leaving a field saves it; once saved the field shows the server's value again. */
+  const leave = async (key: TextKey) => {
+    const text = draftsRef.current[key];
+    if (text === undefined) return;
+    await flush();
+    const p = projectRef.current;
+    if (draftsRef.current[key] !== text || !p || differs(key, text, p)) return;
+    const { [key]: _saved, ...rest } = draftsRef.current;
+    draft(rest);
+  };
+  // Leaving the page (escape in the modal, a reload) with something typed saves it too.
+  useEffect(() => {
+    const onUnload = () => void flush(true);
+    window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("pagehide", onUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("pagehide", onUnload);
+      void flush(true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const remove = async () => {
     setSaving(true);
     try {
       const r = await api.request("projects.delete", { slug });
       if (!r.ok) throw new Error(r.error || "failed");
+      // Gone: nothing typed is saved into it any more.
+      removedRef.current = true;
       await onChanged();
-        navigate("/", { replace: true });
+      navigate("/", { replace: true });
     } catch (err) {
       setError((err as Error).message);
       setSaving(false);
@@ -462,160 +518,196 @@ export function ProjectPage({ slug, onChanged }: { slug: string; onChanged: () =
       if (!r.ok) throw new Error(r.error || "failed");
       const d = r.data;
       setLogEntry("");
-      setProject((p) => (p ? { ...p, log: d.log ?? p.log } : p));
+      if (projectRef.current) show({ ...projectRef.current, log: d.log ?? projectRef.current.log });
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setSaving(false);
+      if (pendingRef.current === 0) setSaving(false);
     }
   };
 
   if (gone) return <EmptyState icon="folder_off">project not found</EmptyState>;
   if (!project) return <EmptyState>loading…</EmptyState>;
 
+  const text = (key: TextKey): string => drafts[key] ?? project[key] ?? "";
+  const dirty = TEXT_KEYS.some((key) => drafts[key] !== undefined && differs(key, drafts[key]!, project));
+  const blurOnEnter = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    }
+  };
+  // A field of the side column: quiet until hovered, so the column reads as facts, not as a form.
+  const QUIET = "h-8 border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-surface-2 focus:bg-surface";
+
   return (
-    <div className="chat-main project-page flex flex-col gap-3">
-      <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2">
-        <Avatar>
-          <span aria-hidden>📁</span>
-        </Avatar>
-        <Title size="lg">{project.title}</Title>
-        <Tag tone={STATUS_TAG[project.status]}>{project.status}</Tag>
-        <Tag title="harness · model · effort every chat in this project runs on">{runsOn(project)}</Tag>
-        {expert && (
-          <span className="min-w-0 truncate font-mono text-xs text-fg-2" title={project.path}>
-            {project.path}
-          </span>
-        )}
-      </div>
-      {project.configError && <Notice tone="bad">project.yml: {project.configError}</Notice>}
-
-      <Panel
-        title="project"
-        className="flex-none"
-        actions={
-          <>
-            {saved && !dirty && <span className="text-xs text-fg-2">saved</span>}
-            <Button variant="primary" size="sm" busy={saving} disabled={!dirty} onClick={() => void save({ title, goal, status, harness, model, effort, brief, state })}>
-              {saving ? "saving…" : "save changes"}
-            </Button>
-          </>
-        }
-      >
-        <FormStack className="max-w-[680px]">
-          <FieldRow>
-            <Field label="title" className="flex-1">
-              <TextField value={title} aria-label="title" onChange={(e) => { setTitle(e.target.value); touch(); }} />
-            </Field>
-            <Field label="status">
-              <Select value={status} aria-label="status" onChange={(e) => { setStatus(e.target.value as ProjectStatus); touch(); }}>
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </Select>
-            </Field>
-          </FieldRow>
-          <FieldRow>
-            <Field label="harness" className="w-[140px] max-[940px]:w-auto">
-              <Select value={harness} aria-label="harness" onChange={(e) => { setHarness(e.target.value as ChatAgentId); touch(); }}>
-                {HARNESSES.map((h) => (
-                  <option key={h.id} value={h.id}>{h.label}</option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="model" className="flex-1">
-              <TextField value={model} aria-label="model" placeholder="harness default — e.g. sonnet, gpt-5.6-sol" onChange={(e) => { setModel(e.target.value); touch(); }} />
-            </Field>
-            <Field label="effort" className="w-[140px] max-[940px]:w-auto">
-              <Select value={effort} aria-label="effort" onChange={(e) => { setEffort(e.target.value); touch(); }}>
-                {EFFORTS.map((ef) => (
-                  <option key={ef} value={ef}>{ef || "default"}</option>
-                ))}
-              </Select>
-            </Field>
-          </FieldRow>
-          <Field label="goal (one line)">
-            <TextField value={goal} aria-label="goal" placeholder="what the project is for" onChange={(e) => { setGoal(e.target.value); touch(); }} />
-          </Field>
-          <Field label="brief.md — what done looks like, constraints, stakeholders">
-            <TextArea rows={10} className="resize-y font-mono text-sm" value={brief} aria-label="brief" onChange={(e) => { setBrief(e.target.value); touch(); }} />
-          </Field>
-          <Field label="state.md — current state, rewritten at the end of a session">
-            <TextArea rows={6} className="resize-y font-mono text-sm" value={state} aria-label="state" onChange={(e) => { setState(e.target.value); touch(); }} />
-          </Field>
-          {error && <Notice tone="bad">{error}</Notice>}
-        </FormStack>
-      </Panel>
-
-      <RecordsPanel records={project.records} saving={saving} onSave={(records) => save({ records }, { keepEdits: true })} />
-
-      <Panel title="links" className="flex-none" actions={<span className="text-xs text-fg-2">by name; a target that is missing in this workspace is marked</span>}>
-        <PanelRows>
-          {LINKS.filter((l) => !(l.kind === "contacts" || l.kind === "places" || l.kind === "events") || features[l.kind]).map((l) => (
-            <LinkRow
-              key={l.kind}
-              kind={l.kind}
-              label={l.label}
-              icon={l.icon}
-              href={l.href}
-              links={project.links[l.kind]}
-              saving={saving}
-              onChange={(target, remove) => void linkChange(slug, l.kind, target, remove, (p) => { setProject(p); void onChanged(); }, setError)}
+    // @container: the page folds to one column by its own width — it is also shown in the edit modal.
+    <div className="chat-main project-page @container flex flex-col">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-none flex-col gap-5">
+        <header className="flex flex-col gap-1.5">
+          {/* In the modal the close button sits in this line's corner. */}
+          <div className="flex min-h-7 items-center gap-2 text-sm text-fg-2 [.edit-modal_&]:pr-9">
+            <span aria-hidden>📁</span>
+            <span className="min-w-0 truncate font-mono text-xs" title={project.path}>
+              {project.path}
+            </span>
+            {(saving || dirty) && <span className="flex-none text-xs">{saving ? "saving…" : "unsaved"}</span>}
+            <span className="flex-1" />
+            {confirmRemove ? (
+              <>
+                <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => void remove()} title="Move the project, its files and log to the trash; #/trash puts it back">
+                  confirm delete
+                </Button>
+                <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>
+                  cancel
+                </Button>
+              </>
+            ) : (
+              <IconButton icon="delete" label="delete project" size="sm" disabled={saving} onClick={() => setConfirmRemove(true)} />
+            )}
+          </div>
+          {/* The page's heading for a screen reader; the title to look at is the field under it. */}
+          <h1 className="sr-only">{project.title}</h1>
+          {/* A textarea, so a long title wraps instead of running out of the column. */}
+          <textarea
+            rows={1}
+            value={text("title")}
+            aria-label="title"
+            className="block w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-2xl leading-tight font-semibold text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none [field-sizing:content]"
+            onChange={(e) => type("title", e.target.value.replace(/\n/g, " "))}
+            onBlur={() => void leave("title")}
+            onKeyDown={blurOnEnter}
+          />
+          {/* -mx-2: the quiet field's text starts where the title does. */}
+          <div className="-mx-2">
+            <TextField
+              value={text("goal")}
+              aria-label="goal"
+              placeholder="what the project is for"
+              className="h-8 border-transparent bg-transparent px-2 text-base text-fg-2 shadow-none hover:bg-surface-2 focus:bg-surface focus:text-fg"
+              onChange={(e) => type("goal", e.target.value)}
+              onBlur={() => void leave("goal")}
+              onKeyDown={blurOnEnter}
             />
-          ))}
-        </PanelRows>
-      </Panel>
+          </div>
+        </header>
+        {project.configError && <Notice tone="bad">project.yml: {project.configError}</Notice>}
+        {error && <Notice tone="bad">{error}</Notice>}
 
-      <Panel title="log" className="flex-none">
-        <FormStack className="max-w-[680px]">
-          <FieldRow>
-            <Field label="new entry — a decision, a milestone" className="flex-1">
-              <TextField
-                value={logEntry}
-                aria-label="log entry"
-                placeholder="e.g. Decided on NodeHive as the CMS"
-                onChange={(e) => setLogEntry(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void addLog();
-                  }
-                }}
+        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 @[880px]:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <h3 className="m-0 text-sm font-semibold text-fg">Brief</h3>
+                <span className="text-xs text-fg-2">brief.md — what done looks like, constraints, stakeholders</span>
+              </div>
+              <TextArea rows={10} className="resize-y font-mono text-sm" value={text("brief")} aria-label="brief" onChange={(e) => type("brief", e.target.value)} onBlur={() => void leave("brief")} />
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <h3 className="m-0 text-sm font-semibold text-fg">State</h3>
+                <span className="text-xs text-fg-2">state.md — current state, rewritten at the end of a session</span>
+              </div>
+              <TextArea rows={6} className="resize-y font-mono text-sm" value={text("state")} aria-label="state" onChange={(e) => type("state", e.target.value)} onBlur={() => void leave("state")} />
+            </section>
+
+            <RecordsPanel records={project.records} saving={saving} onSave={(records) => save({ records })} />
+
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <h3 className="m-0 text-sm font-semibold text-fg">Links</h3>
+                <span className="text-xs text-fg-2">by name; a target that is missing in this workspace is marked</span>
+              </div>
+              <div className="overflow-hidden rounded-card border border-line bg-surface">
+                <PanelRows>
+                  {LINKS.filter((l) => !(l.kind === "contacts" || l.kind === "places" || l.kind === "events") || features[l.kind]).map((l) => (
+                    <LinkRow
+                      key={l.kind}
+                      kind={l.kind}
+                      label={l.label}
+                      icon={l.icon}
+                      href={l.href}
+                      links={project.links[l.kind]}
+                      saving={saving}
+                      onChange={(target, remove) => void linkChange(slug, l.kind, target, remove, (p) => { show(p); void onChanged(); }, setError)}
+                    />
+                  ))}
+                </PanelRows>
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <h3 className="m-0 text-sm font-semibold text-fg">Log</h3>
+              <div className="flex items-center gap-2">
+                <TextField
+                  value={logEntry}
+                  aria-label="log entry"
+                  placeholder="Add an entry — a decision, a milestone…"
+                  onChange={(e) => setLogEntry(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void addLog();
+                    }
+                  }}
+                />
+                <Button icon="add" disabled={saving || !logEntry.trim()} onClick={() => void addLog()}>
+                  log
+                </Button>
+              </div>
+              <div
+                className="md-body h-auto overflow-visible pt-1 text-sm [&_h1]:hidden [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-xs [&_ul]:m-0 [&_ul]:pl-[18px]"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(project.log || "_no entries yet_", { async: false }) as string) }}
               />
-            </Field>
-            <Button icon="add" disabled={saving || !logEntry.trim()} onClick={() => void addLog()}>
-              log
-            </Button>
-          </FieldRow>
-        </FormStack>
-        <div
-          className="md-body h-auto overflow-visible px-[18px] pt-1 pb-4 text-sm [&_h1]:hidden [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-xs [&_ul]:m-0 [&_ul]:pl-[18px]"
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(project.log || "_no entries yet_", { async: false }) as string) }}
-        />
-      </Panel>
+            </section>
+          </div>
 
-      <Panel
-        title="danger zone"
-        className="flex-none [&>div]:border-b-0"
-        actions={
-          !confirmRemove ? (
-            <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => setConfirmRemove(true)} title="Move the project, its files and log to the trash; #/trash puts it back">
-              delete project
-            </Button>
-          ) : (
-            <>
-              <Button size="sm" variant="danger" icon="delete" disabled={saving} onClick={() => void remove()}>
-                confirm delete
-              </Button>
-              <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>
-                cancel
-              </Button>
-            </>
-          )
-        }
-      >
-        {null}
-      </Panel>
+          {/* The facts: beside the project on a wide page, right under the goal on a narrow one. */}
+          <aside className="order-first flex min-w-0 flex-col gap-2 @[880px]:order-none" aria-label="details">
+            <dl className="m-0 grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm @min-[520px]:@max-[879px]:grid-cols-[76px_minmax(0,1fr)_76px_minmax(0,1fr)]">
+              <dt className="text-fg-2">Status</dt>
+              <dd className="m-0">
+                <Select value={project.status} aria-label="status" className={QUIET} onChange={(e) => set({ status: e.target.value as ProjectStatus })}>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </Select>
+              </dd>
+              <dt className="text-fg-2">Harness</dt>
+              <dd className="m-0">
+                <Select value={project.harness} aria-label="harness" className={QUIET} onChange={(e) => set({ harness: e.target.value as ChatAgentId })}>
+                  {HARNESSES.map((h) => (
+                    <option key={h.id} value={h.id}>{h.label}</option>
+                  ))}
+                </Select>
+              </dd>
+              <dt className="text-fg-2">Model</dt>
+              <dd className="m-0">
+                <TextField
+                  value={text("model")}
+                  aria-label="model"
+                  placeholder="harness default"
+                  title="e.g. sonnet, gpt-5.6-sol — empty for the harness default"
+                  className={QUIET}
+                  onChange={(e) => type("model", e.target.value)}
+                  onBlur={() => void leave("model")}
+                  onKeyDown={blurOnEnter}
+                />
+              </dd>
+              <dt className="text-fg-2">Effort</dt>
+              <dd className="m-0">
+                <Select value={project.effort ?? ""} aria-label="effort" className={QUIET} onChange={(e) => set({ effort: e.target.value })}>
+                  {EFFORTS.map((ef) => (
+                    <option key={ef} value={ef}>{ef || "default"}</option>
+                  ))}
+                </Select>
+              </dd>
+            </dl>
+            <span className="px-2 text-xs text-fg-2">harness, model and effort: what every chat in this project runs on</span>
+          </aside>
+        </div>
+      </div>
     </div>
   );
 }

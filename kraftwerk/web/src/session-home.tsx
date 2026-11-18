@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api, failure, useApi } from "./api";
+import { ChatCard, sendFirst } from "./chat-card";
 import { Icon, Link, PROJECT_ASSISTANT, fmtAgo, navigate } from "./shared";
 import { ChatNameInput, SessionMenuItem, sessionTitle } from "./sessions";
-import { Dot, IconButton, Notice, Popover } from "./ui";
+import { Dot, IconButton, Popover } from "./ui";
 import type { Agent, ChatAgentId, ChatMeta } from "./types";
 
 /**
@@ -73,22 +74,19 @@ export function SessionHome({
     return a ? `${a.emoji || "🤖"} ${a.name}` : slug;
   };
 
-  const start = async () => {
+  const start = async (files: File[]) => {
     if (busy) return;
     setBusy(true);
     setError("");
     const r = await create(who || undefined);
     if ("error" in r) {
       setBusy(false);
-      return setError(r.error);
+      return setError(r.error), false;
     }
-    const message = text.trim();
-    if (message) {
-      const m = await api.request("chats.message", { id: r.id, body: { text: message } });
-      if (!m.ok) {
-        setBusy(false);
-        return setError(failure(m));
-      }
+    const failed = await sendFirst(r.id, text, files);
+    if (failed) {
+      setBusy(false);
+      return setError(failed), false;
     }
     navigate(r.href);
   };
@@ -110,75 +108,60 @@ export function SessionHome({
 
   return (
     <div className="session-home mx-auto flex w-full max-w-[760px] animate-rise flex-col gap-7 px-6 pt-8 pb-12 max-[800px]:px-3 max-[800px]:pt-4">
-      <div className="flex flex-col gap-2">
-        <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
-          <textarea
-            ref={input}
-            rows={2}
-            value={text}
-            aria-label="new session"
-            placeholder={placeholder}
-            className="block max-h-[40vh] min-h-[64px] w-full resize-none rounded-t-[18px] border-0 bg-transparent px-4 pt-3.5 pb-1 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void start();
-              }
-            }}
-          />
-          <div className="flex items-center gap-2 px-2.5 pb-2.5">
-            <Popover
-              className="max-h-[50vh] overflow-y-auto"
-              trigger={({ open, toggle }) => (
-                <button
-                  type="button"
-                  aria-haspopup="menu"
-                  aria-expanded={open}
-                  aria-label="session with"
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
-                  onClick={toggle}
-                >
-                  {whoLabel}
-                  <Icon name="expand_more" className="ms-sm text-fg-2" />
-                </button>
-              )}
-            >
-              {(close) => (
-                <>
-                  <WhoItem
-                    emoji={byDefault.emoji}
-                    name={`${byDefault.name} (default)`}
-                    sub={byDefault.sub}
-                    on={!who}
-                    onClick={() => {
-                      setWho("");
-                      close();
-                    }}
-                  />
-                  {first.length > 0 && firstGroup && <MenuHead>{firstGroup.label}</MenuHead>}
-                  {first.map((a) => agentItem(a, close))}
-                  {others.length > 0 && <MenuHead>{first.length > 0 ? "other agents" : "agents"}</MenuHead>}
-                  {others.map((a) => agentItem(a, close))}
-                </>
-              )}
-            </Popover>
-            <span className="flex-1" />
-            <span className="truncate text-xs text-fg-2 max-[800px]:hidden">{picked ? (agentHint ?? "") : (byDefault.hint ?? "")}</span>
-            <button
-              type="button"
-              aria-label="start session"
-              title="start session (Enter)"
-              className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
-              disabled={busy}
-              onClick={() => void start()}
-            >
-              <Icon name={busy ? "progress_activity" : "arrow_upward"} className="ms-sm" />
-            </button>
-          </div>
-        </div>
-        {error && <Notice tone="bad">{error}</Notice>}
-      </div>
+      <ChatCard
+        label="start a session"
+        value={text}
+        onChange={setText}
+        inputRef={input}
+        inputLabel="new session"
+        placeholder={placeholder}
+        onSend={start}
+        sendLabel="start session"
+        busy={busy}
+        error={error}
+        skills
+        who={who}
+        onWho={(slug) => all.some((a) => a.slug === slug) && setWho(slug)}
+        attach
+        hint={picked ? (agentHint ?? "") : (byDefault.hint ?? "")}
+        controls={
+          <Popover
+            className="max-h-[50vh] overflow-y-auto"
+            trigger={({ open, toggle }) => (
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                aria-label="session with"
+                className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+                onClick={toggle}
+              >
+                {whoLabel}
+                <Icon name="expand_more" className="ms-sm text-fg-2" />
+              </button>
+            )}
+          >
+            {(close) => (
+              <>
+                <WhoItem
+                  emoji={byDefault.emoji}
+                  name={`${byDefault.name} (default)`}
+                  sub={byDefault.sub}
+                  on={!who}
+                  onClick={() => {
+                    setWho("");
+                    close();
+                  }}
+                />
+                {first.length > 0 && firstGroup && <MenuHead>{firstGroup.label}</MenuHead>}
+                {first.map((a) => agentItem(a, close))}
+                {others.length > 0 && <MenuHead>{first.length > 0 ? "other agents" : "agents"}</MenuHead>}
+                {others.map((a) => agentItem(a, close))}
+              </>
+            )}
+          </Popover>
+        }
+      />
 
       {children}
 

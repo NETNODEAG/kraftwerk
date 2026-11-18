@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api, useApi } from "./api";
-import { Icon, Link, LocalNav, fmtAgo, isEditPath, useExpertMode, useFeatures, useHashPath } from "./shared";
+import { Icon, Link, LocalNav, fmtAgo, isEditPath, useFeatures, useHashPath } from "./shared";
 import { BundleView } from "./knowledge";
 import { BoardGlance } from "./boards";
 import { FileBrowser } from "./files";
@@ -108,7 +108,6 @@ export function ContextPanel({ chatPath, workspace }: {
     ctx.kind === "project" ? `/projects/${encodeURIComponent(ctx.slug)}` : agentHere ? `/agents/${encodeURIComponent(ctx.slug)}` : ralv ? "/agents/chats" : undefined;
   const key = `${ctx.kind}:${"slug" in ctx ? ctx.slug : ""}`;
   const features = useFeatures();
-  const expert = useExpertMode();
   // The sign's pencil: you are working on this project, agent or channel — its page is where it is edited.
   const [editHref, editTitle] =
     ctx.kind === "project"
@@ -117,9 +116,7 @@ export function ContextPanel({ chatPath, workspace }: {
         ? [`/agents/${encodeURIComponent(ctx.slug)}/info`, "edit the agent: profile and settings"]
         : ctx.kind === "channel"
           ? [`/channels/${encodeURIComponent(ctx.slug)}/edit`, "edit the channel"]
-          : expert
-            ? ["/settings", "workspace settings"]
-            : [undefined, ""];
+          : ["/settings", "workspace settings"];
   const wfs = useApi("workflows.list", {}, { interval: 15_000 });
   const runs = useApi("runs.list", {}, { interval: 6000 });
   // The routines that run a workflow (their prompt names it), shown under it in the workflows tab.
@@ -232,7 +229,7 @@ export function ContextPanel({ chatPath, workspace }: {
       ? [{ id: "presentations", label: "presentations", count: projectDecks.length, allHref: `/projects/${encodeURIComponent(ctx.slug)}/presentations` }]
       : []),
     // Expert detail: the clones a project or agent works on.
-    ...(expert && showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
+    ...(showRepos ? [{ id: "repos", label: "repositories", count: links?.repos?.length, allHref: "/repos" }] : []),
     // A project's who, where and when, each only while the kind is on.
     ...ENTITY_TABS.filter((t) => features[t.id] && links?.[t.id]).map((t) => ({ id: t.id, label: t.id, count: links?.[t.id]?.length, allHref: `/${t.id}` })),
     // The browser shows up once a link from the chat opened something in it.
@@ -325,7 +322,7 @@ export function ContextPanel({ chatPath, workspace }: {
   const empty = (what: string) => (
     <p className="m-0 px-2.5 py-3 text-sm text-fg-2">
       {links?.all ? `No ${what} in this workspace yet.` : `No ${what} linked.`}
-      {links?.editHref && expert && !links.all && (
+      {links?.editHref && !links.all && (
         <>
           {" "}
           <Link href={links.editHref} className="text-accent">Edit the links</Link>.

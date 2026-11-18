@@ -1,3 +1,4 @@
+import { ChatAsideHost } from "./chat-aside";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
 import { api, useApi, type ApiResponse, type ApiResult } from "./api";
@@ -29,6 +30,11 @@ import { SearchPalette } from "./search";
 import { ConversationsRail } from "./rail";
 import { AgentsAdmin } from "./agents/admin";
 import { RoutinesAdmin } from "./routines-admin";
+import { WorkflowsAdmin } from "./workflows-admin";
+import { KnowledgeAdmin } from "./knowledge-admin";
+import { BoardsAdmin } from "./boards-admin";
+import { AppsAdmin } from "./apps-admin";
+import { SkillsAdmin } from "./skills-admin";
 import { inSettingsSection, SettingsNav, TopbarTools } from "./workspace-tabs";
 import { ContextPanel } from "./context-panel";
 
@@ -231,7 +237,15 @@ export function App() {
     );
   }
   else if (seg[0] === "skills") globalScreen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "settings") globalScreen = seg[1] === "agents" ? <AgentsAdmin /> : seg[1] === "routines" ? <RoutinesAdmin /> : <SettingsScreen />;
+  else if (seg[0] === "settings") globalScreen =
+      seg[1] === "agents" ? <AgentsAdmin />
+      : seg[1] === "routines" ? <RoutinesAdmin />
+      : seg[1] === "workflows" ? <WorkflowsAdmin />
+      : seg[1] === "knowledge" ? <KnowledgeAdmin />
+      : seg[1] === "boards" ? <BoardsAdmin />
+      : seg[1] === "apps" ? <AppsAdmin />
+      : seg[1] === "skills" ? <SkillsAdmin />
+      : <SettingsScreen />;
   else if (seg[0] === "trash") globalScreen = <TrashScreen />;
   else if (seg[0] === "ui") globalScreen = <UiGallery />;
   else if (seg[0] === "files")
@@ -312,7 +326,7 @@ export function App() {
       {subnav && <SettingsNav path={path} />}
       {globalScreen && (
         <main className="shell shell-global" style={subnav ? ({ "--topbar-h": "108px" } as CSSProperties) : undefined}>
-          {globalScreen}
+          <ChatAsideHost>{globalScreen}</ChatAsideHost>
         </main>
       )}
       <main
@@ -532,7 +546,6 @@ function WorkspaceSwitcher({
   entries: SwitcherEntry[];
 }) {
   const [open, setOpen] = useState(false);
-  const expert = useExpertMode();
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
@@ -601,7 +614,7 @@ function WorkspaceSwitcher({
               )}
             </div>
           ))}
-          {expert && entries.length > 0 && (
+          {entries.length > 0 && (
             <a
               className="mt-2 flex min-h-12 items-center gap-4 border-t border-line px-4 text-md text-fg no-underline transition-colors hover:bg-surface-2"
               href="#/workspaces"
@@ -984,7 +997,6 @@ function groupByOwner(xs: AttentionItem[]): Array<[string, AttentionItem[]]> {
  * popover; the expert switch and settings sit beside the search.
  */
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
-  const expert = useExpertMode();
   const [runs, setRuns] = useState<{ outputDir: string; runs: RunListItem[] } | null>(null);
   const [wfs, setWfs] = useState<{ root?: string; workflows: unknown[] } | null>(null);
   const [version, setVersion] = useState("");
@@ -993,14 +1005,13 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
       .call("meta.get")
       .then((d) => setVersion(d.version))
       .catch(() => {});
-    if (!expert) return;
     api.call("runs.list").then(setRuns).catch(() => {});
     api.call("workflows.list").then(setWfs).catch(() => {});
-  }, [expert]);
+  }, []);
   return (
     <div className="ws-menu mt-1.5 flex flex-col gap-0.5 border-t border-line px-1.5 pb-1 pt-2">
       <MenuLine label="Theme"><ThemeToggle /></MenuLine>
-      {expert && (
+      {(
         <div className="flex flex-col gap-1 px-2.5 py-1.5 text-xs">
           <div><Eyebrow>Workflows</Eyebrow> {wfs ? `${wfs.workflows.length} discovered` : "…"} <code className="block break-all text-2xs text-fg-2" title={wfs?.root}>{wfs?.root ?? ""}</code></div>
           <div><Eyebrow>Runs</Eyebrow> {runs ? `${runs.runs.length} total` : "…"} <code className="block break-all text-2xs text-fg-2" title={runs?.outputDir}>{runs?.outputDir ?? ""}</code></div>

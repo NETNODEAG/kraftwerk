@@ -7,7 +7,7 @@ import type {
   WorkflowSummary,
 } from "./types";
 import { useApi } from "./api";
-import { Icon, Link, fmtAgo, useExpertMode, useHashPath } from "./shared";
+import { Icon, Link, fmtAgo, useHashPath } from "./shared";
 import { attentionLabel, nextItem, openAttention, ownerText, useAttention } from "./attention";
 import { Button, cn, Dot, Eyebrow, ListRow, Panel, Tag } from "./ui";
 
@@ -67,7 +67,6 @@ export function DashboardScreen() {
   const wfData = useApi("workflows.list", {});
   const skillsData = useApi("skills.list", {});
   const [filter, setFilter] = useState<FeedFilter>("all");
-  const expert = useExpertMode();
   const projectsData = useApi("projects.list", {}, { interval: 30_000 });
   const projectTitle = (slug: string) => projectsData?.projects.find((p) => p.slug === slug)?.title ?? slug;
 
@@ -91,18 +90,16 @@ export function DashboardScreen() {
   return (
     <div className="w-full px-7 pt-6 pb-10 max-[800px]:px-3 max-[800px]:pt-3">
       <Today runs={runs} chats={chats} bundles={bundles} agents={agentsData?.agents ?? []} workflows={wfData?.workflows ?? []} projectTitle={projectTitle} loaded={!!runsData && !!chatsData} />
-      {/* Expert mode: the inventory and the whole activity, filterable, below today. */}
-      {expert && (
-        <div className="mx-0.5 mt-3.5 mb-3 flex flex-wrap justify-end gap-x-[18px] gap-y-1 text-xs text-fg-2 max-[800px]:justify-start max-[800px]:gap-x-3.5">
-          {mini.map(([count, label, href]) => (
-            <Link key={label} href={href} className="group/mini text-inherit no-underline hover:text-accent hover:underline">
-              <b className="font-semibold tabular-nums text-fg group-hover/mini:text-accent">{count ?? "…"}</b> {label}
-            </Link>
-          ))}
-        </div>
-      )}
+      {/* The inventory and the whole activity, filterable, below today. */}
+      <div className="mx-0.5 mt-3.5 mb-3 flex flex-wrap justify-end gap-x-[18px] gap-y-1 text-xs text-fg-2 max-[800px]:justify-start max-[800px]:gap-x-3.5">
+        {mini.map(([count, label, href]) => (
+          <Link key={label} href={href} className="group/mini text-inherit no-underline hover:text-accent hover:underline">
+            <b className="font-semibold tabular-nums text-fg group-hover/mini:text-accent">{count ?? "…"}</b> {label}
+          </Link>
+        ))}
+      </div>
 
-      {expert && failed.length > 0 && filter !== "failed" && (
+      {failed.length > 0 && filter !== "failed" && (
         <button
           type="button"
           className="mb-3.5 flex w-full cursor-pointer items-center gap-2 rounded-xl border border-bad/40 bg-bad-soft px-3.5 py-[9px] text-left text-[12.5px] text-on-bad-soft hover:brightness-104"
@@ -112,7 +109,7 @@ export function DashboardScreen() {
         </button>
       )}
 
-      {expert && <ActivityFeed
+      <ActivityFeed
         projectTitle={projectTitle}
         runs={runs}
         chats={chats}
@@ -121,7 +118,7 @@ export function DashboardScreen() {
         workflows={wfData?.workflows ?? []}
         filter={filter}
         setFilter={setFilter}
-      />}
+      />
     </div>
   );
 }
@@ -181,7 +178,6 @@ function ActivityFeed({
   filter: FeedFilter;
   setFilter: (f: FeedFilter) => void;
 }) {
-  const expert = useExpertMode();
   const feed = useMemo(() => {
     const items: FeedItem[] = [];
     // Runs speak human: workflow display name, the request as the story,
@@ -215,10 +211,8 @@ function ActivityFeed({
         emoji: agent ? agent.emoji || "🤖" : "💬",
         title: agent ? agent.name : c.title || "new chat",
         sub: agent
-          ? `${c.title || "new chat"}${expert ? ` · ${c.agent}` : ""}`
-          : expert
-            ? `${c.agent} · ${chatOwner(c, agents, projectTitle)}`
-            : chatOwner(c, agents, projectTitle),
+          ? c.title || "new chat"
+          : chatOwner(c, agents, projectTitle),
         href: chatHref(c),
         lamp: c.awaitingApproval ? "blocked" : c.busy ? "running" : "ok",
         status: c.awaitingApproval ? "needs approval" : c.busy ? "working" : undefined,
@@ -249,7 +243,7 @@ function ActivityFeed({
         return run !== 0 ? run : b.at.localeCompare(a.at);
       })
       .slice(0, 15);
-  }, [runs, chats, bundles, agents, expert, filter]);
+  }, [runs, chats, bundles, agents, filter]);
 
   // Thin day separators; emitted whenever the bucket changes down the list.
   let lastBucket = "";

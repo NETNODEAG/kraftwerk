@@ -13,6 +13,8 @@ import { BundleView } from "./knowledge";
 import { RepoPage } from "./repos";
 import { SkillView } from "./skills";
 import { ChatThread } from "./chat";
+import { OpenHere, chatIdOf } from "./chat-card";
+import { NEW_KINDS, NewThingModal, type NewKind } from "./new-thing";
 import { chatHref, chatOwner } from "./dashboard";
 import { NEW_ROUTINE, RoutinePreview, WORKSPACE_ROUTINES, routineWhen, routineWho } from "./routines";
 import { Button, cn, Dot, EmptyState, Eyebrow } from "./ui";
@@ -40,6 +42,12 @@ const GROUPS: { id: Group; label: string }[] = [
   { id: "results", label: "Results" },
   { id: "context", label: "Context" },
 ];
+
+/** Made in the "new" window a moment ago: shown in the preview before the lists have caught up. */
+const justMade = new Set<string>();
+
+/** What the "+" of a kind says when it opens a window. */
+const NEW_TITLES: Partial<Record<Kind, string>> = { workflows: "describe a workflow and Ralv makes it", skills: "describe a skill and Ralv makes it", runs: "run a workflow", tasks: "add a task to a board" };
 
 const KINDS: { id: Kind; group: Group; label: string; one: string; icon: string; hue: string; newHref: string; newTitle?: string }[] = [
   // Chats are here to try out: the rail keeps listing them too. A row shows the conversation itself in the right column.
@@ -284,6 +292,15 @@ export function ArtifactsScreen({ title = "Home" }: { title?: string }) {
   const setFilter = (kind: Kind | "all") => navigate(artifactsHref({ kind, open: kind === "all" || open?.startsWith(`${kind}:`) ? open : undefined }), { replace: true });
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
+  const [adding, setAdding] = useState<NewKind | null>(null);
+  // A chat or a run started from the "new" window shows beside the list, like anything picked in it.
+  const openHere = (href: string): boolean => {
+    const chat = chatIdOf(href);
+    const run = /^\/runs\/([^/?]+)$/.exec(href)?.[1];
+    if (!chat && !run) return false;
+    navigate(artifactsHref({ kind: filter, open: chat ? `chats:${chat}` : `runs:${decodeURIComponent(run!)}` }));
+    return true;
+  };
   const { items, loading: none, projectTitle } = useArtifacts(only);
 
   const needle = q.trim().toLowerCase();
@@ -297,6 +314,11 @@ export function ArtifactsScreen({ title = "Home" }: { title?: string }) {
   return (
     <div className="artifacts-screen mx-auto flex w-full max-w-[920px] flex-col gap-6 px-6 pt-8 pb-12 max-[800px]:px-4">
       <h1 className="m-0 text-3xl font-semibold tracking-[-0.02em] text-fg">{title}</h1>
+      {adding && (
+        <OpenHere.Provider value={openHere}>
+          <NewThingModal kind={adding} project={only} onClose={() => setAdding(null)} onMade={(key) => (justMade.add(key), navigate(artifactsHref({ kind: filter, open: key })))} />
+        </OpenHere.Provider>
+      )}
 
       {kinds.length > 0 && (
         // The tiles are the filter: one per kind, pressed again to show everything; the + beside the name makes a new one.
@@ -325,15 +347,29 @@ export function ArtifactsScreen({ title = "Home" }: { title?: string }) {
                 >
                   <Icon name={k.icon} className="text-[28px]" />
                 </button>
-                <Link
-                  href={newHref(k)}
-                  aria-label={`new ${k.one.toLowerCase()}`}
-                  title={k.newTitle ?? `new ${k.one.toLowerCase()}`}
-                  className="absolute top-1 right-1 grid size-6 place-items-center rounded-full no-underline opacity-70 hover:bg-surface hover:opacity-100"
-                  style={{ color: k.hue }}
-                >
-                  <Icon name="add" className="ms-sm" />
-                </Link>
+                {NEW_KINDS.has(k.id) ? (
+                  // Made in a window over Home: nothing to leave for.
+                  <button
+                    type="button"
+                    aria-label={`new ${k.one.toLowerCase()}`}
+                    title={NEW_TITLES[k.id] ?? `new ${k.one.toLowerCase()}`}
+                    className="absolute top-1 right-1 grid size-6 cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 opacity-70 hover:bg-surface hover:opacity-100"
+                    style={{ color: k.hue }}
+                    onClick={() => setAdding(k.id as NewKind)}
+                  >
+                    <Icon name="add" className="ms-sm" />
+                  </button>
+                ) : (
+                  <Link
+                    href={newHref(k)}
+                    aria-label={`new ${k.one.toLowerCase()}`}
+                    title={k.newTitle ?? `new ${k.one.toLowerCase()}`}
+                    className="absolute top-1 right-1 grid size-6 place-items-center rounded-full no-underline opacity-70 hover:bg-surface hover:opacity-100"
+                    style={{ color: k.hue }}
+                  >
+                    <Icon name="add" className="ms-sm" />
+                  </Link>
+                )}
                 <span className={cn("line-clamp-2 text-center text-xs leading-tight [overflow-wrap:anywhere]", pressed && "font-medium")}>{k.label}</span>
               </div>
             );
@@ -441,7 +477,23 @@ export function ArtifactPreview() {
   const { items, loading } = useArtifacts(only);
   // "+ routine": nothing to find yet — the form for a new one.
   const NEW_KEY = `routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}`;
-  const item: Item | undefined = open === NEW_KEY ? { key: NEW_KEY, kind: "routines", title: "New routine" } : open ? items.find((i) => i.key === open) : undefined;
+  // A chat or a run started a moment ago (from a skill, a task, a workflow in this column) is not in the list yet: it shows all the same.
+  const fresh = (): Item | undefined => {
+    if (!open) return undefined;
+    if (open.startsWith("chats:")) return { key: open, kind: "chats", title: "New chat" };
+    if (open.startsWith("runs:")) return { key: open, kind: "runs", title: "Workflow run" };
+    const made = justMade.has(open) ? KINDS.find((x) => open.startsWith(`${x.id}:`)) : undefined;
+    return made ? { key: open, kind: made.id, title: `New ${made.one.toLowerCase()}` } : undefined;
+  };
+  const item: Item | undefined = open === NEW_KEY ? { key: NEW_KEY, kind: "routines", title: "New routine" } : open ? (items.find((i) => i.key === open) ?? fresh()) : undefined;
+  // What is started from the thing shown here takes its place in the column; the list stays.
+  const openHere = (href: string): boolean => {
+    const chat = chatIdOf(href);
+    const run = /^\/runs\/([^/?]+)$/.exec(href)?.[1];
+    if (!chat && !run) return false;
+    navigate(artifactsHref({ kind, open: chat ? `chats:${chat}` : `runs:${decodeURIComponent(run!)}` }));
+    return true;
+  };
   const k = item ? specOf(item.kind) : undefined;
   const [, a = "", b = "", c = ""] = (open ?? "").split(":");
   const mapped = kind === "places" || item?.kind === "places";
@@ -523,6 +575,7 @@ export function ArtifactPreview() {
               </div>
             ) : (
               <div key={item.key} className="ctx-body ctx-embed">
+                <OpenHere.Provider value={openHere}>
                 {item.kind === "workflows" && <WorkflowPreview slug={a} />}
                 {item.kind === "runs" && <div className="p-3"><RunDetailView id={a} /></div>}
                 {item.kind === "routines" && <RoutinePreview owner={a} id={b} onOpen={(key) => navigate(artifactsHref({ kind, open: key }), { replace: true })} />}
@@ -533,6 +586,7 @@ export function ArtifactPreview() {
                 {item.kind === "boards" && <BoardPreview project={a || undefined} board={b} kind={kind} href={artifactsHref} />}
                 {item.kind === "tasks" && <div className="p-3"><TaskPage project={a || undefined} board={b} task={c} /></div>}
                 {item.kind === "contacts" && <EntityPage kind={item.kind} slug={a} />}
+                </OpenHere.Provider>
               </div>
             )}
           </>

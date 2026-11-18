@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, failure, live, withBase } from "./api";
-import { fmtAgo, Icon, navigate, useExpertMode } from "./shared";
+import { ChatCard, sendFirst } from "./chat-card";
+import { fmtAgo, Icon, navigate } from "./shared";
 import { Button, cn, Dot, EmptyState, Hint, IconButton, ListRow, Notice, Select, SideHead, SideList, SideNote, SideSearch, Tag, TextField, Title, type DotTone } from "./ui";
 import type { ChatAgentId, ChatMeta, VibeableInfo, VibeablesView, VibeableStatus } from "./types";
 
@@ -281,12 +282,15 @@ export function VibeOffNote({ chatId, slug, onClosed }: { chatId: string; slug: 
 const AGENT_KEY = "kw-vibeable-agent";
 
 /** Start a chat on the given harness with the app open in its pane, and go there. */
-async function openInChat(slug: string, agent: ChatAgentId): Promise<void> {
+async function openInChat(slug: string, agent: ChatAgentId, text = "", files: File[] = []): Promise<void> {
   const r = await api.request("chats.create", { body: { agent, scope: { kind: "general" } } });
   if (!r.ok) throw new Error(failure(r));
   const chat = r.data;
   if (!chat.id) throw new Error(`HTTP ${r.status}`);
   await setVibeable(chat.id, slug);
+  // What was typed on the app's page is the chat's first message.
+  const failed = await sendFirst(chat.id, text, files);
+  if (failed) throw new Error(failed);
   navigate(`/agents/chats/${chat.id}`);
 }
 
@@ -313,7 +317,6 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
       return "claude";
     }
   });
-  const expert = useExpertMode();
 
   const reload = useCallback(async () => {
     try {
@@ -387,13 +390,16 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
     }
   };
 
-  const open = async (target: string) => {
+  const [ask, setAsk] = useState("");
+  const open = async (target: string, files: File[] = []) => {
     mark(target, "open");
     try {
-      await openInChat(target, agent);
+      await openInChat(target, agent, ask, files);
+      setAsk("");
     } catch (err) {
       fail(target, err);
       unmark(target);
+      return false;
     }
   };
 
@@ -469,16 +475,8 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
           <Title>{a.slug}</Title>
           <Tag tone={st.tone === "bad" ? "bad" : st.tone === "ok" ? "ok" : "neutral"}>{st.label}</Tag>
           {a.updatedAt && <span className="text-xs text-fg-2" title={a.updatedAt}>changed {fmtAgo(a.updatedAt)}</span>}
-          {expert && <span className="max-w-[40ch] truncate font-mono text-xs text-fg-2" title={a.path}>{a.path}</span>}
+          <span className="max-w-[40ch] truncate font-mono text-xs text-fg-2" title={a.path}>{a.path}</span>
           <span className="flex-1" />
-          <Select className="h-8 w-auto text-sm" value={agent} onChange={(e) => pickAgent(e.target.value as ChatAgentId)} aria-label="agent for new chats">
-            <option value="claude">claude</option>
-            <option value="codex">codex</option>
-            <option value="pi">pi</option>
-          </Select>
-          <Button variant="primary" icon="chat" busy={verb === "open"} disabled={!!verb} onClick={() => void open(a.slug)} title={`Start a ${agent} chat with this app in the preview pane`}>
-            open in chat
-          </Button>
           {!confirmRemove ? (
             <Button variant="danger" icon="delete" disabled={!!verb} onClick={() => setConfirmRemove(true)} title="Move the folder to the trash">
               remove
@@ -493,6 +491,36 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
           )}
         </div>
         {(a.configError || errors[a.slug]) && <Notice tone="bad">{a.configError || errors[a.slug]}</Notice>}
+        {/* Work on the app: the chat window — the app where the message starts, what to change, on which harness. */}
+        <ChatCard
+          label="work on this app"
+          className="flex-none"
+          chip={
+            <>
+              <Icon name="web" className="ms-sm" /> {a.slug}
+            </>
+          }
+          chipTitle="the chat opens with this app in its preview pane"
+          value={ask}
+          onChange={setAsk}
+          minRows={1}
+          inputLabel="what to change in the app"
+          placeholder="Say what to build or change (optional)"
+          onSend={(files) => open(a.slug, files)}
+          sendLabel="open in chat"
+          busy={verb === "open"}
+          disabled={!!verb}
+          skills
+          attach
+          controls={
+            <Select className="h-8 w-auto rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2" value={agent} onChange={(e) => pickAgent(e.target.value as ChatAgentId)} aria-label="agent for new chats">
+              <option value="claude">claude</option>
+              <option value="codex">codex</option>
+              <option value="pi">pi</option>
+            </Select>
+          }
+          hint="opens a chat with the app beside it"
+        />
         <VibePane key={a.slug} slug={a.slug} />
       </div>
     );

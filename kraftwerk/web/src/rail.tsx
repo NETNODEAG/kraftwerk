@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import { statusLine } from "../../src/core/status-line";
 import { attentionFor, useAttention } from "./attention";
 import { api, useApi } from "./api";
-import { Icon, Link, useExpertMode, useFeatures } from "./shared";
+import { Icon, Link, useFeatures } from "./shared";
 import { SortableProjects, freshSectionName } from "./rail-sort";
 import { Badge, Button, Dot, IconButton, ListRow } from "./ui";
 import type { Agent, AgentStatus, ProjectLayout, ProjectsView } from "./types";
@@ -15,7 +15,6 @@ import type { Agent, AgentStatus, ProjectLayout, ProjectsView } from "./types";
  */
 export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const features = useFeatures();
-  const expert = useExpertMode();
   const agents = useApi("agents.list", {}, { interval: 15_000 });
   // A pin, an unpin or a new order arrives pushed, like any other change.
   const projects = useApi("projects.list", features.projects ? {} : null, { interval: 15_000 });
@@ -153,7 +152,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
           </Group>
         )}
 
-        <Group label="agents" href="/agents" add={expert ? { href: "/agents/new", label: "new agent" } : undefined}>
+        <Group label="agents" href="/agents" add={{ href: "/agents/new", label: "new agent" }}>
           {(agents?.agents ?? []).filter((a) => !a.archived).map((a) => {
             const line = statusLine(status?.[a.slug], a.description);
             return (

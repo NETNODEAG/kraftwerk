@@ -42,7 +42,13 @@ test.describe("artifacts", () => {
     // A tile per enabled kind, with a + to make a new one; the apps tile is missing while vibeables are off.
     const tiles = page.getByRole("region", { name: "kinds" });
     await expect(tiles.getByRole("link", { name: "new slides" })).toHaveAttribute("href", "#/presentations/new");
-    await expect(tiles.getByRole("link", { name: "new contact" })).toBeVisible();
+    // Most kinds are made in a window over Home: the + is a button; closing it leaves Home as it was.
+    await tiles.getByRole("button", { name: "new contact" }).click();
+    const making = page.getByRole("dialog", { name: "new contact" });
+    await expect(making.getByRole("textbox", { name: "contact title" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(making).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/$/);
     await expect(tiles.getByRole("button", { name: "show only apps" })).toHaveCount(0);
 
     const rows = page.locator(".artifact-row");
@@ -371,7 +377,12 @@ test.describe("artifacts", () => {
       const tiles = page.getByRole("region", { name: "kinds" });
       // First, before Workflows.
       await expect(tiles.getByRole("button").first()).toHaveAttribute("aria-label", "show only chats");
-      await expect(tiles.getByRole("link", { name: "new chat" })).toHaveAttribute("href", "#/agents/chats");
+      // + is a chat window over Home: the message, who gets it, send.
+      await tiles.getByRole("button", { name: "new chat" }).click();
+      const making = page.getByRole("dialog", { name: "new chat" });
+      await expect(making.getByRole("textbox", { name: "message" })).toBeFocused();
+      await expect(making.getByLabel("chat with")).toHaveValue("");
+      await making.getByRole("button", { name: "close (esc)" }).click();
       await tiles.getByRole("button", { name: "show only chats" }).click();
       await expect(page).toHaveURL(/kind=chats/);
       await expect(page.locator(".artifact-row:not([data-artifact='chats'])")).toHaveCount(0);

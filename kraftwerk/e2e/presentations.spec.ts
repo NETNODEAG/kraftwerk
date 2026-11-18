@@ -491,8 +491,8 @@ test.describe("presentations", () => {
     await page.keyboard.press("ControlOrMeta+k");
     const dialog = page.getByRole("dialog", { name: /jump to/ });
     await page.getByRole("textbox", { name: "search" }).fill("town hall");
-    await expect(dialog.getByRole("option")).toHaveCount(1);
-    await expect(dialog.getByRole("option")).toContainText("presentation");
+    // The deck leads; a chat about it (the palette finds chats too) may follow.
+    await expect(dialog.getByRole("option").first()).toContainText("presentation");
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(new RegExp(`#/projects/${project}/presentations/town-hall`));
   });

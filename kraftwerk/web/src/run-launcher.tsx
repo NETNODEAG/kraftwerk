@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, useApi } from "./api";
 import { Icon, navigate } from "./shared";
-import { Notice, SwitchTrack } from "./ui";
+import { SwitchTrack } from "./ui";
+import { ChatCard, useOpen } from "./chat-card";
 
 /**
  * Triggering a workflow run from the browser — shared by the ▶ button on
@@ -99,53 +100,39 @@ export function RunForm({
   initialRequest?: string;
   onLaunched?: (runId: string) => void;
 }) {
-  const l = useRunLauncher(slug, usesRequest, initialRequest, onLaunched);
+  const open = useOpen();
+  // Started from a page that can show the run beside it (Home's preview): it opens there.
+  const l = useRunLauncher(slug, usesRequest, initialRequest, onLaunched ?? ((runId) => open(`/runs/${runId}`)));
   const hint = sandboxHint(l.docker);
   return (
-    <section className="run-form flex flex-col gap-2" aria-label={`run ${slug}`}>
-      <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
-        <div className="flex items-start gap-2 px-4 pt-3.5 pb-1">
-          <code className="mt-px inline-flex flex-none items-center gap-1 rounded-control bg-accent-soft px-2 py-0.5 text-sm font-medium text-on-accent-soft" title="the workflow this starts">
-            <Icon name="account_tree" className="ms-sm" /> {slug}
-          </code>
-          {usesRequest ? (
-            <textarea
-              rows={2}
-              value={l.request}
-              aria-label="request"
-              placeholder="Request"
-              className="block max-h-[40vh] min-h-[48px] w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
-              onChange={(e) => l.setRequest(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  void l.launch();
-                }
-              }}
-            />
-          ) : (
-            <span className="min-h-[48px] flex-1 text-base text-fg-2">This workflow takes no request.</span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 px-2.5 pb-2.5">
+    <ChatCard
+      label={`run ${slug}`}
+      className="run-form"
+      chip={
+        <>
+          <Icon name="account_tree" className="ms-sm" /> {slug}
+        </>
+      }
+      chipTitle="the workflow this starts"
+      value={l.request}
+      onChange={l.setRequest}
+      inputLabel="request"
+      placeholder="Request"
+      noInput={usesRequest ? undefined : "This workflow takes no request."}
+      onSend={() => void l.launch()}
+      sendLabel="Run"
+      sendIcon="play_arrow"
+      busy={l.busy}
+      disabled={!l.canRun}
+      error={l.error}
+      controls={
+        <>
           <Where label="Docker sandbox" hint={hint} checked={l.sandbox} onChange={l.setSandbox} />
           {l.sandbox && <Where label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
-          <span className="flex-1" />
-          <span className="truncate text-xs text-fg-2 max-[800px]:hidden">{l.sandbox ? hint : "runs on this machine"}</span>
-          <button
-            type="button"
-            aria-label="Run"
-            title={l.busy ? "Starting…" : "Run (Enter)"}
-            className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
-            disabled={!l.canRun}
-            onClick={() => void l.launch()}
-          >
-            <Icon name={l.busy ? "progress_activity" : "play_arrow"} className="ms-sm" />
-          </button>
-        </div>
-      </div>
-      {l.error && <Notice tone="bad">{l.error}</Notice>}
-    </section>
+        </>
+      }
+      hint={l.sandbox ? hint : "runs on this machine"}
+    />
   );
 }
 

@@ -4,6 +4,7 @@ import DOMPurify from "dompurify";
 import type { SkillDetail, SkillInfo } from "./types";
 import { api, failure, useApi } from "./api";
 import { Icon, navigate } from "./shared";
+import { ChatCard, WhoSelect, startChat, useOpen } from "./chat-card";
 import { Dot, EmptyState, Notice, Select, Fact, Facts, ListRow, Panel, SideHead, SideList, SideNote, Tabs, Tag, Title } from "./ui";
 
 /**
@@ -193,78 +194,44 @@ export function SkillView({ name }: { name: string }) {
  * as the first message of a new chat — with Ralv, or with an agent picked
  * here. Agents whose skill allowlist leaves this skill out are not offered.
  */
-function SkillRun({ name }: { name: string }) {
+export function SkillRun({ name }: { name: string }) {
   const agents = useApi("agents.list", {}, { interval: 30_000 });
+  const open = useOpen();
   const [who, setWho] = useState("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const roster = (agents?.agents ?? []).filter((a) => !a.archived && (a.skills === undefined || a.skills.includes(name)));
 
-  const send = async () => {
-    if (busy) return;
+  const send = async (files: File[]) => {
     setBusy(true);
     setError("");
-    const created = await api.request("chats.create", {
-      body: { agent: "claude", scope: who ? { kind: "agent", slug: who } : { kind: "kraftwerk" } } as never,
-    });
-    if (!created.ok) {
-      setBusy(false);
-      return setError(failure(created));
-    }
-    const id = created.data.id;
-    const sent = await api.request("chats.message", { id, body: { text: `/${name}${text.trim() ? ` ${text.trim()}` : ""}` } });
-    if (!sent.ok) {
-      setBusy(false);
-      return setError(failure(sent));
-    }
-    navigate(who ? `/agents/${encodeURIComponent(who)}/chat/${id}` : `/agents/chats/${id}`);
+    const r = await startChat({ who: who || undefined, text: `/${name}${text.trim() ? ` ${text.trim()}` : ""}`, files });
+    setBusy(false);
+    if ("error" in r) return setError(r.error), false;
+    setText("");
+    open(r.href);
   };
 
   return (
-    <section className="skill-run flex flex-col gap-2" aria-label="use this skill">
-      <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
-        <div className="flex items-start gap-2 px-4 pt-3.5 pb-1">
-          <code className="mt-px flex-none rounded-control bg-accent-soft px-2 py-0.5 text-sm font-medium text-on-accent-soft" title="the skill's command: the message starts with it">/{name}</code>
-          <textarea
-            rows={2}
-            value={text}
-            aria-label="what to do with the skill"
-            placeholder="Add what it should work on (optional)"
-            className="block max-h-[40vh] min-h-[48px] w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-          />
-        </div>
-        <div className="flex items-center gap-2 px-2.5 pb-2.5">
-          <Select aria-label="chat with" value={who} onChange={(e) => setWho(e.target.value)} className="h-8 w-auto max-w-[240px] rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2">
-            <option value="">🎩 Ralv (default)</option>
-            {roster.map((a) => (
-              <option key={a.slug} value={a.slug}>
-                {a.emoji || "🤖"} {a.name}
-              </option>
-            ))}
-          </Select>
-          <span className="flex-1" />
-          <span className="truncate text-xs text-fg-2 max-[800px]:hidden">starts a new chat</span>
-          <button
-            type="button"
-            aria-label="send to a new chat"
-            title="send to a new chat (Enter)"
-            className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
-            disabled={busy}
-            onClick={() => void send()}
-          >
-            <Icon name={busy ? "progress_activity" : "arrow_upward"} className="ms-sm" />
-          </button>
-        </div>
-      </div>
-      {error && <Notice tone="bad">{error}</Notice>}
-    </section>
+    <ChatCard
+      label="use this skill"
+      className="skill-run"
+      chip={`/${name}`}
+      chipTitle="the skill's command: the message starts with it"
+      value={text}
+      onChange={setText}
+      inputLabel="what to do with the skill"
+      placeholder="Add what it should work on (optional)"
+      onSend={send}
+      sendLabel="send to a new chat"
+      busy={busy}
+      error={error}
+      who={who}
+      onWho={(slug) => roster.some((a) => a.slug === slug) && setWho(slug)}
+      attach
+      controls={<WhoSelect value={who} onChange={setWho} agents={roster} />}
+      hint="starts a new chat"
+    />
   );
 }

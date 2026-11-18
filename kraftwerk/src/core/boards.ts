@@ -179,6 +179,8 @@ export interface TaskInput {
 export interface WriteOpts {
   actor?: string;
   message?: string;
+  /** The change wakes nobody: the caller has already started the session the assignee works in. */
+  quiet?: boolean;
 }
 
 /* ---------- root ---------- */
@@ -909,7 +911,7 @@ export async function saveTask(ref: BoardRef, idOrNumber: string, input: TaskInp
       await writeLogLine(current.path, next.title, next.assignee ? `Assigned ${def.assignee ? `${def.assignee} → ` : ""}${next.assignee}${msg}` : `Unassigned${def.assignee ? ` (was ${def.assignee})` : ""}${msg}`, actor);
     } else if (opts.message && next.status === def.status) await writeLogLine(current.path, next.title, oneLine(opts.message), actor);
   });
-  await maybeEmit(ref, board, def, next, next.status !== def.status ? "moved" : "assigned", actor, opts.message);
+  if (!opts.quiet) await maybeEmit(ref, board, def, next, next.status !== def.status ? "moved" : "assigned", actor, opts.message);
   changed();
   return (await getTask(ref, next.slug))!;
 }

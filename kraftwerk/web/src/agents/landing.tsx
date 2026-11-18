@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import type { Agent } from "../types";
 import { SessionHome, createSession, type HomeChat } from "../session-home";
 import { api, useApi } from "../api";
-import { navigate, useExpertMode } from "../shared";
+import { navigate } from "../shared";
 import type { Session } from "../sessions";
 import { Button, EmptyState } from "../ui";
 
@@ -111,19 +111,13 @@ export function AgentsLanding({ agents }: { agents: Agent[] }) {
   return <EmptyState>loading…</EmptyState>;
 }
 
-/** No agents yet: nothing to explain, one thing to do (which needs expert mode). */
+/** No agents yet: nothing to explain, one thing to do. */
 export function AgentsHome() {
-  const expert = useExpertMode();
   return (
     <div className="empty-action flex justify-center py-16 text-center text-sm text-fg-2">
-      {expert ? (
-        // run-btn: the hook e2e/agents.spec.ts finds the one action by.
-        <Button variant="primary" icon="add" onClick={() => navigate("/agents/new")}>
-          create your first agent
-        </Button>
-      ) : (
-        <span>Creating agents needs expert mode — flip the switch in the top bar.</span>
-      )}
+      <Button variant="primary" icon="add" onClick={() => navigate("/agents/new")}>
+        create your first agent
+      </Button>
     </div>
   );
 }
