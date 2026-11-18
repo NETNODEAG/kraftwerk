@@ -24,7 +24,7 @@ test.describe("agents' chats in projects", () => {
   });
 
   test("the project's agents start a chat filed under it, opened in the project", async ({ page, request }) => {
-    await page.goto("/#/projects/moon-base");
+    await page.goto("/#/projects/moon-base/chat/new");
     // The picker under the composer: the project's assistant by default, the project's agents next.
     await page.getByRole("button", { name: "session with" }).click();
     await expect(page.getByRole("menu")).toContainText("agents of the project");
@@ -38,7 +38,7 @@ test.describe("agents' chats in projects", () => {
     expect(meta.meta.scope).toMatchObject({ kind: "agent", slug: "desk-scout" });
     expect(meta.meta.project).toBe("moon-base");
     await page.locator(".space-title .project-home-link").click();
-    await expect(page.locator(`.recent-session[data-chat='${id}'] .recent-agent`)).toHaveText("🔭 Desk Scout");
+    await expect(page.locator(`.artifact-row[data-key='chats:${id}']`)).toContainText("🔭 Desk Scout");
   });
 
   test("an agent's chat is filed under a project from the strip, and under none again", async ({ page, request }) => {

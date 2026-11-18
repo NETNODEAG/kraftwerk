@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, useApi } from "./api";
-import { navigate } from "./shared";
-import { Button, Notice, SwitchRow, TextField } from "./ui";
+import { Icon, navigate } from "./shared";
+import { Notice, SwitchTrack } from "./ui";
 
 /**
  * Triggering a workflow run from the browser — shared by the ▶ button on
@@ -84,9 +84,9 @@ export function useRunLauncher(
 }
 
 /**
- * Inline launcher on the workflow page: the request field and Run on one
- * line so the page needs no heading over it — the field says what to type,
- * the switches under it say where it runs.
+ * The launcher of a workflow, drawn as a chat window like a skill's: the
+ * workflow's name where the message starts, the request beside it, and
+ * under them where it runs and the send button. Enter starts the run.
  */
 export function RunForm({
   slug,
@@ -100,31 +100,68 @@ export function RunForm({
   onLaunched?: (runId: string) => void;
 }) {
   const l = useRunLauncher(slug, usesRequest, initialRequest, onLaunched);
+  const hint = sandboxHint(l.docker);
   return (
-    <div className="flex flex-col gap-1 px-5 pt-4 pb-2">
-      <div className="flex items-center gap-4 max-[700px]:flex-wrap">
-        {usesRequest ? (
-          <TextField
-            className="h-11 min-w-0 flex-1 text-md"
-            value={l.request}
-            placeholder="Request"
-            aria-label="request"
-            onChange={(e) => l.setRequest(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && l.launch()}
-          />
-        ) : (
-          <span className="flex-1 text-base text-fg-2">This workflow takes no request.</span>
-        )}
-        <Button variant="primary" icon="play_arrow" className="h-11 px-5 max-[700px]:w-full" busy={l.busy} onClick={l.launch} disabled={!l.canRun}>
-          {l.busy ? "Starting…" : "Run"}
-        </Button>
-      </div>
-      <div className="-mx-2 mt-1 flex flex-wrap gap-x-2">
-        <SwitchRow label="Docker sandbox" hint={sandboxHint(l.docker)} checked={l.sandbox} onChange={l.setSandbox} />
-        {l.sandbox && <SwitchRow label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
+    <section className="run-form flex flex-col gap-2" aria-label={`run ${slug}`}>
+      <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
+        <div className="flex items-start gap-2 px-4 pt-3.5 pb-1">
+          <code className="mt-px inline-flex flex-none items-center gap-1 rounded-control bg-accent-soft px-2 py-0.5 text-sm font-medium text-on-accent-soft" title="the workflow this starts">
+            <Icon name="account_tree" className="ms-sm" /> {slug}
+          </code>
+          {usesRequest ? (
+            <textarea
+              rows={2}
+              value={l.request}
+              aria-label="request"
+              placeholder="Request"
+              className="block max-h-[40vh] min-h-[48px] w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
+              onChange={(e) => l.setRequest(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void l.launch();
+                }
+              }}
+            />
+          ) : (
+            <span className="min-h-[48px] flex-1 text-base text-fg-2">This workflow takes no request.</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 px-2.5 pb-2.5">
+          <Where label="Docker sandbox" hint={hint} checked={l.sandbox} onChange={l.setSandbox} />
+          {l.sandbox && <Where label="Forward SSH agent" hint="keys and known hosts from this machine" checked={l.ssh} onChange={l.setSsh} />}
+          <span className="flex-1" />
+          <span className="truncate text-xs text-fg-2 max-[800px]:hidden">{l.sandbox ? hint : "runs on this machine"}</span>
+          <button
+            type="button"
+            aria-label="Run"
+            title={l.busy ? "Starting…" : "Run (Enter)"}
+            className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
+            disabled={!l.canRun}
+            onClick={() => void l.launch()}
+          >
+            <Icon name={l.busy ? "progress_activity" : "play_arrow"} className="ms-sm" />
+          </button>
+        </div>
       </div>
       {l.error && <Notice tone="bad">{l.error}</Notice>}
-    </div>
+    </section>
   );
 }
 
+/** A switch of the launcher's bottom line: small, its hint in the tooltip. */
+function Where({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      title={hint}
+      className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-2.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+      onClick={() => onChange(!checked)}
+    >
+      <span className="-mx-1.5 inline-flex scale-[0.7]"><SwitchTrack checked={checked} /></span>
+      {label}
+    </button>
+  );
+}

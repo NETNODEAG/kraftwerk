@@ -63,14 +63,14 @@ export function WorkflowView({ slug, tab }: { slug: string; tab: WorkflowTab }) 
 
       {tab === "overview" && (
         <>
-          <Panel className="run-panel mb-[18px]">
+          <div className="run-panel mb-[18px]">
             <RunForm
               slug={wf.slug}
               usesRequest={wf.usesRequest}
               initialRequest={runs[0]?.request}
               onLaunched={() => setLaunchedAt(Date.now())}
             />
-          </Panel>
+          </div>
 
           <Panel
             title={

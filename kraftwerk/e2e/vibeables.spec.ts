@@ -31,17 +31,17 @@ test.describe("vibeables", () => {
     await page.goto(`/#/agents/chats/${chatId}`);
     // The chat is named next to Ralv: the sign it loaded.
     await expect(page.locator(".space-title .session-crumb")).toContainText("new chat");
-    await expect(page.locator("nav a[href='#/vibeables']")).toHaveCount(0);
 
     await page.goto("/#/settings");
+    await expect(page.locator(".settings-nav a[href='#/vibeables']")).toHaveCount(0);
     await page.getByRole("checkbox", { name: /build small apps live/ }).check();
     // Leaving the root empty takes the default, kraftwerk-data/vibeables.
     await page.getByRole("button", { name: "save changes" }).click();
     await expect(page.getByText("saved")).toBeVisible();
     expect(readFileSync(path.join(fixture(), "kraftwerk.yml"), "utf8")).toMatch(/^vibeables: \{\}$/m);
 
-    await page.goto(`/#/agents/chats/${chatId}`);
-    await expect(page.locator("nav a[href='#/vibeables']")).toBeVisible();
+    // The settings navigation links to the apps once the feature is on.
+    await expect(page.locator(".settings-nav a[href='#/vibeables']")).toBeVisible();
   });
 
   test("the vibeables screen lists apps newest first in a sidebar, previews the selected one, opens it in a chat", async ({ page, request }) => {

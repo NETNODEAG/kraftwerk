@@ -134,6 +134,28 @@ test.describe("artifacts", () => {
     }
   });
 
+  test("a project's page is its own Home: only what is in the project, picked things on the right", async ({ page }) => {
+    await page.goto(`/#/projects/${PROJECT}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Artifacts probe" })).toBeVisible();
+    const tiles = page.getByRole("region", { name: "kinds" });
+    await expect(tiles.getByRole("button", { name: "show only presentations" })).toBeVisible();
+    // Skills belong to the workspace, not to a project.
+    await expect(tiles.getByRole("button", { name: "show only skills" })).toHaveCount(0);
+    const rows = page.locator(".artifact-row");
+    await expect(rows.filter({ hasText: "Quarterly review" })).toBeVisible();
+    // The contact is the workspace's, and the project does not link to it.
+    await expect(rows.filter({ hasText: "Erika Muster" })).toHaveCount(0);
+    // Nothing picked: the project's context stays on the right.
+    await expect(page.locator(".ctx").getByRole("tab", { name: "overview" })).toBeVisible();
+
+    await rows.filter({ hasText: "Quarterly review" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}\\?open=presentations`));
+    const preview = page.getByRole("complementary", { name: "Preview" });
+    await expect(preview.getByRole("heading", { level: 2, name: "Quarterly review" })).toBeVisible();
+    await preview.getByRole("link", { name: "close the preview" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/projects/${PROJECT}$`));
+  });
+
   test("workflows are artifacts too: a tile, rows, and the workflow's own view on the right", async ({ page }) => {
     const dir = path.join(fixture(), "workflows", "artifact-probe");
     mkdirSync(dir, { recursive: true });

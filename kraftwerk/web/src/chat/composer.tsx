@@ -22,7 +22,10 @@ export function Composer({
   commands = [],
   canSteer,
   account,
+  footer,
 }: {
+  /** The bottom line of the input box, left of the buttons: what the chat runs on (view.tsx). */
+  footer?: React.ReactNode;
   id: string;
   busy: boolean;
   scope?: ChatScope;
@@ -300,7 +303,8 @@ export function Composer({
       )}
       <div
         className={cn(
-          "flex min-w-0 flex-1 items-end gap-0.5 rounded-[24px] border bg-surface py-[5px] pr-[5px] pl-3.5 transition-[border-color,box-shadow]",
+          // A chat window like a skill's or a workflow's: the text on top, under it what it runs on and the buttons.
+          "flex min-w-0 flex-1 flex-col rounded-[18px] border bg-surface px-2.5 pt-1.5 pb-2 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] transition-[border-color,box-shadow]",
           "focus-within:border-accent focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_16%,transparent)]",
           dragging ? "border-dashed border-accent" : "border-line"
         )}
@@ -308,7 +312,7 @@ export function Composer({
         <textarea
           ref={taRef}
           value={text}
-          className="max-h-[40vh] min-w-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-1.5 py-2 font-sans text-md leading-[1.5] text-fg shadow-none outline-none [field-sizing:content] placeholder:text-fg-2"
+          className="max-h-[40vh] min-h-[44px] w-full min-w-0 flex-none resize-none overflow-y-auto rounded-none border-0 bg-transparent px-1.5 py-2 font-sans text-md leading-[1.5] text-fg shadow-none outline-none [field-sizing:content] placeholder:text-fg-2"
           placeholder={
             channel
               ? locked ? "the agents are working…" : "Message the channel…"
@@ -361,12 +365,14 @@ export function Composer({
             }
           }}
         />
+        <div className="flex min-w-0 items-end gap-0.5">
+        <div className="composer-details flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 self-center">{footer}</div>
         {busy && (
           <Button size="sm" variant="danger" icon="stop" className="mr-1 self-center" onClick={() => api.request("chats.cancel", { id }).catch(() => {})}>
             stop
           </Button>
         )}
-        {!locked && <IconButton icon="attach_file" label="attach files (or drop / paste them)" className="size-9 rounded-full [&_.ms]:text-[20px]" onClick={() => fileRef.current?.click()} />}
+        {!locked && <IconButton icon="attach_file" label="attach files (or drop / paste them)" className="size-8 rounded-full [&_.ms]:text-[19px]" onClick={() => fileRef.current?.click()} />}
         <input
           ref={fileRef}
           type="file"
@@ -380,15 +386,16 @@ export function Composer({
         {!locked && (
           <button
             type="button"
-            className="inline-grid size-9 flex-none cursor-pointer place-items-center rounded-full border-0 bg-accent p-0 text-on-accent transition-[filter,opacity] hover:enabled:brightness-110 active:enabled:scale-95 disabled:cursor-default disabled:opacity-30"
+            className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full border-0 bg-accent p-0 text-on-accent transition-[filter,opacity] hover:enabled:brightness-110 active:enabled:scale-95 disabled:cursor-default disabled:opacity-30"
             disabled={(!text.trim() && files.length === 0) || uploading > 0}
             onClick={send}
             aria-label={steering ? "steer" : "send"}
             title={steering ? "steer: hand this into the running turn (Enter)" : "send (Enter)"}
           >
-            <Icon name={steering ? "alt_route" : "send"} className="text-[19px]" />
+            <Icon name={steering ? "alt_route" : "arrow_upward"} className="text-[19px]" />
           </button>
         )}
+        </div>
       </div>
     </div>
   );

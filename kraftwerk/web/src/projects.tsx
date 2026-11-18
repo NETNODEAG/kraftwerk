@@ -1,3 +1,4 @@
+import { ArtifactsScreen } from "./artifacts";
 import { useCallback, useEffect, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -148,7 +149,8 @@ export function ProjectsScreen({ seg }: { seg: string[] }) {
       </div>
     );
   else if (mode === "info" && slug) main = <ProjectPage key={slug} slug={slug} onChanged={reload} />;
-  else if (slug) main = <ProjectHome key={slug} slug={slug} title={current?.title ?? slug} />;
+  // The project's own Home: everything in it, the same stream as #/. A new session starts at /chat/new.
+  else if (slug) main = <ArtifactsScreen key={slug} title={current?.title ?? slug} />;
   else main = <EmptyState>loading…</EmptyState>;
 
   return (

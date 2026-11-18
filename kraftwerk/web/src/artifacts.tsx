@@ -46,6 +46,8 @@ const KINDS: { id: Kind; group: Group; label: string; one: string; icon: string;
   { id: "chats", group: "create", label: "Chats", one: "Chat", icon: "chat", hue: "#4f46e5", newHref: "/agents/chats", newTitle: "new chat" },
   // Workflows have no form of their own: Ralv (or the CLI) writes them.
   { id: "workflows", group: "create", label: "Workflows", one: "Workflow", icon: "account_tree", hue: "#0e7490", newHref: "/agents/chats", newTitle: "ask Ralv to make a workflow" },
+  // Skills, like workflows, are written by Ralv (or by hand, as <skills root>/<name>/SKILL.md); one is used from its page, which starts a chat with its command.
+  { id: "skills", group: "create", label: "Skills", one: "Skill", icon: "extension", hue: "#9333ea", newHref: "/agents/chats", newTitle: "ask Ralv to make a skill" },
   // A routine made here is the workspace's own (not an agent's): its form opens in the right column.
   { id: "routines", group: "create", label: "Routines", one: "Routine", icon: "schedule", hue: "#b45309", newHref: `/?kind=routines&open=${encodeURIComponent(`routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}`)}` },
   { id: "boards", group: "create", label: "Boards", one: "Board", icon: "view_kanban", hue: "#15803d", newHref: "/boards/new" },
@@ -56,8 +58,6 @@ const KINDS: { id: Kind; group: Group; label: string; one: string; icon: string;
   { id: "presentations", group: "results", label: "Presentations", one: "Slides", icon: "slideshow", hue: "#c2410c", newHref: "/presentations/new" },
   { id: "vibeables", group: "results", label: "Apps", one: "App", icon: "web", hue: "#2563eb", newHref: "/vibeables" },
   { id: "knowledge", group: "context", label: "Knowledge", one: "Knowledge bundle", icon: "menu_book", hue: "#4d7c0f", newHref: "/knowledge/new" },
-  // Skills, like workflows, are written by Ralv (or by hand, as <skills root>/<name>/SKILL.md).
-  { id: "skills", group: "context", label: "Skills", one: "Skill", icon: "extension", hue: "#9333ea", newHref: "/agents/chats", newTitle: "ask Ralv to make a skill" },
   { id: "repos", group: "context", label: "Repos", one: "Repository", icon: "source", hue: "#475569", newHref: "/repos", newTitle: "clone a repository" },
   { id: "contacts", group: "context", label: "Contacts", one: "Contact", icon: "person", hue: "#7c3aed", newHref: "/contacts/new" },
   { id: "places", group: "context", label: "Places", one: "Place", icon: "location_on", hue: "#be123c", newHref: "/places/new" },
@@ -94,23 +94,39 @@ const enc = encodeURIComponent;
 const on = (f: Features, k: Kind) => k === "chats" || k === "workflows" || k === "runs" || k === "routines" || k === "knowledge" || k === "skills" || !!f[k === "tasks" ? "boards" : k];
 const specOf = (k: Kind) => KINDS.find((x) => x.id === k)!;
 
-/** The page's state in its hash: the kind filtered to (#/?kind=places) and the selected artifact (&open=<key>). */
-function useArtifactsQuery(): { kind: Kind | "all"; open?: string } {
-  const hash = useHashPath();
-  const q = new URLSearchParams(hash.split("?")[1] ?? "");
-  const kind = q.get("kind");
-  return { kind: KINDS.some((k) => k.id === kind) ? (kind as Kind) : "all", open: q.get("open") ?? undefined };
-}
-const artifactsHref = ({ kind, open }: { kind?: Kind | "all"; open?: string }): string => {
-  const q = new URLSearchParams();
-  if (kind && kind !== "all") q.set("kind", kind);
-  if (open) q.set("open", open);
-  const s = q.toString();
-  return s ? `/?${s}` : "/";
-};
+type HrefOf = (o: { kind?: Kind | "all"; open?: string }) => string;
 
-/** Everything made in the workspace, newest first, with the projects' titles. */
-function useArtifacts() {
+/**
+ * The page's state in its hash: the kind filtered to (#/?kind=places) and the selected thing (&open=<key>).
+ * On a project (#/projects/<slug>) it is that project's page: the same state on the project's route, `project` set.
+ */
+function useArtifactsQuery(): { kind: Kind | "all"; open?: string; project?: string; href: HrefOf } {
+  const hash = useHashPath();
+  const [path, qs] = hash.split("?");
+  const seg = path.split("/").filter(Boolean);
+  const project = seg[0] === "projects" && seg.length === 2 && seg[1] !== "new" ? decodeURIComponent(seg[1]) : undefined;
+  const base = project ? `/projects/${enc(project)}` : "/";
+  const q = new URLSearchParams(qs ?? "");
+  const kind = q.get("kind");
+  const href: HrefOf = ({ kind, open }) => {
+    const out = new URLSearchParams();
+    if (kind && kind !== "all") out.set("kind", kind);
+    if (open) out.set("open", open);
+    const str = out.toString();
+    return str ? `${base}?${str}` : base;
+  };
+  return { kind: KINDS.some((k) => k.id === kind) ? (kind as Kind) : "all", open: q.get("open") ?? undefined, project, href };
+}
+
+/** The kinds a project can hold: what is filed under it (chats, routines, boards, tasks, slides) and what it links to. */
+const PROJECT_KINDS = new Set<Kind>(["chats", "routines", "boards", "tasks", "presentations", "runs", "workflows", "knowledge", "vibeables", "repos", "contacts", "places", "events"]);
+const LINKED: Partial<Record<Kind, "knowledge" | "vibeables" | "repos" | "workflows" | "contacts" | "places" | "events">> = { knowledge: "knowledge", vibeables: "vibeables", repos: "repos", workflows: "workflows", contacts: "contacts", places: "places", events: "events" };
+
+/**
+ * Everything made in the workspace, newest first, with the projects' titles. With `only`, a project's own:
+ * what is filed under it, what it links to, and the runs of the workflows it links to (a run names no project).
+ */
+function useArtifacts(only?: string) {
   const features = useFeatures();
   const chats = useApi("chats.list", {});
   const agents = useApi("agents.list", {}, { interval: 30_000 })?.agents ?? [];
@@ -232,19 +248,43 @@ function useArtifacts() {
       }),
     ),
   ] as Item[]).sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  const links = useApi("projects.get", only ? { slug: only } : null, { interval: 30_000 })?.links;
+  const linked = (kind: Kind, slug: string) => {
+    const lk = LINKED[kind];
+    return !!lk && !!links?.[lk]?.some((l) => l.slug === slug);
+  };
+  const mine = (i: Item): boolean => {
+    if (i.project === only) return true;
+    if (i.project) return false;
+    const slug = i.key.slice(i.kind.length + 1);
+    if (i.kind === "runs") return !!links?.workflows.some((l) => i.title === l.slug || slug.endsWith(`-${l.slug}`));
+    return linked(i.kind, slug);
+  };
+  if (only) return { items: items.filter(mine), loading: !chats && !tasks && !decks && !boards && !links, projectTitle: () => undefined };
   const loading = !chats && !wfs && !runs && !routines && !know && !skills && !repos && !vibes && !decks && !boards && !contacts && !places && !events;
   return { items, loading, projectTitle };
 }
 
-export function ArtifactsScreen() {
+export function ArtifactsScreen({ title = "Home" }: { title?: string }) {
   const features = useFeatures();
-  const kinds = KINDS.filter((k) => on(features, k.id));
-  const { kind: filter, open } = useArtifactsQuery();
+  const { kind: filter, open, project: only, href: artifactsHref } = useArtifactsQuery();
+  const kinds = KINDS.filter((k) => on(features, k.id) && (!only || PROJECT_KINDS.has(k.id)));
+  // On a project the + makes the thing in the project where there is a way to; the rest lead where they do on Home.
+  const at = only ? `/projects/${enc(only)}` : "";
+  const newHref = (k: (typeof KINDS)[number]): string => {
+    if (!only) return k.newHref;
+    if (k.id === "chats") return `${at}/chat/new`;
+    if (k.id === "boards" || k.id === "presentations") return `${at}/${k.id}/new`;
+    if (k.id === "routines") return artifactsHref({ kind: "routines", open: `routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}` });
+    if (k.id === "runs") return artifactsHref({ kind: "workflows" });
+    if (k.id === "tasks") return artifactsHref({ kind: "boards" });
+    return k.newHref;
+  };
   // Filtering keeps the selection only when it is of the kind filtered to.
   const setFilter = (kind: Kind | "all") => navigate(artifactsHref({ kind, open: kind === "all" || open?.startsWith(`${kind}:`) ? open : undefined }), { replace: true });
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
-  const { items, loading: none, projectTitle } = useArtifacts();
+  const { items, loading: none, projectTitle } = useArtifacts(only);
 
   const needle = q.trim().toLowerCase();
   const shown = items.filter((i) => (filter === "all" || i.kind === filter) && (!needle || `${i.title} ${projectTitle(i.project) ?? ""}`.toLowerCase().includes(needle)));
@@ -256,7 +296,7 @@ export function ArtifactsScreen() {
 
   return (
     <div className="artifacts-screen mx-auto flex w-full max-w-[920px] flex-col gap-6 px-6 pt-8 pb-12 max-[800px]:px-4">
-      <h1 className="m-0 text-3xl font-semibold tracking-[-0.02em] text-fg">Home</h1>
+      <h1 className="m-0 text-3xl font-semibold tracking-[-0.02em] text-fg">{title}</h1>
 
       {kinds.length > 0 && (
         // The tiles are the filter: one per kind, pressed again to show everything; the + beside the name makes a new one.
@@ -286,7 +326,7 @@ export function ArtifactsScreen() {
                   <Icon name={k.icon} className="text-[28px]" />
                 </button>
                 <Link
-                  href={k.newHref}
+                  href={newHref(k)}
                   aria-label={`new ${k.one.toLowerCase()}`}
                   title={k.newTitle ?? `new ${k.one.toLowerCase()}`}
                   className="absolute top-1 right-1 grid size-6 place-items-center rounded-full no-underline opacity-70 hover:bg-surface hover:opacity-100"
@@ -294,7 +334,7 @@ export function ArtifactsScreen() {
                 >
                   <Icon name="add" className="ms-sm" />
                 </Link>
-                <span className={cn("truncate text-center text-xs", pressed && "font-medium")}>{k.label}</span>
+                <span className={cn("line-clamp-2 text-center text-xs leading-tight [overflow-wrap:anywhere]", pressed && "font-medium")}>{k.label}</span>
               </div>
             );
           })}
@@ -344,6 +384,7 @@ export function ArtifactsScreen() {
               data-live={i.live}
               href={artifactsHref({ kind: filter, open: i.key })}
               data-artifact={i.kind}
+              data-key={i.key}
               aria-current={open === i.key ? "true" : undefined}
               className="artifact-row flex items-center gap-3 rounded-xl px-2 py-2.5 text-fg no-underline hover:bg-surface-2 aria-[current=true]:bg-surface-2"
             >
@@ -396,8 +437,8 @@ export function ArtifactsScreen() {
  * one's month and details under it. Nothing selected: a hint.
  */
 export function ArtifactPreview() {
-  const { kind, open } = useArtifactsQuery();
-  const { items, loading } = useArtifacts();
+  const { kind, open, project: only, href: artifactsHref } = useArtifactsQuery();
+  const { items, loading } = useArtifacts(only);
   // "+ routine": nothing to find yet — the form for a new one.
   const NEW_KEY = `routines:${WORKSPACE_ROUTINES}:${NEW_ROUTINE}`;
   const item: Item | undefined = open === NEW_KEY ? { key: NEW_KEY, kind: "routines", title: "New routine" } : open ? items.find((i) => i.key === open) : undefined;
@@ -489,7 +530,7 @@ export function ArtifactPreview() {
                 {item.kind === "skills" && <SkillView name={a} />}
                 {item.kind === "repos" && <RepoPage slug={a} embedded />}
                 {item.kind === "presentations" && <DeckGlance project={a || undefined} name={b} />}
-                {item.kind === "boards" && <BoardPreview project={a || undefined} board={b} kind={kind} />}
+                {item.kind === "boards" && <BoardPreview project={a || undefined} board={b} kind={kind} href={artifactsHref} />}
                 {item.kind === "tasks" && <div className="p-3"><TaskPage project={a || undefined} board={b} task={c} /></div>}
                 {item.kind === "contacts" && <EntityPage kind={item.kind} slug={a} />}
               </div>
@@ -519,7 +560,7 @@ function WorkflowPreview({ slug }: { slug: string }) {
 }
 
 /** A board in the preview: its columns at a glance; a task's link opens the task right here, in the column. */
-function BoardPreview({ project, board, kind }: { project?: string; board: string; kind: Kind | "all" }) {
+function BoardPreview({ project, board, kind, href: artifactsHref }: { project?: string; board: string; kind: Kind | "all"; href: HrefOf }) {
   const base = `${boardHref({ project, board })}/`;
   const take = (href: string) => {
     const task = href.startsWith(base) ? href.slice(base.length) : "";

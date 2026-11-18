@@ -27,7 +27,9 @@ import { BoardsScreen } from "./boards";
 import { PresentationsScreen } from "./presentations";
 import { SearchPalette } from "./search";
 import { ConversationsRail } from "./rail";
-import { GlobalNav } from "./workspace-tabs";
+import { AgentsAdmin } from "./agents/admin";
+import { RoutinesAdmin } from "./routines-admin";
+import { inSettingsSection, SettingsNav, TopbarTools } from "./workspace-tabs";
 import { ContextPanel } from "./context-panel";
 
 const CHAT_PATH_KEY = "kw-chat-path";
@@ -132,6 +134,8 @@ export function App() {
   // Today (#/today) sits there too: the dashboard of what needs you and what happened.
   const isToday = seg[0] === "today";
   const inColumn = isHome || isToday;
+  // A project's own page (#/projects/<slug>) is its Home; something picked there (?open=) shows in the right column instead of the project's context.
+  const projectPick = isChatRoute && seg[0] === "projects" && seg.length === 2 && seg[1] !== "new" && new URLSearchParams(hash.split("?")[1] ?? "").has("open");
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
   // Editing the thing you talk to (its /info or /edit route) is a modal over the conversation.
   const editScreen = isChatRoute ? editScreenOf(path) : null;
@@ -227,7 +231,7 @@ export function App() {
     );
   }
   else if (seg[0] === "skills") globalScreen = <SkillsScreen name={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
-  else if (seg[0] === "settings") globalScreen = <SettingsScreen />;
+  else if (seg[0] === "settings") globalScreen = seg[1] === "agents" ? <AgentsAdmin /> : seg[1] === "routines" ? <RoutinesAdmin /> : <SettingsScreen />;
   else if (seg[0] === "trash") globalScreen = <TrashScreen />;
   else if (seg[0] === "ui") globalScreen = <UiGallery />;
   else if (seg[0] === "files")
@@ -244,6 +248,9 @@ export function App() {
   else if (seg[0] === "contacts" || seg[0] === "places" || seg[0] === "events") globalScreen = <EntitiesScreen kind={seg[0]} slug={seg[1] ? decodeURIComponent(seg[1]) : undefined} />;
   else if (seg[0] === "boards") globalScreen = <BoardsScreen seg={seg.slice(1)} />;
   else if (seg[0] === "presentations") globalScreen = <PresentationsScreen seg={seg.slice(1)} />;
+
+  // Board and deck pages of a project are not overviews: no settings navigation above them.
+  const subnav = !!globalScreen && !isBoardPage && !isDeckPage && inSettingsSection(path);
 
   // The workspace colour is the accent: derive the primary roles from it and
   // hand them to the stylesheet ([data-ws-accent] in tokens.css). Set only
@@ -292,16 +299,22 @@ export function App() {
             />
           )}
         </span>
-        <GlobalNav path={path} />
         <span className="flex-[1_1_8px]" />
         <SearchPalette />
+        <TopbarTools path={path} />
         <IconButton icon="settings" label="settings" href="/settings" aria-current={seg[0] === "settings" ? "page" : undefined} />
         <ExpertToggle />
         <NextButton />
         <NotificationBell />
         <RelaunchNote />
       </header>
-      {globalScreen && <main className="shell shell-global">{globalScreen}</main>}
+      {/* The settings section: its navigation under the top bar, and the page below counts both as the bar above it. */}
+      {subnav && <SettingsNav path={path} />}
+      {globalScreen && (
+        <main className="shell shell-global" style={subnav ? ({ "--topbar-h": "108px" } as CSSProperties) : undefined}>
+          {globalScreen}
+        </main>
+      )}
       <main
         className={`shell three${inColumn ? " home" : ""}`}
         data-focus={focus}
@@ -314,7 +327,7 @@ export function App() {
           <SplitHandle onResize={resizeCtx} />
         </section>
         {/* On Home the right column shows the selected thing instead of a context. */}
-        {isHome ? <ArtifactPreview /> : <ContextPanel chatPath={inColumn ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />}
+        {isHome || projectPick ? <ArtifactPreview /> : <ContextPanel chatPath={inColumn ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />}
         {editScreen && <EditModal back={effChat}>{editScreen}</EditModal>}
       </main>
       {/* Phones show one column at a time; this picks which. */}
@@ -966,8 +979,8 @@ function groupByOwner(xs: AttentionItem[]): Array<[string, AttentionItem[]]> {
 
 /** Project facts behind an ⓘ icon: dirs, workflow + run counts. */
 /**
- * The workspace menu's own part (under the workspace switcher): the theme,
- * the trash, and which kraftwerk runs it. What sat in the top bar as the ⓘ
+ * The workspace menu's own part (under the workspace switcher): the theme
+ * and which kraftwerk runs it. The trash sits beside the search. What sat in the top bar as the ⓘ
  * popover; the expert switch and settings sit beside the search.
  */
 function WorkspaceMenu({ onClose }: { onClose: () => void }) {
@@ -987,9 +1000,6 @@ function WorkspaceMenu({ onClose }: { onClose: () => void }) {
   return (
     <div className="ws-menu mt-1.5 flex flex-col gap-0.5 border-t border-line px-1.5 pb-1 pt-2">
       <MenuLine label="Theme"><ThemeToggle /></MenuLine>
-      <div className="flex gap-1 px-1">
-        <Button variant="quiet" size="sm" icon="delete" href="/trash" onClick={onClose}>trash</Button>
-      </div>
       {expert && (
         <div className="flex flex-col gap-1 px-2.5 py-1.5 text-xs">
           <div><Eyebrow>Workflows</Eyebrow> {wfs ? `${wfs.workflows.length} discovered` : "…"} <code className="block break-all text-2xs text-fg-2" title={wfs?.root}>{wfs?.root ?? ""}</code></div>

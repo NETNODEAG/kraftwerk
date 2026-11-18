@@ -101,6 +101,23 @@ test.describe("boards", () => {
     // From the board: its columns in the preview, a card opening the task in the same column.
     await tiles.getByRole("button", { name: "show only boards" }).click();
     await page.locator(".artifact-row[data-artifact='boards']").first().click();
+    // "new task" on the board's preview opens a modal; the task lands in the column picked, without leaving Home.
+    await preview.getByRole("button", { name: "new task" }).click();
+    const dialog = page.getByRole("dialog", { name: "new task" });
+    await expect(dialog.getByRole("combobox", { name: "new task column" })).toHaveValue("todo");
+    await expect(dialog.getByRole("button", { name: "add task" })).toBeDisabled();
+    await dialog.getByRole("textbox", { name: "new task title" }).fill("Book the venue");
+    await dialog.getByRole("textbox", { name: "new task notes" }).fill("Somewhere with a stage.");
+    await dialog.getByRole("button", { name: "add task" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(preview.locator(".board-glance").getByRole("group", { name: "Todo" })).toContainText("Book the venue");
+    await expect.poll(() => existsSync(path.join(boardDir(), "tasks", "2-book-the-venue", "task.md"))).toBe(true);
+    expect(readFileSync(path.join(boardDir(), "tasks", "2-book-the-venue", "task.md"), "utf8")).toMatch(/Somewhere with a stage/);
+    // Escape closes it without making anything.
+    await preview.getByRole("button", { name: "new task" }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+
     await preview.locator(".board-glance").getByRole("link", { name: /Write a press release/ }).click();
     await expect(page).toHaveURL(/open=tasks/);
     await expect(preview.getByRole("textbox", { name: "task title" })).toHaveValue("Write a press release");

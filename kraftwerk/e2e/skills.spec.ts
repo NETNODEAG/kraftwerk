@@ -22,4 +22,16 @@ test.describe("skills landing", () => {
     await expect(page).toHaveURL(new RegExp(`#/skills/${NAME}`));
     await expect(page.locator(".shell-global .runs-side a[aria-current=page]")).toContainText(`/${NAME}`);
   });
+
+  test("a skill opened on Home is used from there: its command plus the user's text starts a new chat", async ({ page }) => {
+    await page.goto(`/#/?kind=skills&open=${encodeURIComponent(`skills:${NAME}`)}`);
+    const run = page.getByRole("region", { name: "use this skill" });
+    await expect(run.locator("code")).toHaveText(`/${NAME}`);
+    // Ralv by default; an agent can be picked instead.
+    await expect(run.getByLabel("chat with")).toHaveValue("");
+    await run.getByLabel("what to do with the skill").fill("tidy this up");
+    await run.getByRole("button", { name: "send to a new chat" }).click();
+    await expect(page).toHaveURL(/#\/agents\/chats\/[\w-]+$/);
+    await expect(page.locator(".col-chat")).toContainText(`/${NAME} tidy this up`);
+  });
 });

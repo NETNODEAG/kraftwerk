@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { api, failure, useApi } from "./api";
 import { FileBrowser } from "./files";
 import { linkRefs } from "./refs";
@@ -392,6 +393,95 @@ function AddTask({ at, status, onError }: { at: BoardAt; status: string; onError
   );
 }
 
+/**
+ * A new task, in a modal over wherever the board is shown small (a preview, a context tab): its title,
+ * the column it starts in (todo where the board has one, else the first), who gets it and what it is about.
+ * Escape or a click beside it closes; the board under it shows the task as soon as it exists.
+ */
+function NewTaskModal({ at, columns, agents, onClose }: { at: BoardAt; columns: Column[]; agents: { slug: string; name: string; emoji?: string }[]; onClose: () => void }) {
+  const [title, setTitle] = useState("");
+  const [status, setStatus] = useState(() => (columns.find((c) => c.slug === "todo") ?? columns[0])?.slug ?? "");
+  const [assignee, setAssignee] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const create = async () => {
+    const t = title.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    const r = await api.request("tasks.create", { board: at.board, query: queryOf(at.project), body: { title: t, ...(status ? { status } : {}), ...(assignee ? { assignee } : {}), ...(notes.trim() ? { notes: notes.trim() + "\n" } : {}) } });
+    setBusy(false);
+    if (!r.ok) return setError(failure(r));
+    onClose();
+  };
+  return createPortal(
+    <div className="fixed inset-0 z-40 flex animate-fade items-start justify-center bg-black/38 px-4 pt-[12vh] pb-4" onMouseDown={onClose}>
+      <form
+        role="dialog"
+        aria-label="new task"
+        className="relative w-[min(520px,100%)] animate-modal rounded-card border border-line bg-surface p-5 shadow-modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void create();
+        }}
+      >
+        <IconButton icon="close" label="close (esc)" className="absolute top-3 right-3 rounded-full" onClick={onClose} />
+        <h2 className="m-0 mb-4 text-base font-semibold text-fg">New task</h2>
+        <FormStack>
+          <Field label="title">
+            <TextField autoFocus value={title} aria-label="new task title" placeholder="what is to be done" disabled={busy} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <FieldRow>
+            <Field label="column">
+              <Select value={status} aria-label="new task column" disabled={busy} onChange={(e) => setStatus(e.target.value)}>
+                {columns.map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="assignee">
+              <Select value={assignee} aria-label="new task assignee" disabled={busy} onChange={(e) => setAssignee(e.target.value)}>
+                <option value="">unassigned</option>
+                {agents.map((a) => (
+                  <option key={a.slug} value={a.slug}>
+                    {a.emoji ? `${a.emoji} ` : ""}
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </FieldRow>
+          <Field label="notes" hint="what the task is about; an assigned agent in a work column starts on it right away">
+            <TextArea value={notes} aria-label="new task notes" rows={4} disabled={busy} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+          {error && <Notice tone="bad">{error}</Notice>}
+          <div className="flex justify-end gap-2">
+            <Button variant="quiet" onClick={onClose}>
+              cancel
+            </Button>
+            <Button type="submit" variant="primary" icon="add" disabled={busy || !title.trim()}>
+              add task
+            </Button>
+          </div>
+        </FormStack>
+      </form>
+    </div>,
+    document.body,
+  );
+}
+
 /* ---------- a task ---------- */
 
 interface LogLine {
@@ -425,7 +515,7 @@ function TaskLinks({ refs, busy, onChange }: { refs: string[]; busy: boolean; on
   const unlinked = (decks?.presentations ?? []).filter((d) => !refs.includes(`presentation:${d.name}`));
   if (!refs.length && !features.presentations) return null;
   return (
-    <Field label="links" hint="what this task is about: its agent gets them with the task">
+    <Field label="Links" hint="what this task is about: its agent gets them with the task" className="px-2">
       <div className="flex flex-wrap items-center gap-1.5" role="list" aria-label="links">
         {refs.map((token) => {
           const r = resolved.find((x) => x.token === token);
@@ -444,7 +534,7 @@ function TaskLinks({ refs, busy, onChange }: { refs: string[]; busy: boolean; on
           );
         })}
         {features.presentations && unlinked.length > 0 && (
-          <Select value="" aria-label="link a presentation" className="h-7 w-auto text-xs" disabled={busy} onChange={(e) => e.target.value && onChange([...refs, e.target.value])}>
+          <Select value="" aria-label="link a presentation" className="h-7 w-auto max-w-full text-xs" disabled={busy} onChange={(e) => e.target.value && onChange([...refs, e.target.value])}>
             <option value="">+ link a presentation…</option>
             {unlinked.map((d) => (
               <option key={`${d.project ?? ""}/${d.name}`} value={`presentation:${d.name}`}>
@@ -491,8 +581,9 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  /** A line for the log, sent with the next status or assignee change. */
-  const [message, setMessage] = useState("");
+  /** The "work on this" window: what to tell the agent, and which one (none: the project's assistant, or Ralv). */
+  const [ask, setAsk] = useState("");
+  const [who, setWho] = useState("");
   // Edited in place; null = showing the server's value.
   const [title, setTitle] = useState<string | null>(null);
   const [due, setDue] = useState<string | null>(null);
@@ -503,19 +594,16 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
   const save = async (body: { title?: string; status?: string; assignee?: string | null; due?: string | null; tags?: string[]; refs?: string[] }) => {
     setBusy(true);
     setError("");
-    const msg = message.trim();
-    const r = await api.request("tasks.save", { board, task, query, body: { ...body, ...(msg && (body.status || body.assignee !== undefined) ? { message: msg } : {}) } });
+    const r = await api.request("tasks.save", { board, task, query, body });
     setBusy(false);
     if (!r.ok) return setError(failure(r));
-    if (msg && (body.status || body.assignee !== undefined)) setMessage("");
   };
-  const move = async (status: string, msg?: string) => {
+  const move = async (status: string) => {
     setBusy(true);
     setError("");
-    const r = await api.request("tasks.move", { board, task, query, body: { status, ...(msg ? { message: msg } : {}) } });
+    const r = await api.request("tasks.move", { board, task, query, body: { status } });
     setBusy(false);
     if (!r.ok) return setError(failure(r));
-    setMessage("");
   };
   const log = async () => {
     const entry = comment.trim();
@@ -532,25 +620,26 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
     if (!r.ok) return setError(failure(r));
     navigate(boardHref(at), { replace: true });
   };
-  /** A chat in the project (Ralv for a workspace board) whose first message points the agent at the task. */
+  /** A chat about the task — with the picked agent, else in the project (Ralv for a workspace board) — whose first message points the agent at the task and carries what the user added. */
   const workOn = async () => {
-    if (!detail) return;
+    if (!detail || busy) return;
     setBusy(true);
     setError("");
-    const scope = project ? { kind: "project", slug: project } : { kind: "general" };
+    const scope = who ? { kind: "agent", slug: who } : project ? { kind: "project", slug: project } : { kind: "general" };
     // Tagged with the task: the chat gets the task block in its context and shows up in the task's sessions.
-    const r = await api.request("chats.create", { body: { agent: "claude", scope, task: detail.ref } });
+    const r = await api.request("chats.create", { body: { agent: "claude", scope, task: detail.ref, ...(who && project ? { project } : {}) } as never });
     if (!r.ok) {
       setBusy(false);
       return setError(failure(r));
     }
     const id = r.data.id;
     const show = `npx kraftwerk tasks show ${detail.number}${project ? ` --project ${project}` : ""} --board ${board}`;
-    const text = `Work on task ${detail.number} ${detail.title} (task:${detail.slug} on board ${board}): read it with \`${show}\``;
+    const extra = ask.trim();
+    const text = `Work on task ${detail.number} ${detail.title} (task:${detail.slug} on board ${board}): read it with \`${show}\`${extra ? `\n\n${extra}` : ""}`;
     const m = await api.request("chats.message", { id, body: { text } });
     setBusy(false);
     if (!m.ok) return setError(failure(m));
-    navigate(project ? `/projects/${enc(project)}/chat/${id}` : `/agents/chats/${id}`);
+    navigate(project ? `/projects/${enc(project)}/chat/${id}` : who ? `/agents/${enc(who)}/chat/${id}` : `/agents/chats/${id}`);
   };
 
   /* The notes in the editor, saved ~1 s after the last change (knowledge.tsx does the same for a page). */
@@ -640,7 +729,6 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
   const team = (agents?.agents ?? []).filter((a) => !a.archived);
 
   if (!detail) return <EmptyState>loading…</EmptyState>;
-  const pick = pickColumn(columns);
   const done = doneColumn(columns);
   const column = columns.find((c) => c.slug === detail.status);
   const commit = (field: "title" | "due" | "tags", value: string | null) => {
@@ -666,191 +754,270 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
       (e.target as HTMLInputElement).blur();
     }
   };
+  /** Who wrote a log line, as a person reads it: the agent's name, the assistant, or you. */
+  const actorOf = (actor?: string): { emoji: string; name: string } => {
+    if (!actor) return { emoji: "•", name: "" };
+    if (actor.startsWith("human")) return { emoji: "🙂", name: "You" };
+    const slug = actor.split("/")[0];
+    if (slug === "kraftwerk-chat") return project ? { emoji: "🧭", name: "Assistant" } : { emoji: "🎩", name: "Ralv" };
+    const a = (agents?.agents ?? []).find((x) => x.slug === slug);
+    return a ? { emoji: a.emoji || "🤖", name: a.name } : { emoji: "🤖", name: slug };
+  };
+  // A field of the side column: quiet until hovered, so the column reads as facts, not as a form.
+  const QUIET = "h-8 border-transparent bg-transparent px-2 text-sm shadow-none hover:bg-surface-2 focus:bg-surface";
 
   return (
-    <div className="chat-main flex min-h-0 flex-col gap-3 overflow-y-auto">
-      <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href={boardHref(at)} className="inline-flex items-center gap-1 text-sm text-fg-2 no-underline hover:text-fg" title="back to the board">
-          <Icon name="arrow_back" className="ms-sm" /> {boardData?.title ?? board}
-        </Link>
-        <span className="font-mono text-sm text-fg-2">#{detail.number}</span>
-        <TextField
-          value={title ?? detail.title}
-          aria-label="task title"
-          className="h-auto min-w-[240px] flex-1 border-0 bg-transparent px-0 text-xl font-semibold shadow-none"
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => commit("title", title)}
-          onKeyDown={onEnter(() => commit("title", title))}
-        />
-      </div>
-      <div className="flex flex-none flex-wrap items-center gap-2 text-sm text-fg-2">
-        <code className="font-mono text-xs">task:{detail.slug}</code>
-        <span>created {detail.created}</span>
-        {detail.updatedAt && <span>· changed {fmtAgo(detail.updatedAt)}</span>}
-        {detail.stale && <Tag tone="ask">stale</Tag>}
-        {detail.configError && <Tag tone="bad" title={detail.configError}>unreadable frontmatter</Tag>}
-      </div>
-      {sessions.length > 0 && (
-        <div className="flex flex-none flex-wrap items-center gap-2 text-sm text-fg-2" aria-label="sessions">
-          <span>worked on in</span>
-          {sessions.map((s) => (
-            <Link key={s.id} href={s.href} className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-xs text-fg no-underline hover:bg-surface-2" title={s.title || s.id}>
-              {s.emoji && <span>{s.emoji}</span>}
-              {s.name ?? s.agent}
-              <span className="text-fg-2">· {s.busy ? "working" : fmtAgo(s.updatedAt)}</span>
+    // @container: the page folds to one column by its own width — it is also shown in Home's side column.
+    <div className="task-page chat-main @container min-h-0 overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-5">
+        <header className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 text-sm text-fg-2">
+            <Link href={boardHref(at)} className="inline-flex items-center gap-1 text-fg-2 no-underline hover:text-fg" title="back to the board">
+              <Icon name="arrow_back" className="ms-sm" /> {boardData?.title ?? board}
             </Link>
-          ))}
-        </div>
-      )}
-      {error && <Notice tone="bad">{error}</Notice>}
-
-      {/* Two columns on a wide screen: the task (fields, text, files) left, the log right — the log is what agents and people keep reading. */}
-      <div className="grid flex-none grid-cols-1 items-start gap-3 lg:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-3">
-          <Panel title="task" className="flex-none" actions={state !== "saved" && <span className={cn("text-xs", state === "error" ? "text-bad" : "text-fg-2")}>{state === "saving" ? "saving…" : state === "unsaved" ? "unsaved" : "not saved"}</span>}>
-        <FormStack className="pb-3">
-          <FieldRow>
-            <Field label="status">
-              <Select value={column ? detail.status : ""} aria-label="status" disabled={busy || !columns.length} onChange={(e) => e.target.value && void save({ status: e.target.value })}>
-                {!column && <option value="">{detail.status || "no column"}</option>}
-                {columns.map((c) => (
-                  <option key={c.slug} value={c.slug}>{c.label}</option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="assignee">
-              <Select value={detail.assignee ?? ""} aria-label="assignee" disabled={busy} onChange={(e) => void save({ assignee: e.target.value || null })}>
-                <option value="">unassigned</option>
-                {detail.assignee && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{detail.assignee}</option>}
-                {team.map((a) => (
-                  <option key={a.slug} value={a.slug}>{a.emoji ? `${a.emoji} ` : ""}{a.name}</option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="due">
-              <TextField type="date" value={due ?? detail.due ?? ""} aria-label="due date" className="w-auto" onChange={(e) => setDue(e.target.value)} onBlur={() => commit("due", due)} onKeyDown={onEnter(() => commit("due", due))} />
-            </Field>
-            <Field label="tags" className="flex-1">
-              <TextField value={tags ?? detail.tags.join(", ")} placeholder="comma-separated" aria-label="tags" onChange={(e) => setTags(e.target.value)} onBlur={() => commit("tags", tags)} onKeyDown={onEnter(() => commit("tags", tags))} />
-            </Field>
-          </FieldRow>
-          <TaskLinks refs={detail.refs} busy={busy} onChange={(refs) => void save({ refs })} />
-          <Field label="note for the log" hint="sent with the next status or assignee change">
-            <TextField value={message} placeholder="why, or what to look at (optional)" aria-label="note for the log" onChange={(e) => setMessage(e.target.value)} />
-          </Field>
-          <FieldRow>
-            <Button variant="primary" icon="chat" busy={busy} onClick={() => void workOn()} title={project ? "start a chat in the project about this task" : "start a chat with Ralv about this task"}>
-              work on this
-            </Button>
-            {pick && detail.status !== pick.slug && (
-              <Button
-                icon="undo"
-                disabled={busy}
-                onClick={() => {
-                  const msg = message.trim() || (window.prompt(`Back to ${pick.label} — a line for the log (optional)`, "") ?? "");
-                  void move(pick.slug, msg.trim() || undefined);
-                }}
-              >
-                back to {pick.label}
-              </Button>
-            )}
-            {done && detail.status !== done.slug && (
-              <Button icon="check" disabled={busy} onClick={() => void move(done.slug, message.trim() || undefined)}>
-                {done.label.toLowerCase()}
-              </Button>
-            )}
+            <span className="font-mono">#{detail.number}</span>
+            {detail.stale && <Tag tone="ask">stale</Tag>}
+            {detail.configError && <Tag tone="bad" title={detail.configError}>unreadable frontmatter</Tag>}
             <span className="flex-1" />
+            {done && detail.status !== done.slug && (
+              <Button size="sm" icon="check" disabled={busy} onClick={() => void move(done.slug)} title={`move to ${done.label}`}>
+                mark {done.label.toLowerCase()}
+              </Button>
+            )}
             {confirmRemove ? (
               <>
-                <Button variant="danger" onClick={() => void remove()}>move to trash</Button>
-                <Button variant="quiet" onClick={() => setConfirmRemove(false)}>cancel</Button>
+                <Button size="sm" variant="danger" onClick={() => void remove()}>move to trash</Button>
+                <Button size="sm" variant="quiet" onClick={() => setConfirmRemove(false)}>cancel</Button>
               </>
             ) : (
-              <Button variant="quiet" icon="delete" title="move the task folder to the trash" onClick={() => setConfirmRemove(true)}>
-                remove
-              </Button>
+              <IconButton icon="delete" label="remove" size="sm" onClick={() => setConfirmRemove(true)} />
             )}
-          </FieldRow>
-        </FormStack>
-        {markdown !== null ? (
-          <div className="border-t border-line">
-            <TextArea value={markdown} aria-label="task markdown" rows={14} className="rounded-none border-0 font-mono text-[13px]" onChange={(e) => setMarkdown(e.target.value)} />
-            <div className="flex items-center gap-2 border-t border-line px-[18px] py-2">
-              <Button size="sm" variant="primary" busy={busy} onClick={() => void saveMarkdown()}>save</Button>
-              <Button size="sm" variant="quiet" onClick={() => { setMarkdown(null); lastNotesRef.current = null; }}>cancel</Button>
-              <Hint>the body of task.md as text; the frontmatter (status, assignee, …) is the fields above</Hint>
-            </div>
           </div>
-        ) : (
-          <div
-            className="task-doc border-t border-line"
-            onPointerDownCapture={() => (touchedRef.current = true)}
-            onKeyDownCapture={() => (touchedRef.current = true)}
-            onPasteCapture={() => (touchedRef.current = true)}
-            onDropCapture={() => (touchedRef.current = true)}
-          >
-            {doc ? (
-              <Suspense fallback={<Hint className="px-[18px] py-2">loading the editor…</Hint>}>
-                <DocEditor key={doc.key} markdown={doc.body} autoFocus={false} onChange={schedule} onError={() => setMarkdown(detail.notes)} />
-              </Suspense>
-            ) : (
-              <Hint className="px-[18px] py-2">loading…</Hint>
+          {/* A textarea, so a long title wraps instead of running out of the column. */}
+          <textarea
+            rows={1}
+            value={title ?? detail.title}
+            aria-label="task title"
+            className="block w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-2xl leading-tight font-semibold text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none [field-sizing:content]"
+            onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+            onBlur={() => commit("title", title)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
+          />
+        </header>
+        {error && <Notice tone="bad">{error}</Notice>}
+
+        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 @[880px]:grid-cols-[minmax(0,1fr)_280px] @[880px]:grid-rows-[auto_1fr]">
+          <div className="flex min-w-0 flex-col gap-6 @[880px]:row-span-2">
+            {/* Work on it: a chat window, like a skill's — the task where the message starts, what to add, who, send. */}
+            <section className="flex flex-col gap-2" aria-label="work on this task">
+              <div className="rounded-[18px] border border-line bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_16px_rgb(0_0_0/0.04)] focus-within:border-line-strong">
+                <div className="flex items-start gap-2 px-4 pt-3.5 pb-1">
+                  <code className="mt-px inline-flex flex-none items-center gap-1 rounded-control bg-accent-soft px-2 py-0.5 text-sm font-medium text-on-accent-soft" title="the chat starts with this task">
+                    <Icon name="task_alt" className="ms-sm" /> #{detail.number}
+                  </code>
+                  <textarea
+                    rows={1}
+                    value={ask}
+                    aria-label="what to do on the task"
+                    placeholder="Work on this — add what to do or look at (optional)"
+                    className="block max-h-[40vh] min-h-[28px] w-full resize-none border-0 bg-transparent p-0 font-[inherit] text-base text-fg shadow-none outline-none focus:shadow-none focus:outline-none focus-visible:outline-none placeholder:text-fg-2 [field-sizing:content]"
+                    onChange={(e) => setAsk(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        void workOn();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-2 px-2.5 pb-2.5">
+                  <Select aria-label="work with" value={who} onChange={(e) => setWho(e.target.value)} className="h-8 w-auto max-w-[240px] rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2">
+                    <option value="">{project ? "🧭 Assistant (default)" : "🎩 Ralv (default)"}</option>
+                    {team.map((a) => (
+                      <option key={a.slug} value={a.slug}>{a.emoji || "🤖"} {a.name}</option>
+                    ))}
+                  </Select>
+                  <span className="flex-1" />
+                  <span className="truncate text-xs text-fg-2 @max-[520px]:hidden">starts a chat about this task</span>
+                  <button
+                    type="button"
+                    aria-label="work on this"
+                    title="work on this (Enter)"
+                    className="inline-grid size-8 flex-none cursor-pointer place-items-center rounded-full bg-accent text-on-accent transition-[filter] hover:enabled:brightness-110 disabled:cursor-default disabled:opacity-60"
+                    disabled={busy}
+                    onClick={() => void workOn()}
+                  >
+                    <Icon name={busy ? "progress_activity" : "arrow_upward"} className="ms-sm" />
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-2" aria-label="description">
+              <div className="flex items-center gap-2">
+                <h3 className="m-0 text-sm font-semibold text-fg">Description</h3>
+                {state !== "saved" && <span className={cn("text-xs", state === "error" ? "text-bad" : "text-fg-2")}>{state === "saving" ? "saving…" : state === "unsaved" ? "unsaved" : "not saved"}</span>}
+                <span className="flex-1" />
+                {markdown === null && (
+                  <Button size="sm" variant="quiet" icon="code" title="edit the text as markdown" onClick={() => setMarkdown(detail.notes)}>
+                    markdown
+                  </Button>
+                )}
+              </div>
+              <div className="overflow-hidden rounded-card border border-line bg-surface">
+                {markdown !== null ? (
+                  <>
+                    <TextArea value={markdown} aria-label="task markdown" rows={14} className="rounded-none border-0 font-mono text-[13px]" onChange={(e) => setMarkdown(e.target.value)} />
+                    <div className="flex items-center gap-2 border-t border-line px-[18px] py-2">
+                      <Button size="sm" variant="primary" busy={busy} onClick={() => void saveMarkdown()}>save</Button>
+                      <Button size="sm" variant="quiet" onClick={() => { setMarkdown(null); lastNotesRef.current = null; }}>cancel</Button>
+                    </div>
+                  </>
+                ) : (
+                  <div
+                    className="task-doc"
+                    onPointerDownCapture={() => (touchedRef.current = true)}
+                    onKeyDownCapture={() => (touchedRef.current = true)}
+                    onPasteCapture={() => (touchedRef.current = true)}
+                    onDropCapture={() => (touchedRef.current = true)}
+                  >
+                    {doc ? (
+                      <Suspense fallback={<Hint className="px-[18px] py-2">loading the editor…</Hint>}>
+                        <DocEditor key={doc.key} markdown={doc.body} autoFocus={false} onChange={schedule} onError={() => setMarkdown(detail.notes)} />
+                      </Suspense>
+                    ) : (
+                      <Hint className="px-[18px] py-2">loading…</Hint>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-2" aria-label="files">
+              <h3 className="m-0 text-sm font-semibold text-fg">Files</h3>
+              <div className="rounded-card border border-line bg-surface px-2 py-1" title="the task's folder: drop files on the list">
+                <FileBrowser key={detail.ref} compact scope={`task:${detail.ref}`} dir={filesAt.dir} file={filesAt.file} onOpen={(dir, file) => setFilesAt({ dir, file })} />
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-2" aria-label="activity">
+              <h3 className="m-0 text-sm font-semibold text-fg">Activity</h3>
+              <div className="flex items-center gap-2">
+                <TextField value={comment} placeholder="Add a comment…" aria-label="log entry" disabled={busy} onChange={(e) => setComment(e.target.value)} onKeyDown={onEnter(() => void log())} />
+                <Button icon="send" busy={busy} disabled={!comment.trim()} onClick={() => void log()}>
+                  comment
+                </Button>
+              </div>
+              {lines.length === 0 ? (
+                <Hint className="py-2">nothing happened yet</Hint>
+              ) : (
+                <ol className="m-0 flex list-none flex-col p-0">
+                  {lines.map((l, i) => {
+                    const s = l.actor ? sessionOf(l.actor) : undefined;
+                    const by = actorOf(l.actor);
+                    return (
+                      <Fragment key={i}>
+                        {(i === 0 || lines[i - 1].day !== l.day) && <Eyebrow className="pt-3 pb-1">{l.day}</Eyebrow>}
+                        <li className="flex gap-3 border-t border-line py-2.5 first:border-t-0">
+                          <span className="grid size-7 flex-none place-items-center rounded-full bg-surface-2 text-[14px] leading-none" aria-hidden>{by.emoji}</span>
+                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <div className="flex items-baseline gap-2 text-xs text-fg-2">
+                              {by.name && <span className="font-semibold text-fg" title={l.actor}>{by.name}</span>}
+                              <span className="tabular-nums">{l.time}</span>
+                              {s && (
+                                <Link href={s.href} className="text-fg-2 underline decoration-dotted hover:text-fg" title={`open the session ${s.name ?? s.agent} worked in`}>
+                                  open session
+                                </Link>
+                              )}
+                            </div>
+                            <LogText text={l.text} />
+                          </div>
+                        </li>
+                      </Fragment>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+          </div>
+
+          {/* The facts: beside the task on a wide page, right under the title on a narrow one. */}
+          <aside className="order-first flex min-w-0 flex-col gap-4 @[880px]:order-none" aria-label="details">
+            <dl className="m-0 grid grid-cols-[76px_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm @min-[520px]:@max-[879px]:grid-cols-[76px_minmax(0,1fr)_76px_minmax(0,1fr)]">
+              <dt className="text-fg-2">Status</dt>
+              <dd className="m-0">
+                <Select value={column ? detail.status : ""} aria-label="status" className={QUIET} disabled={busy || !columns.length} onChange={(e) => e.target.value && void save({ status: e.target.value })}>
+                  {!column && <option value="">{detail.status || "no column"}</option>}
+                  {columns.map((c) => (
+                    <option key={c.slug} value={c.slug}>{c.label}</option>
+                  ))}
+                </Select>
+              </dd>
+              <dt className="text-fg-2">Assignee</dt>
+              <dd className="m-0">
+                <Select value={detail.assignee ?? ""} aria-label="assignee" className={QUIET} disabled={busy} onChange={(e) => void save({ assignee: e.target.value || null })}>
+                  <option value="">unassigned</option>
+                  {detail.assignee && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{detail.assignee}</option>}
+                  {team.map((a) => (
+                    <option key={a.slug} value={a.slug}>{a.emoji ? `${a.emoji} ` : ""}{a.name}</option>
+                  ))}
+                </Select>
+              </dd>
+              <dt className="text-fg-2">Due</dt>
+              <dd className="m-0">
+                <TextField type="date" value={due ?? detail.due ?? ""} aria-label="due date" className={cn(QUIET, "w-full")} onChange={(e) => setDue(e.target.value)} onBlur={() => commit("due", due)} onKeyDown={onEnter(() => commit("due", due))} />
+              </dd>
+              <dt className="text-fg-2">Tags</dt>
+              <dd className="m-0">
+                <TextField value={tags ?? detail.tags.join(", ")} placeholder="none" aria-label="tags" title="comma-separated" className={QUIET} onChange={(e) => setTags(e.target.value)} onBlur={() => commit("tags", tags)} onKeyDown={onEnter(() => commit("tags", tags))} />
+              </dd>
+            </dl>
+
+            <TaskLinks refs={detail.refs} busy={busy} onChange={(refs) => void save({ refs })} />
+          </aside>
+
+          <aside className="flex min-w-0 flex-col gap-5" aria-label="chats and facts">
+            {sessions.length > 0 && (
+              <div className="flex flex-col gap-1" aria-label="sessions">
+                <h3 className="m-0 px-2 text-sm font-semibold text-fg">Chats</h3>
+                {sessions.map((s) => (
+                  <Link key={s.id} href={s.href} className="flex items-center gap-2 rounded-control px-2 py-1 text-sm text-fg no-underline hover:bg-surface-2" title={s.title || s.id}>
+                    <span className="flex-none">{s.emoji || "💬"}</span>
+                    <span className="min-w-0 flex-1 truncate">{s.name ?? s.agent}</span>
+                    <span className="flex-none text-xs text-fg-2">{s.busy ? "working" : fmtAgo(s.updatedAt)}</span>
+                  </Link>
+                ))}
+              </div>
             )}
-            <div className="flex items-center gap-2 px-[18px] py-1.5">
-              <Hint className="flex-1">what the task is, saved as you type</Hint>
-              <Button size="sm" variant="quiet" icon="code" onClick={() => setMarkdown(detail.notes)}>
-                markdown
-              </Button>
+
+            <div className="flex flex-col gap-0.5 px-2 text-xs text-fg-2">
+              <span>created {detail.created}{detail.updatedAt ? ` · changed ${fmtAgo(detail.updatedAt)}` : ""}</span>
+              <code className="font-mono text-2xs [overflow-wrap:anywhere]" title="how agents and the CLI refer to this task">task:{detail.slug}</code>
             </div>
-          </div>
-        )}
-      </Panel>
-
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-0">
-      <Panel title="files" className="flex-none" actions={<Hint>the task's folder: drop files on the list</Hint>}>
-        <div className="px-2 py-1">
-          <FileBrowser key={detail.ref} compact scope={`task:${detail.ref}`} dir={filesAt.dir} file={filesAt.file} onOpen={(dir, file) => setFilesAt({ dir, file })} />
-        </div>
-      </Panel>
-
-        <Panel title="log" className="min-w-0 flex-none">
-        <div className="flex items-center gap-2 px-[18px] pt-3">
-          <TextField value={comment} placeholder="a comment, a question, what was done…" aria-label="log entry" disabled={busy} onChange={(e) => setComment(e.target.value)} onKeyDown={onEnter(() => void log())} />
-          <Button size="sm" icon="send" busy={busy} disabled={!comment.trim()} onClick={() => void log()}>
-            log
-          </Button>
-        </div>
-        {lines.length === 0 ? (
-          <Hint className="px-[18px] py-3">nothing logged yet</Hint>
-        ) : (
-          <ol className="m-0 flex list-none flex-col px-[18px] py-3">
-            {lines.map((l, i) => (
-              <Fragment key={i}>
-                {(i === 0 || lines[i - 1].day !== l.day) && <Eyebrow className={cn("pb-1", i > 0 && "pt-3")}>{l.day}</Eyebrow>}
-                <li className="flex items-baseline gap-3 border-l border-line py-1 pl-3 text-sm">
-                  <span className="w-11 flex-none font-mono text-2xs text-fg-2">{l.time}</span>
-                  <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{l.text}</span>
-                  {l.actor &&
-                    (() => {
-                      const s = sessionOf(l.actor);
-                      return s ? (
-                        <Link href={s.href} className="flex-none text-2xs text-fg-2 underline decoration-dotted hover:text-fg" title={`open the session ${s.name ?? s.agent} worked in`}>
-                          {l.actor}
-                        </Link>
-                      ) : (
-                        <span className="flex-none text-2xs text-fg-2">{l.actor}</span>
-                      );
-                    })()}
-                </li>
-              </Fragment>
-            ))}
-          </ol>
-        )}
-      </Panel>
+          </aside>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A log line's text: long ones (an agent's report) fold to a few lines until asked for. */
+function LogText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 280;
+  return (
+    <div className="text-sm [overflow-wrap:anywhere]">
+      <span className={cn(long && !open && "line-clamp-3")}>{text}</span>
+      {long && (
+        <button type="button" className="mt-0.5 block cursor-pointer border-0 bg-transparent p-0 text-xs text-accent hover:underline" onClick={() => setOpen(!open)}>
+          {open ? "show less" : "show more"}
+        </button>
+      )}
     </div>
   );
 }
@@ -1177,6 +1344,7 @@ export function BoardGlance({ project, board }: BoardAt) {
   const at: BoardAt = { project, board };
   const data = useApi("boards.get", { board, query: queryOf(project) }, { interval: 10_000 });
   const agents = useApi("agents.list", {}, { interval: 60_000 });
+  const [adding, setAdding] = useState(false);
   if (!data) return null;
   const known = new Set(data.columns.map((c) => c.slug));
   const lanes = [...data.columns, ...(data.items.some((t) => !known.has(t.status)) ? [{ slug: "", label: "No column" } as Column] : [])];
@@ -1185,6 +1353,7 @@ export function BoardGlance({ project, board }: BoardAt) {
   const n = data.tasks;
   return (
     <section className="flex flex-col gap-2.5 pb-3" aria-label={`board ${data.title}`}>
+      {adding && <NewTaskModal at={at} columns={data.columns} agents={agents?.agents ?? []} onClose={() => setAdding(false)} />}
       <ListRow
         href={boardHref(at)}
         size="sm"
@@ -1193,11 +1362,12 @@ export function BoardGlance({ project, board }: BoardAt) {
         titleExtra={<Badge n={data.review} title="waiting for review" />}
         meta={n === 0 ? "empty" : `${n} task${n === 1 ? "" : "s"}`}
       />
-      {n === 0 && (
-        <p className="m-0 px-2.5 text-xs text-fg-2">
-          Nothing on the board yet. <Link href={boardHref(at)} className="text-accent">Add a task</Link>
-        </p>
-      )}
+      <div className="flex items-center gap-2 px-2.5">
+        <Button size="sm" icon="add" onClick={() => setAdding(true)}>
+          new task
+        </Button>
+        {n === 0 && <span className="text-xs text-fg-2">Nothing on the board yet.</span>}
+      </div>
       {/* The board itself, small: its columns side by side, left to right, scrolling sideways. */}
       <div className="board-glance flex gap-2 overflow-x-auto px-2.5 pb-1" aria-label="columns">
         {groups.map(({ col: c, tasks }) => {

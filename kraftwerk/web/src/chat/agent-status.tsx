@@ -1,4 +1,4 @@
-/** The chat header's agent chips: sign-in trouble, context use and cost, and the model and thinking settings. */
+/** The agent chips in the chat input's bottom line: sign-in trouble, context use and cost, and the model and thinking settings. */
 import { useState } from "react";
 import type { ConfigOption } from "../types";
 import { api } from "../api";
@@ -40,7 +40,7 @@ export function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof 
           o.type === "select" ? (
             <Select
               key={o.id}
-              className="h-7 w-auto max-w-[22ch] px-2 pr-6 text-xs text-fg-2"
+              className="h-7 w-auto max-w-[22ch] rounded-full border-transparent bg-transparent px-2 pr-6 text-xs text-fg-2 shadow-none hover:bg-surface-2"
               value={o.value}
               disabled={busyId === o.id}
               title={o.description ?? o.name}

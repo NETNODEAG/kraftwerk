@@ -479,7 +479,7 @@ export function ContextPanel({ chatPath, workspace }: {
                       </Link>
                     ))}
                     {launching === slug && w && (
-                      <div className="mx-1 mb-2 rounded-card border border-line bg-surface [&>div]:px-3 [&>div]:pt-3">
+                      <div className="mx-1 mb-2">
                         <RunForm
                           slug={slug}
                           usesRequest={w.usesRequest}

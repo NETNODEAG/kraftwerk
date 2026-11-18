@@ -241,28 +241,9 @@ export function ChatThread({
   // its own. "add coworker" sits at the strip's right end; expert detail keeps a quiet line here.
   const canCoworker = (meta.scope.kind === "agent" || meta.scope.kind === "project") && !meta.scope.routine;
   const signedOut = live.auth?.kind === "none";
-  return (
+  // What the chat runs on and with (fork, harness, context use, model, thinking, scope, folder): the bottom line of the input box, not a row above the conversation.
+  const details = (expert || signedOut) && (
     <>
-    <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
-      {meta.scope.kind === "agent" && !meta.scope.routine && (
-        <StripEnd>
-          <ChatProject id={id} project={meta.project} onFiled={(project) => setMeta((m) => (m ? { ...m, project } : m))} />
-        </StripEnd>
-      )}
-      {canCoworker && (
-        <StripEnd>
-          <IconButton
-            size="sm"
-            icon="group_add"
-            label="add coworker"
-            title={meta.scope.kind === "project" ? "add coworker: turn this chat into a channel of the project and invite agents" : "add coworker: turn this chat into a channel and invite more agents"}
-            onClick={() => setCoworker(true)}
-            disabled={busy}
-          />
-        </StripEnd>
-      )}
-      {(expert || signedOut) && (
-      <div className="flex flex-none flex-wrap items-center gap-x-2.5 gap-y-1.5 pb-1.5">
         {expert && meta.agent !== "pi" && meta.sessions?.main && (
           <Button
             size="sm"
@@ -303,16 +284,36 @@ export function ChatThread({
           </span>
         )}
         {expert && (
-          <span className="rid max-w-[34ch] min-w-0 truncate font-mono text-xs text-fg-2 max-[800px]:hidden" title={meta.cwd}>
+          <span className="rid max-w-[26ch] min-w-0 truncate font-mono text-2xs text-fg-2 [direction:rtl] max-[800px]:hidden" title={meta.cwd}>
             {meta.cwd}
           </span>
         )}
-      </div>
+    </>
+  );
+  return (
+    <>
+    <div className="chat-thread flex min-h-0 w-full flex-1 animate-rise flex-col">
+      {meta.scope.kind === "agent" && !meta.scope.routine && (
+        <StripEnd>
+          <ChatProject id={id} project={meta.project} onFiled={(project) => setMeta((m) => (m ? { ...m, project } : m))} />
+        </StripEnd>
+      )}
+      {canCoworker && (
+        <StripEnd>
+          <IconButton
+            size="sm"
+            icon="group_add"
+            label="add coworker"
+            title={meta.scope.kind === "project" ? "add coworker: turn this chat into a channel of the project and invite agents" : "add coworker: turn this chat into a channel and invite more agents"}
+            onClick={() => setCoworker(true)}
+            disabled={busy}
+          />
+        </StripEnd>
       )}
       {meta.vibeable && !features.vibeables && <VibeOffNote chatId={id} slug={meta.vibeable} onClosed={setMeta} />}
       <SpeakerContext.Provider value={() => mainSpeaker(meta.scope, allAgents, agentName)}>
         <Thread id={id} events={events} busy={busy} />
-        <Composer id={id} busy={busy} scope={meta.scope} commands={live.commands} canSteer={meta.agent !== "pi"} account={live.auth && live.auth.kind !== "none" ? live.auth.email ?? live.auth.label : undefined} />
+        <Composer id={id} busy={busy} scope={meta.scope} footer={details || undefined} commands={live.commands} canSteer={meta.agent !== "pi"} account={live.auth && live.auth.kind !== "none" ? live.auth.email ?? live.auth.label : undefined} />
       </SpeakerContext.Provider>
     </div>
     {attachedSlug && vibeSlot && createPortal(<VibePane key={attachedSlug} chatId={id} slug={attachedSlug} agentBusy={busy} onClosed={setMeta} />, vibeSlot)}

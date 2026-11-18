@@ -27,6 +27,7 @@ test.describe("rail folding", () => {
     await expect(row).toHaveAttribute("aria-current", "page");
     await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^(expand|collapse) fold-/ })).toHaveCount(0);
+    await page.goto("/#/projects/fold-alpha/chat/new");
     await page.getByRole("button", { name: "session with" }).click();
     await expect(page.getByRole("menuitemradio", { name: /Fold Helper/ })).toBeVisible();
   });

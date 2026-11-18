@@ -26,14 +26,14 @@ test.describe("presentations", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false }, presentations: { enabled: false } } });
   });
 
-  test("the context column and the top navigation have no presentations until settings turn the feature on", async ({ page }) => {
+  test("the context column and the settings navigation have no presentations until settings turn the feature on", async ({ page }) => {
     await page.goto(`/#/projects/${project}`);
     await expect(page.getByRole("tab", { name: /presentations/ })).toHaveCount(0);
     await expect(page.locator(".rail a[href='#/presentations']")).toHaveCount(0);
-    await expect(page.locator(".global-nav a", { hasText: "files" })).toBeVisible();
-    await expect(page.locator(".global-nav a[href='#/presentations']")).toHaveCount(0);
 
     await page.goto("/#/settings");
+    await expect(page.locator(".settings-nav a", { hasText: "files" })).toBeVisible();
+    await expect(page.locator(".settings-nav a[href='#/presentations']")).toHaveCount(0);
     await page.getByRole("checkbox", { name: /make slide decks/ }).check();
     await page.getByRole("button", { name: "save changes" }).click();
     await expect(page.getByText("saved")).toBeVisible();
@@ -44,10 +44,11 @@ test.describe("presentations", () => {
     await expect(page.locator(".rail a[href='#/presentations']")).toHaveCount(0);
     await expect(page.getByRole("tab", { name: /presentations/ })).toBeVisible();
     await expect(page.locator(".rail [data-nested]")).toHaveCount(0);
-    // Expert mode's top navigation gets the page too; simple mode has no top navigation at all.
-    await page.locator(".global-nav a[href='#/presentations']").click();
+    // The settings navigation gets the page too.
+    await page.goto("/#/settings");
+    await page.locator(".settings-nav a[href='#/presentations']").click();
     await expect(page).toHaveURL(/#\/presentations$/);
-    await expect(page.locator(".global-nav a[href='#/presentations']")).toHaveAttribute("aria-current", "page");
+    await expect(page.locator(".settings-nav a[href='#/presentations']")).toHaveAttribute("aria-current", "page");
   });
 
   test("a deck is created from the project's presentations tab and is a folder; the editor shows its slides", async ({ page }) => {

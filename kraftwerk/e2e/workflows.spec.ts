@@ -104,29 +104,45 @@ test.describe("workflows screen", () => {
     await expect(page.locator(".shell-global .runs-side")).not.toContainText("boom");
   });
 
-  test("simple mode has conversations and no top navigation; expert mode has every page", async ({ page }) => {
+  test("the top bar has no navigation in either mode; git and trash sit beside the search, the overviews under settings", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("kw-expert", "off"));
     // The rail is part of the conversation view; the pages sit under the top bar on their own.
     await page.goto("/#/agents/chats");
     const rail = page.locator(".rail");
     await expect(rail.locator("a", { hasText: "channels" })).toHaveCount(0);
     await expect(rail.locator("a", { hasText: "agents" })).toBeVisible();
-    // Simple mode has no top navigation at all; expert mode brings every page.
-    await expect(page.locator(".global-nav")).toHaveCount(0);
+    const topbar = page.locator(".topbar");
+    await expect(topbar.locator("a", { hasText: "workflows" })).toHaveCount(0);
+    await expect(topbar.getByRole("link", { name: "trash" })).toBeVisible();
+    await expect(page.locator(".settings-nav")).toHaveCount(0);
 
-    // The switch sits in the top bar, beside the search.
+    // Expert mode only changes what a chat shows: still no navigation in the top bar.
     await page.locator(".expert-toggle").click();
-    const nav = page.locator(".global-nav");
-    await expect(nav.locator("a", { hasText: "workflows" })).toBeVisible();
+    await expect(topbar.locator("a", { hasText: "workflows" })).toHaveCount(0);
+    await expect(topbar.getByRole("link", { name: "trash" })).toBeVisible();
+    await page.locator(".expert-toggle").click();
+
+    // Settings carries the second navigation: the base settings, then every overview.
+    await topbar.getByRole("link", { name: "settings" }).click();
+    const nav = page.locator(".settings-nav");
+    await expect(nav.locator("a", { hasText: "base settings" })).toHaveAttribute("aria-current", "page");
     await expect(nav.locator("a", { hasText: "knowledge" })).toBeVisible();
-    await expect(nav.locator("a", { hasText: "knowledge" })).not.toContainText("context");
     await expect(nav.locator("a", { hasText: "skills" })).toBeVisible();
+    // It stays on the overview it leads to.
+    await nav.locator("a", { hasText: "workflows" }).click();
+    await expect(page).toHaveURL(/#\/workflows/);
+    await expect(nav.locator("a", { hasText: "workflows" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.locator("a", { hasText: "base settings" })).not.toHaveAttribute("aria-current", "page");
+
+    await topbar.getByRole("link", { name: "trash" }).click();
+    await expect(page).toHaveURL(/#\/trash$/);
+    await expect(page.locator(".settings-nav")).toHaveCount(0);
   });
 
   test("lists workflows with run counts, searches, and keeps runs under workflows", async ({ page }) => {
     await page.goto("/#/workflows");
-    await expect(page.locator(".global-nav")).not.toContainText("workflow runs");
-    await expect(page.locator(".global-nav a", { hasText: "workflows" })).toBeVisible();
+    await expect(page.locator(".settings-nav")).not.toContainText("workflow runs");
+    await expect(page.locator(".settings-nav a", { hasText: "workflows" })).toBeVisible();
 
     // The list is a sidebar; a bare #/workflows lands on the workflow that ran last.
     await expect(page).toHaveURL(/#\/workflows\/[a-z]+$/);

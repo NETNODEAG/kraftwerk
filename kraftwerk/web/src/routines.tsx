@@ -28,7 +28,7 @@ export const routineWhen = (r: ListedRoutine): string =>
   !r.enabled ? "paused" : r.nextRunAt ? `next ${fmtWhen(r.nextRunAt)}` : r.runner === "unassigned" ? "no runner" : r.runner === "elsewhere" ? `runs on ${r.runsOn}` : r.schedule;
 
 /** Where a run's chat opens: in its project, else with its agent, else with Ralv. */
-const runHref = (r: Pick<ListedRoutine, "agent" | "project">, chatId: string): string =>
+export const runHref = (r: Pick<ListedRoutine, "agent" | "project">, chatId: string): string =>
   r.project ? `/projects/${encodeURIComponent(r.project)}/chat/${chatId}` : r.agent ? `/agents/${encodeURIComponent(r.agent.slug)}/chat/${chatId}` : `/agents/chats/${chatId}`;
 
 interface Form {

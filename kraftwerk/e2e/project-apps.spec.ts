@@ -21,7 +21,8 @@ test.describe("project apps", () => {
   });
 
   test("pin an app, open it from the overview, unpin it", async ({ page, request }) => {
-    await page.goto(`/#/projects/${PROJECT}`);
+    // The composer for a new session, with the project's pinned apps under it.
+    await page.goto(`/#/projects/${PROJECT}/chat/new`);
     const card = page.locator(`.projects-screen a.pinned-app[data-app='kanban']`);
     await expect(page.getByRole("region", { name: "recent sessions" })).toBeVisible();
     await expect(card).toHaveCount(0);
