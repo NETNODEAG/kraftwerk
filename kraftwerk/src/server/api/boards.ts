@@ -10,6 +10,7 @@ import {
   getBoard,
   getTask,
   listAllBoards,
+  listAllTasks,
   listBoards,
   moveTask,
   openBoards,
@@ -129,6 +130,9 @@ export const boardRoutes = [
       return reply(201, await createTask(refOf(c), (await c.body()) as TaskInput & { actor?: string; message?: string }));
     },
   ),
+  route({ name: "tasks.list", method: "GET", path: "/api/tasks", summary: "every task of every board, the workspace's and the projects', each with its board and column" }, async () => {
+    return { tasks: (await openBoards()).off ? [] : await listAllTasks() };
+  }),
   route({ name: "tasks.get", method: "GET", path: "/api/boards/:board/tasks/:task", summary: "the task: fields, markdown, files, log and the sessions that worked on it (:task = folder name or number)", errors: boardErrors }, async (c) => {
     await requireOn();
     const task = (await getTask(refOf(c), c.params.task)) ?? fail(404, `no task "${c.params.task}"`);

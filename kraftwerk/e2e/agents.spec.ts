@@ -48,9 +48,9 @@ test.describe("general chats landing", () => {
     const chatRow = page.locator(".rail").getByRole("link", { name: "Chats", exact: true });
     await expect(chatRow).toHaveAttribute("href", "#/agents/chats");
     await expect(chatRow).toHaveAttribute("aria-current", "page");
-    // Second, after Home and above Artifacts.
+    // Second, after Home and above Today.
     await expect(page.locator(".rail a").nth(1)).toHaveAttribute("href", "#/agents/chats");
-    await expect(page.locator(".rail a").nth(2)).toHaveAttribute("href", "#/artifacts");
+    await expect(page.locator(".rail a").nth(2)).toHaveAttribute("href", "#/today");
     await expect(page.getByRole("textbox", { name: "new session" })).toHaveAttribute("placeholder", "New chat with Ralv");
     await expect(page.getByRole("button", { name: "session with" })).toContainText("Ralv");
 

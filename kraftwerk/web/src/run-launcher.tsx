@@ -5,8 +5,8 @@ import { Button, Notice, SwitchRow, TextField } from "./ui";
 
 /**
  * Triggering a workflow run from the browser — shared by the ▶ button on
- * the workflows list, the run dialog, and the workflow page. Sandbox is the
- * default whenever Docker and the runner image are there.
+ * the workflows list, the run dialog, and the workflow page. A run starts on
+ * this machine unless the Docker sandbox is switched on (as `--sandbox` on the CLI).
  */
 
 export interface DockerStatus {
@@ -49,7 +49,7 @@ export function useRunLauncher(
   onLaunched?: (runId: string) => void
 ) {
   const [request, setRequest] = useState("");
-  const [sandbox, setSandbox] = useState(true);
+  const [sandbox, setSandbox] = useState(false);
   const [ssh, setSsh] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,10 +59,6 @@ export function useRunLauncher(
     if (!request && initialRequest) setRequest(initialRequest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRequest]);
-  // No usable sandbox: start with the switch off so Run is not dead on arrival.
-  useEffect(() => {
-    if (docker && !sandboxReady(docker)) setSandbox(false);
-  }, [docker]);
 
   const canRun = !busy && (!usesRequest || !!request.trim()) && (!sandbox || sandboxReady(docker));
 

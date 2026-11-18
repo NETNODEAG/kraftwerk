@@ -33,11 +33,11 @@ test.describe("artifacts", () => {
   });
 
   test("lists what was made, filters by kind, searches, opens a row", async ({ page }) => {
-    await page.goto("/#/");
-    await page.locator(".rail a[href='#/artifacts']").click();
-    await expect(page).toHaveURL(/#\/artifacts$/);
-    await expect(page.locator(".rail a[href='#/artifacts']")).toHaveAttribute("aria-current", "page");
-    await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
+    await page.goto("/#/today");
+    await page.locator(".rail a[href='#/']").click();
+    await expect(page).toHaveURL(/#\/$/);
+    await expect(page.locator(".rail a[href='#/']")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
 
     // A tile per enabled kind, with a + to make a new one; the apps tile is missing while vibeables are off.
     const tiles = page.getByRole("region", { name: "kinds" });
@@ -58,15 +58,15 @@ test.describe("artifacts", () => {
     await contactsTile.click();
     await expect(rows.filter({ hasText: "Quarterly review" })).toHaveCount(1);
 
-    await page.getByRole("button", { name: "search artifacts" }).click();
-    await page.getByRole("searchbox", { name: "search artifacts" }).fill("quarterly");
+    await page.getByRole("button", { name: "search home" }).click();
+    await page.getByRole("searchbox", { name: "search home" }).fill("quarterly");
     await expect(rows).toHaveCount(1);
 
     // A row selects: the deck shows on the right, its slides drawn; "open" leads to where it lives.
     const preview = page.getByRole("complementary", { name: "Preview" });
-    await expect(preview).toContainText("Pick an artifact");
+    await expect(preview).toContainText("Pick something");
     await rows.first().click();
-    await expect(page).toHaveURL(/#\/artifacts\?open=presentations/);
+    await expect(page).toHaveURL(/#\/\?open=presentations/);
     await expect(rows.first()).toHaveAttribute("aria-current", "true");
     await expect(preview.getByRole("heading", { level: 2, name: "Quarterly review" })).toBeVisible();
     await expect(preview.locator("[data-slide]")).toHaveCount(2);
@@ -75,14 +75,14 @@ test.describe("artifacts", () => {
   });
 
   test("a contact shows on the right, to edit in place; close goes back to the hint", async ({ page }) => {
-    await page.goto("/#/artifacts");
+    await page.goto("/#/");
     await page.locator(".artifact-row", { hasText: "Erika Muster" }).click();
     const preview = page.getByRole("complementary", { name: "Preview" });
     await expect(preview.getByRole("heading", { level: 2, name: "Erika Muster" })).toBeVisible();
     await expect(preview.locator("input").first()).toBeVisible();
     await preview.getByRole("link", { name: "close the preview" }).click();
-    await expect(page).toHaveURL(/#\/artifacts$/);
-    await expect(preview).toContainText("Pick an artifact");
+    await expect(page).toHaveURL(/#\/$/);
+    await expect(preview).toContainText("Pick something");
   });
 
   test("places: a map of all of them; a place zooms in with its details", async ({ page, request }) => {
@@ -90,9 +90,9 @@ test.describe("artifacts", () => {
     expect((await request.post("/api/places", { data: { title: "Map probe office", lat: 47.05, lng: 8.3 } })).ok()).toBeTruthy();
     expect((await request.post("/api/places", { data: { title: "Map probe depot", lat: 46.95, lng: 7.45 } })).ok()).toBeTruthy();
     try {
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       await page.getByRole("button", { name: "show only places" }).click();
-      await expect(page).toHaveURL(/#\/artifacts\?kind=places$/);
+      await expect(page).toHaveURL(/#\/\?kind=places$/);
       const preview = page.getByRole("complementary", { name: "Preview" });
       const map = preview.getByRole("region", { name: "map of the places" });
       await expect(map).toBeVisible();
@@ -115,7 +115,7 @@ test.describe("artifacts", () => {
     expect((await request.put("/api/settings", { data: { events: { enabled: true } } })).ok()).toBeTruthy();
     expect((await request.post("/api/events", { data: { title: "Cal probe launch", start: "2026-03-10T14:00", end: "2026-03-11" } })).ok()).toBeTruthy();
     try {
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       await page.getByRole("button", { name: "show only events" }).click();
       const preview = page.getByRole("complementary", { name: "Preview" });
       const cal = preview.getByRole("region", { name: "calendar of the events" });
@@ -140,7 +140,7 @@ test.describe("artifacts", () => {
     writeFileSync(path.join(dir, "workflow.yml"), "name: artifact-probe\ndescription: writes a stamp\nsteps:\n  - name: stamp\n    run: date > stamp.txt\n");
     const wf = { slug: "artifact-probe", name: "artifact-probe" };
     try {
-    await page.goto("/#/artifacts");
+    await page.goto("/#/");
     const tiles = page.getByRole("region", { name: "kinds" });
     await tiles.getByRole("button", { name: "show only workflows" }).click();
     await expect(page).toHaveURL(/kind=workflows/);
@@ -157,12 +157,56 @@ test.describe("artifacts", () => {
     }
   });
 
+  test("runs are in the stream: the one under way is pinned under Now, a row shows the run on the right", async ({ page }) => {
+    const root = fixture();
+    const ids = ["2025-01-02-1000-00-stream-probe", "2025-01-02-1100-00-stream-probe"];
+    const seed = (id: string, request: string, events: object[], ts: string) => {
+      const dir = path.join(root, "output", "runs", id);
+      mkdirSync(dir, { recursive: true });
+      const all = [{ event: "run_start", ts, workflow: "stream-probe", request, steps: [{ name: "go", kind: "script" }] }, { event: "phase_start", ts, phase: "go", kind: "script" }, ...events];
+      writeFileSync(path.join(dir, "trace.jsonl"), all.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    };
+    const old = "2025-01-02T10:00:00Z";
+    seed(ids[0], "finished batch", [{ event: "phase_end", ts: old, phase: "go", status: "ok", stats: { durationMs: 10, attempts: 1 } }, { event: "run_summary", ts: old, total: { durationMs: 10 } }], old);
+    // Stamped now, so it counts as under way and not as stale.
+    seed(ids[1], "live batch", [], new Date().toISOString());
+    try {
+      await page.goto("/#/");
+      // The tiles come in groups: what you work with, what came out (workflow runs among it), what the agents know.
+      const tiles = page.getByRole("region", { name: "kinds" });
+      await expect(tiles.getByRole("group", { name: "Create" }).getByRole("button", { name: "show only workflows" })).toBeVisible();
+      await expect(tiles.getByRole("group", { name: "Results" }).getByRole("button", { name: "show only workflow runs" })).toBeVisible();
+      await expect(tiles.getByRole("group", { name: "Results" }).getByRole("button", { name: "show only presentations" })).toBeVisible();
+      await expect(tiles.getByRole("group", { name: "Context" }).getByRole("button", { name: "show only knowledge" })).toBeVisible();
+
+      // Unfiltered, the run under way leads the stream.
+      const rows = page.locator(".artifact-row");
+      const live = rows.filter({ hasText: "live batch" });
+      await expect(live).toHaveAttribute("data-live", "working");
+      await expect(page.locator(".artifact-row[data-live]").first()).toBeVisible();
+      await expect(page.getByRole("region", { name: "everything" })).toContainText("Now");
+      await expect(rows.filter({ hasText: "finished batch" })).not.toHaveAttribute("data-live");
+
+      await tiles.getByRole("button", { name: "show only workflow runs" }).click();
+      await expect(page).toHaveURL(/kind=runs/);
+      await expect(rows.first()).toContainText("live batch");
+      await expect(rows.filter({ hasText: "finished batch" })).toContainText("Ran ");
+      await rows.filter({ hasText: "finished batch" }).click();
+      const preview = page.getByRole("complementary", { name: "Preview" });
+      await expect(preview.getByRole("heading", { level: 2, name: "stream-probe" })).toBeVisible();
+      await expect(preview.getByRole("link", { name: "open", exact: true })).toHaveAttribute("href", `#/runs/${ids[0]}`);
+      await expect(preview).toContainText("finished batch");
+    } finally {
+      for (const id of ids) rmSync(path.join(root, "output", "runs", id), { recursive: true, force: true });
+    }
+  });
+
   test("knowledge bundles are artifacts too: the bundle's own view on the right", async ({ page }) => {
     const dir = path.join(fixture(), "knowledge", "artifact-notes");
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "pricing.md"), "---\ntype: concept\ntitle: Pricing\n---\n\nWe bill monthly.\n");
     try {
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       await page.getByRole("region", { name: "kinds" }).getByRole("button", { name: "show only knowledge" }).click();
       await expect(page).toHaveURL(/kind=knowledge/);
       const row = page.locator(".artifact-row", { hasText: "artifact-notes" });
@@ -182,7 +226,7 @@ test.describe("artifacts", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "SKILL.md"), "---\nname: artifact-skill\ndescription: writes the weekly digest\n---\n# Digest\n\nCollect the week's runs.\n");
     try {
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       await page.getByRole("region", { name: "kinds" }).getByRole("button", { name: "show only skills" }).click();
       await expect(page).toHaveURL(/kind=skills/);
       const row = page.locator(".artifact-row", { hasText: "/artifact-skill" });
@@ -199,7 +243,7 @@ test.describe("artifacts", () => {
 
   test("repositories are artifacts while the feature is on: branch and state on the row, changes on the right", async ({ page, request }) => {
     const tiles = page.getByRole("region", { name: "kinds" });
-    await page.goto("/#/artifacts");
+    await page.goto("/#/");
     await expect(tiles.getByRole("button", { name: "show only repos" })).toHaveCount(0);
 
     const ROOT = "kraftwerk-data/artifact-repos";
@@ -246,7 +290,7 @@ test.describe("artifacts", () => {
     expect((await request.post("/api/agents/routine-owner/routines", { data: { name: "Night watch", schedule: "0 3 * * *", prompt: "Look over the logs." } })).ok()).toBeTruthy();
     page.on("dialog", (d) => void d.accept());
     try {
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       const tiles = page.getByRole("region", { name: "kinds" });
       await tiles.getByRole("button", { name: "show only routines" }).click();
       await expect(page).toHaveURL(/kind=routines/);
@@ -289,7 +333,7 @@ test.describe("artifacts", () => {
 
       await preview.getByRole("button", { name: "delete" }).click();
       await expect(row).toHaveCount(0);
-      await expect(preview).toContainText("Pick an artifact");
+      await expect(preview).toContainText("Pick something");
     } finally {
       await request.delete("/api/routines/weekly-digest");
       await request.delete("/api/agents/routine-owner");
@@ -301,7 +345,7 @@ test.describe("artifacts", () => {
     const id = ((await (await request.post("/api/chats", { data: { agent: "claude", scope: { kind: "kraftwerk" } } })).json()) as { id: string }).id;
     try {
       expect((await request.patch(`/api/chats/${id}`, { data: { title: "Plan the offsite" } })).ok()).toBeTruthy();
-      await page.goto("/#/artifacts");
+      await page.goto("/#/");
       const tiles = page.getByRole("region", { name: "kinds" });
       // First, before Workflows.
       await expect(tiles.getByRole("button").first()).toHaveAttribute("aria-label", "show only chats");

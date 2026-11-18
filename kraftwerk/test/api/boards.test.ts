@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
-import type { BoardDetail, BoardsView, TaskDetail } from "../../src/core/boards.js";
+import type { BoardDetail, BoardsView, ListedTask, TaskDetail } from "../../src/core/boards.js";
 import type { ChatMeta, StoredChatEvent } from "../../src/core/chat/types.js";
 import type { AttentionView } from "../../src/core/attention.js";
 import type { GitStatus } from "../../src/core/git.js";
@@ -123,6 +123,10 @@ describe("boards API", () => {
     const second = (await (await post("/api/boards/tasks/tasks?project=netnode", { title: "Second" })).json()) as TaskDetail;
     assert.equal(second.slug, "2-second", "numbers count up per board");
     assert.equal((await get<TaskDetail>("/api/boards/tasks/tasks/2?project=netnode")).slug, "2-second", "the bare number names a task");
+    // Every task of every board in one list, each with its board and column.
+    const all = (await get<{ tasks: ListedTask[] }>("/api/tasks")).tasks;
+    assert.deepEqual(all.map((x) => x.ref).sort(), ["netnode/tasks/1-write-a-press-release", "netnode/tasks/2-second"]);
+    assert.deepEqual({ board: all[0].board, project: all[0].project, column: all[0].column }, { board: "tasks", project: "netnode", column: "Draft" });
   });
 
   it("moves and hand-overs change one line of task.md and are written to the log with their message", async () => {

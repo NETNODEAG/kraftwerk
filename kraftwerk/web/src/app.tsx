@@ -97,7 +97,7 @@ const remember = (key: string, value: string): void => {
 };
 
 /**
- * Shell + hash router. Routes: #/ (dashboard), #/runs (redirect to latest
+ * Shell + hash router. Routes: #/ (home: everything in the workspace), #/today (the dashboard), #/runs (redirect to latest
  * run), #/runs/<id>, #/workflows, #/workflows/<slug>[/details | /runs],
  * #/knowledge[/<bundle>[/<concept-path>]], #/skills[/<name>],
  * #/agents[/new | /chats[/new | /<chatId>] | /<slug>[/info | /edit | /chat/<chatId>]],
@@ -127,11 +127,11 @@ export function App() {
   const isBoardPage = isBoardPath(path);
   const isDeckPage = isPresentationPath(path);
   const isChatRoute = CHAT_ROUTES.has(seg[0] ?? "") && !isBoardPage && !isDeckPage;
-  // Home (#/) is today's dashboard, in the middle column with the rail beside it.
-  const isHome = seg.length === 0;
-  // Artifacts (#/artifacts) sits there too: everything made in the workspace, the selected one shown beside it.
-  const isArtifacts = seg[0] === "artifacts";
-  const inColumn = isHome || isArtifacts;
+  // Home (#/, and #/artifacts as it was called) is everything in the workspace, in the middle column with the rail beside it; the selected thing shows in the right column.
+  const isHome = seg.length === 0 || seg[0] === "artifacts";
+  // Today (#/today) sits there too: the dashboard of what needs you and what happened.
+  const isToday = seg[0] === "today";
+  const inColumn = isHome || isToday;
   const [chatPath, setChatPath] = useState(() => remembered(CHAT_PATH_KEY, "/agents/chats"));
   // Editing the thing you talk to (its /info or /edit route) is a modal over the conversation.
   const editScreen = isChatRoute ? editScreenOf(path) : null;
@@ -272,7 +272,7 @@ export function App() {
           <a
             href="#/"
             className="grid size-8 place-items-center rounded-full text-[15px] leading-none transition-shadow hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--ws-c,var(--text))_16%,transparent)]"
-            title="Dashboard"
+            title="Home"
           >
             {workspaceName ? (
               <WorkspaceTile size="sm" icon={workspaceIcon} name={workspaceName} color={configuredColor} seed={workspaceRootAbs || workspaceName} />
@@ -308,13 +308,13 @@ export function App() {
         hidden={!!globalScreen}
         style={ctxW ? ({ "--ctx-w": `${ctxW}px` } as React.CSSProperties) : undefined}
       >
-        <ConversationsRail chatPath={isHome ? "/" : isArtifacts ? "/artifacts" : effChat} />
-        <section className="col-chat" aria-label={isHome ? "Dashboard" : isArtifacts ? "Artifacts" : "Conversation"}>
-          {isHome ? <DashboardScreen /> : isArtifacts ? <ArtifactsScreen /> : chatScreen}
+        <ConversationsRail chatPath={isHome ? "/" : isToday ? "/today" : effChat} />
+        <section className="col-chat" aria-label={isHome ? "Home" : isToday ? "Today" : "Conversation"}>
+          {isHome ? <ArtifactsScreen /> : isToday ? <DashboardScreen /> : chatScreen}
           <SplitHandle onResize={resizeCtx} />
         </section>
-        {/* On Artifacts the right column shows the selected artifact instead of a context. */}
-        {isArtifacts ? <ArtifactPreview /> : <ContextPanel chatPath={inColumn ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />}
+        {/* On Home the right column shows the selected thing instead of a context. */}
+        {isHome ? <ArtifactPreview /> : <ContextPanel chatPath={inColumn ? "/" : effChat} workspace={{ name: workspaceName, icon: workspaceIcon }} />}
         {editScreen && <EditModal back={effChat}>{editScreen}</EditModal>}
       </main>
       {/* Phones show one column at a time; this picks which. */}

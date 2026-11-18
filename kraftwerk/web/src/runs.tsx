@@ -121,7 +121,7 @@ function SideRow({ r, active }: { r: RunListItem; active: boolean }) {
 
 /* ---------- detail ---------- */
 
-function RunDetailView({ id }: { id: string }) {
+export function RunDetailView({ id }: { id: string }) {
   const run = useApi("runs.get", { id }, { fast: true });
   const live = run?.status === "running";
   const [tab, setTab] = useState<"run" | "artifacts" | null>(null);

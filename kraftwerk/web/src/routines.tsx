@@ -16,7 +16,7 @@ export type ListedRoutine = ApiResult<"routines.list">["routines"][number];
 
 /** The owner of the workspace's routines, as the API spells it. */
 export const WORKSPACE_ROUTINES = "_";
-/** The key of the "new routine" form in #/artifacts?open=routines:_:new. */
+/** The key of the "new routine" form in #/?open=routines:_:new. */
 export const NEW_ROUTINE = "new";
 
 /** Who gets the prompt, in a few words: the agent, else the project's assistant, else Ralv. */

@@ -556,6 +556,29 @@ export async function listAllBoards(): Promise<BoardSummary[]> {
   return out;
 }
 
+/** A task with the board it is on: for lists across boards. */
+export interface ListedTask extends TaskSummary {
+  board: string;
+  boardTitle: string;
+  project?: string;
+  /** The label of the column it is in; absent when the column went away. */
+  column?: string;
+}
+
+/** Every task of every board, the workspace's and the projects'. */
+export async function listAllTasks(): Promise<ListedTask[]> {
+  const out: ListedTask[] = [];
+  for (const b of await listAllBoards()) {
+    const ref: BoardRef = { ...(b.project ? { project: b.project } : {}), board: b.board };
+    const detail = await getBoard(ref).catch(() => null);
+    for (const t of detail?.items ?? []) {
+      const column = b.columns.find((c) => c.slug === t.status)?.label;
+      out.push({ ...t, ...ref, boardTitle: b.title, ...(column ? { column } : {}) });
+    }
+  }
+  return out;
+}
+
 export async function getBoard(ref: BoardRef): Promise<BoardDetail | null> {
   const dir = await boardDir(ref);
   const read = await summarise(ref, dir, await defaultColumns());

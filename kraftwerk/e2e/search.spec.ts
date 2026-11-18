@@ -71,7 +71,7 @@ test.describe("palette", () => {
 
   test("escape closes it, the header button opens it", async ({ page }) => {
     await page.goto("/#/");
-    await page.getByRole("button", { name: "search" }).click();
+    await page.getByRole("button", { name: "search", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "jump to an agent, project or channel" });
     await expect(dialog).toBeVisible();
     await page.getByRole("textbox", { name: "search" }).fill("nothing like this");

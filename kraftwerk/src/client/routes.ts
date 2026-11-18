@@ -169,6 +169,7 @@ export const ROUTES = {
   "tasks.create": ["POST", "/api/boards/:board/tasks"],
   "tasks.delete": ["DELETE", "/api/boards/:board/tasks/:task"],
   "tasks.get": ["GET", "/api/boards/:board/tasks/:task"],
+  "tasks.list": ["GET", "/api/tasks"],
   "tasks.log": ["POST", "/api/boards/:board/tasks/:task/log"],
   "tasks.move": ["POST", "/api/boards/:board/tasks/:task/move"],
   "tasks.pick": ["POST", "/api/boards/:board/pick"],

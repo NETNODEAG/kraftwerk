@@ -468,7 +468,7 @@ export function ContextPanel({ chatPath, workspace }: {
                     {scheduled.map((r) => (
                       <Link
                         key={`${r.owner}/${r.id}`}
-                        href={r.owner === "_" ? `/artifacts?kind=routines&open=${encodeURIComponent(`routines:_:${r.id}`)}` : `/agents/${encodeURIComponent(r.owner)}/info`}
+                        href={r.owner === "_" ? `/?kind=routines&open=${encodeURIComponent(`routines:_:${r.id}`)}` : `/agents/${encodeURIComponent(r.owner)}/info`}
                         className="routine-line flex min-w-0 items-center gap-1.5 pt-0.5 pb-2 pl-[46px] pr-3 text-xs text-fg-2 no-underline hover:text-fg"
                         title={`${r.agent ? `${r.agent.name}'s routine` : "The routine"} "${r.name}" (${r.schedule}) runs this workflow: ${r.prompt}`}
                       >

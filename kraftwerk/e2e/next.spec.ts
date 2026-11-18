@@ -30,8 +30,8 @@ test.describe("next: what needs you", () => {
     await request.put("/api/settings", { data: { projects: { enabled: false } } });
   });
 
-  test("Home lists what needs you, owner first, and starts the way through", async ({ page }) => {
-    await page.goto("/");
+  test("Today lists what needs you, owner first, and starts the way through", async ({ page }) => {
+    await page.goto("/#/today");
     const rows = page.locator(".today-section").first().locator(".today-row.waiting");
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText("🦊 Nx Lisa");

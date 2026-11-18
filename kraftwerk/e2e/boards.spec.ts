@@ -87,6 +87,25 @@ test.describe("boards", () => {
     await expect(columns.getByRole("group", { name: "Todo" })).not.toContainText("Write a press release");
   });
 
+  test("Home lists the task and shows it on the right; a card of the board's preview opens its task there too", async ({ page }) => {
+    await page.goto("/#/");
+    const tiles = page.getByRole("region", { name: "kinds" });
+    await tiles.getByRole("button", { name: "show only tasks" }).click();
+    const row = page.locator(".artifact-row").filter({ hasText: "Write a press release" });
+    await expect(row).toContainText("#1 · Tasks · Review");
+    await row.click();
+    const preview = page.getByRole("complementary", { name: "Preview" });
+    await expect(preview.getByRole("textbox", { name: "task title" })).toHaveValue("Write a press release");
+    await expect(preview.getByRole("link", { name: "open", exact: true })).toHaveAttribute("href", `#/projects/${project}/boards/tasks/1-write-a-press-release`);
+
+    // From the board: its columns in the preview, a card opening the task in the same column.
+    await tiles.getByRole("button", { name: "show only boards" }).click();
+    await page.locator(".artifact-row[data-artifact='boards']").first().click();
+    await preview.locator(".board-glance").getByRole("link", { name: /Write a press release/ }).click();
+    await expect(page).toHaveURL(/open=tasks/);
+    await expect(preview.getByRole("textbox", { name: "task title" })).toHaveValue("Write a press release");
+  });
+
   test("the palette finds the task and opens it", async ({ page }) => {
     await page.goto("/#/");
     await page.keyboard.press("ControlOrMeta+k");

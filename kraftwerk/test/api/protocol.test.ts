@@ -103,6 +103,7 @@ const ROUTES = [
   "GET /api/settings settings.get",
   "GET /api/skills skills.list",
   "GET /api/skills/:name skills.get",
+  "GET /api/tasks tasks.list",
   "GET /api/temp temp.list",
   "GET /api/trash trash.list",
   "GET /api/update update.status",

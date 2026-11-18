@@ -82,7 +82,7 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
           active={chatPath === "/"}
           leading={<Icon name="home" />}
           title="Home"
-          innerProps={{ title: "Today: what needs you, what happened" }}
+          innerProps={{ title: "Everything here: chats, workflows, routines and what they made" }}
         />
         <ListRow
           href="/agents/chats"
@@ -93,11 +93,11 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
           innerProps={{ title: "Every chat with Ralv and in the projects; start a new one with Ralv, the chief of staff" }}
         />
         <ListRow
-          href="/artifacts"
-          active={chatPath === "/artifacts"}
-          leading={<Icon name="category" />}
-          title="Artifacts"
-          innerProps={{ title: "Everything made here: apps, presentations, boards, contacts, places, events" }}
+          href="/today"
+          active={chatPath === "/today"}
+          leading={<Icon name="today" />}
+          title="Today"
+          innerProps={{ title: "Today: what needs you, what happened" }}
         />
 
         {features.projects && (
