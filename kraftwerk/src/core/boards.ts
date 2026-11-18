@@ -81,6 +81,12 @@ export interface BoardDef extends BoardRef {
   agent?: string;
   /** A task in a work column with no log entry for this long shows as stale. Default: 1d. */
   staleAfter?: string;
+  /**
+   * A workspace board linked to projects: it stays where it is, and each of
+   * these projects lists it with its own boards, shows it in its context
+   * column and briefs its chats with it. Only workspace boards link.
+   */
+  projects?: string[];
 }
 
 export interface BoardSummary extends BoardDef {
@@ -161,6 +167,8 @@ export interface SaveBoardInput {
   columns?: unknown;
   agent?: string | null;
   staleAfter?: string | null;
+  /** Projects a workspace board is linked to (replaces the list; [] unlinks). */
+  projects?: string[] | null;
   notes?: string;
 }
 
@@ -334,7 +342,19 @@ function parseBoard(ref: BoardRef, data: Record<string, unknown>, fallback: Colu
     parseDuration(String(data.stale_after));
     def.staleAfter = String(data.stale_after).trim();
   }
+  if (!ref.project) {
+    const projects = cleanProjectLinks(data.projects);
+    if (projects.length) def.projects = projects;
+  }
   return def;
+}
+
+/** The `projects:` of a workspace board: project slugs, deduplicated, in the order given. */
+function cleanProjectLinks(v: unknown): string[] {
+  if (v === undefined || v === null || v === "") return [];
+  const list = typeof v === "string" ? v.split(",") : v;
+  if (!Array.isArray(list) || !list.every((x) => typeof x === "string")) throw new Error("projects must be a list of project slugs");
+  return [...new Set(list.map((x) => x.trim()).filter(Boolean).map((x) => safeProjectSlug(x)))];
 }
 
 function boardToFile(def: BoardDef, notes: string, explicitColumns: boolean): string {
@@ -342,6 +362,7 @@ function boardToFile(def: BoardDef, notes: string, explicitColumns: boolean): st
   if (explicitColumns) doc.columns = def.columns.map((c) => (Object.keys(c).length === 2 && c.label === c.slug[0].toUpperCase() + c.slug.slice(1) ? c.slug : c));
   if (def.agent) doc.agent = def.agent;
   if (def.staleAfter) doc.stale_after = def.staleAfter;
+  if (def.projects?.length) doc.projects = def.projects;
   return toFile(doc, notes);
 }
 
@@ -528,8 +549,13 @@ async function summarise(ref: BoardRef, dir: string, fallback: Column[]): Promis
   return { summary: { ...read.summary, counts, tasks: items.length, review }, notes: read.notes, items };
 }
 
-/** The boards of a project (its boards/ folder), or the workspace boards when no project is given. */
-export async function listBoards(project?: string): Promise<BoardsView> {
+/**
+ * The boards of a project (its boards/ folder, then the workspace boards
+ * linked to it), or the workspace boards when no project is given. A linked
+ * board keeps its own ref (no `project`), so every call on it addresses the
+ * workspace board. `own` leaves the linked ones out.
+ */
+export async function listBoards(project?: string, opts: { own?: boolean } = {}): Promise<BoardsView> {
   const opened = await openBoards();
   if (!opened.root) return { enabled: false, boards: [], error: opened.error };
   const fallback = await defaultColumns();
@@ -542,6 +568,10 @@ export async function listBoards(project?: string): Promise<BoardsView> {
   const boards = (await Promise.all((await boardSlugsIn(dir)).map((b) => summarise({ ...(project ? { project } : {}), board: b }, path.join(dir, b), fallback))))
     .filter((x) => x != null)
     .map((x) => x.summary);
+  if (project && !opts.own) {
+    const linked = (await listBoards()).boards.filter((b) => b.projects?.includes(project));
+    boards.push(...linked);
+  }
   return { enabled: true, root: opened.root, boards };
 }
 
@@ -553,7 +583,7 @@ export async function listAllBoards(): Promise<BoardSummary[]> {
   const projects = await openProjects();
   if (projects.root) {
     const slugs = (await fs.readdir(projects.root, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory() && SLUG_RE.test(e.name)).map((e) => e.name);
-    for (const p of slugs) out.push(...(await listBoards(p).catch(() => ({ boards: [] as BoardSummary[] }))).boards);
+    for (const p of slugs) out.push(...(await listBoards(p, { own: true }).catch(() => ({ boards: [] as BoardSummary[] }))).boards);
   }
   return out;
 }
@@ -663,6 +693,17 @@ export async function saveBoard(ref: BoardRef, input: SaveBoardInput): Promise<B
   };
   const agent = input.agent !== undefined ? cleanAgentSlug(input.agent ?? undefined) : current.agent;
   if (agent) next.agent = agent;
+  if (input.projects !== undefined && input.projects !== null && input.projects.length && ref.project) {
+    throw new Error(`board "${boardKey(ref)}" belongs to project ${ref.project}; only a workspace board links to projects`);
+  }
+  const projects = input.projects !== undefined ? cleanProjectLinks(input.projects ?? []) : (current.projects ?? []);
+  if (input.projects) {
+    const known = await openProjects();
+    for (const p of projects) {
+      if (!known.root || !(await fs.stat(path.join(known.root, p)).catch(() => null))?.isDirectory()) throw new Error(`no project "${p}"`);
+    }
+  }
+  if (projects.length) next.projects = projects;
   const stale = input.staleAfter !== undefined ? (input.staleAfter ? input.staleAfter.trim() : undefined) : current.staleAfter;
   if (stale) {
     parseDuration(stale);
@@ -1016,10 +1057,12 @@ const taskLine = (t: TaskSummary): string =>
  * The "## Board: …" blocks of a project chat (or of an agent for the
  * boards it has tasks on): the board's rules, its columns with counts, the
  * open tasks, and the CLI. `agent` narrows the task list to that agent's
- * and the unassigned ones in the pick column.
+ * and the unassigned ones in the pick column. A project's list includes
+ * the workspace boards linked to it, unless `own` (an agent filed under the
+ * project already has every workspace board).
  */
-export async function boardsContext(project: string | undefined, actor: string, agent?: string): Promise<string> {
-  const view = await listBoards(project).catch(() => ({ enabled: false, boards: [] as BoardSummary[] }));
+export async function boardsContext(project: string | undefined, actor: string, agent?: string, opts: { own?: boolean } = {}): Promise<string> {
+  const view = await listBoards(project, opts).catch(() => ({ enabled: false, boards: [] as BoardSummary[] }));
   if (!view.enabled || view.boards.length === 0) return "";
   const blocks: string[] = [];
   for (const b of view.boards) {
@@ -1034,7 +1077,7 @@ export async function boardsContext(project: string | undefined, actor: string, 
     });
     const cols = detail.columns.map((c) => `${c.label} (${detail.counts[c.slug] ?? 0})${c.review ? " — waits for a human" : c.done ? " — finished, humans only" : ""}`).join(", ");
     blocks.push(
-      `## Board: ${detail.title}${project ? "" : " (workspace)"}\n` +
+      `## Board: ${detail.title}${!detail.project ? (project ? " (workspace board, linked to this project)" : " (workspace)") : ""}\n` +
         (detail.notes.trim() ? `${detail.notes.trim()}\n` : "") +
         `Columns: ${cols}.\n` +
         (open.length ? `${agent ? "Your tasks and the unassigned ones in " + (pick?.label ?? "the pick column") : "Open tasks"}:\n${open.map(taskLine).join("\n")}\n` : "No open tasks.\n") +

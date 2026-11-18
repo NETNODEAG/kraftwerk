@@ -453,7 +453,7 @@ export async function scopeContext(meta: ChatMeta, seat: Seat): Promise<string> 
     scope.kind === "project"
       ? boardsContext(scope.slug, `kraftwerk-chat/${agent}`).catch(() => "")
       : scope.kind === "agent"
-        ? Promise.all([boardsContext(undefined, `${scope.slug}/${agent}`, scope.slug), meta.project ? boardsContext(meta.project, `${scope.slug}/${agent}`, scope.slug) : Promise.resolve("")])
+        ? Promise.all([boardsContext(undefined, `${scope.slug}/${agent}`, scope.slug), meta.project ? boardsContext(meta.project, `${scope.slug}/${agent}`, scope.slug, { own: true }) : Promise.resolve("")])
             .then((xs) => xs.filter(Boolean).join("\n\n"))
             .catch(() => "")
         : Promise.resolve(""),

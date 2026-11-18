@@ -1017,7 +1017,10 @@ export function BoardSettings({ project, board }: BoardAt) {
   const at: BoardAt = { project, board };
   const query = queryOf(project);
   const agents = useApi("agents.list", {}, { interval: 30_000 });
+  const features = useFeatures();
+  const projectList = useApi("projects.list", !project && features.projects ? {} : null, { interval: 60_000 });
   const [loaded, setLoaded] = useState<BoardSummary | null>(null);
+  const [linked, setLinked] = useState<string[]>([]);
   const [gone, setGone] = useState("");
   const [title, setTitle] = useState("");
   const [columns, setColumns] = useState<ColumnRow[]>([]);
@@ -1040,6 +1043,7 @@ export function BoardSettings({ project, board }: BoardAt) {
       setColumns(d.columns.map((c) => ({ slug: c.slug, label: c.label, limit: c.limit === undefined ? "" : String(c.limit), review: !!c.review, done: !!c.done })));
       setAgent(d.agent ?? "");
       setStaleAfter(d.staleAfter ?? "");
+      setLinked(d.projects ?? []);
       setNotes(d.notes);
     });
     return () => {
@@ -1081,6 +1085,7 @@ export function BoardSettings({ project, board }: BoardAt) {
       })),
       agent: agent || null,
       staleAfter: staleAfter.trim() || null,
+      ...(project ? {} : { projects: linked }),
       notes,
     };
     const r = await api.request("boards.save", { board, query, body });
@@ -1094,6 +1099,7 @@ export function BoardSettings({ project, board }: BoardAt) {
   if (gone) return <EmptyState icon="view_kanban">{gone}</EmptyState>;
   if (!loaded) return <EmptyState>loading…</EmptyState>;
   const team = (agents?.agents ?? []).filter((a) => !a.archived);
+  const linkable = (projectList?.projects ?? []).filter((p) => p.status !== "archived" || linked.includes(p.slug));
 
   return (
     <div className="chat-main flex min-h-0 flex-col gap-3 overflow-y-auto">
@@ -1134,6 +1140,34 @@ export function BoardSettings({ project, board }: BoardAt) {
           </FormStack>
         </Panel>
 
+        {!project && features.projects && (
+          <Panel title="linked projects">
+            <FormStack>
+              {linkable.length === 0 ? (
+                <Hint>No projects yet.</Hint>
+              ) : (
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {linkable.map((p) => (
+                    <Checkbox
+                      key={p.slug}
+                      checked={linked.includes(p.slug)}
+                      onChange={(on) => {
+                        setLinked((ls) => (on ? [...ls, p.slug] : ls.filter((s) => s !== p.slug)));
+                        touch();
+                      }}
+                    >
+                      {p.title}
+                    </Checkbox>
+                  ))}
+                </div>
+              )}
+              <Hint>
+                The board stays a workspace board. Each linked project lists it with its own boards, shows it in its context column, and its chats are briefed with it.
+              </Hint>
+            </FormStack>
+          </Panel>
+        )}
+
         <Panel title="columns" actions={<Button size="sm" variant="quiet" icon="add" onClick={() => { setColumns((cs) => [...cs, { slug: "", label: "", limit: "", review: false, done: false }]); touch(); }}>column</Button>}>
           <div className="flex flex-col divide-y divide-line">
             {columns.map((c, i) => (
@@ -1159,7 +1193,7 @@ export function BoardSettings({ project, board }: BoardAt) {
           <FormStack>
             <TextArea value={notes} aria-label="rules" rows={8} className="font-mono text-[13px]" placeholder="What the board is for and the rules agents follow — Markdown, the body of board.md" onChange={(e) => { setNotes(e.target.value); touch(); }} />
             <Hint>
-              Everything here is <code>board.md</code> in <code title={loaded.path}>{loaded.path}</code>: frontmatter (title, columns, agent, stale_after) and these rules as its body. The file can be edited by hand just as well.
+              Everything here is <code>board.md</code> in <code title={loaded.path}>{loaded.path}</code>: frontmatter (title, columns, agent, stale_after{project ? "" : ", projects"}) and these rules as its body. The file can be edited by hand just as well.
             </Hint>
           </FormStack>
         </Panel>
@@ -1185,6 +1219,11 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
   const boards = data?.boards ?? [];
   const base = project ? `/projects/${enc(project)}/boards` : "/boards";
   const at = (b: string): BoardAt => ({ ...(project ? { project } : {}), board: b });
+  /** A listed board where it lives: a project's own, or a workspace board linked to this project. */
+  const where = (b: BoardSummary): BoardAt => ({ ...(b.project ? { project: b.project } : {}), board: b.board });
+  const own = boards.filter((b) => b.project === project);
+  const linkedHere = project ? boards.filter((b) => !b.project) : [];
+  const shown = boards.find((b) => b.board === board && b.project === project);
 
   let main: React.ReactNode;
   if (data && !data.enabled)
@@ -1196,7 +1235,7 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
   else if (!data) main = <EmptyState>loading…</EmptyState>;
   else if (data.error) main = <EmptyState icon="view_kanban"><span className="text-bad">{data.error}</span></EmptyState>;
   else if (creating) main = <NewBoard root={data.root} project={project} />;
-  else if (!board && project) main = boards.length === 0 ? <ProjectBoardsLanding slug={project} /> : <Redirect to={boardHref(at(boards[0].board))} />;
+  else if (!board && project) main = own.length === 0 && linkedHere.length === 0 ? <ProjectBoardsLanding slug={project} /> : <Redirect to={boardHref(where(own[0] ?? linkedHere[0]))} />;
   else if (!board && boards.length === 0) main = <NewBoard root={data.root} />;
   else if (board && sub === "settings") main = <BoardSettings key={`${project ?? ""}/${board}/settings`} {...at(board)} />;
   else if (board && sub) main = <TaskPage key={`${project ?? ""}/${board}/${sub}`} {...at(board)} task={sub} />;
@@ -1215,20 +1254,21 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
         <SideList label="boards">
           {boards.map((b) => (
             <ListRow
-              key={b.board}
-              href={boardHref(at(b.board))}
-              active={b.board === board}
+              key={`${b.project ?? ""}/${b.board}`}
+              href={boardHref(where(b))}
+              active={!!shown && shown === b}
               size="sm"
-              leading={<Icon name="view_kanban" className="ms-sm" />}
+              leading={<Icon name={project && !b.project ? "link" : "view_kanban"} className="ms-sm" />}
               title={b.title}
               titleExtra={<Badge n={b.review} title="waiting for review" />}
-              sub={b.configError ? "unreadable board.md" : `${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
+              sub={b.configError ? "unreadable board.md" : `${project && !b.project ? "workspace board · " : ""}${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
               subTone={b.configError ? "bad" : "plain"}
               meta={b.updatedAt && <span title={b.updatedAt}>{fmtAgo(b.updatedAt)}</span>}
             />
           ))}
           {data && !data.enabled && <SideNote>{data.error}</SideNote>}
           {data?.enabled && boards.length === 0 && <SideNote>no {project ? "" : "workspace "}boards yet</SideNote>}
+          {project && data?.enabled && <LinkBoard project={project} />}
           {project && (
             <SideNote>
               <Link href={`/projects/${enc(project)}`} className="text-accent">← back to the project</Link>
@@ -1238,6 +1278,40 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
       </aside>
       <div className="runs-main">{main}</div>
     </div>
+  );
+}
+
+/**
+ * Link a workspace board to this project from the project's boards list:
+ * the workspace boards not linked yet, one pick adds the project to the
+ * board's `projects:`. Unlinking is in the board's settings.
+ */
+function LinkBoard({ project }: { project: string }) {
+  const workspace = useApi("boards.list", {}, { interval: 30_000 });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const free = (workspace?.boards ?? []).filter((b) => !b.projects?.includes(project));
+  if (!workspace?.enabled || free.length === 0) return null;
+  const link = async (slug: string) => {
+    const b = free.find((x) => x.board === slug);
+    if (!b) return;
+    setBusy(true);
+    setError("");
+    const r = await api.request("boards.save", { board: b.board, query: {}, body: { projects: [...(b.projects ?? []), project] } });
+    setBusy(false);
+    if (!r.ok) return setError(failure(r));
+    navigate(boardHref({ board: b.board }));
+  };
+  return (
+    <SideNote>
+      <Select value="" disabled={busy} aria-label="link a workspace board" className="h-8 text-sm" onChange={(e) => void link(e.target.value)}>
+        <option value="">link a workspace board…</option>
+        {free.map((b) => (
+          <option key={b.board} value={b.board}>{b.title}</option>
+        ))}
+      </Select>
+      {error && <span className="text-sm text-bad">{error}</span>}
+    </SideNote>
   );
 }
 

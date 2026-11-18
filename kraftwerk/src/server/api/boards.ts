@@ -39,6 +39,7 @@ const BoardFields = z.object({
   columns: Columns.optional(),
   agent: z.string().nullable().optional(),
   staleAfter: z.string().nullable().optional(),
+  projects: z.array(z.string()).nullable().optional(),
   notes: z.string().optional(),
 });
 

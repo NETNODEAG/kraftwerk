@@ -74,13 +74,17 @@ interface Where {
 /** The board a command means: --board, else the project's default board when it exists, else the only board. */
 async function whereOf(w: Where, create = false): Promise<BoardRef> {
   const project = w.project?.trim() || undefined;
-  if (w.board) return { ...(project ? { project } : {}), board: w.board.trim() };
   const view = await listBoards(project);
+  if (w.board) {
+    // A project's own board first; else a workspace board linked to it, addressed as what it is.
+    const named = view.boards.find((b) => b.board === w.board!.trim() && b.project) ?? view.boards.find((b) => b.board === w.board!.trim());
+    return named ? { ...(named.project ? { project: named.project } : {}), board: named.board } : { ...(project ? { project } : {}), board: w.board.trim() };
+  }
   if (!view.enabled) die(view.error ?? "boards are off");
   if (view.error) die(view.error);
-  const dflt = view.boards.find((b) => b.board === DEFAULT_BOARD);
+  const dflt = view.boards.find((b) => b.board === DEFAULT_BOARD && b.project === project);
   if (dflt) return { ...(project ? { project } : {}), board: DEFAULT_BOARD };
-  if (view.boards.length === 1) return { ...(project ? { project } : {}), board: view.boards[0].board };
+  if (view.boards.length === 1) return { ...(view.boards[0].project ? { project: view.boards[0].project } : {}), board: view.boards[0].board };
   if (create && view.boards.length === 0) return ensureDefaultBoard(project);
   if (view.boards.length === 0) die(`no board ${project ? `in project ${project}` : "in the workspace"} yet — \`kraftwerk boards create "<title>"${project ? ` --project ${project}` : ""}\` makes one`);
   return die(`several boards here (${view.boards.map((b) => b.board).join(", ")}) — say which with --board`);
@@ -215,9 +219,10 @@ export function registerBoardCommands(program: Command): void {
     .option("--agent <slug>", 'Default agent; "" clears it')
     .option("--stale-after <duration>", 'Mark a worked task stale after e.g. 12h, 2d; "" for the default (1d)')
     .option("--columns <list>", "Comma-separated column slugs (replaces the list)")
+    .option("--link <projects>", 'Link a workspace board to these projects, comma-separated (replaces the list; "" unlinks)')
     .option("--notes-file <path>", "Replace the rules with this file's text")
     .option("--json", "Print the board as JSON")
-    .action(async (board: string, opts: { project?: string; title?: string; agent?: string; staleAfter?: string; columns?: string; notesFile?: string; json?: boolean }) => {
+    .action(async (board: string, opts: { project?: string; title?: string; agent?: string; staleAfter?: string; columns?: string; link?: string; notesFile?: string; json?: boolean }) => {
       await prepare();
       try {
         const input = {
@@ -225,9 +230,10 @@ export function registerBoardCommands(program: Command): void {
           ...(opts.agent !== undefined ? { agent: opts.agent || null } : {}),
           ...(opts.staleAfter !== undefined ? { staleAfter: opts.staleAfter || null } : {}),
           ...(opts.columns !== undefined ? { columns: opts.columns.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
+          ...(opts.link !== undefined ? { projects: opts.link.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
           ...(opts.notesFile ? { notes: await readFile(opts.notesFile, "utf8") } : {}),
         };
-        if (Object.keys(input).length === 0) die("nothing to set — pass --title, --agent, --stale-after, --columns or --notes-file");
+        if (Object.keys(input).length === 0) die("nothing to set — pass --title, --agent, --stale-after, --columns, --link or --notes-file");
         const b = await saveBoard({ ...(opts.project ? { project: opts.project } : {}), board }, input);
         if (opts.json) console.log(JSON.stringify(b, null, 2));
         else console.log(`${chalk.green("✔")} ${chalk.cyan(b.board)} saved`);

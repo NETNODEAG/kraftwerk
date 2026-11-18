@@ -134,6 +134,30 @@ test.describe("boards", () => {
     await expect(page).toHaveURL(new RegExp(`#/projects/${project}/boards/tasks/1-write-a-press-release`));
   });
 
+  test("a workspace board is linked from the project's boards list and unlinked in its settings", async ({ page, request }) => {
+    expect((await request.post("/api/boards", { data: { title: "Ops desk", slug: "ops-desk" } })).status()).toBe(201);
+    try {
+      await page.goto(`/#/projects/${project}/boards/tasks`);
+      await page.getByRole("combobox", { name: "link a workspace board" }).selectOption("ops-desk");
+      await expect(page).toHaveURL(/#\/boards\/ops-desk$/);
+      expect(readFileSync(path.join(fixture(), "kraftwerk-data", "boards", "ops-desk", "board.md"), "utf8")).toMatch(new RegExp(`^projects:\\n  - ${project}$`, "m"));
+
+      await page.goto(`/#/projects/${project}/boards/tasks`);
+      const row = page.locator(".runs-side").getByRole("link", { name: /Ops desk/ });
+      await expect(row).toContainText("workspace board");
+      await expect(page.getByRole("combobox", { name: "link a workspace board" })).toHaveCount(0);
+
+      await page.goto("/#/boards/ops-desk/settings");
+      await page.getByRole("checkbox", { name: "Relaunch site" }).uncheck();
+      await page.getByRole("button", { name: "save", exact: true }).click();
+      await expect(page.getByText("saved", { exact: true })).toBeVisible();
+      await page.goto(`/#/projects/${project}/boards/tasks`);
+      await expect(page.locator(".runs-side").getByRole("link", { name: /Ops desk/ })).toHaveCount(0);
+    } finally {
+      await request.delete("/api/boards/ops-desk");
+    }
+  });
+
   test("remove moves the task folder to the trash", async ({ page }) => {
     await page.goto(`/#/projects/${project}/boards/tasks/1-write-a-press-release`);
     await page.getByRole("button", { name: "remove" }).click();

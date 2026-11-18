@@ -571,7 +571,7 @@ export function ContextPanel({ chatPath, workspace }: {
               )}
               {boards && !boards.enabled && <p className="m-0 px-2.5 py-3 text-sm text-fg-2">{boards.error}</p>}
               {projectBoards.map((b) => (
-                <BoardGlance key={b.board} project={ctx.slug} board={b.board} />
+                <BoardGlance key={`${b.project ?? ""}/${b.board}`} project={b.project} board={b.board} />
               ))}
             </>
           )}
