@@ -22,7 +22,7 @@ interface GitForm {
   remote: string;
   branch: string;
   interval: string;
-  autosync: "off" | "pull";
+  autosync: "off" | "pull" | "push";
 }
 
 const GIT_OFF: GitForm = { enabled: false, remote: "origin", branch: "", interval: "300", autosync: "pull" };
@@ -42,7 +42,7 @@ interface SettingsData {
     agents?: string;
     skills?: string;
     switcher?: SwitcherRow[];
-    git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" };
+    git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" | "push" };
     repos?: { enabled?: boolean; root?: string };
     vibeables?: { enabled?: boolean; root?: string };
     projects?: { enabled?: boolean; root?: string };
@@ -565,16 +565,18 @@ export function SettingsScreen() {
                     onChange={(e) => setGitField({ interval: e.target.value })}
                   />
                 </Field>
-                <Field label="autosync" className="w-[150px]">
-                  <Select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" })}>
+                <Field label="autosync" className="w-[190px]">
+                  <Select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" | "push" })}>
                     <option value="pull">fetch and pull</option>
+                    <option value="push">fetch, pull and push</option>
                     <option value="off">fetch only</option>
                   </Select>
                 </Field>
               </FieldRow>
               <Hint>
-                The interval fetches in the background (0 turns the timer off); with autosync on it also fast-forwards
-                when behind and nothing is modified locally. Commit and push stay manual on the git screen.
+                The interval fetches in the background (0 turns the timer off); with pull it also fast-forwards
+                when behind and nothing is modified locally; with push it then pushes what is committed, right after a commit
+                made here too. Committing stays manual on the git screen, and so does the first push of a new branch.
               </Hint>
             </>
           )}

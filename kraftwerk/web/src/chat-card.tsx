@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { api, failure, useApi } from "./api";
-import { Icon, navigate } from "./shared";
+import { Icon, navigate, useFeatures } from "./shared";
 import { cn, Notice, Select } from "./ui";
-import type { Agent, Attachment, SkillInfo } from "./types";
+import type { Agent, Attachment, ChatAgentId, SkillInfo } from "./types";
 
 /**
  * The chat window every "do something" starts from: what it is about as a
@@ -319,6 +319,38 @@ export function WhoSelect({
   );
 }
 
+/** The projects a new chat can be filed under: all but the archived ones; empty while projects are switched off. */
+export function useProjectChoices(): { slug: string; title: string; harness: ChatAgentId }[] {
+  const features = useFeatures();
+  const projects = useApi("projects.list", features.projects ? {} : null, { interval: 60_000 });
+  return (projects?.projects ?? []).filter((p) => p.status !== "archived");
+}
+
+/** Which project the chat belongs to, beside who it is with; nothing to pick, nothing shown. */
+export function ProjectSelect({
+  value,
+  onChange,
+  projects,
+  label = "in project",
+}: {
+  value: string;
+  onChange: (slug: string) => void;
+  projects: { slug: string; title: string }[];
+  label?: string;
+}) {
+  if (!projects.length) return null;
+  return (
+    <Select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-auto max-w-[200px] rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2">
+      <option value="">no project</option>
+      {projects.map((p) => (
+        <option key={p.slug} value={p.slug}>
+          📁 {p.title}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 const enc = encodeURIComponent;
 
 /** Where a chat opens: in its project, with its agent, or with Ralv. */
@@ -341,13 +373,15 @@ export async function startChat(o: {
   who?: string;
   project?: string;
   scope?: Record<string, unknown>;
+  /** The harness of a project's assistant; an agent brings its own. */
+  harness?: ChatAgentId;
   task?: string;
   text?: string;
   files?: File[];
 }): Promise<{ id: string; href: string } | { error: string }> {
   const scope = o.scope ?? (o.who ? { kind: "agent", slug: o.who } : o.project ? { kind: "project", slug: o.project } : { kind: "kraftwerk" });
   const filed = scope.kind === "agent" && o.project ? { project: o.project } : {};
-  const created = await api.request("chats.create", { body: { agent: "claude", scope, ...(o.task ? { task: o.task } : {}), ...filed } as never });
+  const created = await api.request("chats.create", { body: { agent: scope.kind === "project" ? (o.harness ?? "claude") : "claude", scope, ...(o.task ? { task: o.task } : {}), ...filed } as never });
   if (!created.ok) return { error: failure(created) };
   const id = created.data.id;
   const sent = await sendFirst(id, o.text, o.files);

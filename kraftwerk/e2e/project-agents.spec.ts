@@ -46,7 +46,7 @@ test.describe("agents' chats in projects", () => {
     const { id } = (await created.json()) as { id: string };
     chats.push(id);
     await page.goto(`/#/agents/desk-scout/chat/${id}`);
-    const pick = page.getByRole("combobox", { name: "project" });
+    const pick = page.getByRole("combobox", { name: "project", exact: true });
     await expect(pick).toHaveValue("");
     await pick.selectOption("moon-base");
     await expect.poll(async () => ((await (await request.get(`/api/chats/${id}`)).json()) as { meta: { project?: string } }).meta.project).toBe("moon-base");

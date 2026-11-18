@@ -36,7 +36,13 @@ export function AgentHome({ slug }: { slug: string }) {
       placeOf={(c) => (c.project ? `📁 ${projectTitle(c.project)}` : undefined)}
       sessions={chats ? (chats.chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === slug) as HomeChat[]) : null}
       hrefOf={(c) => href(slug, c.id)}
-      create={(agent) => createSession({ agent: "claude", scope: { kind: "agent", slug: agent ?? slug } }, (id) => href(agent ?? slug, id))}
+      pickProject="filed"
+      // Filed under a project, the session opens there, with the project's context.
+      create={(agent, project) =>
+        createSession({ agent: "claude", scope: { kind: "agent", slug: agent ?? slug }, ...(project ? { project: project.slug } : {}) }, (id) =>
+          project ? `/projects/${encodeURIComponent(project.slug)}/chat/${id}` : href(agent ?? slug, id),
+        )
+      }
     />
   );
 }
@@ -60,11 +66,18 @@ export function RalvHome() {
       placeOf={(c) => (projectOf(c) ? `📁 ${projectTitle(projectOf(c)!)}` : undefined)}
       sessions={chats ? (allChats(chats.chats) as HomeChat[]) : null}
       hrefOf={allHref}
-      create={(agent) =>
-        agent
-          ? createSession({ agent: "claude", scope: { kind: "agent", slug: agent } }, (id) => `/agents/${encodeURIComponent(agent)}/chat/${id}`)
-          : createSession({ agent: "claude", scope: { kind: "kraftwerk" } }, (id) => `/agents/chats/${id}`)
-      }
+      pickProject="assistant"
+      // In a project: its assistant, or the agent picked with the session filed there; either opens in the project.
+      create={(agent, project) => {
+        const inProject = (id: string) => `/projects/${encodeURIComponent(project!.slug)}/chat/${id}`;
+        if (agent)
+          return createSession(
+            { agent: "claude", scope: { kind: "agent", slug: agent }, ...(project ? { project: project.slug } : {}) },
+            project ? inProject : (id) => `/agents/${encodeURIComponent(agent)}/chat/${id}`,
+          );
+        if (project) return createSession({ agent: project.harness, scope: { kind: "project", slug: project.slug } }, inProject);
+        return createSession({ agent: "claude", scope: { kind: "kraftwerk" } }, (id) => `/agents/chats/${id}`);
+      }}
     />
   );
 }

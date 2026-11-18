@@ -66,7 +66,7 @@ export interface GitSettingsInput {
   remote?: string;
   branch?: string;
   interval?: number | string;
-  autosync?: "off" | "pull" | "";
+  autosync?: "off" | "pull" | "push" | "";
 }
 
 const GIT_DEFAULTS = { remote: "origin", interval: 300, autosync: "pull" } as const;
@@ -120,7 +120,7 @@ function cleanGit(value: GitSettingsInput): GitConfig | null {
     if (n !== GIT_DEFAULTS.interval) out.interval = n;
   }
   if (value.autosync !== undefined && value.autosync !== "") {
-    if (value.autosync !== "off" && value.autosync !== "pull") throw new Error('git.autosync must be "off" or "pull"');
+    if (value.autosync !== "off" && value.autosync !== "pull" && value.autosync !== "push") throw new Error('git.autosync must be "off", "pull" or "push"');
     if (value.autosync !== GIT_DEFAULTS.autosync) out.autosync = value.autosync;
   }
   if (value.enabled) return out;

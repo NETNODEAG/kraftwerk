@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, failure, useApi } from "./api";
-import { ChatCard, sendFirst } from "./chat-card";
+import { ChatCard, ProjectSelect, sendFirst, useProjectChoices } from "./chat-card";
 import { Icon, Link, PROJECT_ASSISTANT, fmtAgo, navigate } from "./shared";
 import { ChatNameInput, SessionMenuItem, sessionTitle } from "./sessions";
 import { Dot, IconButton, Popover } from "./ui";
@@ -36,6 +36,7 @@ export function SessionHome({
   sessions,
   hrefOf,
   create,
+  pickProject,
   children,
 }: {
   placeholder: string;
@@ -51,11 +52,20 @@ export function SessionHome({
   sessions: HomeChat[] | null;
   hrefOf: (c: HomeChat) => string;
   /** Start a session: with the default (agent undefined) or the agent picked; resolves to the new chat's id and route, or an error. */
-  create: (agent: string | undefined) => Promise<{ id: string; href: string } | { error: string }>;
+  create: (agent: string | undefined, project?: { slug: string; harness: ChatAgentId }) => Promise<{ id: string; href: string } | { error: string }>;
+  /**
+   * Offer the projects beside who the session is with. "assistant": with a project picked the default becomes
+   * that project's assistant (Ralv's overview); "filed": the default stays, the session is filed under the project.
+   */
+  pickProject?: "assistant" | "filed";
   children?: React.ReactNode;
 }) {
   const agents = useApi("agents.list", {}, { interval: 30_000 });
   const [who, setWho] = useState("");
+  const [project, setProject] = useState("");
+  const choices = useProjectChoices();
+  const inProject = pickProject ? choices.find((p) => p.slug === project) : undefined;
+  if (inProject && pickProject === "assistant") byDefault = { ...PROJECT_ASSISTANT, sub: `the assistant of ${inProject.title}`, hint: `in ${inProject.title}` };
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -78,7 +88,7 @@ export function SessionHome({
     if (busy) return;
     setBusy(true);
     setError("");
-    const r = await create(who || undefined);
+    const r = await create(who || undefined, inProject);
     if ("error" in r) {
       setBusy(false);
       return setError(r.error), false;
@@ -125,41 +135,44 @@ export function SessionHome({
         attach
         hint={picked ? (agentHint ?? "") : (byDefault.hint ?? "")}
         controls={
-          <Popover
-            className="max-h-[50vh] overflow-y-auto"
-            trigger={({ open, toggle }) => (
-              <button
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={open}
-                aria-label="session with"
-                className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
-                onClick={toggle}
-              >
-                {whoLabel}
-                <Icon name="expand_more" className="ms-sm text-fg-2" />
-              </button>
-            )}
-          >
-            {(close) => (
-              <>
-                <WhoItem
-                  emoji={byDefault.emoji}
-                  name={`${byDefault.name} (default)`}
-                  sub={byDefault.sub}
-                  on={!who}
-                  onClick={() => {
-                    setWho("");
-                    close();
-                  }}
-                />
-                {first.length > 0 && firstGroup && <MenuHead>{firstGroup.label}</MenuHead>}
-                {first.map((a) => agentItem(a, close))}
-                {others.length > 0 && <MenuHead>{first.length > 0 ? "other agents" : "agents"}</MenuHead>}
-                {others.map((a) => agentItem(a, close))}
-              </>
-            )}
-          </Popover>
+          <>
+            <Popover
+              className="max-h-[50vh] overflow-y-auto"
+              trigger={({ open, toggle }) => (
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={open}
+                  aria-label="session with"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-2.5 py-1 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+                  onClick={toggle}
+                >
+                  {whoLabel}
+                  <Icon name="expand_more" className="ms-sm text-fg-2" />
+                </button>
+              )}
+            >
+              {(close) => (
+                <>
+                  <WhoItem
+                    emoji={byDefault.emoji}
+                    name={`${byDefault.name} (default)`}
+                    sub={byDefault.sub}
+                    on={!who}
+                    onClick={() => {
+                      setWho("");
+                      close();
+                    }}
+                  />
+                  {first.length > 0 && firstGroup && <MenuHead>{firstGroup.label}</MenuHead>}
+                  {first.map((a) => agentItem(a, close))}
+                  {others.length > 0 && <MenuHead>{first.length > 0 ? "other agents" : "agents"}</MenuHead>}
+                  {others.map((a) => agentItem(a, close))}
+                </>
+              )}
+            </Popover>
+            {pickProject && <ProjectSelect value={project} onChange={setProject} projects={choices} />}
+          </>
         }
       />
 

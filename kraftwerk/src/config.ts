@@ -33,7 +33,7 @@ import { parse } from "yaml";
  *   git:                       # workspace git sync (absent = off, bare key = on with defaults)
  *     remote: origin
  *     interval: 300            # seconds between background fetches
- *     autosync: pull           # off | pull
+ *     autosync: pull           # off | pull | push (push = pull, then push what is committed)
  *   repos:                     # git repositories the agents work on (absent = off, bare key = on)
  *     root: kraftwerk-data/repos   # where clones land, relative to the file. Default: repos
  *   vibeables:                 # small apps built live in a chat, rendered in the inspector (absent = off, bare key = on)
@@ -61,8 +61,8 @@ const WORKFLOW_ROOT_CANDIDATES = ["src/workflows", "workflows"];
 /**
  * Git sync for the workspace. The synced paths are not configurable: they
  * are the roots this file already declares (workflows, knowledge, agents,
- * skills), channels/, README.md and kraftwerk.yml itself. Commit and push stay manual; the
- * interval only fetches, and pulls when `autosync` allows it.
+ * skills), channels/, README.md and kraftwerk.yml itself. Commits stay manual; the
+ * interval fetches, pulls when `autosync` allows it, and pushes only with `autosync: push`.
  */
 /**
  * A remote or branch name kraftwerk will hand to git as a positional
@@ -83,8 +83,8 @@ export interface GitConfig {
   branch?: string;
   /** Seconds between background fetches. 0 disables the timer. Default: 300. */
   interval?: number;
-  /** off = fetch only. pull = also fast-forward when behind and clean. Default: pull. */
-  autosync?: "off" | "pull";
+  /** off = fetch only. pull = also fast-forward when behind and clean. push = pull, and push commits that are ahead. Default: pull. */
+  autosync?: "off" | "pull" | "push";
 }
 
 /**
@@ -638,8 +638,8 @@ function validateGit(configPath: string, value: unknown): void {
   if (g.interval !== undefined && (typeof g.interval !== "number" || !Number.isInteger(g.interval) || g.interval < 0)) {
     throw new Error(`${file}: git.interval must be a whole number of seconds (0 disables the timer)`);
   }
-  if (g.autosync !== undefined && g.autosync !== "off" && g.autosync !== "pull") {
-    throw new Error(`${file}: git.autosync must be "off" or "pull"`);
+  if (g.autosync !== undefined && g.autosync !== "off" && g.autosync !== "pull" && g.autosync !== "push") {
+    throw new Error(`${file}: git.autosync must be "off", "pull" or "push"`);
   }
 }
 

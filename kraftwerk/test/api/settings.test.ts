@@ -64,7 +64,7 @@ describe("settings API: git sync", () => {
   });
 
   it("rejects bad values", async () => {
-    for (const git of [{ enabled: true, interval: -1 }, { enabled: true, interval: 1.5 }, { enabled: true, autosync: "push" }, { enabled: "yes" }]) {
+    for (const git of [{ enabled: true, interval: -1 }, { enabled: true, interval: 1.5 }, { enabled: true, autosync: "force" }, { enabled: "yes" }]) {
       const r = await put({ git });
       assert.equal(r.status, 400, JSON.stringify(git));
     }

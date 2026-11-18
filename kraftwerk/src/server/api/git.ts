@@ -20,7 +20,7 @@ export const gitRoutes = [
     if (!file) fail(400, "path required");
     return gitDiff(file);
   }),
-  // Commit and push stay manual; the background timer never writes history.
+  // Committing stays manual: the background timer never writes history, and pushes it only with `autosync: push`.
   route({ name: "git.commit", method: "POST", path: "/api/git/commit", summary: "stage and commit {paths, message}", errors: 400, body: Commit }, async (c) => {
     const { paths, message } = await c.body();
     const result = await gitCommit(paths, message);

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, failure, useApi } from "./api";
-import { ChatCard, OpenHere, WhoSelect, startChat, useOpen } from "./chat-card";
+import { ChatCard, OpenHere, ProjectSelect, WhoSelect, startChat, useOpen, useProjectChoices } from "./chat-card";
 import { NewEntityForm, type EntityKind } from "./entities";
 import { RunForm } from "./run-launcher";
 import { Icon } from "./shared";
@@ -82,11 +82,13 @@ export function NewThingModal({ kind, project, onClose, onMade }: { kind: NewKin
   );
 }
 
-/** A new chat: the message, who gets it, send. */
-export function QuickChat({ project }: { project?: string }) {
+/** A new chat: the message, who gets it and in which project, send. Opened in a project, that one is picked. */
+export function QuickChat({ project: here }: { project?: string }) {
   const agents = useApi("agents.list", {});
+  const projects = useProjectChoices();
   const open = useOpen();
   const [who, setWho] = useState("");
+  const [project, setProject] = useState(here ?? "");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -106,12 +108,17 @@ export function QuickChat({ project }: { project?: string }) {
       who={who}
       onWho={setWho}
       attach
-      controls={<WhoSelect value={who} onChange={setWho} agents={roster} byDefault={project ? "🧭 Assistant (default)" : undefined} />}
-      hint={project ? "a chat in this project" : undefined}
+      controls={
+        <>
+          <WhoSelect value={who} onChange={setWho} agents={roster} byDefault={project ? "🧭 Assistant (default)" : undefined} />
+          <ProjectSelect value={project} onChange={setProject} projects={projects} />
+        </>
+      }
+      hint={project && project === here ? "a chat in this project" : undefined}
       onSend={async (files) => {
         setBusy(true);
         setError("");
-        const r = await startChat({ who: who || undefined, project, text, files });
+        const r = await startChat({ who: who || undefined, project: project || undefined, harness: projects.find((p) => p.slug === project)?.harness, text, files });
         setBusy(false);
         if ("error" in r) return setError(r.error), false;
         open(r.href);

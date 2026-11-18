@@ -144,6 +144,38 @@ test.describe("projects", () => {
     await expect(page).toHaveURL(new RegExp(`#/projects/relaunch-the-website/chat/${chatId}$`));
   });
 
+  test("a new chat picks its project: from Home's chat window and from Ralv's composer", async ({ page, request }) => {
+    const made: string[] = [];
+    const scopeOf = async (id: string) => {
+      const chats = (await (await request.get("/api/chats")).json()) as { chats: Array<{ id: string; scope: { kind: string; slug?: string } }> };
+      return chats.chats.find((c) => c.id === id)?.scope;
+    };
+    try {
+      // Home's chat window: no project picked; picking one makes its assistant the default.
+      await page.goto("/#/");
+      await page.getByRole("region", { name: "kinds" }).getByRole("button", { name: "new chat" }).click();
+      const making = page.getByRole("dialog", { name: "new chat" });
+      await expect(making.getByLabel("in project")).toHaveValue("");
+      await making.getByLabel("in project").selectOption("relaunch-the-website");
+      await expect(making.getByLabel("chat with").locator("option").first()).toHaveText("🧭 Assistant (default)");
+      await making.getByRole("button", { name: "start chat" }).click();
+      await expect(page).toHaveURL(/open=chats%3Achat-/);
+      made.push(decodeURIComponent(page.url()).split("open=chats:")[1]);
+      expect(await scopeOf(made[0])).toEqual({ kind: "project", slug: "relaunch-the-website" });
+
+      // Ralv's composer: the same pick; the session opens in the project.
+      await page.goto("/#/agents/chats");
+      await page.getByLabel("in project").selectOption("relaunch-the-website");
+      await expect(page.getByRole("button", { name: "session with" })).toContainText("Assistant");
+      await page.getByRole("button", { name: "start session" }).click();
+      await expect(page).toHaveURL(/#\/projects\/relaunch-the-website\/chat\/chat-/);
+      made.push(page.url().split("/chat/")[1]);
+      expect(await scopeOf(made[1])).toEqual({ kind: "project", slug: "relaunch-the-website" });
+    } finally {
+      for (const id of made) await request.delete(`/api/chats/${id}`);
+    }
+  });
+
   test("with a coworker the chat is a channel session that stays in the project", async ({ page, request }) => {
     const agent = await request.post("/api/agents", { data: { name: "Crew Planner", emoji: "🗺️", harness: "claude", system: "plan things" } });
     expect(agent.ok()).toBe(true);

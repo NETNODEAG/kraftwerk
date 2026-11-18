@@ -23,9 +23,13 @@ import { workspaceEnv } from "./env.js";
  * - Reads are scoped too: the diff endpoint only shows a path the status
  *   screen lists as syncable, and status never lists what .gitignore hides,
  *   so an untracked .env cannot be read through it.
- * - Commit and push are manual. The background timer only fetches, and pulls
- *   fast-forward when `autosync: pull` is set, the configured branch is the
- *   one checked out, and no tracked file is modified.
+ * - Commits are manual. The background timer only fetches, and pulls
+ *   fast-forward when `autosync` is `pull` or `push`, the configured branch
+ *   is the one checked out, and no tracked file is modified.
+ * - Push is a click, unless `autosync: push` opts in: then the timer also
+ *   pushes commits that already exist to a branch that already tracks its
+ *   upstream. It never creates a commit, never publishes a new branch and
+ *   never forces.
  * - A diverged branch is reported, never merged or rebased from here.
  *
  * Every git call passes an argument array, so nothing reaches a shell, and
@@ -48,6 +52,9 @@ export const DENY = [
 ];
 
 const DEFAULTS = { remote: "origin", interval: 300, autosync: "pull" as const };
+
+/** off = fetch only. pull = also fast-forward. push = fast-forward, then push what is ahead. */
+export type Autosync = "off" | "pull" | "push";
 
 export interface GitFile {
   /** Path relative to the repo root, which is what git speaks. */
@@ -80,10 +87,12 @@ export interface GitStatus {
   blockedHidden?: number;
   /** Repo-relative roots that may be committed. */
   scope?: string[];
-  autosync?: "off" | "pull";
+  autosync?: Autosync;
   interval?: number;
   lastFetch?: string;
   lastPull?: string;
+  /** The last push that worked, by hand or in the background. */
+  lastPush?: string;
   lastError?: string;
 }
 
@@ -107,7 +116,7 @@ interface ResolvedGit {
   remote: string;
   branch?: string;
   interval: number;
-  autosync: "off" | "pull";
+  autosync: Autosync;
 }
 
 /** Everything a git operation needs, resolved once per request. */
@@ -411,10 +420,13 @@ const gitState = perWorkspace(() => ({
   chain: Promise.resolve() as Promise<unknown>,
   lastFetch: undefined as string | undefined,
   lastPull: undefined as string | undefined,
+  lastPush: undefined as string | undefined,
   lastError: undefined as string | undefined,
   timer: null as ReturnType<typeof setTimeout> | null,
   ticking: false,
   lastRun: 0,
+  /** A commit asked for a sync while a tick was in flight: run one more right after it. */
+  again: false,
   /** Set when the workspace closes: a tick in flight does not schedule the next one. */
   stopped: false,
 }));
@@ -486,6 +498,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     interval: repo.cfg.interval,
     lastFetch: gitState().lastFetch,
     lastPull: gitState().lastPull,
+    lastPush: gitState().lastPush,
     lastError: gitState().lastError,
   };
 
@@ -630,6 +643,8 @@ async function commitNow(paths: string[], message: string): Promise<{ ok: boolea
     return { ok: false, error };
   }
   touched();
+  // With `autosync: push` a commit should not sit here until the next interval.
+  if (repo.cfg.autosync === "push") syncSoon();
   return { ok: true, committed: paths.length };
 }
 
@@ -705,6 +720,7 @@ async function pushNow(): Promise<{ ok: boolean; error?: string }> {
     gitState().lastError = r.stderr || "push failed";
     return { ok: false, error: gitState().lastError };
   }
+  gitState().lastPush = new Date().toISOString();
   gitState().lastError = undefined;
   return { ok: true };
 }
@@ -721,9 +737,10 @@ const RECHECK_MS = 60_000;
 
 
 /**
- * Fetch on an interval, and fast-forward when `autosync: pull` is set. Never
- * commits. A pull is skipped while the tree is dirty, so nobody's unsaved
- * work is disturbed by a background merge. Ticks are chained, not scheduled
+ * Fetch on an interval, fast-forward when `autosync` is `pull` or `push`,
+ * and with `push` also push what is ahead. Never commits. A pull is skipped
+ * while the tree is dirty, so nobody's unsaved work is disturbed by a
+ * background merge. Ticks are chained, not scheduled
  * on a fixed interval: a fetch against a slow remote must finish (or time
  * out) before the next one starts, or a short interval piles up processes.
  */
@@ -739,6 +756,24 @@ export function stopGitSync(): void {
   s.stopped = true;
   if (s.timer) clearTimeout(s.timer);
   s.timer = null;
+}
+
+/**
+ * Run the background sync now instead of at the next interval. Goes through
+ * the timer, so it is a no-op while the timer is off (interval 0) or the
+ * workspace's sync was never started, and it never overlaps a running tick.
+ */
+function syncSoon(): void {
+  const s = gitState();
+  if (s.stopped) return;
+  s.lastRun = 0;
+  if (s.ticking) {
+    s.again = true;
+    return;
+  }
+  if (!s.timer) return;
+  clearTimeout(s.timer);
+  schedule(0);
 }
 
 function schedule(ms: number): void {
@@ -766,21 +801,34 @@ async function tick(): Promise<void> {
   } finally {
     // The workspace may have closed while git ran: then its state is gone and nothing is scheduled.
     if (workspaceOpen()) {
-      gitState().ticking = false;
-      if (!gitState().stopped) schedule(next);
+      const s = gitState();
+      s.ticking = false;
+      if (s.again) next = 0;
+      s.again = false;
+      if (!s.stopped) schedule(next);
     }
   }
 }
 
 async function sync(repo: Repo): Promise<void> {
   const fetched = await gitFetch();
-  if (!fetched.ok || repo.cfg.autosync !== "pull") return;
-  const st = await gitStatus();
-  if (st.error || !st.behind || st.diverged || !st.repoRoot) return;
-  // A local modification can make --ff-only refuse, and a failed pull
-  // every interval would park a permanent error in the UI. Untracked
-  // files do not count: they only collide when an incoming commit adds
-  // the same path, and that shows up as one pull error, not silence.
-  if (await hasLocalChanges(st.repoRoot)) return;
-  await gitPull();
+  if (!fetched.ok || repo.cfg.autosync === "off") return;
+  let st = await gitStatus();
+  if (st.error || st.diverged || !st.repoRoot) return;
+  if (st.behind) {
+    // A local modification can make --ff-only refuse, and a failed pull
+    // every interval would park a permanent error in the UI. Untracked
+    // files do not count: they only collide when an incoming commit adds
+    // the same path, and that shows up as one pull error, not silence.
+    if (await hasLocalChanges(st.repoRoot)) return;
+    if (!(await gitPull()).ok) return;
+    st = await gitStatus();
+  }
+  if (repo.cfg.autosync !== "push") return;
+  // Only what would go through: a branch that already tracks its upstream
+  // (the first push, which publishes the branch, stays a click), is ahead
+  // of it and not behind. A diverged branch would be rejected every
+  // interval; it is reported on the git screen instead.
+  if (st.error || !st.upstream || !st.ahead || st.behind) return;
+  await gitPush();
 }

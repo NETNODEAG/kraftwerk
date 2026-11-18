@@ -7,8 +7,8 @@ import type { GitStatus } from "./types";
 /**
  * Workspace git sync (#/git, expert mode). Shows what changed under the
  * workspace roots, lets a human pick files and commit them, and pushes on
- * request. Commit and push are always a click; the server's timer only
- * fetches and fast-forwards.
+ * request. A commit is always a click; the server's timer fetches and
+ * fast-forwards, and pushes only when `autosync: push` is set.
  */
 
 /** "45s" / "5 min" / "1 h 30 min", so a short interval never reads as "0 min". */
@@ -393,10 +393,14 @@ export function GitScreen() {
         ))}. Run artifacts and files like <code>.env</code> are never staged.{" "}
         {st.interval
           ? `Fetches every ${fmtInterval(st.interval)}${
-              st.autosync === "pull" ? " and fast-forwards when the working tree is clean" : ""
+              st.autosync === "push"
+                ? ", fast-forwards when the working tree is clean and pushes what is committed"
+                : st.autosync === "pull"
+                  ? " and fast-forwards when the working tree is clean"
+                  : ""
             }. `
           : "Background fetching is off. "}
-        Commit and push are always manual.
+        {st.interval && st.autosync === "push" ? "Committing is always manual." : "Commit and push are always manual."}
       </p>
     </Page>
   );

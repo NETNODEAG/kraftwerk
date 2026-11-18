@@ -106,14 +106,15 @@
         "interval": {
           "type": "integer",
           "minimum": 0,
-          "description": "Seconds between background fetches (and auto-pulls). 0 disables the timer. Default: 300"
+          "description": "Seconds between background fetches (and auto-pulls, auto-pushes). 0 disables the timer. Default: 300"
         },
         "autosync": {
           "enum": [
             "off",
-            "pull"
+            "pull",
+            "push"
           ],
-          "description": "off = fetch only. pull = also fast-forward when behind and the tree is clean. Default: pull"
+          "description": "off = fetch only. pull = also fast-forward when behind and the tree is clean. push = pull, then push commits that are ahead of the upstream. Default: pull"
         }
       }
     },
