@@ -17,7 +17,7 @@
 /* ---------- three columns: rail | conversation | context, the space's title above the last two ---------- */
 .shell.three {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc(50% - 125px)), 70%);
+  grid-template-columns: 250px minmax(0, 1fr) clamp(320px, var(--ctx-w, calc((100% - 250px) * 2 / 3)), 70%);
   grid-template-rows: auto minmax(0, 1fr);
   max-width: none;
   height: calc(100vh - var(--topbar-h));
@@ -154,7 +154,7 @@ body.kw-resizing iframe { pointer-events: none; }
 
 /* ---------- narrower windows ---------- */
 @media (max-width: 1199px) {
-  .shell.three { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 48%), 65%); }
+  .shell.three { grid-template-columns: minmax(0, 1fr) clamp(300px, var(--ctx-w, 66.667%), 70%); }
   /* The rail folds into the screens' own sidebars. */
   .rail { display: none; }
   .col-chat .agents-screen > aside.runs-side:first-child,

@@ -12,7 +12,7 @@ import { writeMeta } from "./store.js";
 import { availableSkills } from "./context.js";
 import { effectiveCwd } from "./sessions.js";
 import { sessionTemp } from "../temp.js";
-import { type ChatState, type Seat, emit, isUnattended, ownerLabel, seatAuthor } from "./state.js";
+import { MAIN, type ChatState, type Seat, emit, isUnattended, ownerLabel, seatAuthor } from "./state.js";
 
 /**
  * Starting an agent process for a seat: its harness, tuning (model,
@@ -181,5 +181,26 @@ export async function ensureBackend(state: ChatState, seat: Seat): Promise<ChatB
   // in its window. A fresh process is a fresh context window: re-send the
   // scope context with the next prompt.
   seat.needsContext = !seat.backend.resumed;
+  await applyPendingConfig(state, seat);
   return seat.backend;
+}
+
+/**
+ * Settings picked while the agent was down (meta.pendingConfig), applied to
+ * the fresh backend before anything is prompted. One the agent refuses is
+ * said in the thread and dropped; the chat goes on with the agent's default.
+ */
+async function applyPendingConfig(state: ChatState, seat: Seat): Promise<void> {
+  const pending = state.meta.pendingConfig;
+  if (seat.key !== MAIN || !pending) return;
+  delete state.meta.pendingConfig;
+  void writeMeta(state.meta).catch(() => {});
+  if (!seat.backend?.setConfig) return;
+  for (const [configId, value] of Object.entries(pending)) {
+    try {
+      await seat.backend.setConfig(configId, value);
+    } catch (err) {
+      emit(state, { type: "error", message: `could not apply ${configId} = ${String(value)}: ${(err as Error).message}` });
+    }
+  }
 }

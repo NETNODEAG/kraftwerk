@@ -64,6 +64,13 @@ export interface ChatMeta {
    * over with the transcript as a summary.
    */
   sessions?: Record<string, string>;
+  /**
+   * Settings (model, thinking depth, ...) picked while the chat's agent was
+   * not running, by config id. The next backend of the main seat applies
+   * them before its first prompt, then they are dropped: switching away
+   * from a model that hit its limit must not need a message on that model.
+   */
+  pendingConfig?: Record<string, string | boolean>;
   /** Who started the chat (a routine's run: this machine's person). */
   author?: ChatPerson;
   /**

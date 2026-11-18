@@ -181,9 +181,12 @@ describe("boards API", () => {
   });
 
   it("the task lists the sessions that worked on it, newest first, with a route each; a chat tagged with the task joins them", async () => {
-    const t1 = await get<TaskDetail & { sessions: Array<{ id: string; agent: string; name?: string; emoji?: string; href: string; busy: boolean }> }>("/api/boards/tasks/tasks/1?project=netnode");
-    assert.deepEqual(t1.sessions.map((s) => [s.agent, s.name, s.emoji]), [["lisa", "Lisa", "🦊"], ["max", "Max", "🐻"]], JSON.stringify(t1.sessions));
-    assert.match(t1.sessions[1].href, /^\/agents\/max\/chat\/chat-/);
+    const t1 = await get<TaskDetail & { sessions: Array<{ id: string; agent: string; name?: string; emoji?: string; href: string; busy: boolean; updatedAt: string }> }>("/api/boards/tasks/tasks/1?project=netnode");
+    // Which of the two wrote last depends on timing (both sessions were just woken), so the pair is compared by agent and the order by its own rule.
+    const byAgent = [...t1.sessions].sort((a, b) => a.agent.localeCompare(b.agent));
+    assert.deepEqual(byAgent.map((s) => [s.agent, s.name, s.emoji]), [["lisa", "Lisa", "🦊"], ["max", "Max", "🐻"]], JSON.stringify(t1.sessions));
+    assert.ok(t1.sessions[0].updatedAt >= t1.sessions[1].updatedAt, "newest first");
+    assert.match(byAgent[1].href, /^\/agents\/max\/chat\/chat-/);
     // "Work on this" from the task page: a project chat tagged with the task (meta.task).
     const r = await post("/api/chats", { agent: "claude", scope: { kind: "project", slug: "netnode" }, task: "netnode/tasks/1-write-a-press-release" });
     const meta = (await r.json()) as ChatMeta & { task?: string };

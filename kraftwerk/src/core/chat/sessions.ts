@@ -6,7 +6,7 @@ import { resolveVibeable } from "../vibeables.js";
 import { deleteAgentSession, listAgentSessions } from "./acp.js";
 import { chatHref, pushNotification } from "../notifications.js";
 import { readIdentity } from "../identity.js";
-import type { Attachment, ChatAgentId, ChatMeta, ChatPerson, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
+import type { Attachment, ChatAgentId, ChatMeta, ConfigOption, ChatPerson, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
 import type { PromptFile } from "./backend.js";
 import { type Channel } from "../channels.js";
 import { moveToTrash } from "../trash.js";
@@ -480,14 +480,36 @@ export async function stopChatTask(id: string, taskId: string): Promise<{ error?
 export async function setChatConfig(id: string, configId: string, value: string | boolean): Promise<{ error?: string }> {
   const state = await loadState(id);
   if (!state) return { error: "not found" };
-  const backend = mainSeat(state).backend;
-  if (!backend?.setConfig) return { error: "the agent is not running — send a message first, the settings appear once it is up" };
+  const seat = mainSeat(state);
+  const backend = seat.backend;
+  if (!backend) return pendConfig(state, configId, value);
+  if (!backend.setConfig) return { error: "this agent does not take settings" };
   try {
     await backend.setConfig(configId, value);
     return {};
   } catch (err) {
     return { error: (err as Error).message };
   }
+}
+
+/**
+ * The agent is not running (idle reaper, restart, or it never started): keep
+ * the choice in meta.pendingConfig for the next start, and show it now by
+ * re-announcing the last known settings with the new value. Only an option
+ * the agent announced before, with a value it offered, is kept.
+ */
+async function pendConfig(state: NonNullable<Awaited<ReturnType<typeof loadState>>>, configId: string, value: string | boolean): Promise<{ error?: string }> {
+  const last = [...state.events].reverse().find((e) => e.type === "config" && !e.from);
+  const options = last?.type === "config" ? last.options : [];
+  const option = options.find((o) => o.id === configId);
+  if (!option) return { error: "the agent is not running and has not announced this setting yet — send a message first" };
+  if (option.type === "select" ? typeof value !== "string" || !option.choices.some((c) => c.value === value) : typeof value !== "boolean") {
+    return { error: `"${String(value)}" is not a choice for ${option.name}` };
+  }
+  state.meta.pendingConfig = { ...state.meta.pendingConfig, [configId]: value };
+  await writeMeta(state.meta);
+  emit(state, { type: "config", options: options.map((o) => (o.id === configId ? ({ ...o, value } as ConfigOption) : o)) });
+  return {};
 }
 
 /** The agent's own sessions in the project root (Claude Code / Codex transcripts), to continue one as a chat. */

@@ -39,7 +39,7 @@ import { inSettingsSection, SettingsNav, TopbarTools } from "./workspace-tabs";
 import { ContextPanel } from "./context-panel";
 
 const CHAT_PATH_KEY = "kw-chat-path";
-/** Width of the context column in px, set by dragging the divider; absent = half. */
+/** Width of the context column in px, set by dragging the divider; absent = two thirds. */
 const CTX_W_KEY = "kw-ctx-w";
 const readCtxW = (): number | null => {
   try {
@@ -52,7 +52,7 @@ const readCtxW = (): number | null => {
 
 /**
  * The divider between the conversation and its context: drag to resize,
- * double-click to go back to half. The width is remembered per browser.
+ * double-click to go back to one third and two thirds. The width is remembered per browser.
  */
 function SplitHandle({ onResize }: { onResize: (px: number | null) => void }) {
   const [drag, setDrag] = useState(false);
@@ -62,7 +62,7 @@ function SplitHandle({ onResize }: { onResize: (px: number | null) => void }) {
       role="separator"
       aria-orientation="vertical"
       aria-label="resize chat and context"
-      title="drag to resize · double-click for half and half"
+      title="drag to resize · double-click for one third · two thirds"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         const shell = e.currentTarget.closest(".shell") as HTMLElement | null;

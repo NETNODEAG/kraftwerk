@@ -9,9 +9,19 @@ import { agent, methods, ndJsonStream, PROTOCOL_VERSION } from "@agentclientprot
 const stream = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
 const m = methods.agent;
 let n = 0;
+// One setting, the model, so a test can switch it (session/set_config_option); "which model" in a prompt says the current one.
+let model = "fast";
+const configOptions = () => [
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: model, options: [{ value: "fast", name: "Fast" }, { value: "smart", name: "Smart" }] },
+];
 agent({ name: "fake-acp-agent" })
   .onRequest(m.initialize, () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {}, authMethods: [] }))
-  .onRequest(m.session.new, () => ({ sessionId: `fake-${++n}` }))
+  .onRequest(m.session.new, () => ({ sessionId: `fake-${++n}`, configOptions: configOptions() }))
+  .onRequest(m.session.setConfigOption, ({ params }) => {
+    if (params.configId !== "model" || !["fast", "smart"].includes(params.value)) throw new Error(`no such setting: ${params.configId}=${params.value}`);
+    model = params.value;
+    return { configOptions: configOptions() };
+  })
   .onRequest(m.authenticate, () => ({}))
   .onNotification(m.session.cancel, () => {})
   .onRequest(m.session.prompt, async ({ params, client }) => {
@@ -26,6 +36,8 @@ agent({ name: "fake-acp-agent" })
     } else if (/where is temp/i.test(text)) {
       // What the process was handed for scratch, and whether the prompt briefed it (core/temp.ts).
       said = `temp: ${process.env.KRAFTWERK_TEMP ?? ""}|${process.env.TMPDIR ?? ""}|${/## Temporary files/.test(text) ? "briefed" : "unbriefed"}`;
+    } else if (/which model/i.test(text)) {
+      said = `model: ${model}`;
     } else if (/ask a question/i.test(text)) {
       const r = await client.request(methods.client.elicitation.create, {
         sessionId: params.sessionId,
