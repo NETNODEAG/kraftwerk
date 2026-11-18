@@ -12,9 +12,6 @@ port: 1981
 vibeables: {}
 projects: {}
 repos: {}
-git: {}
-color: "#57109e"
-boards: {}
 
 # Reach this inspector from elsewhere through a Cloudflare Tunnel (uncomment to enable).
 # One-time setup: cloudflared tunnel login && cloudflared tunnel create playground && cloudflared tunnel route dns playground kw.example.com
@@ -26,7 +23,3 @@ boards: {}
 #   access:                       # verify the Access login on every request via public: (a removed policy fails closed)
 #     team: my-team               # Zero Trust team name: https://my-team.cloudflareaccess.com
 #     aud: 4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2   # the Access application's audience tag
-presentations: {}
-contacts: {}
-places: {}
-events: {}

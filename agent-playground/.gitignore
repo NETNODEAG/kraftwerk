@@ -3,3 +3,12 @@ output/
 runner.env
 src/workflows/research-nextjs-development/
 deploy/
+repos/
+# Local workspace data: not for the public repo.
+channels/
+kraftwerk-data/events/
+kraftwerk-data/places/
+kraftwerk-data/presentations/
+kraftwerk-data/vibeables/
+kraftwerk-data/projects/*/boards/
+kraftwerk-data/projects/*/presentations/
