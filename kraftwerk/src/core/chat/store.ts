@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getOutputDir } from "../context.js";
+import { readParsed } from "../file-cache.js";
 import type { ChatMeta, StoredChatEvent } from "./types.js";
 
 /**
@@ -41,7 +42,8 @@ export async function readMeta(id: string): Promise<ChatMeta | null> {
 
 /** meta.json of a chat folder wherever it is (also one in the trash); throws when unreadable. */
 export async function readMetaAt(dir: string): Promise<ChatMeta> {
-  return upgradeMeta(JSON.parse(await fs.readFile(path.join(dir, "meta.json"), "utf8")));
+  // From the file cache while unchanged: the chat lists re-read every meta.json on each live update. Callers may change their copy.
+  return readParsed(path.join(dir, "meta.json"), (text) => upgradeMeta(JSON.parse(text)), (m) => structuredClone(m));
 }
 
 /**

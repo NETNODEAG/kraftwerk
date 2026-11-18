@@ -1,5 +1,7 @@
+import { watch as watchFs, type FSWatcher } from "node:fs";
+import path from "node:path";
 import { onChanged } from "../core/changes.js";
-import { currentWorkspace, perWorkspace } from "../core/workspace.js";
+import { currentWorkspace, perWorkspace, type Workspace } from "../core/workspace.js";
 
 /**
  * Live data for watching clients: a watch is a route result some client
@@ -9,8 +11,12 @@ import { currentWorkspace, perWorkspace } from "../core/workspace.js";
  *
  * - right after any change made through the API (`touch()` from the router),
  * - when a chat's state changes (turn start/end, a question, an answer),
- * - and on the watch's interval, for changes nobody announces (an agent
- *   writing files, a run progressing on disk).
+ * - when a file in the workspace changes (an agent writing files, a run
+ *   progressing on disk) — where the platform watches a folder tree
+ *   natively (macOS, Windows),
+ * - and on the watch's interval, for changes nobody announces. While the
+ *   workspace's files are watched that is only a slow safety net
+ *   (FALLBACK_MS), so an idle screen costs next to nothing.
  *
  * Evaluation runs in the watch's workspace — bound when the watch is made,
  * so a re-evaluation whatever triggers it (a timer, a change elsewhere)
@@ -25,6 +31,8 @@ interface Watcher {
 
 interface Watch {
   evaluate(): Promise<{ ok: boolean; data: unknown }>;
+  /** Whether its workspace's files are watched (then the interval is only a safety net). */
+  files(): boolean;
   watchers: Set<Watcher>;
   /** The last pushed JSON, to push changes only. */
   last?: string;
@@ -36,8 +44,79 @@ interface Watch {
 
 const MIN_INTERVAL = 1000;
 const TOUCH_DEBOUNCE_MS = 60;
+/** Re-evaluation after file changes: at most this often, however busy the disk (an agent writing code, a run streaming its trace). */
+const FILES_THROTTLE_MS = 1000;
+/** The interval while the workspace's files are watched: only what no file and no API call announces (a process ending, the clock). */
+const FALLBACK_MS = 20_000;
 
-const state = perWorkspace(() => ({ watches: new Map<string, Watch>(), touchTimer: undefined as ReturnType<typeof setTimeout> | undefined }));
+/**
+ * Changes that never matter to a watch: version control and build trees,
+ * and a chat's transcript growing token by token (its state changes are
+ * announced by the chat itself).
+ */
+const IGNORED = /(^|[/\\])(\.git|node_modules|\.next|\.vite|\.cache|\.turbo|dist|build|target|vendor)([/\\]|$)|(^|[/\\])chats[/\\]chat-[^/\\]+[/\\]events\.jsonl$/;
+
+/** Native recursive folder watching: one cheap OS subscription for the whole tree. Elsewhere (Linux) the intervals do the work. */
+const RECURSIVE = process.platform === "darwin" || process.platform === "win32";
+
+interface FilesWatch {
+  watchers: FSWatcher[];
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+const state = perWorkspace(() => ({
+  watches: new Map<string, Watch>(),
+  touchTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+  files: undefined as FilesWatch | undefined,
+}));
+
+/** Re-evaluate every watch of the workspace now (each after whatever runs). */
+function runAll(s: ReturnType<typeof state>): void {
+  for (const w of s.watches.values()) void run(w, undefined).finally(() => schedule(w));
+}
+
+/**
+ * Watch the workspace's folder tree (and its output dir, when that lies
+ * elsewhere) while anyone watches a route there. A watcher that fails (too
+ * many open files, the folder gone) is dropped and the intervals take over.
+ */
+function watchFiles(ws: Workspace, s: ReturnType<typeof state>): void {
+  if (!RECURSIVE || s.files) return;
+  const files: FilesWatch = { watchers: [] };
+  // `name` is relative to the watched folder, so a workspace that itself lives under a "build" folder is not ignored whole.
+  const onEvent = (_event: string, name: string | Buffer | null) => {
+    if (name && IGNORED.test(String(name))) return;
+    if (files.timer || s.files !== files) return;
+    files.timer = setTimeout(() => {
+      files.timer = undefined;
+      if (s.files === files && !ws.closed) runAll(s);
+    }, FILES_THROTTLE_MS);
+    files.timer.unref?.();
+  };
+  const dirs = [ws.root];
+  if (path.relative(ws.root, ws.outputDir).startsWith("..")) dirs.push(ws.outputDir);
+  try {
+    for (const dir of dirs) {
+      const w = watchFs(dir, { recursive: true, persistent: false }, onEvent);
+      w.on("error", () => stopFiles(s, true));
+      files.watchers.push(w);
+    }
+  } catch {
+    for (const w of files.watchers) w.close();
+    return;
+  }
+  s.files = files;
+}
+
+/** Stop watching the folder tree; `failed` re-times every watch to its own interval at once. */
+function stopFiles(s: ReturnType<typeof state>, failed = false): void {
+  const files = s.files;
+  if (!files) return;
+  s.files = undefined;
+  clearTimeout(files.timer);
+  for (const w of files.watchers) w.close();
+  if (failed) for (const w of s.watches.values()) schedule(w);
+}
 
 /**
  * Evaluate after whatever evaluation is in flight (it may predate the
@@ -71,7 +150,8 @@ function run(w: Watch, force: Watcher | undefined): Promise<void> {
 function schedule(w: Watch): void {
   clearTimeout(w.timer);
   if (!w.watchers.size) return;
-  const every = Math.max(MIN_INTERVAL, Math.min(...[...w.watchers].map((x) => x.interval)));
+  const asked = Math.min(...[...w.watchers].map((x) => x.interval));
+  const every = Math.max(MIN_INTERVAL, w.files() ? Math.max(asked, FALLBACK_MS) : asked);
   w.timer = setTimeout(() => void run(w, undefined).finally(() => schedule(w)), every);
   w.timer.unref?.();
 }
@@ -81,12 +161,14 @@ function schedule(w: Watch): void {
  * every change, and at least every `interval` ms. Returns the unwatch.
  */
 export function watch(key: string, evaluate: Watch["evaluate"], interval: number, push: (data: unknown) => void): () => void {
-  const { watches } = state();
+  const s = state();
+  const { watches } = s;
   let w = watches.get(key);
   if (!w) {
     const ws = currentWorkspace();
-    w = { evaluate: () => ws.run(evaluate), watchers: new Set() };
+    w = { evaluate: () => ws.run(evaluate), files: () => !!s.files, watchers: new Set() };
     watches.set(key, w);
+    watchFiles(ws, s);
   }
   const watcher: Watcher = { interval, push };
   w.watchers.add(watcher);
@@ -98,6 +180,8 @@ export function watch(key: string, evaluate: Watch["evaluate"], interval: number
     if (!current.watchers.size) {
       clearTimeout(current.timer);
       if (watches.get(key) === current) watches.delete(key);
+      // Nobody watches anything here any more: the folder tree need not be watched either.
+      if (!watches.size) stopFiles(s);
     } else schedule(current);
   };
 }
@@ -107,6 +191,7 @@ export function closeWatches(): void {
   const s = state();
   for (const w of s.watches.values()) clearTimeout(w.timer);
   s.watches.clear();
+  stopFiles(s);
   clearTimeout(s.touchTimer);
   s.touchTimer = undefined;
 }
@@ -123,7 +208,7 @@ export function touch(): void {
   if (!s.watches.size || s.touchTimer) return;
   s.touchTimer = setTimeout(() => {
     s.touchTimer = undefined;
-    for (const w of s.watches.values()) void run(w, undefined).finally(() => schedule(w));
+    runAll(s);
   }, TOUCH_DEBOUNCE_MS);
   s.touchTimer.unref?.();
 }

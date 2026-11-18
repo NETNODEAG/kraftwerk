@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getOutputDir } from "./context.js";
+import { readParsed } from "./file-cache.js";
 import { moveToTrash } from "./trash.js";
 import { awaitingDecision, readDecision, type DecisionView } from "./decisions.js";
 
@@ -78,13 +79,16 @@ export interface RunDetail extends RunListItem {
 
 type TraceEvent = Record<string, any> & { ts: string; event: string };
 
-async function readTrace(runDir: string): Promise<TraceEvent[]> {
-  let raw: string;
-  try {
-    raw = await fs.readFile(path.join(runDir, "trace.jsonl"), "utf8");
-  } catch {
-    return [];
-  }
+/**
+ * A run's trace, from the file cache while unchanged (the run list reads
+ * every trace on each live update; finished runs never change again). The
+ * events are shared with the cache: read them, never change them.
+ */
+async function readTrace(runDir: string): Promise<readonly TraceEvent[]> {
+  return readParsed(path.join(runDir, "trace.jsonl"), parseTrace).catch(() => []);
+}
+
+function parseTrace(raw: string): TraceEvent[] {
   const events: TraceEvent[] = [];
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
@@ -97,7 +101,7 @@ async function readTrace(runDir: string): Promise<TraceEvent[]> {
   return events;
 }
 
-function analyse(events: TraceEvent[], fallbackTs?: string) {
+function analyse(events: readonly TraceEvent[], fallbackTs?: string) {
   const runStart = events.find((e) => e.event === "run_start");
   const summary = events.find((e) => e.event === "run_summary");
 

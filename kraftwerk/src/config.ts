@@ -3,6 +3,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
+import { readParsed } from "./core/file-cache.js";
 
 /**
  * Project resolution + optional project config.
@@ -489,10 +490,27 @@ const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", 
  */
 const LEGACY_KEYS = ["public", "tunnel"];
 
-async function loadConfig(configPath: string): Promise<{ config: WorkspaceConfig; legacyKeys: string[] }> {
+type LoadedConfig = { config: WorkspaceConfig; legacyKeys: string[] };
+
+/**
+ * kraftwerk.yml, parsed and checked — from the file cache while the file is
+ * unchanged (every request resolves the workspace, so this runs constantly).
+ * Each caller gets its own copy.
+ */
+async function loadConfig(configPath: string): Promise<LoadedConfig> {
+  try {
+    return await readParsed(configPath, (text) => checkConfig(configPath, text), (r) => ({ config: structuredClone(r.config), legacyKeys: [...r.legacyKeys] }));
+  } catch (err) {
+    // The file could not be read at all (gone, no permission); a parse or validation error is already worded.
+    if ((err as NodeJS.ErrnoException).code) throw new Error(`${path.basename(configPath)}: unreadable YAML: ${(err as Error).message}`);
+    throw err;
+  }
+}
+
+function checkConfig(configPath: string, text: string): LoadedConfig {
   let raw: unknown;
   try {
-    raw = parse(await readFile(configPath, "utf8"));
+    raw = parse(text);
   } catch (err) {
     throw new Error(`${path.basename(configPath)}: unreadable YAML: ${(err as Error).message}`);
   }
