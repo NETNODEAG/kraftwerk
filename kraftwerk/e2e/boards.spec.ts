@@ -61,7 +61,7 @@ test.describe("boards", () => {
     const dir = path.join(boardDir(), "tasks", "1-write-a-press-release");
     await expect.poll(() => existsSync(path.join(dir, "task.md"))).toBe(true);
     expect(readFileSync(path.join(dir, "task.md"), "utf8")).toMatch(/^status: todo$/m);
-    expect(readFileSync(path.join(dir, "log.md"), "utf8")).toMatch(/Created in Todo \(human:user\)/);
+    expect(readFileSync(path.join(dir, "log.md"), "utf8")).toMatch(/Created in Todo \(human:[a-z0-9._-]+\)/);
   });
 
   test("the task page logs a comment and a status change; a task in review counts on the project's boards tab", async ({ page }) => {
@@ -71,11 +71,11 @@ test.describe("boards", () => {
     await page.keyboard.press("Enter");
     await expect(page.getByText("draft is on its way")).toBeVisible();
     const log = () => readFileSync(path.join(boardDir(), "tasks", "1-write-a-press-release", "log.md"), "utf8");
-    await expect.poll(log).toMatch(/draft is on its way \(human:user\)/);
+    await expect.poll(log).toMatch(/draft is on its way \(human:[a-z0-9._-]+\)/);
 
     await page.getByRole("combobox", { name: "status" }).selectOption("review");
     await expect.poll(() => readFileSync(path.join(boardDir(), "tasks", "1-write-a-press-release", "task.md"), "utf8")).toMatch(/^status: review$/m);
-    await expect.poll(log).toMatch(/Moved Todo → Review \(human:user\)/);
+    await expect.poll(log).toMatch(/Moved Todo → Review \(human:[a-z0-9._-]+\)/);
     // The board is a page of its own; back in the project, its boards tab counts what waits for review.
     await page.goto(`/#/projects/${project}`);
     await expect(page.getByRole("tab", { name: /boards/ })).toContainText("1");

@@ -16,15 +16,14 @@ import {
 } from "../okf.js";
 import { workspaceRoot } from "./context.js";
 import { moveToTrash } from "./trash.js";
+import { actorFor } from "./person.js";
 
 /**
  * Knowledge for the inspector: a thin API layer over the OKF
- * core (src/okf.ts). Writes from the UI are stamped as `human:user` — the
- * browser user is the human in the loop; agents write through the CLI (or
- * chat) with their own actor.
+ * core (src/okf.ts). Writes from the UI are stamped as the person asking
+ * (`human:<handle>`, core/person.ts) — the browser user is the human in the
+ * loop; agents write through the CLI (or chat) with their own actor.
  */
-
-export const UI_ACTOR = "human:user";
 
 async function root(): Promise<string> {
   const project = await resolveWorkspace(workspaceRoot());
@@ -76,9 +75,9 @@ export async function putConcept(
   id: string,
   content: string
 ): Promise<ConceptDetail> {
-  return (await writeConcept(await root(), bundle, id, content, UI_ACTOR)).concept;
+  return (await writeConcept(await root(), bundle, id, content, await actorFor())).concept;
 }
 
 export async function verifyFromUi(bundle: string, id: string): Promise<ConceptDetail> {
-  return verifyConcept(await root(), bundle, id, UI_ACTOR);
+  return verifyConcept(await root(), bundle, id, await actorFor());
 }

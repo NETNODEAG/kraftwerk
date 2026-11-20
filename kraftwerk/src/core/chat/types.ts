@@ -29,6 +29,8 @@ export type ChatScope =
  */
 export interface ChatPerson {
   handle: string;
+  /** The cloud account's uuid (a person signed in with `users: cloud`): the same person on every machine. */
+  id?: string;
   /** A remote member's account email; absent for this machine's own person. */
   email?: string;
 }

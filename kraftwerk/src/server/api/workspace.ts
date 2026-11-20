@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as z from "zod";
-import { absolutePath, resolveWorkspace, slugFromFolder, workspaceSlug } from "../../config.js";
+import { absolutePath, resolveWorkspace, slugFromFolder, usersMode, workspaceSlug } from "../../config.js";
 import { disposeAllBackends } from "../../core/chat/sessions.js";
 import { cloudStatus } from "../cloud.js";
 import { workspaceRoot } from "../../core/context.js";
@@ -12,6 +12,7 @@ import { canSelfUpdate, startUpdate, updateStatus } from "../../core/update.js";
 import { getDiskVersion, getPkgName, getPkgVersion, RESTART_EXIT_CODE, supervised } from "../version.js";
 import { disposeAllDevs } from "../../core/vibeables.js";
 import { identityString, readIdentity } from "../../core/identity.js";
+import { currentPerson, humanActor } from "../../core/person.js";
 import { fail, reply, route } from "./router.js";
 
 /** A feature block with a folder (repos, vibeables, projects); saveSettings checks the root. Nested blocks are plain objects: saveSettings reads only these fields. */
@@ -130,6 +131,26 @@ export const workspaceRoutes = [
   route({ name: "identity.get", method: "GET", path: "/api/identity", summary: "this machine's identity (handle@machine) — what routines name in runs_on" }, async () => {
     const id = await readIdentity();
     return { handle: id.handle, machine: id.machine, identity: identityString(id), previous: id.previous };
+  }),
+
+  // The person asking, in this workspace's users mode (kraftwerk.yml `users:`, core/person.ts).
+  route({ name: "me.get", method: "GET", path: "/api/me", summary: "who you are here: users mode (local | cloud), your handle, and with cloud your account (uuid, email) and how to sign out" }, async (c) => {
+    const ws = await resolveWorkspace(workspaceRoot()).catch(() => null);
+    const mode = ws ? usersMode(ws.config) : "local";
+    const p = await currentPerson();
+    const signedIn = c.trust.kind === "local" && !!c.trust.user;
+    return {
+      mode,
+      handle: p.handle,
+      actor: humanActor(p),
+      ...(p.id ? { id: p.id } : {}),
+      ...(p.email ? { email: p.email } : {}),
+      /** A browser signed in with its cloud account (users: cloud); false for this machine's own shell, a device, a member. */
+      signedIn,
+      ...(signedIn && c.trust.kind === "local" ? { role: c.trust.user!.role } : {}),
+      /** How the signed-in person got here: through the relay as a member, or on this machine. */
+      via: c.trust.kind === "member" ? ("member" as const) : c.trust.kind === "device" ? ("device" as const) : ("local" as const),
+    };
   }),
 
   route({ name: "settings.get", method: "GET", path: "/api/settings", summary: "kraftwerk.yml, parsed, with resolved paths" }, async () => getSettings()),

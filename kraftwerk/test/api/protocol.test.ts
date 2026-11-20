@@ -74,6 +74,7 @@ const ROUTES = [
   "GET /api/knowledge knowledge.list",
   "GET /api/knowledge/:bundle knowledge.get",
   "GET /api/knowledge/:bundle/concept knowledge.concept",
+  "GET /api/me me.get",
   "GET /api/meta meta.get",
   "GET /api/notifications notifications.list",
   "GET /api/places places.list",
@@ -245,7 +246,7 @@ describe("protocol", () => {
     assert.deepEqual(log?.body, {
       $schema: "https://json-schema.org/draft/2020-12/schema",
       type: "object",
-      properties: { entry: { type: "string" }, actor: { default: "human:user", type: "string" } },
+      properties: { entry: { type: "string" }, actor: { type: "string" } },
       required: ["entry"],
     });
     assert.equal(body.routes.find((r) => r.name === "projects.list")?.body, undefined, "a GET has no body");

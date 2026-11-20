@@ -19,6 +19,7 @@ import {
 } from "../okf.js";
 import { deleteBundle } from "../core/knowledge.js";
 import { initContext as prepare } from "./routines.js";
+import { actorFor } from "../core/person.js";
 
 /**
  * `kraftwerk knowledge` — the CLI surface over OKF bundles (the
@@ -28,13 +29,13 @@ import { initContext as prepare } from "./routines.js";
  *
  * Agents identify via --actor (or KRAFTWERK_ACTOR); the OKF convention is
  * `<producer>/<version>` for agents, `human:<id>` for people,
- * `process:<id>` for automation. Humans default to `human:user`.
+ * `process:<id>` for automation. A person is this machine's
+ * (`human:<handle>`, core/person.ts).
  */
 
-const DEFAULT_ACTOR = "human:user";
+const DEFAULT_ACTOR = "you: human:<handle>";
 
-const actorOf = (opts: { actor?: string }): string =>
-  opts.actor?.trim() || process.env.KRAFTWERK_ACTOR?.trim() || DEFAULT_ACTOR;
+const actorOf = (opts: { actor?: string }): Promise<string> => actorFor(opts.actor?.trim() || process.env.KRAFTWERK_ACTOR?.trim());
 
 async function root(): Promise<string> {
   const project = await resolveWorkspace(process.cwd());
@@ -156,10 +157,11 @@ export function registerKnowledgeCommands(program: Command): void {
         process.exit(2);
       }
       try {
-        const result = await writeConcept(await root(), bundle, id, content, actorOf(opts));
+        const actor = await actorOf(opts);
+        const result = await writeConcept(await root(), bundle, id, content, actor);
         console.log(
           `${chalk.green("✔")} ${result.created ? "created" : "updated"} ${chalk.cyan(`${bundle}/${result.concept.id}`)} ` +
-            chalk.dim(`(${result.concept.type}, by ${actorOf(opts)})`)
+            chalk.dim(`(${result.concept.type}, by ${actor})`)
         );
       } catch (err) {
         console.error(chalk.red((err as Error).message));
@@ -174,7 +176,7 @@ export function registerKnowledgeCommands(program: Command): void {
     .option("--by <actor>", `Verifier actor (default: ${DEFAULT_ACTOR})`)
     .action(async (ref: string, opts: { by?: string }) => {
       const { bundle, id } = splitRef(ref);
-      const actor = opts.by?.trim() || process.env.KRAFTWERK_ACTOR?.trim() || DEFAULT_ACTOR;
+      const actor = await actorFor(opts.by?.trim() || process.env.KRAFTWERK_ACTOR?.trim());
       try {
         const concept = await verifyConcept(await root(), bundle, id, actor);
         console.log(`${chalk.green("✔")} ${ref} verified by ${actor} → ${tierColor(concept.trustTier)}`);

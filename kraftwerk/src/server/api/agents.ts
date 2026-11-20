@@ -1,7 +1,7 @@
 import * as z from "zod";
 import { agentsRoot, deleteAgent, getAgent, listAgents, safeAgentSlug, saveAgent, setAgentArchived, type SaveAgentInput } from "../../core/agents.js";
 import { appendJournal, readJournal } from "../../core/journal.js";
-import { UI_ACTOR } from "../../core/knowledge.js";
+import { actorFor } from "../../core/person.js";
 import { adoptRoutine, deleteRoutine, listRoutines, routineStatuses, runRoutineNow, saveRoutine, type SaveRoutineInput } from "../../core/routines.js";
 import { deleteAgentSkill, listAgentSkills, readSkill, saveAgentSkill } from "../../core/skills.js";
 import { fail, route } from "./router.js";
@@ -107,7 +107,7 @@ export const agentRoutes = [
     },
     async (c) => {
       const { entry, kind } = await c.body();
-      return { journal: await appendJournal(c.params.slug, entry, { kind, actor: UI_ACTOR }) };
+      return { journal: await appendJournal(c.params.slug, entry, { kind, actor: await actorFor() }) };
     },
   ),
 

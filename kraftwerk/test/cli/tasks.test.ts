@@ -6,6 +6,10 @@ import assert from "node:assert/strict";
 import { cli, json } from "../helpers/cli.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
 import type { BoardDetail, BoardsView, TaskDetail } from "../../src/core/boards.js";
+import { defaultHandle } from "../../src/core/identity.js";
+
+/** Who a human change is signed with here: this machine's handle (core/person.ts). */
+const ME = defaultHandle();
 
 /**
  * `kraftwerk boards` and `kraftwerk tasks` through the real bin: the flag,
@@ -61,7 +65,7 @@ describe("kraftwerk boards / tasks", () => {
     assert.equal(r.code, 0, r.all);
     assert.match(r.stdout, /logged on 1 \(lisa\/claude\)/);
     const log = await readFile(path.join(taskDir("1-write-a-press-release"), "log.md"), "utf8");
-    assert.match(log, /^# Write a press release — log\n\n## \d{4}-\d{2}-\d{2}\n\* \d\d:\d\d sources collected \(lisa\/claude\)\n\* \d\d:\d\d Assigned lisa: first draft please \(human:user\)\n\* \d\d:\d\d Moved Draft → Todo: ready \(human:user\)\n\* \d\d:\d\d Created in Draft \(human:user\)\n$/);
+    assert.match(log, new RegExp(`^# Write a press release — log\\n\\n## \\d{4}-\\d{2}-\\d{2}\\n\\* \\d\\d:\\d\\d sources collected \\(lisa/claude\\)\\n\\* \\d\\d:\\d\\d Assigned lisa: first draft please \\(human:${ME}\\)\\n\\* \\d\\d:\\d\\d Moved Draft → Todo: ready \\(human:${ME}\\)\\n\\* \\d\\d:\\d\\d Created in Draft \\(human:${ME}\\)\\n$`));
     r = await run(["tasks", "show", "1", "--project", "netnode"]);
     assert.match(r.stdout, /todo · lisa/);
     assert.match(r.stdout, /folder: .*1-write-a-press-release/);

@@ -99,7 +99,7 @@ export function KnowledgeSide({
   }
 
   // Saves the full raw file (frontmatter + body) — the server stamps
-  // provenance as human:user, same as the knowledge screen's editor.
+  // provenance as the person editing (human:<handle>), same as the knowledge screen's editor.
   async function save(bundle: string, id: string): Promise<void> {
     const key = `${bundle}::${id}`;
     setSaving(true);

@@ -306,6 +306,14 @@
           "description": "Deprecated and ignored: the cloud sets the heartbeat interval."
         }
       }
+    },
+    "users": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Who the people working in this workspace are. `local` (default): whoever sits at this machine, named by its handle (~/.kraftwerk/identity.json). `cloud`: people sign in with their kraftwerk cloud account before the UI opens, and what they do is signed with that account (uuid, handle) on every machine and clone. Needs the daemon connected to the cloud and the workspace's `id`; the machine's own CLI acts as the account that claimed the machine.",
+      "properties": {
+        "mode": { "type": "string", "enum": ["local", "cloud"], "description": "local (default) or cloud" }
+      }
     }
   }
 }

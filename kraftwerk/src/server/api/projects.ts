@@ -69,7 +69,7 @@ export const projectRoutes = [
       path: "/api/projects/:slug/log",
       summary: "append a stamped line {entry, actor?} to log.md",
       errors: projectErrors,
-      body: z.object({ entry: z.string(), actor: z.string().default("human:user") }),
+      body: z.object({ entry: z.string(), actor: z.string().optional() }),
     },
     async (c) => {
       const { entry, actor } = await c.body();

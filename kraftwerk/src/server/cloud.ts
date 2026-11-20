@@ -18,6 +18,7 @@ import {
   type InviteResponse,
   type MachineWorkspace,
   type RoutineReportEntry,
+  writeAccountFile,
 } from "../core/cloud.js";
 import { identityString, readIdentity } from "../core/identity.js";
 import { routineReport } from "../core/routines.js";
@@ -70,6 +71,9 @@ export interface CloudStatus {
   machine?: string;
   /** Email of the account that claimed the machine; null while unclaimed. */
   account?: string | null;
+  /** That account's uuid and handle (what the machine's own shell acts as; ~/.kraftwerk/account.json). */
+  accountId?: string | null;
+  accountHandle?: string | null;
   /** Effective seconds between heartbeats (what the cloud asked for). */
   interval?: number;
   /** Last successful register or heartbeat. */
@@ -130,6 +134,17 @@ async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; 
 
 const claimed = (): boolean => typeof m.status.account === "string" && m.status.account.length > 0;
 
+/**
+ * Keep ~/.kraftwerk/account.json in step with the claim: the account the
+ * cloud names (uuid, email, handle), or none once unclaimed. A cloud that
+ * names no uuid (older) leaves the file as it is.
+ */
+async function noteAccount(r: { account?: string | null; accountId?: string | null; accountHandle?: string | null }): Promise<void> {
+  if (r.account === undefined) return;
+  if (!r.account) return writeAccountFile(null);
+  if (r.accountId && r.accountHandle) await writeAccountFile({ id: r.accountId, email: r.account, handle: r.accountHandle }).catch(() => {});
+}
+
 /** The routines that ran here, per served workspace with a ws_ id (vetoed ones left out), capped. */
 async function routineEntries(): Promise<RoutineReportEntry[]> {
   const out: RoutineReportEntry[] = [];
@@ -189,8 +204,9 @@ async function register(): Promise<boolean> {
     m.routines = "";
     // An unclaimed register carries no roots: the list counts as reported only when that is all the cloud should know.
     m.reported = r.account ? "" : JSON.stringify(list);
+    await noteAccount(r);
     m.status = {
-      ...base, state: "connected", account: r.account ?? null, interval: r.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
+      ...base, state: "connected", account: r.account ?? null, accountId: r.accountId ?? null, accountHandle: r.accountHandle ?? null, interval: r.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
       claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(cloud.url, r.claimCode), workspaces: list.length,
     };
     // Already claimed: the roots follow at once.
@@ -219,9 +235,10 @@ async function heartbeat(): Promise<void> {
     });
     m.reported = now;
     m.routines = ran;
+    await noteAccount(r);
     m.status = {
       ...m.status, state: "connected", error: undefined, interval: r.interval || m.status.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
-      ...(r.account !== undefined ? { account: r.account } : {}),
+      ...(r.account !== undefined ? { account: r.account, accountId: r.accountId ?? null, accountHandle: r.accountHandle ?? null } : {}),
       ...(r.claimCode !== undefined ? { claimCode: r.claimCode, claimUrl: claimUrlFor(m.status.url, r.claimCode) } : {}),
       workspaces: list.length,
     };
@@ -322,7 +339,8 @@ export async function unlinkMachineCloud(): Promise<CloudStatus> {
     // The next heartbeat sends the list again — without roots now.
     m.reported = "";
     m.routines = "";
-    m.status = { ...m.status, account: null, claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(m.status.url, r.claimCode) };
+    await writeAccountFile(null);
+    m.status = { ...m.status, account: null, accountId: null, accountHandle: null, claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(m.status.url, r.claimCode) };
     return m.status;
   });
 }

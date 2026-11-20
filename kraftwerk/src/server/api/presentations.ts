@@ -25,7 +25,7 @@ import {
   type PresentationRef,
 } from "../../core/presentations/index.js";
 import { ApiError, fail, reply, route, statusByMessage, type Ctx } from "./router.js";
-import { localPerson } from "../../core/chat/sessions.js";
+import { personOf } from "../person.js";
 import { tasksReferencing } from "../../core/boards.js";
 import { leavePresence, touchPresence } from "../../core/presentations/presence.js";
 import type { Trust } from "../trust.js";
@@ -74,7 +74,7 @@ const refOf = (c: Ctx<any>): PresentationRef => {
 };
 
 /** Who writes a comment: a member by their handle, else this machine's person. */
-const authorOf = async (trust: Trust): Promise<string> => (trust.kind === "member" ? trust.member.handle : (await localPerson()).handle);
+const authorOf = async (trust: Trust): Promise<string> => (await personOf(trust)).handle;
 
 const requireOn = async (): Promise<void> => {
   if ((await openPresentations()).off) fail(409, "presentations are off");

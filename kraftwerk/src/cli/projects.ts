@@ -199,7 +199,7 @@ export function registerProjectCommands(program: Command): void {
     .argument("<slug>", "Project folder name")
     .argument("[entry]", "The line to record; omit with --file")
     .option("--file <path>", "Read the entry from a file")
-    .option("--actor <actor>", "Who writes: human:<id>, <agent>/<harness>, process:<id>", "human:user")
+    .option("--actor <actor>", "Who writes: <agent>/<harness>, process:<id> (default: you, human:<handle>)")
     .action(async (slug: string, entry: string | undefined, opts: { file?: string; actor: string }) => {
       await prepare();
       try {

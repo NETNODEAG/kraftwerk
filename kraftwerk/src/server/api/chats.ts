@@ -27,6 +27,7 @@ import {
 import { attachmentPath, readMeta, saveAttachment } from "../../core/chat/store.js";
 import type { ChatAgentId, ChatPerson, ChatScope } from "../../core/chat/types.js";
 import { remoteCaller, type Trust } from "../trust.js";
+import { personOf } from "../person.js";
 import { findTask } from "../../core/boards.js";
 import { getProject } from "../../core/projects.js";
 import { MIME } from "./mime.js";
@@ -115,9 +116,11 @@ async function projectSlug(slug: string): Promise<string> {
   return found.slug;
 }
 
-/** Who a chat or message is signed with: a member session's member, else this machine's person. */
-const personOf = async (trust: Trust): Promise<ChatPerson> =>
-  trust.kind === "member" ? { handle: trust.member.handle, email: trust.member.email } : localPerson();
+/** Who a chat or message is signed with: the person asking (server/person.ts). */
+const chatPersonOf = async (trust: Trust): Promise<ChatPerson> => {
+  const p = await personOf(trust);
+  return { handle: p.handle, ...(p.id ? { id: p.id } : {}), ...(p.email ? { email: p.email } : {}) };
+};
 
 /**
  * A private routine's run (meta.private) is not there for a remote caller
@@ -161,7 +164,7 @@ export const chatRoutes = [
       return await createChat({
         agent: agent as ChatAgentId,
         scope,
-        author: await personOf(c.trust),
+        author: await chatPersonOf(c.trust),
         ...(project ? { project } : {}),
         ...(task ? { task } : {}),
         ...(body.resume ? { resume: body.resume } : {}),
@@ -236,7 +239,7 @@ export const chatRoutes = [
       return metaOf(await setChatVibeable(c.params.id, slug || null));
     },
   ),
-  route({ name: "chats.fork", method: "POST", path: "/api/chats/:id/fork", summary: "a new chat continuing a copy of this one's session", errors: 400 }, async (c) => metaOf(await forkChat(c.params.id, await personOf(c.trust)))),
+  route({ name: "chats.fork", method: "POST", path: "/api/chats/:id/fork", summary: "a new chat continuing a copy of this one's session", errors: 400 }, async (c) => metaOf(await forkChat(c.params.id, await chatPersonOf(c.trust)))),
   route({ name: "chats.resetSession", method: "POST", path: "/api/chats/:id/reset-session", summary: "forget the agent's session; the next message starts fresh", errors: 400 }, async (c) =>
     metaOf(await resetSession(c.params.id)),
   ),
@@ -269,10 +272,10 @@ export const chatRoutes = [
 
   // Channels: `from` is the poster's display name, which signs the message.
   act("chats.message", "/api/chats/:id/message", "send a message {text, attachments?, from?}", Said.extend({ from: z.string().optional() }), async (c, body) =>
-    postMessage(c.params.id, textOf(body), { from: body.from, attachments: body.attachments, by: await personOf(c.trust) }),
+    postMessage(c.params.id, textOf(body), { from: body.from, attachments: body.attachments, by: await chatPersonOf(c.trust) }),
   ),
   act("chats.steer", "/api/chats/:id/steer", "add to the running turn {text, attachments?}", Said, async (c, body) =>
-    steerChat(c.params.id, textOf(body), body.attachments, await personOf(c.trust)),
+    steerChat(c.params.id, textOf(body), body.attachments, await chatPersonOf(c.trust)),
   ),
   act(
     "chats.permission",

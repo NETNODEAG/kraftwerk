@@ -33,7 +33,14 @@ export const api = createClient({
     unpaired = true;
     for (const fn of pairingListeners) fn();
   },
+  // users: cloud — the session ended (signed out elsewhere, removed in the cloud): sign in again, back to this very view.
+  onSignin: (url) => {
+    if (signingIn) return;
+    signingIn = true;
+    location.assign(`${url}?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
+  },
 });
+let signingIn = false;
 /** A server-relative URL from a route's result (an app preview's `/vibeables/<app>/`), under this page's workspace prefix. */
 export const withBase = (url: string): string => (url.startsWith("/") ? api.baseUrl + url : url);
 

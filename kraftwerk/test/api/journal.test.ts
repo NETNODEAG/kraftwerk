@@ -6,6 +6,10 @@ import { makeProject, startServer, type Fixture, type RunningServer } from "../h
 import { appendJournal, journalExcerpt } from "../../src/core/journal.js";
 import { agentJournalContext } from "../../src/core/chat/sessions.js";
 import type { AgentStatus } from "../../src/core/agent-status.js";
+import { defaultHandle } from "../../src/core/identity.js";
+
+/** Who a human change is signed with here: this machine's handle (core/person.ts). */
+const ME = defaultHandle();
 
 /**
  * An agent's journal and status over the HTTP API: a human's note is
@@ -51,7 +55,7 @@ describe("agent journal and status API", () => {
     assert.equal(r.status, 200, await r.text());
     const text = await journal();
     assert.match(text, /^# Lisa's journal\n/);
-    assert.match(text, new RegExp(`## ${today}\\n\\* \\d\\d:\\d\\d Lukas prefers short answers in German \\(human:user\\)`));
+    assert.match(text, new RegExp(`## ${today}\\n\\* \\d\\d:\\d\\d Lukas prefers short answers in German \\(human:${ME}\\)`));
     assert.equal(await readFile(path.join(fx.root, "agents/lisa/journal.md"), "utf8"), text);
   });
 

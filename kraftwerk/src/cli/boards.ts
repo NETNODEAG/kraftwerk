@@ -27,6 +27,7 @@ import {
 import { taskSessions, type TaskSession } from "../core/board-wake.js";
 import { initContext as prepare } from "./routines.js";
 import { fmtAgo } from "./workspaces.js";
+import { actorFor } from "../core/person.js";
 
 /**
  * `kraftwerk boards` and `kraftwerk tasks` — the boards (columns of tasks)
@@ -61,8 +62,8 @@ const die = (msg: string): never => {
   process.exit(1);
 };
 
-/** Who writes: --actor, else the session's KRAFTWERK_ACTOR, else human:user. */
-const actorOf = (opt?: string): string => (opt ?? process.env.KRAFTWERK_ACTOR ?? "").trim() || "human:user";
+/** Who writes: --actor, else the session's KRAFTWERK_ACTOR (an agent), else this machine's person (core/person.ts). */
+const actorOf = (opt?: string): string | undefined => (opt ?? process.env.KRAFTWERK_ACTOR ?? "").trim() || undefined;
 /** Which agent acts: --as, else the session's KRAFTWERK_AGENT. */
 const agentOf = (opt?: string): string => (opt ?? process.env.KRAFTWERK_AGENT ?? "").trim();
 
@@ -320,7 +321,7 @@ export function registerBoardCommands(program: Command): void {
     .option("--file <path>", "The task's markdown (what, done-when, notes) from a file")
     .option("--notes <text>", "The task's markdown inline")
     .option("-m, --message <text>", "A first log line")
-    .option("--actor <actor>", "Who writes (default: KRAFTWERK_ACTOR, else human:user)")
+    .option("--actor <actor>", "Who writes (default: KRAFTWERK_ACTOR, else you: human:<handle>)")
     .option("--json", "Print the task as JSON")
     .action(async (title: string, opts: Where & { status?: string; assign?: string; due?: string; tags?: string; refs?: string; file?: string; notes?: string; message?: string; actor?: string; json?: boolean }) => {
       await prepare();
@@ -418,7 +419,7 @@ export function registerBoardCommands(program: Command): void {
     .argument("[entry]", "The line to record")
     .option("--file <path>", "Read the entry from a file")
     .option("--tail <n>", "Print the newest n lines instead of writing")
-    .option("--actor <actor>", "Who writes (default: KRAFTWERK_ACTOR, else human:user)")
+    .option("--actor <actor>", "Who writes (default: KRAFTWERK_ACTOR, else you: human:<handle>)")
     .action(async (task: string, entry: string | undefined, opts: Where & { file?: string; tail?: string; actor?: string }) => {
       await prepare();
       try {
@@ -438,7 +439,7 @@ export function registerBoardCommands(program: Command): void {
         }
         const text = opts.file ? await readFile(opts.file, "utf8") : entry ?? "";
         const t = await appendTaskLog(ref, task, text, actorOf(opts.actor));
-        console.log(`${chalk.green("✔")} logged on ${chalk.cyan(String(t.number))} ${chalk.dim(`(${actorOf(opts.actor)})`)}`);
+        console.log(`${chalk.green("✔")} logged on ${chalk.cyan(String(t.number))} ${chalk.dim(`(${await actorFor(actorOf(opts.actor))})`)}`);
       } catch (err) {
         die((err as Error).message);
       }

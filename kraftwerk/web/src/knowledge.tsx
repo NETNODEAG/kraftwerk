@@ -736,7 +736,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
                 spellCheck={false}
               />
               <Hint className="border-b border-line px-[18px] py-1.5">
-                full file (frontmatter + markdown body) — saving stamps provenance as <code>human:user</code> and logs an update.
+                full file (frontmatter + markdown body) — saving stamps provenance with you (<code>human:&lt;handle&gt;</code>) and logs an update.
               </Hint>
             </>
           ) : (
@@ -756,7 +756,7 @@ function ConceptView({ bundle, conceptId }: { bundle: string; conceptId: string 
                 <Hint className="border-b border-line px-[18px] py-1.5">loading…</Hint>
               )}
               <Hint className="border-b border-line px-[18px] py-1.5">
-                the page as a document, saved as you type; every save stamps provenance as <code>human:user</code> and logs an update.
+                the page as a document, saved as you type; every save stamps provenance with you (<code>human:&lt;handle&gt;</code>) and logs an update.
               </Hint>
             </div>
           )}

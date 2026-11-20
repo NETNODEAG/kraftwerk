@@ -14,6 +14,7 @@ import { listRepos } from "./repos.js";
 import { SLUG_RE, slugify } from "./slug.js";
 import { moveToTrash } from "./trash.js";
 import { filesContext } from "./files.js";
+import { actorFor } from "./person.js";
 
 /**
  * Projects: a goal with everything the agents need to reach it gathered in
@@ -411,7 +412,7 @@ export async function createProject(input: { title: string; goal?: string; slug?
   for (const [name, content] of Object.entries(projectStarter(def))) {
     await fs.writeFile(path.join(dir, name), content);
   }
-  await appendProjectLog(slug, `**Created**: project "${title}".`, "human:user");
+  await appendProjectLog(slug, `**Created**: project "${title}".`);
   return (await getProject(slug))!;
 }
 
@@ -455,13 +456,13 @@ export async function linkProject(slug: string, kind: string, target: string, re
  * knowledge bundle's log). The actor is stamped so a line written by an
  * agent reads as such next to a human's.
  */
-export async function appendProjectLog(slug: string, entry: string, actor: string): Promise<string> {
+export async function appendProjectLog(slug: string, entry: string, actor?: string): Promise<string> {
   const root = await requireRoot();
   const dir = path.join(root, safeProjectSlug(slug));
   if (!(await fs.stat(path.join(dir, PROJECT_FILE)).catch(() => null))) throw new Error(`no project "${slug}"`);
   const text = entry.trim().replace(/\s*\n\s*/g, " ");
   if (!text) throw new Error("entry is required");
-  const who = actor.trim() || "human:user";
+  const who = await actorFor(actor);
   const file = path.join(dir, "log.md");
   const today = new Date().toISOString().slice(0, 10);
   let raw = await fs.readFile(file, "utf8").catch(() => null);

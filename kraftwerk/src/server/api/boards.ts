@@ -52,7 +52,7 @@ const TaskFields = z.object({
   tags: z.array(z.string()).optional(),
   refs: z.array(z.string()).optional(),
   notes: z.string().optional(),
-  /** Who writes (human:user by default) and a line for the log. */
+  /** Who writes (an agent or process naming itself; a person is whoever asks) and a line for the log. */
   actor: z.string().optional(),
   message: z.string().optional(),
 });

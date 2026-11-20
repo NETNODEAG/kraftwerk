@@ -3,7 +3,7 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { AttentionItem, Notification, NotificationKind, NotificationsView, RunListItem } from "./types";
 import { api, useApi, type ApiResponse, type ApiResult } from "./api";
 import { attentionIcon, attentionLabel, NextButton, openAttention, ownerText, useAttention, useFocusRequest } from "./attention";
-import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Section } from "./ui";
+import { Button, cn, Dot, EmptyState, Eyebrow, IconButton, ListRow, Popover, Section } from "./ui";
 import { EditModal, editScreenOf } from "./edit-modal";
 import { COLUMN_PATH_EVENT, CHAT_ROUTES, columnOf, isBoardPath, isPresentationPath, Icon, fmtAgo, navigate, setAttentionCount, setBaseTitle, setExpertMode, startWorkspace, useExpertMode, useHashPath, workspaceColor, wsPalette, WorkspaceTile, setFeatures, workspaceHref } from "./shared";
 import { RunsScreen } from "./runs";
@@ -322,6 +322,7 @@ export function App() {
         <ExpertToggle />
         <NextButton />
         <NotificationBell />
+        <PersonMenu />
         <RelaunchNote />
       </header>
       {/* The settings section: its navigation under the top bar, and the page below counts both as the bar above it. */}
@@ -706,6 +707,50 @@ function RelaunchNote() {
     >
       {restarting ? "relaunching…" : <><Icon name="restart_alt" className="ms-sm" /> v{target} ready — relaunch</>}
     </button>
+  );
+}
+
+/**
+ * Who is signed in, where the workspace signs people in with their cloud
+ * account (kraftwerk.yml `users: cloud`): their handle as an initial, the
+ * account and a way to sign out. Nothing where the workspace is local.
+ */
+function PersonMenu() {
+  const me = useApi("me.get", {}, { interval: 60_000 });
+  const [busy, setBusy] = useState(false);
+  if (!me || me.mode !== "cloud" || !me.signedIn) return null;
+  const signOut = async () => {
+    setBusy(true);
+    const r = await fetch(`${api.baseUrl}/auth/signout`, { method: "POST" }).catch(() => null);
+    const to = r?.ok ? ((await r.json()) as { signin?: string }).signin : undefined;
+    location.assign(to ?? `${api.baseUrl}/`);
+  };
+  return (
+    <Popover
+      align="end"
+      trigger={({ toggle }) => (
+        <button
+          type="button"
+          aria-label={`signed in as ${me.handle}`}
+          title={`${me.handle} · ${me.email ?? ""}`}
+          onClick={toggle}
+          className="grid size-7 cursor-pointer place-items-center rounded-full border-0 bg-accent/15 text-xs font-semibold text-accent uppercase hover:bg-accent/25"
+        >
+          {me.handle.slice(0, 1)}
+        </button>
+      )}
+    >
+      {() => (
+        <div className="flex min-w-[220px] flex-col gap-1 p-3 text-sm">
+          <span className="font-medium">@{me.handle}</span>
+          {me.email && <span className="text-xs text-fg-2">{me.email}</span>}
+          <span className="text-xs text-fg-2">{me.role} · signed in with kraftwerk cloud</span>
+          <Button size="sm" variant="quiet" icon="logout" busy={busy} onClick={() => void signOut()} className="mt-2 self-start">
+            sign out
+          </Button>
+        </div>
+      )}
+    </Popover>
   );
 }
 

@@ -45,6 +45,8 @@ import { readParsed } from "./core/file-cache.js";
  *     enabled: false           # a per-workspace veto; the machine's switch is `kraftwerk cloud on|off` (~/.kraftwerk/cloud.json)
  *   # No key here: the daemon registers the MACHINE (its relay id) and `kraftwerk login` claims it.
  *   # `url` and `interval` are deprecated: the cloud's origin is the machine's (cloud.json / KRAFTWERK_CLOUD_URL).
+ *   users:                     # who works here (see UsersConfig)
+ *     mode: cloud              # local (default): this machine's handle · cloud: sign in with a kraftwerk cloud account
  */
 
 /** Stable, versionless URL of the workflow JSON schema (editor validation). */
@@ -251,6 +253,27 @@ export interface CloudConfig {
   interval?: number;
 }
 
+/**
+ * kraftwerk.yml `users:` — who the person working in this workspace is.
+ *
+ *   users:
+ *     mode: local    # default: whoever sits at this machine, named by its handle (~/.kraftwerk/identity.json)
+ *     mode: cloud    # people sign in with their kraftwerk cloud account: the UI asks first, and
+ *                    # what they do is signed with their account (uuid, handle) — the same person
+ *                    # on every machine and clone
+ *
+ * `cloud` needs the machine's daemon connected to the cloud (it redeems the
+ * sign-in) and the workspace's `id`. The machine's own shell (the CLI) acts
+ * as the account that claimed the machine (`kraftwerk login`).
+ */
+export interface UsersConfig {
+  mode?: UsersMode;
+}
+export type UsersMode = "local" | "cloud";
+
+/** A workspace's users mode: `cloud` only when kraftwerk.yml says so. */
+export const usersMode = (config: WorkspaceConfig): UsersMode => (config.users?.mode === "cloud" ? "cloud" : "local");
+
 export const CLOUD_DEFAULT_URL = "https://srv.kraftwerk-cloud.netnode.cloud";
 
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */
@@ -328,6 +351,8 @@ export interface WorkspaceConfig {
   presentations?: PresentationsConfig;
   /** The machine's cloud record lists this workspace. Absent = listed; `enabled: false` leaves it out. */
   cloud?: CloudConfig;
+  /** Who the people working here are: local (default) or signed in with a cloud account. */
+  users?: UsersConfig;
 }
 
 export interface ResolvedWorkspace {
@@ -480,7 +505,7 @@ export async function addWorkspaceId(configPath: string): Promise<string> {
   return id;
 }
 
-const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "presentations", "cloud"];
+const KNOWN_KEYS = ["id", "name", "slug", "icon", "color", "port", "workflows", "output", "knowledge", "agents", "skills", "switcher", "git", "repos", "vibeables", "projects", "contacts", "places", "events", "boards", "presentations", "cloud", "users"];
 
 /**
  * Keys an older kraftwerk understood and this one ignores, so the files
@@ -497,6 +522,19 @@ type LoadedConfig = { config: WorkspaceConfig; legacyKeys: string[] };
  * unchanged (every request resolves the workspace, so this runs constantly).
  * Each caller gets its own copy.
  */
+/**
+ * The config of a known workspace root, cheap enough for every request (one
+ * stat while kraftwerk.yml is unchanged); {} without one or when it does not
+ * parse.
+ */
+export async function configAt(root: string): Promise<WorkspaceConfig> {
+  for (const name of CONFIG_FILENAMES) {
+    const loaded = await loadConfig(path.join(root, name)).catch(() => null);
+    if (loaded) return loaded.config;
+  }
+  return {};
+}
+
 async function loadConfig(configPath: string): Promise<LoadedConfig> {
   try {
     return await readParsed(configPath, (text) => checkConfig(configPath, text), (r) => ({ config: structuredClone(r.config), legacyKeys: [...r.legacyKeys] }));
@@ -565,6 +603,14 @@ function checkConfig(configPath: string, text: string): LoadedConfig {
     } else if (key === "cloud") {
       if (config[key] === null) config[key] = {};
       validateCloud(configPath, config[key]);
+    } else if (key === "users") {
+      if (config[key] === null) config[key] = {};
+      const u = config[key];
+      const bad = typeof u !== "object" || Array.isArray(u) || Object.keys(u as object).some((k) => k !== "mode");
+      const mode = (u as { mode?: unknown } | null)?.mode;
+      if (bad || (mode !== undefined && mode !== "local" && mode !== "cloud")) {
+        throw new Error(`${path.basename(configPath)}: users must be a mapping with mode: local (default) or mode: cloud`);
+      }
     } else if (typeof config[key] !== "string") {
       throw new Error(`${path.basename(configPath)}: ${key} must be a string`);
     }

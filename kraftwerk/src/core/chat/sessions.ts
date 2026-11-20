@@ -6,7 +6,6 @@ import { resolveVibeable } from "../vibeables.js";
 import { announcedOptions, deleteAgentSession, listAgentSessions } from "./acp.js";
 import { listPiModels, piOptions } from "./pi.js";
 import { chatHref, pushNotification } from "../notifications.js";
-import { readIdentity } from "../identity.js";
 import type { Attachment, ChatAgentId, ChatMeta, ConfigOption, ChatPerson, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
 import type { PromptFile } from "./backend.js";
 import { type Channel } from "../channels.js";
@@ -17,6 +16,7 @@ import { postChannelMessage } from "./channel-turns.js";
 import { expandSkillInvocation, scopeContext } from "./context.js";
 import { ensureBackend } from "./seats.js";
 import { MAIN, type Seat, chatLabel, chatStates, dropBackend, dropSeat, emit, forgetFailedResume, isBusy, isUnattended, lastEventText, loadState, mainSeat, newSeat, ownerLabel, routineRef } from "./state.js";
+import { currentPerson } from "../person.js";
 export { agentFilesContext, agentJournalContext, agentVibeablesContext, vibeableContext } from "./context.js";
 export { disposeAllBackends, disposeWorkspaceBackends } from "./state.js";
 
@@ -30,12 +30,13 @@ export { disposeAllBackends, disposeWorkspaceBackends } from "./state.js";
 /* ---------- public API (used by server.ts) ---------- */
 
 /**
- * This machine's person: its identity handle (identity.ts). What a chat or
- * message is signed with when nobody else is named — local use, a paired
- * device, a routine's run. A member session names its member instead.
+ * The person a chat or message is signed with when nobody else is named:
+ * the one the current request runs as, else this machine's (core/person.ts)
+ * — local use, a paired device, a routine's run.
  */
 export async function localPerson(): Promise<ChatPerson> {
-  return { handle: (await readIdentity()).handle };
+  const p = await currentPerson();
+  return { handle: p.handle, ...(p.id ? { id: p.id } : {}), ...(p.email ? { email: p.email } : {}) };
 }
 
 /** Where a chat's agent runs when no vibeable is open: the run folder for run chats, else the project root. */

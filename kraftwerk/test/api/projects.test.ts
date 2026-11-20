@@ -8,6 +8,10 @@ import type { ProjectDetail, ProjectsView } from "../../src/core/projects.js";
 import { projectContext } from "../../src/core/projects.js";
 import type { ChatMeta } from "../../src/core/chat/types.js";
 import type { GitStatus } from "../../src/core/git.js";
+import { defaultHandle } from "../../src/core/identity.js";
+
+/** Who a human change is signed with here: this machine's handle (core/person.ts). */
+const ME = defaultHandle();
 
 /**
  * Projects over the HTTP API: the feature flag, creating one from the
@@ -72,7 +76,7 @@ describe("projects API", () => {
     for (const f of ["project.yml", "brief.md", "state.md", "log.md"]) assert.ok(existsSync(path.join(dir(), f)), f);
     assert.match(await readFile(path.join(dir(), "project.yml"), "utf8"), /^title: Relaunch netnode\.ch$/m);
     assert.match(p.brief, /^# Relaunch netnode\.ch/);
-    assert.match(p.log, /\*\*Created\*\*: project "Relaunch netnode\.ch"\. \(human:user\)/);
+    assert.match(p.log, new RegExp(`\\*\\*Created\\*\\*: project "Relaunch netnode\\.ch"\\. \\(human:${ME}\\)`));
     assert.ok(!existsSync(path.join(dir(), ".git")), "no repository of its own");
 
     assert.equal((await post("/api/projects", { title: "Relaunch netnode.ch" })).status, 400, "duplicate");
@@ -202,7 +206,7 @@ describe("projects API", () => {
     r = await post("/api/projects/relaunch-netnode-ch/log", { entry: "Kickoff held." });
     const log = await readFile(path.join(dir(), "log.md"), "utf8");
     const today = new Date().toISOString().slice(0, 10);
-    assert.match(log, new RegExp(`^## ${today}\\n\\* Kickoff held\\. \\(human:user\\)\\n\\* Decided on NodeHive as the CMS\\. \\(kraftwerk-chat/claude\\)`, "m"), log);
+    assert.match(log, new RegExp(`^## ${today}\\n\\* Kickoff held\\. \\(human:${ME}\\)\\n\\* Decided on NodeHive as the CMS\\. \\(kraftwerk-chat/claude\\)`, "m"), log);
     assert.equal((await post("/api/projects/relaunch-netnode-ch/log", { entry: "  " })).status, 400);
     assert.equal((await post("/api/projects/nope/log", { entry: "x" })).status, 404);
   });

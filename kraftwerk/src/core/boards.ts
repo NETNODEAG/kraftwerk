@@ -10,6 +10,7 @@ import { openProjects, safeProjectSlug } from "./projects.js";
 import { findRefs, resolveTokens, type RefKind } from "./refs.js";
 import { SLUG_RE, slugify } from "./slug.js";
 import { moveToTrash } from "./trash.js";
+import { actorFor } from "./person.js";
 
 /**
  * Boards and tasks: the work of a project (or of the whole workspace) as
@@ -183,7 +184,7 @@ export interface TaskInput {
   notes?: string;
 }
 
-/** Who writes (an actor string: human:user, lisa/claude, …) and an optional message for the log. */
+/** Who writes (an actor string: lisa/claude, process:…; a person is whoever asks) and an optional message for the log. */
 export interface WriteOpts {
   actor?: string;
   message?: string;
@@ -784,7 +785,8 @@ async function writeLogLine(dir: string, title: string, text: string, actor: str
   await fs.writeFile(file, lines.join("\n").replace(/\n{3,}/g, "\n\n"));
 }
 
-const cleanActor = (actor?: string): string => (actor ?? "").trim() || "human:user";
+/** An agent's or a process's own name as given; a person is whoever asks (core/person.ts). */
+const cleanActor = (actor?: string): Promise<string> => actorFor(actor);
 const oneLine = (text: string): string => text.trim().replace(/\s*\n\s*/g, " ");
 
 /** Append a free entry to a task's log: what was done, a comment, a question. */
@@ -793,7 +795,8 @@ export async function appendTaskLog(ref: BoardRef, idOrNumber: string, entry: st
   if (!t) throw new Error(`no task "${idOrNumber}" on board "${boardKey(ref)}"`);
   const text = oneLine(entry);
   if (!text) throw new Error("entry is required");
-  await withTaskLock(t.path, () => writeLogLine(t.path, t.title, text, cleanActor(actor)));
+  const who = await cleanActor(actor);
+  await withTaskLock(t.path, () => writeLogLine(t.path, t.title, text, who));
   changed();
   return (await getTask(ref, t.slug))!;
 }
@@ -900,7 +903,7 @@ export async function createTask(ref: BoardRef, input: TaskInput & { actor?: str
   if (board.configError) throw new Error(`board "${boardKey(ref)}" cannot take tasks until its file is fixed by hand (${board.configError}): ${board.path}`);
   const title = (input.title ?? "").trim();
   if (!title) throw new Error("title is required");
-  const actor = cleanActor(input.actor);
+  const actor = await cleanActor(input.actor);
   const base = emptyTask("0-task", board.columns);
   base.created = localDate(new Date());
   let def = applyInput(base, { ...input, title }, board);
@@ -939,7 +942,7 @@ export async function saveTask(ref: BoardRef, idOrNumber: string, input: TaskInp
   const current = await getTask(ref, idOrNumber);
   if (!current) throw new Error(`no task "${idOrNumber}" on board "${boardKey(ref)}"`);
   if (current.configError) throw new Error(`task "${current.slug}" cannot be saved until its file is fixed by hand (${current.configError}): ${current.path}`);
-  const actor = cleanActor(opts.actor);
+  const actor = await cleanActor(opts.actor);
   const { ref: _r, path: _p, updatedAt: _u, configError: _c, files: _f, lastLog: _l, stale: _s, notes: _n, log: _g, fileList: _fl, board: _b, project: _pj, ...def } = current;
   const next = applyInput(def, input, board);
   if (input.status !== undefined && input.status !== def.status && input.order === undefined) next.order = nextOrder(board.items, next.status);
@@ -1018,7 +1021,7 @@ export async function pickTask(ref: BoardRef, agent: string, opts: { column?: st
       const { ref: _r, path: _p, updatedAt: _u, configError: _c, files: _f, lastLog: _l, stale: _s, ...def } = fresh.summary;
       const next: TaskDef = { ...def, assignee: slugAgent, status: toCol.slug, order: nextOrder(board.items, toCol.slug) };
       await fs.writeFile(path.join(c.path, TASK_FILE), taskToFile(next, fresh.notes));
-      await writeLogLine(c.path, next.title, `Picked up (${from.label} → ${toCol.label})`, cleanActor(opts.actor ?? slugAgent));
+      await writeLogLine(c.path, next.title, `Picked up (${from.label} → ${toCol.label})`, await cleanActor(opts.actor ?? slugAgent));
       return true;
     });
     if (won) {
@@ -1041,7 +1044,8 @@ export async function deleteTask(ref: BoardRef, idOrNumber: string): Promise<voi
 export async function noteTaskFile(reference: string, what: "added" | "removed", file: string, actor?: string): Promise<void> {
   const t = await findTask(reference);
   if (!t) return;
-  await withTaskLock(t.path, () => writeLogLine(t.path, t.title, `File ${what}: ${file}`, cleanActor(actor)));
+  const who = await cleanActor(actor);
+  await withTaskLock(t.path, () => writeLogLine(t.path, t.title, `File ${what}: ${file}`, who));
   changed();
 }
 

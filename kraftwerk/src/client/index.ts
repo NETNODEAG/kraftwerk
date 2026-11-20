@@ -83,6 +83,8 @@ export interface ClientOptions {
   token?: string;
   /** Called when the server says this device is not paired (401 `{pair: true}`) — show the pairing screen. */
   onUnauthorized?: () => void;
+  /** Called when the workspace signs people in (kraftwerk.yml `users: cloud`) and this browser is not: 401 `{signin}` names where. */
+  onSignin?: (url: string) => void;
 }
 
 export interface Client {
@@ -139,6 +141,8 @@ export function createClient(opts: ClientOptions = {}): Client {
     } catch {}
     if (res.ok && method !== "GET") for (const fn of changeFns) fn();
     if (res.status === 401 && (data as { pair?: unknown } | undefined)?.pair === true) opts.onUnauthorized?.();
+    const signin = (data as { signin?: unknown } | undefined)?.signin;
+    if (res.status === 401 && typeof signin === "string") opts.onSignin?.(signin);
     return res.ok ? { ok: true, status: res.status, data } : { ok: false, status: res.status, data, error: errorOf(data) };
   };
 

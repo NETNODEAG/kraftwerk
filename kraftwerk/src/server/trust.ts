@@ -1,6 +1,7 @@
 import type http from "node:http";
 import { deviceForToken, type Device } from "../core/devices.js";
 import { MEMBER_HEADER, memberSession, type Member } from "./members.js";
+import type { SignedIn } from "./users.js";
 
 /**
  * Who is asking. Every request and socket gets one of:
@@ -30,7 +31,8 @@ import { MEMBER_HEADER, memberSession, type Member } from "./members.js";
  *   screen), the protocol description and the pairing route — nothing else.
  */
 export type Trust =
-  | { kind: "local" }
+  /** `user`: the person signed in with their cloud account (kraftwerk.yml `users: cloud`, server/users.ts). */
+  | { kind: "local"; user?: SignedIn }
   | { kind: "device"; device: Device; relay?: true }
   | { kind: "member"; member: Member; workspaceId: string; slug: string }
   | { kind: "none" };

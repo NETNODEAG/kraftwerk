@@ -6,6 +6,10 @@ import assert from "node:assert/strict";
 import { cli, json } from "../helpers/cli.js";
 import { makeProject, type Fixture } from "../helpers/project.js";
 import type { PresentationDetail, PresentationsView, TemplateSummary } from "../../src/core/presentations/index.js";
+import { defaultHandle } from "../../src/core/identity.js";
+
+/** Who a human change is signed with here: this machine's handle (core/person.ts). */
+const ME = defaultHandle();
 
 /**
  * `kraftwerk presentations` through the real bin: the flag, a deck from a
@@ -101,7 +105,7 @@ describe("kraftwerk presentations", () => {
     const id = /commented (c\w+) on slide 1/.exec(r.stdout)?.[1];
     assert.ok(id, r.stdout);
     r = await run(["presentations", "comments", "pitch", "--project", "netnode"]);
-    assert.match(r.stdout, new RegExp(`${id} slide 1 · title · human:user`));
+    assert.match(r.stdout, new RegExp(`${id} slide 1 · title · ${ME}`));
     assert.match(r.stdout, /Tighter title/);
     r = await cli(fx.root, fx.home, ["presentations", "resolve", "pitch", id!, "--reply", "shortened to four words", "--project", "netnode"], { env: { KRAFTWERK_ACTOR: "lisa/claude" } });
     assert.equal(r.code, 0, r.all);

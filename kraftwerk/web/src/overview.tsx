@@ -24,8 +24,13 @@ export type OverviewOf =
   | { kind: "channel"; channel: ChannelView }
   | { kind: "workspace" };
 
-/** Markdown for reading: a leading "# Title" is the section's own heading here, and "human:user" is you. */
-const plain = (text: string): string => text.replace(/^# .*\n+/, "").replace(/\(human:user\)/g, "(you)");
+/** Your own actor here (human:<handle>, from me.get): Overview sets it before its sections render. */
+let mine = "";
+/** Markdown for reading: a leading "# Title" is the section's own heading here, and your own actor (or the old human:user) is you. */
+const plain = (text: string): string => {
+  const out = text.replace(/^# .*\n+/, "").replace(/\(human:user\)/g, "(you)");
+  return mine ? out.split(`(${mine})`).join("(you)") : out;
+};
 // The overview's own pieces, so its sections read the same in every place.
 const OV = "flex flex-col gap-1.5 px-1.5 pb-6 pt-3";
 const GOAL = "m-0 px-2.5 pb-0.5 text-md leading-[1.45] text-fg";
@@ -109,6 +114,8 @@ function RecentFiles({ scope }: { scope: string }) {
 }
 
 export function Overview({ of }: { of: OverviewOf }) {
+  const me = useApi("me.get", {}, { interval: 300_000 });
+  mine = me?.actor ?? "";
   const waiting = useAttention() ?? [];
   const agents = useApi("agents.list", {}, { interval: 15_000 })?.agents ?? [];
   const status = useApi("agents.status", {}, { interval: 5000 }) ?? undefined;

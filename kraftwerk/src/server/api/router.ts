@@ -1,6 +1,8 @@
 import type http from "node:http";
 import * as z from "zod";
 import { touch } from "../live.js";
+import { runAs } from "../../core/person.js";
+import { personOf } from "../person.js";
 import type { Trust } from "../trust.js";
 
 /**
@@ -258,7 +260,8 @@ export function createRouter(routes: readonly Route[]): Router {
               return validate(route, parsed);
             })) as Promise<T>,
         };
-        const result = await route.handle(c);
+        // Whoever asks is who a human change is signed with (core/person.ts).
+        const result = await runAs(() => personOf(trust), () => route.handle(c));
         if (route.method !== "GET") touch();
         if (route.raw) return;
         if (result instanceof Reply) return json(res, result.body, result.status, result.headers);
@@ -296,7 +299,7 @@ export function createRouter(routes: readonly Route[]): Router {
           trust,
           body: async <T>() => validate(route, input.body ?? {}) as T,
         };
-        const result = await route.handle(c);
+        const result = await runAs(() => personOf(trust), () => route.handle(c));
         if (route.method !== "GET") touch();
         return result instanceof Reply ? { status: result.status, data: result.body } : { status: 200, data: result };
       } catch (err) {

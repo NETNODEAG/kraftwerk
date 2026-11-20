@@ -41,6 +41,13 @@ import { CLOUD_DEFAULT_URL } from "../config.js";
  * — the routines that ran here, private ones left out, at most 500; only
  * while claimed, and only when it changed since the cloud last took it.
  *
+ * Signing in to a workspace's own UI (kraftwerk.yml `users: cloud`, server/users.ts):
+ *
+ *   browser → <cloud>/signin?workspace=ws_…&machine=<id>&redirect=http://<slug>.localhost:<port>/auth/callback&state=…
+ *   /api/signin/exchange  {id, secret, code, redirect} → {user: {id, email, handle}, workspaceId, role}
+ *                         (404 unknown code, 410 used or expired, 403 no longer a member)
+ *   /api/signin/verify    {id, secret, workspace, user} → {user, role}   (404: not a member any more)
+ *
  * Membership (remote members, no clone — they reach a workspace through the
  * relay with a workspace-scoped member token, see server/members.ts):
  *
@@ -84,13 +91,31 @@ export interface RegisterResponse {
   interval: number;
   claimCode: string | null;
   account: string | null;
+  /** The claiming account's uuid and handle (clouds before 0.97 send neither). */
+  accountId?: string | null;
+  accountHandle?: string | null;
 }
 
 export interface HeartbeatResponse {
   ok: boolean;
   interval: number;
   account: string | null;
+  accountId?: string | null;
+  accountHandle?: string | null;
   claimCode: string | null;
+}
+
+/** A person the cloud vouches for: the account's uuid (the same on every machine), email and handle. */
+export interface CloudUser {
+  id: string;
+  email: string;
+  handle: string;
+}
+
+export interface SigninExchange {
+  user: CloudUser;
+  workspaceId: string;
+  role: "owner" | "member";
 }
 
 /** What the cloud vouches for about a member token in one workspace. */
@@ -243,3 +268,43 @@ export const memberVerify = (base: string, creds: Credentials, token: string, wo
 
 export const workspaceInvite = (base: string, creds: Credentials, workspaceId: string, role?: "owner" | "member", version?: string): Promise<InviteResponse> =>
   cloudPost<InviteResponse>(base, `/api/workspaces/${encodeURIComponent(workspaceId)}/invites`, { id: creds.id, secret: creds.secret, ...(role ? { role } : {}) }, { version });
+
+export const signinExchange = (base: string, creds: Credentials, code: string, redirect: string, version?: string): Promise<SigninExchange> =>
+  cloudPost<SigninExchange>(base, "/api/signin/exchange", { id: creds.id, secret: creds.secret, code, redirect }, { version });
+
+export const signinVerify = (base: string, creds: Credentials, workspace: string, user: string, version?: string): Promise<{ user: CloudUser; role: "owner" | "member" }> =>
+  cloudPost<{ user: CloudUser; role: "owner" | "member" }>(base, "/api/signin/verify", { id: creds.id, secret: creds.secret, workspace, user }, { version });
+
+/** Where the browser goes to sign in to workspace `workspaceId` served by machine `machineId`. */
+export function signinUrl(base: string, q: { workspace: string; machine: string; redirect: string; state: string }): string {
+  return `${base}/signin?${new URLSearchParams(q)}`;
+}
+
+/**
+ * ~/.kraftwerk/account.json — the account that claimed this machine
+ * ({id, email, handle}), written by the daemon when the cloud names it and
+ * removed when the claim ends. The machine's own shell (the CLI) acts as
+ * this person in a `users: cloud` workspace.
+ */
+export const accountFilePath = (): string => path.join(kwHome(), "account.json");
+
+export async function readAccountFile(): Promise<CloudUser | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(accountFilePath(), "utf8")) as Record<string, unknown>;
+    return typeof raw.id === "string" && typeof raw.email === "string" && typeof raw.handle === "string" ? { id: raw.id, email: raw.email, handle: raw.handle } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write (or with null remove) account.json; unchanged content is not rewritten. */
+export async function writeAccountFile(user: CloudUser | null): Promise<void> {
+  const file = accountFilePath();
+  if (!user) return void (await fs.rm(file, { force: true }).catch(() => {}));
+  const next = JSON.stringify({ id: user.id, email: user.email, handle: user.handle }, null, 2) + "\n";
+  if ((await fs.readFile(file, "utf8").catch(() => "")) === next) return;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  await fs.writeFile(tmp, next);
+  await fs.rename(tmp, file);
+}

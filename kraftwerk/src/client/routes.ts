@@ -102,6 +102,7 @@ export const ROUTES = {
   "knowledge.list": ["GET", "/api/knowledge"],
   "knowledge.putConcept": ["POST", "/api/knowledge/:bundle/concept"],
   "knowledge.verify": ["POST", "/api/knowledge/:bundle/verify"],
+  "me.get": ["GET", "/api/me"],
   "meta.get": ["GET", "/api/meta"],
   "notifications.clear": ["DELETE", "/api/notifications"],
   "notifications.diagnose": ["POST", "/api/notifications/:id/diagnose"],

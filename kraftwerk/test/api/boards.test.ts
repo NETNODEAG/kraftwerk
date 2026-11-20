@@ -10,6 +10,10 @@ import type { ChatMeta, StoredChatEvent } from "../../src/core/chat/types.js";
 import type { AttentionView } from "../../src/core/attention.js";
 import type { GitStatus } from "../../src/core/git.js";
 import type { FilesListing } from "../../src/core/files.js";
+import { defaultHandle } from "../../src/core/identity.js";
+
+/** Who a human change is signed with here: this machine's handle (core/person.ts). */
+const ME = defaultHandle();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -117,7 +121,7 @@ describe("boards API", () => {
     const file = await readFile(path.join(t.path, "task.md"), "utf8");
     assert.match(file, /^status: draft$/m);
     assert.match(file, /^tags:\n  - pr$/m);
-    assert.match(t.log, /^\* \d\d:\d\d Created in Draft \(human:user\)$/m);
+    assert.match(t.log, new RegExp(`^\\* \\d\\d:\\d\\d Created in Draft \\(human:${ME}\\)$`, "m"));
     assert.equal((await post("/api/boards/tasks/tasks?project=netnode", { title: "  " })).status, 400);
     assert.equal((await post("/api/boards/tasks/tasks?project=netnode", { title: "x", status: "nope" })).status, 400, "unknown column");
     const second = (await (await post("/api/boards/tasks/tasks?project=netnode", { title: "Second" })).json()) as TaskDetail;
@@ -134,7 +138,7 @@ describe("boards API", () => {
     let t = (await r.json()) as TaskDetail;
     assert.equal(r.status, 200, JSON.stringify(t));
     assert.equal(t.status, "todo");
-    assert.match(t.log, /Moved Draft → Todo: ready for an agent \(human:user\)/);
+    assert.match(t.log, new RegExp(`Moved Draft → Todo: ready for an agent \\(human:${ME}\\)`));
     assert.ok(!t.assignee, "nobody yet, so nobody is woken");
     assert.ok(!existsSync(path.join(fx.root, "output/boards/events.jsonl")), "no event without an assignee");
 
@@ -147,7 +151,7 @@ describe("boards API", () => {
     r = await put("/api/boards/tasks/tasks/1?project=netnode", { assignee: "max", message: "please write the text" });
     t = (await r.json()) as TaskDetail;
     assert.equal(t.assignee, "max");
-    assert.match(t.log, /Assigned max: please write the text \(human:user\)/);
+    assert.match(t.log, new RegExp(`Assigned max: please write the text \\(human:${ME}\\)`));
     const afterFile = await readFile(path.join(t.path, "task.md"), "utf8");
     assert.equal(afterFile.replace(/^assignee: max\n/m, ""), before, "only the assignee line was added");
   });
@@ -164,7 +168,7 @@ describe("boards API", () => {
     assert.match(mine.title, /1-write-a-press-release/);
     const evs = await until(() => events(mine.id), (xs) => xs.some((e) => e.type === "user_message"), "the wake message");
     const msg = evs.find((e) => e.type === "user_message") as { text: string };
-    assert.match(msg.text, /handed to you by user: please write the text/);
+    assert.match(msg.text, new RegExp(`handed to you by ${ME}: please write the text`));
     // Ask the fake agent who it is: KRAFTWERK_AGENT/ACTOR come from the seat, the task block from the scope.
     const notes = await get<{ items: Array<{ kind: string; title: string }> }>("/api/notifications");
     assert.ok(notes.items.some((n) => n.kind === "task_woken" && /1-write-a-press-release → 🐻 Max/.test(n.title)), JSON.stringify(notes.items));

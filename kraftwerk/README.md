@@ -535,6 +535,36 @@ names no origin — and `cloud.interval` is ignored: the cloud sets the
 cadence.) `/api/meta` and `/api/cloud` report the machine's state and claim
 code; `kraftwerk doctor` prints what happens to the workspace.
 
+### Who works here: users
+
+Everything a person does — a task created, a log line, a knowledge page
+verified, a chat message — is signed with who did it. `users:` in
+kraftwerk.yml says who that is:
+
+```yaml
+users:
+  mode: local   # default: whoever sits at this machine, as human:<handle> (~/.kraftwerk/identity.json)
+  mode: cloud   # people sign in with their kraftwerk cloud account
+```
+
+With `mode: cloud` this machine's browser signs in before the UI opens: the
+UI sends it to the cloud, the account confirms, and the cloud hands a
+one-time code back that the daemon redeems with the machine's own secret.
+Only accounts on the workspace (its owners and members, an org's people)
+get in. From then on their actions are signed `human:<their handle>`, and
+chats keep the account's uuid — the same person on every machine and clone.
+The cloud is asked again every 15 minutes, so removing someone there signs
+them out here; the person menu in the top bar signs out by hand. The
+machine's own shell (the CLI, scripts on this machine) needs no sign-in: it
+acts as the account that claimed the machine (`~/.kraftwerk/account.json`).
+Paired devices and remote members keep their own credentials. `cloud` needs
+the daemon connected to the cloud and the workspace's `id:`. `GET /api/me`
+says who the caller is.
+
+An API caller cannot name another person: a `human:…` actor in a request
+body is replaced by whoever asks. Agents and processes still name
+themselves (`lisa/claude`, `process:sync`).
+
 ## Projects
 
 Turn on `projects:` in `kraftwerk.yml` (or the checkbox in settings) and

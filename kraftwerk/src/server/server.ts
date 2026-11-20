@@ -22,6 +22,8 @@ import { json } from "./api/router.js";
 import { MIME } from "./api/mime.js";
 import { getPkgVersion, RESTART_EXIT_CODE } from "./version.js";
 import { trustOf, type Trust, type TrustOptions } from "./trust.js";
+import { fromBrowser, handleAuth, signedIn, type SigninTarget } from "./users.js";
+import { configAt, usersMode } from "../config.js";
 import type { Duplex } from "node:stream";
 import { targetOf, type Target } from "./target.js";
 import { isDir, resolveWorkspace, workspaceSlug } from "../config.js";
@@ -312,6 +314,33 @@ function hubPage(req: http.IncomingMessage, res: Res, open: OpenWorkspace[], tru
   res.end(`${head}<ul>${rows}</ul>`);
 }
 
+/**
+ * A `users: cloud` workspace (kraftwerk.yml, server/users.ts): what signing
+ * in there needs, or undefined for a `users: local` one.
+ */
+async function cloudUsers(open: OpenWorkspace | undefined, prefix: string): Promise<SigninTarget | undefined> {
+  if (!open) return undefined;
+  const config = await configAt(open.root);
+  if (usersMode(config) !== "cloud") return undefined;
+  return { workspaceId: config.id, name: open.name, prefix };
+}
+
+/**
+ * This machine's browser in a `users: cloud` workspace must be signed in:
+ * its trust names the person (`user`), or it has none yet (`signin`).
+ * Scripts and tools on this machine (not a browser, users.ts fromBrowser: the CLI,
+ * curl) are the machine's own shell and pass as before; paired devices
+ * and remote members have their own credentials.
+ */
+async function withUser(req: http.IncomingMessage, trust: Trust, cu: SigninTarget | undefined): Promise<{ trust: Trust; signin?: true }> {
+  if (!cu || trust.kind !== "local" || !fromBrowser(req)) return { trust };
+  const user = cu.workspaceId ? await signedIn(req, cu.workspaceId) : null;
+  return user ? { trust: { kind: "local", user } } : { trust, signin: true };
+}
+
+/** The `/w/<slug>` a path-form request came in under, else "". */
+const prefixOf = (req: http.IncomingMessage, target: Target): string => (target.slug !== undefined && /^\/w\//.test(req.url ?? "") ? `/w/${target.slug}` : "");
+
 export async function startHub(opts: HubOptions): Promise<Hub> {
   const trustOpts: TrustOptions = { trustLoopback: opts.trustLoopback !== false && !REQUIRE_PAIRING, trustNetwork: TRUST_NETWORK };
   const bySlug = new Map<string, OpenWorkspace>();
@@ -334,10 +363,27 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const open = pick(target, portDefault());
       if (target.slug !== undefined && !open) return json(res, { error: `no workspace "${target.slug}" here` }, 404);
       const { url } = target;
-      const trust = await trustOf(req, url, trustOpts);
+      const prefix = prefixOf(req, target);
+      const cu = await cloudUsers(open, prefix);
+      const gate = await withUser(req, await trustOf(req, url, trustOpts), cu);
+      const { trust } = gate;
       // A member session (members.ts) reaches its one workspace and nothing else: not another, not the hub page.
       if (trust.kind === "member" && open?.slug !== trust.slug) {
         return json(res, { error: `a member session reaches only its workspace — /w/${trust.slug}/…` }, 403);
+      }
+      // Signing in (users: cloud): the way there and back is open; everything else waits for it.
+      if (cu && url.pathname.startsWith("/auth/") && trust.kind === "local") {
+        if (req.method === "POST" && !sameOrigin(req)) return json(res, { error: "cross-origin request refused" }, 403);
+        if (await handleAuth(req, res, url, cu)) return;
+      }
+      if (gate.signin) {
+        const signin = `${prefix}/auth/signin`;
+        if (url.pathname.startsWith("/api/")) return json(res, { error: "sign in first", signin }, 401);
+        // The UI's own files (hashed, no data) load on the sign-in redirect's way back; pages and app files wait.
+        if (!url.pathname.startsWith("/assets/") && !/^\/[^/]+\.(ico|png|svg|webmanifest)$/.test(url.pathname)) {
+          res.writeHead(302, { location: `${signin}?next=${encodeURIComponent(`${prefix}${url.pathname}${url.search}`)}`, "cache-control": "no-store" });
+          return void res.end();
+        }
       }
       const run = <T>(fn: () => T): T => runInHub(hub, () => (open ? open.ws.run(fn) : fn()));
       if (url.pathname.startsWith("/api/")) {
@@ -370,8 +416,10 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const open = pick(target, portDefault());
       if (target.slug !== undefined && !open) return void socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
       const { url } = target;
-      const trust = await trustOf(req, url, trustOpts, true);
-      if (trust.kind === "none") return void socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n");
+      const cu = await cloudUsers(open, prefixOf(req, target));
+      const gate = await withUser(req, await trustOf(req, url, trustOpts, true), cu);
+      const { trust } = gate;
+      if (trust.kind === "none" || gate.signin) return void socket.end("HTTP/1.1 401 Unauthorized\r\nconnection: close\r\n\r\n");
       // A socket may name any workspace per message; a member session's scope is per request, so it gets none.
       if (trust.kind === "member") return void socket.end("HTTP/1.1 403 Forbidden\r\nconnection: close\r\n\r\n");
       if (url.pathname !== "/api/ws") {
@@ -391,7 +439,12 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const entry = { slug: own, close: () => conn.close(4404, "workspace closed") };
       sockets.add(entry);
       conn.onClose(() => sockets.delete(entry));
-      runInHub(hub, () => serveSocket(conn, resolve, version, trust, () => trustOf(req, url, trustOpts, true), hub));
+      // Re-checked per message: a person signed out (or removed in the cloud) loses the socket's rights with the next one.
+      const recheck = async (): Promise<Trust> => {
+        const g = await withUser(req, await trustOf(req, url, trustOpts, true), cu);
+        return g.signin ? { kind: "none" } : g.trust;
+      };
+      runInHub(hub, () => serveSocket(conn, resolve, version, trust, recheck, hub));
     })().catch(() => socket.destroy());
   };
 

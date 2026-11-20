@@ -41,6 +41,8 @@ skills: ${DATA_DIR}/skills         # workspace skills (shared instruction packag
 # presentations:                  # slide decks as folders (deck.md + assets) per project and under ${DATA_DIR}/presentations — rendered from a template into PPTX, PDF and slide images (uncomment to enable)
 # cloud:                          # the daemon registers this MACHINE with the kraftwerk cloud and lists this workspace (\`kraftwerk login\` claims the machine)
 #   enabled: false                # uncomment both lines to leave this workspace out (\`kraftwerk cloud off\` turns the cloud off for the whole machine)
+# users:                          # who works here: local (default) = this machine's handle; cloud = people sign in with their kraftwerk cloud account
+#   mode: cloud
 `;
 
 const WORKFLOW_TEMPLATE = `# yaml-language-server: $schema=${SCHEMA_URL}

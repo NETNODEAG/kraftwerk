@@ -21,6 +21,7 @@ import {
 } from "../core/presentations/index.js";
 import { initContext as prepare } from "./routines.js";
 import { fmtAgo } from "./workspaces.js";
+import { machinePerson } from "../core/person.js";
 
 /**
  * kraftwerk presentations [list] [--project <slug>] [--all] [--json]
@@ -182,8 +183,11 @@ export function registerPresentationCommands(program: Command): void {
       printWarnings(warnings);
     });
 
-  /** Who writes: the session's actor (an agent), else human:user. */
-  const actor = (): string => (process.env.KRAFTWERK_ACTOR ?? "").trim() || "human:user";
+  /** Who writes: the session's actor (an agent), else this machine's person. */
+  const actor = async (): Promise<string> => {
+    const given = (process.env.KRAFTWERK_ACTOR ?? "").trim();
+    return given || (await machinePerson()).handle;
+  };
 
   cmd
     .command("comments")
@@ -220,7 +224,7 @@ export function registerPresentationCommands(program: Command): void {
     .option("--slot <box>", "The box it is about")
     .action(async (name: string, slide: string, text: string, opts: { project?: string; slot?: string }) => {
       await prepare();
-      const c = await addComment(refOf(name, opts.project), { slide: Number(slide), text, author: actor(), ...(opts.slot ? { slot: opts.slot } : {}) }).catch((err: Error) => die(err.message));
+      const c = await addComment(refOf(name, opts.project), { slide: Number(slide), text, author: await actor(), ...(opts.slot ? { slot: opts.slot } : {}) }).catch((err: Error) => die(err.message));
       console.log(`${chalk.green("commented")} ${c.id} on slide ${c.n}`);
     });
 
@@ -234,7 +238,7 @@ export function registerPresentationCommands(program: Command): void {
     .option("--reopen", "Open it again instead")
     .action(async (name: string, id: string, opts: { project?: string; reply?: string; reopen?: boolean }) => {
       await prepare();
-      await updateComment(refOf(name, opts.project), id, { resolved: !opts.reopen, author: actor(), ...(opts.reply ? { reply: opts.reply } : {}) }).catch((err: Error) => die(err.message));
+      await updateComment(refOf(name, opts.project), id, { resolved: !opts.reopen, author: await actor(), ...(opts.reply ? { reply: opts.reply } : {}) }).catch((err: Error) => die(err.message));
       console.log(`${chalk.green(opts.reopen ? "reopened" : "resolved")} ${id}`);
     });
 
