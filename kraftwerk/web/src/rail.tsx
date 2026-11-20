@@ -28,7 +28,8 @@ export function ConversationsRail({ chatPath }: { chatPath: string }) {
   const waiting = useAttention() ?? [];
   const agentBySlug = new Map((agents?.agents ?? []).filter((a) => !a.archived).map((a) => [a.slug, a]));
 
-  const projectList = projects?.projects ?? [];
+  // An archived project leaves the rail (Settings → projects lists it and brings it back) — unless it is the one open.
+  const projectList = (projects?.projects ?? []).filter((p) => p.status !== "archived" || at("projects", p.slug));
   const teamOf = (p: ProjectsView["projects"][number]) =>
     (p.agents ?? []).map((slug) => agentBySlug.get(slug)).filter((a): a is Agent => !!a);
   // Where you are: in the project.

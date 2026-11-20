@@ -158,6 +158,28 @@ test.describe("boards", () => {
     }
   });
 
+  test("a session working on a task opens on it in the context column; one without a task has no task tab", async ({ page, request }) => {
+    const ref = `${project}/tasks/1-write-a-press-release`;
+    const made = (await (await request.post("/api/chats", { data: { scope: { kind: "project", slug: project }, task: ref } })).json()) as { id: string };
+    const plain = (await (await request.post("/api/chats", { data: { scope: { kind: "project", slug: project } } })).json()) as { id: string };
+    try {
+      await page.goto(`/#/projects/${project}/chat/${made.id}`);
+      const ctx = page.locator(".ctx");
+      await expect(ctx.getByRole("tab", { name: /task/ })).toHaveAttribute("aria-selected", "true");
+      await expect(ctx.getByRole("textbox", { name: "task title" })).toHaveValue("Write a press release");
+      // Beside its chat the task has no "work on this" window: the chat is that.
+      await expect(ctx.getByRole("textbox", { name: "what to do on the task" })).toHaveCount(0);
+      await expect(ctx.getByRole("link", { name: /all task/ })).toHaveAttribute("href", `#/projects/${project}/boards/tasks/1-write-a-press-release`);
+
+      await page.goto(`/#/projects/${project}/chat/${plain.id}`);
+      await expect(ctx.getByRole("tab", { name: "overview" })).toHaveAttribute("aria-selected", "true");
+      await expect(ctx.getByRole("tab", { name: /^task/ })).toHaveCount(0);
+    } finally {
+      await request.delete(`/api/chats/${made.id}`);
+      await request.delete(`/api/chats/${plain.id}`);
+    }
+  });
+
   test("remove moves the task folder to the trash", async ({ page }) => {
     await page.goto(`/#/projects/${project}/boards/tasks/1-write-a-press-release`);
     await page.getByRole("button", { name: "remove" }).click();

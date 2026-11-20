@@ -572,7 +572,19 @@ export function parseLog(md: string): LogLine[] {
   return out;
 }
 
-export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
+/** A task ref (<project>/<board>/<task> or <board>/<task>) as where it is; null for anything else. */
+export function taskAt(ref: string): (BoardAt & { task: string }) | null {
+  const seg = ref.split("/").filter(Boolean);
+  if (seg.length === 3) return { project: seg[0], board: seg[1], task: seg[2] };
+  if (seg.length === 2) return { board: seg[0], task: seg[1] };
+  return null;
+}
+
+/**
+ * The task's page; `embedded` is the same task beside a chat that works on
+ * it (the context column): no "work on this" window there — the chat is it.
+ */
+export function TaskPage({ project, board, task, embedded = false }: BoardAt & { task: string; embedded?: boolean }) {
   const at: BoardAt = { project, board };
   const query = queryOf(project);
   const detail = useApi("tasks.get", { board, task, query }, { interval: 5000 });
@@ -775,7 +787,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
 
   return (
     // @container: the page folds to one column by its own width — it is also shown in Home's side column.
-    <div className="task-page chat-main @container min-h-0 overflow-y-auto">
+    <div className={cn("task-page @container min-h-0 overflow-y-auto", !embedded && "chat-main")} data-embedded={embedded || undefined}>
       <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-5">
         <header className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 text-sm text-fg-2">
@@ -821,7 +833,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
         <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 @[880px]:grid-cols-[minmax(0,1fr)_280px] @[880px]:grid-rows-[auto_1fr]">
           <div className="flex min-w-0 flex-col gap-6 @[880px]:row-span-2">
             {/* Work on it: the chat window — the task where the message starts, what to add, who, send. */}
-            <ChatCard
+            {!embedded && <ChatCard
               label="work on this task"
               chip={
                 <>
@@ -843,7 +855,7 @@ export function TaskPage({ project, board, task }: BoardAt & { task: string }) {
               attach
               controls={<WhoSelect label="work with" value={who} onChange={setWho} agents={team} byDefault={project ? "🧭 Assistant (default)" : "🎩 Ralv (default)"} />}
               hint="starts a chat about this task"
-            />
+            />}
 
             <section className="flex flex-col gap-2" aria-label="description">
               <div className="flex items-center gap-2">

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { api, useApi } from "./api";
 import { Icon, Link, LocalNav, fmtAgo, isEditPath, useFeatures, useHashPath } from "./shared";
 import { BundleView } from "./knowledge";
-import { BoardGlance } from "./boards";
+import { BoardGlance, TaskPage, taskAt, taskHref } from "./boards";
 import { FileBrowser } from "./files";
 import { Overview } from "./overview";
 import { Button, cn, Dot, IconButton, ListRow, Select, Tabs, type DotTone } from "./ui";
@@ -107,6 +107,11 @@ export function ContextPanel({ chatPath, workspace }: {
   const homeHref =
     ctx.kind === "project" ? `/projects/${encodeURIComponent(ctx.slug)}` : agentHere ? `/agents/${encodeURIComponent(ctx.slug)}` : ralv ? "/agents/chats" : undefined;
   const key = `${ctx.kind}:${"slug" in ctx ? ctx.slug : ""}`;
+  // The board task the open session works on ("work on this", or an agent's task session): its own tab, first.
+  const chatList = useApi("chats.list", sessionId ? {} : null, { interval: 30_000 });
+  const chatMeta = sessionId ? chatList?.chats.find((c) => c.id === sessionId) : undefined;
+  const taskRef = chatMeta?.task ?? (chatMeta?.scope.kind === "agent" ? chatMeta.scope.task : undefined);
+  const taskOf = taskRef ? taskAt(taskRef) : null;
   const features = useFeatures();
   // The sign's pencil: you are working on this project, agent or channel — its page is where it is edited.
   const [editHref, editTitle] =
@@ -134,13 +139,14 @@ export function ContextPanel({ chatPath, workspace }: {
   const [links, setLinks] = useState<Links | null>(null);
   const [version, setVersion] = useState(0);
   // One category at a time, as tabs; remembered per browser.
-  const [tab, setTab] = useState(() => {
+  const saved = () => {
     try {
       return localStorage.getItem("kw-ctx-tab") || "overview";
     } catch {
       return "overview";
     }
-  });
+  };
+  const [tab, setTab] = useState(saved);
   const [browserTabs, setBrowserTabs] = useState(0);
   // A link opened from the chat brings the browser to the front.
   useEffect(() => {
@@ -155,6 +161,12 @@ export function ContextPanel({ chatPath, workspace }: {
       localStorage.setItem("kw-ctx-tab", id);
     } catch {}
   };
+  // A session about a task opens on the task (not remembered: the next chat without one is back on the usual tab).
+  useEffect(() => {
+    if (taskRef) setTab("task");
+    else setTab((t) => (t === "task" ? saved() : t));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, taskRef]);
   // What is open in a category: a route path the embedded screen renders
   // (/knowledge/<bundle>/<page>, /workflows/<slug>[/tab], /vibeables/<slug>);
   // null = the list. Its links stay inside the column (LocalNav).
@@ -216,6 +228,7 @@ export function ContextPanel({ chatPath, workspace }: {
     ctx.kind === "project" ? `project:${ctx.slug}` : links?.channel?.project ? `project:${links.channel.project}` : "workspace";
   // The same tabs in the same order everywhere: the place at a glance first, then what the work uses.
   const tabs: { id: string; label: string; count?: number; allHref?: string }[] = [
+    ...(taskOf ? [{ id: "task", label: "task", allHref: taskHref(taskOf, taskOf.task) }] : []),
     { id: "overview", label: "overview" },
     { id: "files", label: "files", allHref: `/files/${encodeURIComponent(filesScope)}` },
     { id: "knowledge", label: "knowledge", count: links?.knowledge.length, allHref: "/knowledge" },
@@ -614,6 +627,8 @@ export function ContextPanel({ chatPath, workspace }: {
               ))}
             </>
           )}
+
+          {current === "task" && taskOf && <TaskPage key={taskRef} project={taskOf.project} board={taskOf.board} task={taskOf.task} embedded />}
 
           {current === "overview" && links && (
             <Overview

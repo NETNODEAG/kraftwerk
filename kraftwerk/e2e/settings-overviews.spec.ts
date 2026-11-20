@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * The admin overviews under the settings: every agent (#/settings/agents)
- * and every routine (#/settings/routines) of the workspace on one page each,
- * reached through the settings navigation.
+ * The admin overviews under the settings: every agent (#/settings/agents),
+ * routine (#/settings/routines) and project (#/settings/projects) of the
+ * workspace on one page each, reached through the settings navigation.
  */
 test.describe("settings overviews", () => {
   test.describe.configure({ mode: "serial" });
@@ -90,6 +90,39 @@ test.describe("settings overviews", () => {
       await expect(page.getByRole("heading", { level: 1, name: "Workflows" })).toBeVisible();
     } finally {
       await request.delete("/api/knowledge/overview-notes");
+    }
+  });
+
+  test("the projects overview sets a project's status; an archived one leaves the rail and comes back", async ({ page, request }) => {
+    const before = (await (await request.get("/api/settings")).json()) as { config: { projects?: { enabled?: boolean } } };
+    expect((await request.put("/api/settings", { data: { projects: { enabled: true } } })).ok()).toBeTruthy();
+    expect((await request.post("/api/projects", { data: { title: "Overview Owl", goal: "be listed" } })).ok()).toBeTruthy();
+    try {
+      await page.goto("/#/settings");
+      await page.locator(".settings-nav").locator("a", { hasText: "projects" }).click();
+      await expect(page).toHaveURL(/#\/settings\/projects$/);
+      const row = page.locator(".projects-admin tr[data-project='overview-owl']");
+      await expect(row).toContainText("Overview Owl");
+      await expect(row).toContainText("be listed");
+      await expect(row.getByRole("combobox", { name: "status of Overview Owl" })).toHaveValue("active");
+
+      // Archived: off the rail (back on Home, where the rail shows), still listed here.
+      await row.getByRole("button", { name: "archive" }).click();
+      await expect(row.getByRole("combobox", { name: "status of Overview Owl" })).toHaveValue("archived");
+      expect(((await (await request.get("/api/projects/overview-owl")).json()) as { status: string }).status).toBe("archived");
+      await page.goto("/#/");
+      await expect(page.locator(".rail")).toBeVisible();
+      await expect(page.locator(".rail [data-project='overview-owl']")).toHaveCount(0);
+
+      // Active again through the status select: back in the rail.
+      await page.goto("/#/settings/projects");
+      await page.locator(".projects-admin tr[data-project='overview-owl']").getByRole("combobox", { name: "status of Overview Owl" }).selectOption("active");
+      await expect(page.locator(".projects-admin tr[data-project='overview-owl']").getByRole("button", { name: "archive" })).toBeVisible();
+      await page.goto("/#/");
+      await expect(page.locator(".rail [data-project='overview-owl']")).toBeVisible();
+    } finally {
+      await request.delete("/api/projects/overview-owl");
+      if (!before.config.projects?.enabled) await request.put("/api/settings", { data: { projects: { enabled: false } } });
     }
   });
 });

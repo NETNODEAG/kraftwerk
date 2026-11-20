@@ -18,6 +18,7 @@ function useNavItems(): NavItem[] {
   return [
     { id: "settings", main: true, href: "/settings", label: "base settings", icon: "settings" },
     { id: "agents", main: true, href: "/settings/agents", label: "agents", icon: "smart_toy" },
+    ...(features.projects ? [{ id: "projects", main: true, href: "/settings/projects", label: "projects", icon: "folder_special" }] : []),
     { id: "routines", main: true, href: "/settings/routines", label: "routines", icon: "schedule" },
     { id: "workflows", main: true, href: "/settings/workflows", label: "workflows", icon: "account_tree" },
     { id: "knowledge", main: true, href: "/settings/knowledge", label: "knowledge", icon: "menu_book" },

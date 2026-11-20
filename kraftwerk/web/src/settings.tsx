@@ -1,8 +1,8 @@
 import { DevicesPanel } from "./devices";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, useApi } from "./api";
 import { Icon } from "./shared";
-import { Button, buttonClass, Checkbox, EmptyState, Eyebrow, Field, FieldRow, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
+import { Button, buttonClass, EmptyState, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
 
 /**
  * Workspace settings (#/settings): edits the UI-manageable subset of
@@ -123,9 +123,9 @@ function entityForms(d: SettingsData): EntityForms {
   return { contacts: one("contacts"), places: one("places"), events: one("events") };
 }
 const ENTITY_COPY: Record<EntityKind, { icon: string; what: string; files: string }> = {
-  contacts: { icon: "person", what: "keep people and organisations as contacts, referenced as contact:<slug> from projects, events and text", files: "one Markdown file per contact (frontmatter: role, org, email, phone, place, records; notes below)" },
-  places: { icon: "location_on", what: "keep addresses and points of interest as places, referenced as place:<slug>; a Google Maps link derives from coordinates or the address", files: "one Markdown file per place (frontmatter: address, lat, lng, url, records; notes below)" },
-  events: { icon: "event", what: "keep dated one-off entries as events with a place, contacts and a project, referenced as event:<slug>", files: "one Markdown file per event, named by its date (frontmatter: start, end, place, contacts, project, records; notes below)" },
+  contacts: { icon: "person", what: "keep people and organisations as contacts, referenced as contact:<slug>", files: "one Markdown file per contact (frontmatter: role, org, email, phone, place, records; notes below)" },
+  places: { icon: "location_on", what: "keep addresses and points of interest as places, referenced as place:<slug>", files: "one Markdown file per place (frontmatter: address, lat, lng, url, records; notes below); a Google Maps link derives from coordinates or the address" },
+  events: { icon: "event", what: "keep dated one-off entries as events, referenced as event:<slug>", files: "one Markdown file per event, named by its date (frontmatter: start, end, place, contacts, project, records; notes below)" },
 };
 
 interface CloudMeta {
@@ -423,10 +423,29 @@ export function SettingsScreen() {
     ["skills", data.config.skills ?? "skills", "workspace skills"],
   ];
 
+  const features: Array<{ key: string; icon: string; title: string; what: string; files: string; href: string; form: ReposForm; set: (patch: Partial<ReposForm>) => void; placeholder: string }> = [
+    { key: "repos", icon: "source", title: "Repositories", what: "keep git repositories the agents work on under one folder", files: "Saving creates the folder and adds it to .gitignore; every agent gets the list of clones as context and can add more with `kraftwerk repos add`.", href: "/repos", form: repos, set: setReposField, placeholder: "repos" },
+    { key: "vibeables", icon: "web", title: "Apps", what: "build small apps live in a chat, with a preview pane next to the thread", files: "One folder per app, versioned with the workspace. Every chat gets a vibeable button; the agent then works inside the app folder.", href: "/vibeables", form: vibeables, set: setVibeablesField, placeholder: "kraftwerk-data/vibeables" },
+    { key: "projects", icon: "folder_special", title: "Projects", what: "gather a goal, its brief and its links in one folder, and chat inside it", files: "One folder per project (project.yml, brief.md, state.md, log.md), versioned with the workspace. A chat opened in a project starts with all of it as context.", href: "/projects", form: projects, set: setProjectsField, placeholder: "kraftwerk-data/projects" },
+    { key: "boards", icon: "view_kanban", title: "Boards", what: "keep the work as boards of tasks; an assigned agent wakes up", files: "One folder per workspace board; a project's boards live in projects/<slug>/boards/. Each task is a folder with task.md, log.md and its files. Agents use `kraftwerk tasks`.", href: "/boards", form: boards, set: setBoardsField, placeholder: "kraftwerk-data/boards" },
+    { key: "presentations", icon: "slideshow", title: "Presentations", what: "make slide decks from markdown, presented and exported as PowerPoint or PDF", files: "One folder per deck (deck.md and its pictures), templates under templates/<slug>/template.yml; a project's decks live in projects/<slug>/presentations/. Agents use `kraftwerk presentations`.", href: "/presentations", form: decks, set: setDecksField, placeholder: "kraftwerk-data/presentations" },
+    ...ENTITY_KINDS.map((kind) => ({
+      key: kind,
+      icon: ENTITY_COPY[kind].icon,
+      title: kind[0].toUpperCase() + kind.slice(1),
+      what: ENTITY_COPY[kind].what,
+      files: `${ENTITY_COPY[kind].files[0].toUpperCase()}${ENTITY_COPY[kind].files.slice(1)}. Agents use \`kraftwerk ${kind}\`.`,
+      href: `/${kind}`,
+      form: entities[kind],
+      set: (patch: Partial<ReposForm>) => setEntityField(kind, patch),
+      placeholder: `kraftwerk-data/${kind}`,
+    })),
+  ];
+
   return (
-    <div className="mx-auto flex w-full max-w-[860px] flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-[860px] flex-col gap-3">
       <PageHeader
-        icon={<Icon name="settings" className="text-[28px] text-fg-2" />}
+        icon={<Icon name="settings" className="text-[24px] text-fg-2" />}
         title="Settings"
         actions={
           <>
@@ -436,7 +455,7 @@ export function SettingsScreen() {
                 <Icon name="check" className="ms-sm" /> saved
               </span>
             )}
-            <Button variant="primary" busy={saving} disabled={!dirty} onClick={() => void save()}>
+            <Button variant="primary" size="sm" busy={saving} disabled={!dirty} onClick={() => void save()}>
               {saving ? "saving…" : "save changes"}
             </Button>
           </>
@@ -444,60 +463,51 @@ export function SettingsScreen() {
       />
 
       <Panel title="workspace">
-        <FormStack>
-          <FieldRow>
-            <Field label="icon" className="w-[90px]">
-              <TextField
-                value={icon}
-                placeholder="🤖"
-                onChange={(e) => {
-                  setIcon(e.target.value);
-                  touch();
-                }}
-              />
-            </Field>
-            <Field label="name" className="min-w-40 flex-1">
-              <TextField
-                value={name}
-                placeholder="my workspace"
-                onChange={(e) => {
-                  setName(e.target.value);
-                  touch();
-                }}
-              />
-            </Field>
-            <label className="flex w-[130px] flex-col gap-1.5" title="Accent in the workspace switcher; empty = derived from the folder">
-              <span className="text-sm font-semibold text-fg">color</span>
-              <span className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  aria-label="pick a color"
-                  className="h-9 w-10 flex-none cursor-pointer rounded-control border border-line bg-surface p-0.5"
-                  value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"}
-                  onChange={(e) => {
-                    setColor(e.target.value);
-                    touch();
-                  }}
-                />
-                <TextField
-                  className="min-w-0 px-2"
-                  value={color}
-                  placeholder="auto"
-                  onChange={(e) => {
-                    setColor(e.target.value);
-                    touch();
-                  }}
-                />
-              </span>
-            </label>
-          </FieldRow>
-          <Hint>Shown in the header, browser tab and to other workspaces discovering this one.</Hint>
-        </FormStack>
-      </Panel>
-
-      <Panel
-        title="workspace switcher"
-        actions={
+        <SettingRow title="Name" sub="In the header, the browser tab and the workspace switcher.">
+          <TextField
+            aria-label="icon"
+            className="h-8 w-12 flex-none px-0 text-center"
+            value={icon}
+            placeholder="🤖"
+            onChange={(e) => {
+              setIcon(e.target.value);
+              touch();
+            }}
+          />
+          <TextField
+            aria-label="name"
+            className="h-8 text-sm"
+            value={name}
+            placeholder="my workspace"
+            onChange={(e) => {
+              setName(e.target.value);
+              touch();
+            }}
+          />
+        </SettingRow>
+        <SettingRow title="Color" sub="Accent in the workspace switcher; empty derives one from the folder.">
+          <input
+            type="color"
+            aria-label="pick a color"
+            className="h-8 w-9 flex-none cursor-pointer rounded-control border border-line bg-surface p-0.5"
+            value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"}
+            onChange={(e) => {
+              setColor(e.target.value);
+              touch();
+            }}
+          />
+          <TextField
+            aria-label="color"
+            className="h-8 w-28 font-mono text-xs"
+            value={color}
+            placeholder="auto"
+            onChange={(e) => {
+              setColor(e.target.value);
+              touch();
+            }}
+          />
+        </SettingRow>
+        <SettingRow title="Switcher entries" sub="Workspaces running on this machine appear by themselves; add remote instances or extra links.">
           <Button
             size="sm"
             icon="add"
@@ -508,196 +518,67 @@ export function SettingsScreen() {
           >
             add entry
           </Button>
-        }
-      >
-        <FormStack>
-          {switcher.length === 0 && <Hint>No manual entries.</Hint>}
-          {switcher.map((row, i) => (
-            <FieldRow key={i}>
-              <Field label="icon" className="w-[70px]">
-                <TextField value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
-              </Field>
-              <Field label="name" className="min-w-32 flex-1">
-                <TextField value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
-              </Field>
-              <Field label="url" className="min-w-40 flex-[1.4]">
-                <TextField value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
-              </Field>
-              <IconButton
-                icon="close"
-                label="remove entry"
-                className="mb-0.5"
-                onClick={() => {
-                  setSwitcher((rows) => rows.filter((_, j) => j !== i));
-                  touch();
-                }}
-              />
-            </FieldRow>
-          ))}
-          <Hint>
-            Running workspaces on this machine are discovered automatically — manual entries are for
-            remote instances or extra links.
-          </Hint>
-        </FormStack>
+        </SettingRow>
+        {switcher.map((row, i) => (
+          <div key={i} className="flex items-center gap-2 border-t border-line/55 px-[18px] py-2">
+            <TextField aria-label="entry icon" className="h-8 w-12 flex-none px-0 text-center" value={row.icon ?? ""} placeholder="•" onChange={(e) => setRow(i, { icon: e.target.value })} />
+            <TextField aria-label="entry name" className="h-8 text-sm" value={row.name} placeholder="other workspace" onChange={(e) => setRow(i, { name: e.target.value })} />
+            <TextField aria-label="entry url" className="h-8 font-mono text-xs" value={row.url} placeholder="http://localhost:1982" onChange={(e) => setRow(i, { url: e.target.value })} />
+            <IconButton
+              icon="close"
+              label="remove entry"
+              onClick={() => {
+                setSwitcher((rows) => rows.filter((_, j) => j !== i));
+                touch();
+              }}
+            />
+          </div>
+        ))}
       </Panel>
 
       <Panel title="git sync" actions={<Button size="sm" icon="account_tree" href="/git">open git</Button>}>
-        <FormStack>
-          <Checkbox checked={git.enabled} onChange={(on) => setGitField({ enabled: on })}>
-            sync workflows, knowledge, agents and skills with a git remote
-          </Checkbox>
-          {git.enabled && (
-            <>
-              <FieldRow>
-                <Field label="remote" className="min-w-32 flex-1">
-                  <TextField value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
-                </Field>
-                <Field label="branch" className="min-w-32 flex-1">
-                  <TextField value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
-                </Field>
-                <Field label="interval (s)" className="w-[120px]">
-                  <TextField
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={git.interval}
-                    placeholder="300"
-                    onChange={(e) => setGitField({ interval: e.target.value })}
-                  />
-                </Field>
-                <Field label="autosync" className="w-[190px]">
-                  <Select value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" | "push" })}>
-                    <option value="pull">fetch and pull</option>
-                    <option value="push">fetch, pull and push</option>
-                    <option value="off">fetch only</option>
-                  </Select>
-                </Field>
-              </FieldRow>
-              <Hint>
-                The interval fetches in the background (0 turns the timer off); with pull it also fast-forwards
-                when behind and nothing is modified locally; with push it then pushes what is committed, right after a commit
-                made here too. Committing stays manual on the git screen, and so does the first push of a new branch.
-              </Hint>
-            </>
-          )}
-        </FormStack>
+        <ToggleRow id="set-git" icon="sync" title="Sync with a git remote" what="sync workflows, knowledge, agents and skills with a git remote" checked={git.enabled} onChange={(on) => setGitField({ enabled: on })} />
+        {git.enabled && (
+          <>
+            <SettingRow title="Remote" sub="The remote to fetch from and push to.">
+              <TextField aria-label="remote" className="h-8 w-56 font-mono text-xs" value={git.remote} placeholder="origin" onChange={(e) => setGitField({ remote: e.target.value })} />
+            </SettingRow>
+            <SettingRow title="Branch" sub="Empty follows the checked-out branch.">
+              <TextField aria-label="branch" className="h-8 w-56 font-mono text-xs" value={git.branch} placeholder="checked-out branch" onChange={(e) => setGitField({ branch: e.target.value })} />
+            </SettingRow>
+            <SettingRow title="Interval" sub="Seconds between background fetches; 0 turns the timer off.">
+              <TextField aria-label="interval (s)" className="h-8 w-24 text-sm tabular-nums" type="number" min={0} step={1} value={git.interval} placeholder="300" onChange={(e) => setGitField({ interval: e.target.value })} />
+            </SettingRow>
+            <SettingRow title="Autosync" sub="Pull fast-forwards when behind and clean; push also pushes commits. Committing and a new branch's first push stay manual.">
+              <Select aria-label="autosync" className="h-8 w-56 text-sm" value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" | "push" })}>
+                <option value="pull">fetch and pull</option>
+                <option value="push">fetch, pull and push</option>
+                <option value="off">fetch only</option>
+              </Select>
+            </SettingRow>
+          </>
+        )}
       </Panel>
 
-      <Panel title="repositories" actions={<Button size="sm" icon="source" href="/repos">open repositories</Button>}>
-        <FormStack>
-          <Checkbox checked={repos.enabled} onChange={(on) => setReposField({ enabled: on })}>
-            keep git repositories the agents work on under one folder
-          </Checkbox>
-          {repos.enabled && (
-            <>
-              <Field label="repos root">
-                <TextField value={repos.root} placeholder="repos" onChange={(e) => setReposField({ root: e.target.value })} />
-              </Field>
-              <Hint>
-                Relative to the project root. Saving creates the folder and adds it to .gitignore; every agent gets the
-                list of clones as context and can add more with <code>kraftwerk repos add</code>.
-              </Hint>
-            </>
-          )}
-        </FormStack>
-      </Panel>
-
-      <Panel title="apps (vibeables)" actions={<Button size="sm" icon="web" href="/vibeables">open apps</Button>}>
-        <FormStack>
-          <Checkbox checked={vibeables.enabled} onChange={(on) => setVibeablesField({ enabled: on })}>
-            build small apps live in a chat, with a preview pane next to the thread
-          </Checkbox>
-          {vibeables.enabled && (
-            <>
-              <Field label="vibeables root">
-                <TextField value={vibeables.root} placeholder="kraftwerk-data/vibeables" onChange={(e) => setVibeablesField({ root: e.target.value })} />
-              </Field>
-              <Hint>
-                Relative to the project root, one folder per app. Part of the workspace: versioned with it on the git screen, not
-                git-ignored. Every chat gets a <b>vibeable</b> button; the agent then works inside the app folder.
-              </Hint>
-            </>
-          )}
-        </FormStack>
-      </Panel>
-
-      <Panel title="projects" actions={<Button size="sm" icon="folder_special" href="/projects">open projects</Button>}>
-        <FormStack>
-          <Checkbox checked={projects.enabled} onChange={(on) => setProjectsField({ enabled: on })}>
-            gather a goal, its brief, systems of record and links in one folder, and chat inside it
-          </Checkbox>
-          {projects.enabled && (
-            <>
-              <Field label="projects root">
-                <TextField value={projects.root} placeholder="kraftwerk-data/projects" onChange={(e) => setProjectsField({ root: e.target.value })} />
-              </Field>
-              <Hint>
-                Relative to the project root, one folder per project (project.yml, brief.md, state.md, log.md). Part of the workspace:
-                versioned with it on the git screen. A chat opened in a project starts with all of it as context.
-              </Hint>
-            </>
-          )}
-        </FormStack>
-      </Panel>
-
-      <Panel title="boards" actions={<Button size="sm" icon="view_kanban" href="/boards">open boards</Button>}>
-        <FormStack>
-          <Checkbox checked={boards.enabled} onChange={(on) => setBoardsField({ enabled: on })}>
-            keep the work as boards of tasks — columns Draft, Todo, In progress, Review, Done; each task a folder with task.md, log.md and its files, per project and workspace-wide; agents are woken when a task is assigned to them
-          </Checkbox>
-          {boards.enabled && (
-            <>
-              <Field label="boards root">
-                <TextField value={boards.root} placeholder="kraftwerk-data/boards" onChange={(e) => setBoardsField({ root: e.target.value })} />
-              </Field>
-              <Hint>
-                Relative to the project root, one folder per board under the root (workspace boards); a project's boards live in <code>projects/&lt;slug&gt;/boards/</code>. Part of the workspace:
-                versioned with it on the git screen. Agents read and write them with <code>kraftwerk tasks</code>.
-              </Hint>
-            </>
-          )}
-        </FormStack>
-      </Panel>
-
-      <Panel title="presentations" actions={<Button size="sm" icon="slideshow" href="/presentations">open presentations</Button>}>
-        <FormStack>
-          <Checkbox checked={decks.enabled} onChange={(on) => setDecksField({ enabled: on })}>
-            make slide decks — each a folder with a deck.md (markdown slides on a template's layouts) and its pictures, per project and workspace-wide; previewed, presented and exported as PowerPoint or PDF from the same render
-          </Checkbox>
-          {decks.enabled && (
-            <>
-              <Field label="presentations root">
-                <TextField value={decks.root} placeholder="kraftwerk-data/presentations" onChange={(e) => setDecksField({ root: e.target.value })} />
-              </Field>
-              <Hint>
-                Relative to the project root, one folder per deck under the root (workspace decks) and <code>templates/&lt;slug&gt;/template.yml</code> for your own templates; a project's decks live in{" "}
-                <code>projects/&lt;slug&gt;/presentations/</code>. Part of the workspace: versioned with it on the git screen. Agents write and render them with <code>kraftwerk presentations</code>.
-              </Hint>
-            </>
-          )}
-        </FormStack>
-      </Panel>
-
-      {ENTITY_KINDS.map((kind) => (
-        <Panel key={kind} title={kind} actions={<Button size="sm" icon={ENTITY_COPY[kind].icon} href={`/${kind}`}>open {kind}</Button>}>
-          <FormStack>
-            <Checkbox checked={entities[kind].enabled} onChange={(on) => setEntityField(kind, { enabled: on })}>
-              {ENTITY_COPY[kind].what}
-            </Checkbox>
-            {entities[kind].enabled && (
-              <>
-                <Field label={`${kind} root`}>
-                  <TextField value={entities[kind].root} placeholder={`kraftwerk-data/${kind}`} onChange={(e) => setEntityField(kind, { root: e.target.value })} />
-                </Field>
-                <Hint>
-                  Relative to the project root, {ENTITY_COPY[kind].files}. Part of the workspace: versioned with it on the git screen. Agents read and
-                  write them with <code>kraftwerk {kind}</code>.
-                </Hint>
-              </>
+      <Panel title="features">
+        {features.map((f) => (
+          <ToggleRow key={f.key} id={`set-${f.key}`} icon={f.icon} title={f.title} what={f.what} checked={f.form.enabled} onChange={(on) => f.set({ enabled: on })}>
+            {f.form.enabled && (
+              <div className="flex items-center gap-2">
+                <TextField
+                  aria-label={`${f.key === "vibeables" ? "vibeables" : f.key} root`}
+                  title={`Folder, relative to the workspace root. ${f.files}`}
+                  className="h-7 w-[230px] font-mono text-xs max-[700px]:w-full"
+                  value={f.form.root}
+                  placeholder={f.placeholder}
+                  onChange={(e) => f.set({ root: e.target.value })}
+                />
+                <IconButton icon="arrow_forward" label={`open ${f.title.toLowerCase()}`} href={f.href} />
+              </div>
             )}
-          </FormStack>
-        </Panel>
-      ))}
+          </ToggleRow>
+        ))}
+      </Panel>
 
       <CloudPanel />
       <DevicesPanel />
@@ -710,19 +591,58 @@ export function SettingsScreen() {
           </code>
         }
       >
-        <div className="flex flex-col pt-1.5 pb-2.5">
+        <div className="flex flex-col py-1">
           {paths.map(([key, value, hint]) => (
-            <div key={key} className="grid grid-cols-[110px_1fr] items-baseline gap-x-3.5 gap-y-px border-line/55 px-[18px] py-2 [&+&]:border-t">
-              <Eyebrow>{key}</Eyebrow>
-              <code className="text-xs break-all">{value}</code>
-              <span className="col-start-2 text-2xs text-fg-2">{hint}</span>
+            <div key={key} className="grid grid-cols-[100px_minmax(0,1fr)] items-baseline gap-x-3 px-[18px] py-1.5 min-[900px]:grid-cols-[100px_minmax(0,1fr)_minmax(0,0.9fr)]">
+              <span className="text-xs font-semibold text-fg-2">{key}</span>
+              <code className="truncate text-xs" title={value}>{value}</code>
+              <span className="truncate text-2xs text-fg-2 max-[899px]:hidden" title={hint}>{hint}</span>
             </div>
           ))}
         </div>
-        <Hint className="px-[18px] pb-3.5">
+        <Hint className="border-t border-line/55 px-[18px] py-2.5">
           Read-only here — edit <code>kraftwerk.yml</code> directly to change these.
         </Hint>
       </Panel>
     </div>
   );
 }
+
+/** One setting as a row: what it is on the left, its control on the right — stacked on a narrow screen. */
+function SettingRow({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-4 px-[18px] py-2.5 [&+&]:border-t [&+&]:border-line/55 max-[700px]:flex-col max-[700px]:items-stretch max-[700px]:gap-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-fg">{title}</div>
+        {sub && <div className="text-xs leading-snug text-fg-2">{sub}</div>}
+      </div>
+      <div className="flex min-w-0 items-center justify-end gap-2 min-[701px]:w-[46%]">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A feature as a row: icon, name, what it does, and a switch — a real
+ * checkbox (named by the row's text), drawn as a switch. What a turned-on
+ * feature needs (its folder) goes under the text.
+ */
+function ToggleRow({ id, icon, title, what, checked, onChange, children }: { id: string; icon: string; title: string; what: string; checked: boolean; onChange: (on: boolean) => void; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-[18px] py-2 [&+&]:border-t [&+&]:border-line/55">
+      <Icon name={icon} className={`flex-none text-[18px] ${checked ? "text-accent" : "text-fg-2"}`} />
+      <label htmlFor={id} className="min-w-[200px] flex-1 cursor-pointer">
+        <span className="block text-sm font-medium text-fg">{title}</span>
+        <span className="block text-xs leading-snug text-fg-2">{what}</span>
+      </label>
+      {children && <div className="flex-none max-[700px]:order-last max-[700px]:w-full max-[700px]:ps-[30px]">{children}</div>}
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full border border-line bg-surface-2 transition-colors before:absolute before:top-1/2 before:left-[3px] before:size-3.5 before:-translate-y-1/2 before:rounded-full before:bg-fg-2 before:transition-[left,background-color] checked:border-accent checked:bg-accent checked:before:left-[17px] checked:before:bg-on-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      />
+    </div>
+  );
+}
+

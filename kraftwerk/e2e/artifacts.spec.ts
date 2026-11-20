@@ -324,14 +324,39 @@ test.describe("artifacts", () => {
       await expect(page).toHaveURL(/kind=routines/);
       const preview = page.getByRole("complementary", { name: "Preview" });
 
-      // The agent's own routine: who it asks, when next; shown, and edited on the agent's profile.
+      // The agent's own routine: who it asks, when next — and edited right here, without the agent's profile.
       const own = page.locator(".artifact-row", { hasText: "Night watch" });
       await expect(own).toContainText("🦉 Routine Owner");
       await expect(own).toContainText("next");
       await own.click();
       await expect(preview.getByRole("heading", { level: 2, name: "Night watch" })).toBeVisible();
-      await expect(preview.locator(".routine-view")).toContainText("Look over the logs.");
-      await expect(preview.getByRole("link", { name: /edit on Routine Owner's profile/ })).toHaveAttribute("href", "#/agents/routine-owner/info");
+      await expect(preview.getByRole("textbox", { name: /prompt/ })).toHaveValue("Look over the logs.");
+      await expect(preview.getByRole("combobox", { name: "who" })).toHaveCount(0);
+      await expect(preview.getByRole("link", { name: "🦉 Routine Owner" })).toHaveAttribute("href", "#/agents/routine-owner/info");
+      await preview.getByRole("textbox", { name: /prompt/ }).fill("Look over the logs and the alerts.");
+      await preview.getByRole("button", { name: "save", exact: true }).click();
+      await expect(preview.getByText("saved")).toBeVisible();
+      expect(readFileSync(path.join(fixture(), "agents", "routine-owner", "routines.yml"), "utf8")).toContain("Look over the logs and the alerts.");
+
+      // Or say what should change: a chat with the routine's agent opens, its first message names the routine and how to update it in place.
+      await preview.getByRole("button", { name: "change in a chat" }).click();
+      await preview.getByRole("textbox", { name: "what should change" }).fill("run it at 4:00 instead");
+      await preview.getByRole("button", { name: "open the chat" }).click();
+      await expect(page).toHaveURL(/chat/);
+      const chats = (await (await request.get("/api/chats")).json()) as { chats: Array<{ id: string; scope: { kind: string; slug?: string } }> };
+      const made = chats.chats.find((c) => c.scope.kind === "agent" && c.scope.slug === "routine-owner");
+      expect(made).toBeTruthy();
+      const first = ((await (await request.get(`/api/chats/${made!.id}`)).json()) as { events: Array<{ type?: string; text?: string }> }).events.find((e) => e.type === "user_message");
+      expect(first?.text).toContain('Change the routine "Night watch"');
+      expect(first?.text).toContain("run it at 4:00 instead");
+      expect(first?.text).toContain("npx kraftwerk routines add routine-owner --id night-watch");
+      // The fake agent now waits on an approval: gone with the chat (every chat of the routine's agent), so no later spec counts it.
+      await page.goto("/#/?kind=routines");
+      // Its request first (deleted before it, the chat's late request would still reach the bell), then the chat.
+      await expect.poll(async () => JSON.stringify(await (await request.get("/api/attention")).json())).toContain(made!.id);
+      const owned = ((await (await request.get("/api/chats")).json()) as typeof chats).chats.filter((c) => c.scope.kind === "agent" && c.scope.slug === "routine-owner");
+      for (const c of owned) await request.delete(`/api/chats/${c.id}`);
+      await expect.poll(async () => JSON.stringify(await (await request.get("/api/attention")).json())).not.toContain("routine-owner/chat");
 
       // + makes one of the workspace's own: in the artifacts-probe project, for the agent.
       await tiles.getByRole("link", { name: "new routine" }).click();

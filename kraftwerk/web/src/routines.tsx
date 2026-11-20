@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { api, failure, useApi, type ApiResult } from "./api";
 import { refreshAttention } from "./attention";
-import { ChatCard } from "./chat-card";
+import { ChatCard, startChat, useOpen } from "./chat-card";
 import { Icon, Link, fmtWhen, navigate, useFeatures } from "./shared";
-import { Button, EmptyState, Notice, Select, Tag, TextField } from "./ui";
+import { Button, EmptyState, Notice, Select, Tag, TextArea, TextField } from "./ui";
 
 /**
- * A routine on Artifacts' right column. A workspace routine
- * (agents/routines.yml, owner "_") is defined on its own and edited here:
- * what to ask and when, the project it runs in (none: the whole workspace)
- * and who gets the prompt (none: the project's assistant, or Ralv). An
- * agent's own routine (agents/<slug>/routines.yml) shows what it does and
- * runs from here; it is edited on the agent's profile, where it lives.
+ * A routine on Artifacts' right column and in the routines overview,
+ * edited where it shows. A workspace routine (agents/routines.yml, owner
+ * "_") is defined on its own: what to ask and when, the project it runs in
+ * (none: the whole workspace) and who gets the prompt (none: the project's
+ * assistant, or Ralv). An agent's own routine (agents/<slug>/routines.yml)
+ * is edited the same way, except that it always asks its agent and has no
+ * project — the agent's profile lists it too.
  */
 export type ListedRoutine = ApiResult<"routines.list">["routines"][number];
 
@@ -102,9 +103,12 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
   const [note, setNote] = useState("");
   // "custom (cron)" picked for a line the picker could also say in words: the line stays, the field shows.
   const [customCron, setCustomCron] = useState(false);
+  // "change in a chat": what should change, asked of the agent behind the routine.
+  const [ask, setAsk] = useState<string | null>(null);
+  const open = useOpen();
   // The form follows the routine picked, not every poll: what is being typed stays.
   useEffect(() => {
-    setForm(isNew ? BLANK : r && owner === WORKSPACE_ROUTINES ? formOf(r) : null);
+    setForm(isNew ? BLANK : r ? formOf(r) : null);
     setError("");
     setNote("");
   }, [owner, id, !!r]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -130,45 +134,27 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
       if (r && res.data.chatId) navigate(runHref(r, res.data.chatId));
     });
 
-  // An agent's own routine: what it does, run it; it is edited where it lives.
-  if (r && owner !== WORKSPACE_ROUTINES) {
-    return (
-      <div className="routine-view flex flex-col gap-3 p-3">
-        <State r={r} error={error} />
-        <p className="m-0 text-sm text-fg">
-          Asks <strong>{routineWho(r)}</strong>:
-        </p>
-        <pre className="m-0 rounded-lg border border-line bg-surface-2 p-3 font-sans text-sm whitespace-pre-wrap text-fg">{r.prompt}</pre>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="primary" icon="play_arrow" busy={busy === "run"} onClick={() => void runNow()}>
-            {busy === "run" ? "starting…" : "run now"}
-          </Button>
-          <Button size="sm" icon="edit" href={`/agents/${encodeURIComponent(owner)}/info`} title="this routine is the agent's own: it is edited on the agent's profile">
-            edit on {r.agent?.name ?? owner}'s profile
-          </Button>
-        </div>
-        {error && <Notice tone="bad">{error}</Notice>}
-      </div>
-    );
-  }
   if (!form) return <EmptyState className="my-auto">loading…</EmptyState>;
 
   const set = (patch: Partial<Form>) => setForm({ ...form, ...patch });
+  // An agent's own routine always asks its agent and runs in no project; the workspace's names both.
+  const agentOwn = owner !== WORKSPACE_ROUTINES;
   const team = (agents?.agents ?? []).filter((a) => !a.archived || a.slug === form.agent);
   const save = () =>
     act("save", async () => {
       const { runsOn, project, agent, ...rest } = form;
-      const res = await api.request("routines.save", {
-        // Untouched runner: left out, so the server keeps it (a new routine gets this machine).
-        body: { ...rest, project: project || null, agent: agent || null, ...(runsOn === undefined ? {} : { runsOn: runsOn.trim() || null }) },
-      });
+      // Untouched runner: left out, so the server keeps it (a new routine gets this machine).
+      const runner = runsOn === undefined ? {} : { runsOn: runsOn.trim() || null };
+      const res = agentOwn
+        ? await api.request("agents.saveRoutine", { slug: owner, body: { ...rest, ...runner } })
+        : await api.request("routines.save", { body: { ...rest, project: project || null, agent: agent || null, ...runner } });
       if (!res.ok) throw new Error(failure(res));
       setNote("saved");
       if (isNew) onOpen(`routines:${WORKSPACE_ROUTINES}:${res.data.id}`);
     });
   const adopt = () =>
     act("adopt", async () => {
-      const res = await api.request("routines.adoptOne", { id });
+      const res = agentOwn ? await api.request("agents.adoptRoutine", { slug: owner, id }) : await api.request("routines.adoptOne", { id });
       if (!res.ok) throw new Error(failure(res));
       const c = res.data.commit;
       if (c && !c.ok) throw new Error(`runs on ${res.data.runsOn} — routines.yml written, but not committed: ${c.error ?? "git failed"}`);
@@ -179,11 +165,21 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
   const remove = () => {
     if (!window.confirm(`Delete the routine "${form.name}"?`)) return;
     void act("delete", async () => {
-      const res = await api.request("routines.delete", { id });
+      const res = agentOwn ? await api.request("agents.deleteRoutine", { slug: owner, id }) : await api.request("routines.delete", { id });
       if (!res.ok) throw new Error(failure(res));
       onOpen(undefined);
     });
   };
+
+  // The routine's own agent (or, for a workspace routine, the project's assistant or Ralv) changes it with the CLI.
+  const changeInChat = () =>
+    act("chat", async () => {
+      if (!r || !ask?.trim()) return;
+      const res = await startChat({ who: agentOwn ? owner : undefined, project: r.project ?? undefined, text: routineChangeMessage(r, ask.trim()) });
+      if ("error" in res) throw new Error(res.error);
+      setAsk(null);
+      open(res.href);
+    });
 
   const read = readCron(form.schedule);
   const sched: Sched = customCron ? { ...read, kind: "custom" } : read;
@@ -226,6 +222,11 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
         who={form.agent}
         hint={note || (form.agent ? "in a new session each time" : form.project ? "asks the project's assistant" : "asks Ralv")}
         controls={
+          agentOwn ? (
+            <Link href={`/agents/${encodeURIComponent(owner)}/info`} className="inline-flex h-8 items-center px-2 text-sm font-medium text-fg no-underline hover:text-accent" title="an agent's own routine always asks its agent — it lives on the agent's profile">
+              {r?.agent ? routineWho(r) : owner}
+            </Link>
+          ) : (
           <>
             <Select aria-label="who" value={form.agent} onChange={(e) => set({ agent: e.target.value })} className={QUIET}>
               <option value="">{form.project ? "🧭 the project's assistant" : "🎩 Ralv"}</option>
@@ -247,6 +248,7 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
               </Select>
             )}
           </>
+          )
         }
       >
         {/* When: in words, with the cron line for what the words cannot say. */}
@@ -306,6 +308,9 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
                 run here
               </Button>
             )}
+            <Button size="sm" variant="quiet" icon="forum" disabled={!!busy} onClick={() => setAsk(ask === null ? "" : null)} title={`describe the change; ${agentOwn ? routineWho(r) : "an assistant"} makes it in a new chat`}>
+              change in a chat
+            </Button>
             <Button size="sm" icon="play_arrow" busy={busy === "run"} disabled={!!busy} onClick={() => void runNow()} title="start a run with the saved prompt, now">
               {busy === "run" ? "starting…" : "run now"}
             </Button>
@@ -315,9 +320,55 @@ export function RoutinePreview({ owner, id, onOpen }: { owner: string; id: strin
           </>
         )}
       </div>
+      {r && ask !== null && (
+        <div className="routine-chat flex flex-col gap-2 rounded-card border border-line bg-surface p-2.5">
+          <TextArea
+            autoFocus
+            rows={2}
+            aria-label="what should change"
+            placeholder={`What should change? ${agentOwn ? routineWho(r) : "The assistant"} updates the routine in a new chat, e.g. "run it at 7:00 and add Avia to the providers"`}
+            value={ask}
+            onChange={(e) => setAsk(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void changeInChat();
+              if (e.key === "Escape") setAsk(null);
+            }}
+            className="text-sm"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="quiet" onClick={() => setAsk(null)}>
+              cancel
+            </Button>
+            <Button size="sm" variant="primary" icon="send" busy={busy === "chat"} disabled={!ask.trim() || !!busy} onClick={() => void changeInChat()}>
+              open the chat
+            </Button>
+          </div>
+        </div>
+      )}
       {error && <Notice tone="bad">{error}</Notice>}
     </div>
   );
+}
+
+/**
+ * The first message of a "change in a chat": the change asked for, the
+ * routine as it is now, and how to change it — the CLI with the same id, so
+ * the routine is updated in place, not added beside it.
+ */
+export function routineChangeMessage(r: ListedRoutine, change: string): string {
+  const own = r.owner !== WORKSPACE_ROUTINES;
+  return [
+    `Change the routine "${r.name}" (id \`${r.id}\`, ${own ? `${r.agent?.name ?? r.owner}'s own routine` : "a workspace routine"}): ${change}`,
+    "",
+    `As it is now: schedule \`${r.schedule}\` (${scheduleWords(r.schedule)}), ${r.enabled ? "enabled" : "paused"}${r.project ? `, runs in project ${r.project}` : ""}${!own ? `, asks ${routineWho(r)}` : ""}. Its prompt:`,
+    "",
+    r.prompt
+      .split("\n")
+      .map((l) => `> ${l}`)
+      .join("\n"),
+    "",
+    `Update it in place with \`npx kraftwerk routines add ${r.owner} --id ${r.id} --name "…" --schedule "…" --prompt "…"\` — the same id updates it (name, schedule and the whole prompt as they should be; project, agent and runner stay unless you pass them${r.enabled ? "" : "; --disabled keeps it paused"}); \`npx kraftwerk routines list ${r.owner}\` shows the result. If the request is unclear, ask me first. Then say in one or two sentences what changed.`,
+  ].join("\n");
 }
 
 /* ---------- the schedule in words ---------- */
