@@ -103,7 +103,7 @@ describe("chats API: approval state", () => {
    * these cases from spawning an agent. A chat the agent never answered
    * in has nothing to fork, and pi has no session to fork at all.
    */
-  it("refuses to fork a chat without a session, a pi chat, and an unknown chat", async () => {
+  it("refuses to fork a chat without a session, a pi or antigravity chat, and an unknown chat", async () => {
     const created = await post("/api/chats", { agent: "claude", scope: { kind: "general" } });
     const meta = (await created.json()) as ChatMeta;
     const fresh = await post(`/api/chats/${meta.id}/fork`, {});
@@ -114,6 +114,13 @@ describe("chats API: approval state", () => {
     const piFork = await post(`/api/chats/${pi.id}/fork`, {});
     assert.equal(piFork.status, 409);
     assert.match(((await piFork.json()) as { error: string }).error, /pi chats/);
+
+    // Antigravity chats are made like any other; agy has no session fork.
+    const agy = await post("/api/chats", { agent: "antigravity", scope: { kind: "general" } });
+    assert.equal(agy.status, 200);
+    const agyFork = await post(`/api/chats/${((await agy.json()) as ChatMeta).id}/fork`, {});
+    assert.equal(agyFork.status, 409);
+    assert.match(((await agyFork.json()) as { error: string }).error, /not supported by antigravity/);
 
     const missing = await post("/api/chats/chat-2026-01-01-0000-00-none/fork", {});
     assert.equal(missing.status, 404);

@@ -18,7 +18,7 @@ import { moveToTrash } from "./trash.js";
  * state — sessions with a member are ordinary chats scoped to it.
  */
 
-export const HARNESSES: ChatAgentId[] = ["claude", "codex", "pi"];
+export const HARNESSES: ChatAgentId[] = ["claude", "codex", "pi", "antigravity"];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 export interface Agent {

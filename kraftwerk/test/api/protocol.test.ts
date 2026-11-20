@@ -36,6 +36,7 @@ const ROUTES = [
   "DELETE /api/trash trash.empty",
   "DELETE /api/vibeables/:slug vibeables.delete",
   "DELETE /api/workflows/:slug workflows.delete",
+  "GET /api/agent-options agents.options",
   "GET /api/agent-sessions agents.sessions",
   "GET /api/agent-status agents.status",
   "GET /api/agents agents.list",

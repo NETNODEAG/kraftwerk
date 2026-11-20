@@ -74,6 +74,22 @@ describe("chat settings while the agent is down", () => {
     assert.equal((await get<{ meta: ChatMeta }>(`/api/chats/${meta.id}`)).meta.pendingConfig, undefined, "applied, then dropped");
   });
 
+  it("a new chat starts on the settings the agent announces: offered per agent, set before the first prompt", async () => {
+    const offered = await get<{ options: Array<{ id: string; category?: string; choices: Array<{ value: string }> }> }>("/api/agent-options?agent=codex");
+    assert.deepEqual(offered.options.map((o) => [o.id, o.category, o.choices.map((c) => c.value)]), [["model", "model", ["fast", "smart"]]]);
+    // pi: its own model list (none without pi installed) and its thinking levels, "default" leaving pi's own setting.
+    const pi = (await get<{ options: Array<{ id: string; value: string; choices: Array<{ value: string }> }> }>("/api/agent-options?agent=pi")).options;
+    assert.deepEqual(pi.map((o) => [o.id, o.value, o.choices[0].value]), [["model", "default", "default"], ["thinking", "default", "default"]]);
+    assert.equal((await fetch(srv.url + "/api/agent-options?agent=nobody")).status, 400);
+
+    const r = await post("/api/chats", { agent: "codex", scope: { kind: "kraftwerk" }, config: { model: "smart" } });
+    const meta = (await r.json()) as ChatMeta;
+    assert.deepEqual(meta.pendingConfig, { model: "smart" });
+    assert.equal((await post(`/api/chats/${meta.id}/message`, { text: "which model?" })).status, 200);
+    await until(() => events(meta.id), (xs) => answer(xs).length === 1, "the first answer");
+    assert.deepEqual(answer(await events(meta.id)), ["model: smart"]);
+  });
+
   it("a setting the agent never announced is refused while it is down", async () => {
     const r = await post("/api/chats", { agent: "claude", scope: { kind: "kraftwerk" } });
     const meta = (await r.json()) as ChatMeta;

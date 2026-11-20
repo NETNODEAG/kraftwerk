@@ -12,7 +12,7 @@ import { tildify } from "../core/instances.js";
  * (a LaunchAgent), so it runs after a reboot without a terminal or the
  * desktop app. launchd starts the same `kraftwerk daemon` a terminal would —
  * this node, this install — with the PATH of the shell that installed it,
- * because launchd's own PATH would not find the agents (claude, codex, pi).
+ * because launchd's own PATH would not find the agents (claude, codex, pi, agy).
  * The daemon's supervisor restarts it after a self-update; launchd only
  * starts it at login.
  */

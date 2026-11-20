@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { acpMcpServers } from "../../src/acp.js";
+import { acpMcpServers, tuningConfig } from "../../src/acp.js";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk/unstable";
 import { claudeSessionOptions, toolTarget } from "../../src/harnesses/acp.js";
 import { harnessFor } from "../../src/harnesses/registry.js";
 
@@ -15,6 +16,25 @@ describe("agent-protocol harness", () => {
     assert.equal(harnessFor("codex", "acp").id, "codex");
     assert.notEqual(harnessFor("claude", "acp"), harnessFor("claude"));
     assert.throws(() => harnessFor("pi", "acp"), /no agent-protocol adapter/);
+    // Antigravity's CLI is its ACP server: protocol cli runs on the adapter too.
+    assert.equal(harnessFor("antigravity").id, "antigravity");
+    assert.notEqual(harnessFor("antigravity"), harnessFor("claude"));
+  });
+
+  it("sets antigravity's model and thinking depth as session settings, only to offered choices", () => {
+    // What `agy acp` announces on session/new.
+    const offered = [
+      { id: "model", name: "Model", category: "model", type: "select", currentValue: "gemini-3.8-flash", options: [{ value: "gemini-3.8-flash", name: "Gemini" }, { value: "claude-opus-4-6-thinking", name: "Opus" }] },
+      { id: "thought_level", name: "Thinking", category: "thought_level", type: "select", currentValue: "high", options: [{ value: "low", name: "low" }, { value: "medium", name: "medium" }, { value: "high", name: "high" }] },
+    ] as SessionConfigOption[];
+    assert.deepEqual(tuningConfig("antigravity", { model: "claude-opus-4-6-thinking", effort: "xhigh" }, offered), [
+      { configId: "model", value: "claude-opus-4-6-thinking" },
+      { configId: "thought_level", value: "high" },
+    ]);
+    assert.deepEqual(tuningConfig("antigravity", { model: "sonnet", effort: "low" }, offered), [{ configId: "thought_level", value: "low" }]);
+    assert.deepEqual(tuningConfig("antigravity", {}, offered), []);
+    // The other adapters take model and effort elsewhere (env, _meta).
+    assert.deepEqual(tuningConfig("claude", { model: "claude-opus-4-6-thinking" }, offered), []);
   });
 
   it("turns tools, CLI grants and MCP servers into the claude allowlist, hermetic", () => {

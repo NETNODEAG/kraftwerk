@@ -18,7 +18,8 @@ const HARNESSES: Partial<Record<HarnessId, Harness>> = {
 };
 
 export function harnessFor(id: HarnessId = "claude", protocol: AgentProtocol = "cli"): Harness {
-  if (protocol === "acp") return acpHarness(id);
+  // Antigravity's CLI is its ACP server: there is no other way to drive it.
+  if (protocol === "acp" || id === "antigravity") return acpHarness(id);
   const harness = HARNESSES[id];
   if (!harness) {
     throw new Error(

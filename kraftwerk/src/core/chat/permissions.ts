@@ -41,11 +41,13 @@ export function unattendedTimeoutLabel(ms: number = UNATTENDED_PERMISSION_TIMEOU
  * to, or null to keep the current one. The harness stays the judge of what
  * needs a human; this only rules out the two presets that never ask —
  * claude bypassPermissions and codex agent-full-access — and lifts claude's
- * plain "default" (ask for every edit) to acceptEdits so a routine can write
+ * (and antigravity's) plain "default" (ask for every edit) to acceptEdits so a routine can write
  * inside the project without stalling. claude's "auto" mode (its own
  * classifier decides) and acceptEdits are kept as they are.
  */
-export function unattendedMode(agent: "claude" | "codex", current: string | undefined): string | null {
+export function unattendedMode(agent: "claude" | "codex" | "antigravity", current: string | undefined): string | null {
   if (agent === "codex") return current === "agent-full-access" || !current ? "agent" : null;
+  // antigravity: "default" asks for every edit; "auto" and "accept-edits" still ask before what matters.
+  if (agent === "antigravity") return current === "auto" || current === "accept-edits" ? null : "accept-edits";
   return current === "auto" || current === "acceptEdits" ? null : "acceptEdits";
 }

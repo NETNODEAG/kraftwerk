@@ -78,6 +78,35 @@ test.describe("general chats landing", () => {
     await expect(page).toHaveURL(/#\/agents\/chats$/);
   });
 
+  test("a new Ralv chat runs on the agent and model picked, from the choices the agent announces", async ({ page, request }) => {
+    await page.goto("/#/agents/chats");
+    const card = page.locator(".session-home");
+    await card.getByRole("combobox", { name: "agent" }).selectOption("codex");
+    // The scripted agent stands in for every adapter; it announces Fast (current) and Smart.
+    const model = card.getByRole("combobox", { name: "model" });
+    await expect(model.locator("option").first()).toHaveText("model: default (Fast)");
+    await model.selectOption("smart");
+    await page.getByRole("textbox", { name: "new session" }).fill("which model are you on?");
+    await page.getByRole("button", { name: "start session" }).click();
+    await expect(page).toHaveURL(/#\/agents\/chats\/chat-/);
+    const id = /chats\/(chat-[^/?]+)/.exec(page.url())![1];
+    ids.push(id);
+    // Set before the first prompt: the first answer already comes from the picked model.
+    await expect(page.getByText("model: smart")).toBeVisible();
+    const meta = ((await (await request.get(`/api/chats/${id}`)).json()) as { meta: { agent: string } }).meta;
+    expect(meta.agent).toBe("codex");
+
+    // Remembered for the next chat; pi's choices come from its own model list, its default is its own setting.
+    await page.goto("/#/agents/chats");
+    await expect(card.getByRole("combobox", { name: "agent" })).toHaveValue("codex");
+    await expect(card.getByRole("combobox", { name: "model" })).toHaveValue("smart");
+    await card.getByRole("combobox", { name: "agent" }).selectOption("pi");
+    await expect(card.getByRole("combobox", { name: "model" }).locator("option").first()).toHaveText("model: default");
+    await expect(card.getByRole("combobox", { name: "thinking" })).toContainText("xhigh");
+    await card.getByRole("combobox", { name: "agent" }).selectOption("claude");
+    await expect(card.getByRole("combobox", { name: "model" })).toHaveValue("");
+  });
+
   test("project chats are listed too and open in their project", async ({ page, request }) => {
     const PROJECT = "chats-probe";
     expect((await request.put("/api/settings", { data: { projects: { enabled: true } } })).ok()).toBeTruthy();

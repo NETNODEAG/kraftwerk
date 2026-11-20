@@ -6,7 +6,7 @@
  * appends live ones.
  */
 
-export type ChatAgentId = "claude" | "codex" | "pi";
+export type ChatAgentId = "claude" | "codex" | "pi" | "antigravity";
 
 export type ChatScope =
   | { kind: "general" }

@@ -103,7 +103,7 @@ const cliFlags = (ev: TaskEvent): string => (ev.project ? `--project ${ev.projec
 /** A chat on the task page: the agent's task session (scope.task) or a chat tagged with the task (meta.task, "work on this"). */
 export interface TaskSession {
   id: string;
-  /** The agent slug of a task session; "claude" | "codex" | "pi" for a plain chat tagged with the task. */
+  /** The agent slug of a task session; "claude" | "codex" | "pi" | "antigravity" for a plain chat tagged with the task. */
   agent: string;
   /** The agent's display name and emoji when it is one of the workspace's agents. */
   name?: string;

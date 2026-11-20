@@ -241,6 +241,7 @@ export function ChatThread({
   // its own. "add coworker" sits at the strip's right end; expert detail keeps a quiet line here.
   const canCoworker = (meta.scope.kind === "agent" || meta.scope.kind === "project") && !meta.scope.routine;
   const signedOut = live.auth?.kind === "none";
+  const noFork = meta.agent === "codex" || meta.agent === "antigravity";
   // What the chat runs on and with (fork, harness, context use, model, thinking, scope, folder): the bottom line of the input box, not a row above the conversation.
   const details = (expert || signedOut) && (
     <>
@@ -250,12 +251,12 @@ export function ChatThread({
             variant="quiet"
             icon="call_split"
             busy={forking}
-            className={meta.agent === "codex" ? "opacity-50" : undefined}
+            className={noFork ? "opacity-50" : undefined}
             disabled={busy}
-            aria-disabled={meta.agent === "codex"}
-            title={meta.agent === "codex" ? "not supported: codex has no session fork" : "Branch this conversation: a new chat with the same history, the original stays as it is"}
+            aria-disabled={noFork}
+            title={noFork ? `not supported: ${meta.agent} has no session fork` : "Branch this conversation: a new chat with the same history, the original stays as it is"}
             onClick={async () => {
-              if (meta.agent === "codex") return setForkNote("fork is not supported by codex");
+              if (noFork) return setForkNote(`fork is not supported by ${meta.agent}`);
               setForking(true);
               const r = await api.request("chats.fork", { id });
               setForking(false);

@@ -11,6 +11,7 @@ export const ROUTES = {
   "agents.get": ["GET", "/api/agents/:slug"],
   "agents.journal": ["GET", "/api/agents/:slug/journal"],
   "agents.list": ["GET", "/api/agents"],
+  "agents.options": ["GET", "/api/agent-options"],
   "agents.routines": ["GET", "/api/agents/:slug/routines"],
   "agents.runRoutine": ["POST", "/api/agents/:slug/routines/:id/run"],
   "agents.save": ["PUT", "/api/agents/:slug"],

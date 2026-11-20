@@ -13,6 +13,7 @@ import {
 } from "@agentclientprotocol/sdk/unstable";
 import {
   adapterEnv,
+  applyTuningConfig,
   airMeta,
   connectAcp,
   EXT_METHODS,
@@ -39,7 +40,7 @@ import type {
 } from "./types.js";
 
 /**
- * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp) as a
+ * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp / agy acp) as a
  * subprocess, speak Agent Client Protocol over its stdio, and translate
  * session/update notifications into chat events. One subprocess lives for
  * the whole chat; the ACP session id carries the conversation and is
@@ -371,6 +372,19 @@ export async function listAgentSessions(
   });
 }
 
+/**
+ * The settings a fresh session of the agent offers (model, thinking depth,
+ * ... as the agent announces them for this login), from a short-lived
+ * adapter that opens one session and closes it without a prompt.
+ */
+export async function announcedOptions(agent: AcpAgent, cwd: string): Promise<ConfigOption[]> {
+  return withAdapter(agent, cwd, async (conn) => {
+    const s = await conn.newSession({ cwd, mcpServers: [] });
+    await conn.closeSession({ sessionId: s.sessionId }).catch(() => {});
+    return configOptions(s.configOptions);
+  });
+}
+
 /** Remove one of the agent's sessions for good (its transcript on disk), from a short-lived adapter. */
 export async function deleteAgentSession(agent: AcpAgent, cwd: string, sessionId: string): Promise<void> {
   await withAdapter(agent, cwd, async (conn) => {
@@ -390,11 +404,21 @@ export async function startAcpBackend(
   // Usage arrives after nearly every chunk; the thread keeps a step per
   // percent of the window and every cost total (turn ends), not each tick.
   let usagePercent = -1;
+  // The slash commands as last announced. An agent may announce them while
+  // the session is still opening (agy does, during session/new and while its
+  // settings are set) — before the backend object exists.
+  let commands: AgentCommand[] | undefined;
+  let made: ChatBackend | undefined;
   const client: AcpClient = {
     sessionUpdate(params: SessionNotification): void {
-      const ev = translateUpdate(sessionId, params);
+      // Nothing but the session being opened can speak before its id is known.
+      const opening = !sessionId && params.update.sessionUpdate === "available_commands_update";
+      const ev = translateUpdate(opening ? params.sessionId : sessionId, params);
       if (!ev) return;
-      if (ev.type === "commands") backend.commands = ev.commands;
+      if (ev.type === "commands") {
+        commands = ev.commands;
+        if (made) made.commands = ev.commands;
+      }
       if (ev.type === "usage") {
         const pct = ev.size > 0 ? Math.floor((100 * ev.used) / ev.size) : 0;
         if (ev.costUsd == null && pct === usagePercent) return;
@@ -477,7 +501,11 @@ export async function startAcpBackend(
       message: `could not resume the previous ${agent} session (${session.resumeError}) — starting a fresh one; the agent gets the conversation so far as context, not as memory`,
     });
   }
-  if (session.configOptions?.length) hooks.emit({ type: "config", options: configOptions(session.configOptions) });
+  // Antigravity takes the agent's or project's model and thinking depth as session settings.
+  const opened = await applyTuningConfig(agent, conn, sessionId, tuning, session.configOptions, (message) =>
+    hooks.emit({ type: "error", message: `${message} — the ${agent} default applies` })
+  );
+  if (opened?.length) hooks.emit({ type: "config", options: configOptions(opened) });
   if (tuning.unattended) {
     // Nobody is watching: keep the harness's configured mode unless it is
     // one that never asks (see unattendedMode). The harness keeps deciding
@@ -503,6 +531,7 @@ export async function startAcpBackend(
   const backend: ChatBackend = {
     sessionId,
     resumed: session.resumed,
+    ...(commands ? { commands } : {}),
     async prompt(text: string, files?: PromptFile[]): Promise<TurnEnd> {
       if (dead) throw new Error(`${agent} agent process is gone — start a new chat`);
       try {
@@ -591,5 +620,6 @@ export async function startAcpBackend(
         });
     },
   };
+  made = backend;
   return backend;
 }

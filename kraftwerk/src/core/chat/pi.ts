@@ -1,8 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { identityEnv, type BackendHooks, type BackendTuning, type ChatBackend } from "./backend.js";
 import { workspaceEnv } from "../env.js";
 import { tempEnv } from "../temp.js";
+import type { ConfigOption } from "./types.js";
 
 /**
  * pi chat backend: pi has no ACP support, but its `-p --mode json` run with
@@ -28,6 +29,36 @@ interface PiEvent {
   error?: unknown;
 }
 
+/** pi's --thinking levels. */
+const PI_THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * The models pi can run (`pi --list-models`: its providers with a login or
+ * key), as `provider/id`. Empty when pi is missing.
+ */
+export function listPiModels(): Promise<string[]> {
+  return new Promise((resolve) => {
+    execFile("pi", ["--list-models"], { env: workspaceEnv(), timeout: 20_000 }, (err, stdout) => {
+      if (err) return resolve([]);
+      const rows = stdout.split("\n").slice(1).map((l) => l.trim().split(/\s+/));
+      resolve(rows.filter((r) => r.length >= 2 && r[0] && r[1]).map(([provider, id]) => `${provider}/${id}`));
+    });
+  });
+}
+
+/**
+ * pi's model and thinking level in the shape ACP agents announce theirs
+ * (a select each, "default" = pi's own setting), so the chat's pickers and
+ * a new chat's start options treat pi like the others.
+ */
+export function piOptions(models: string[], model?: string, effort?: string): ConfigOption[] {
+  const known = model && !models.includes(model) ? [model, ...models] : models;
+  return [
+    { id: "model", name: "Model", category: "model", type: "select", value: model ?? "default", choices: [{ value: "default", name: "pi's default" }, ...known.map((m) => ({ value: m, name: m }))] },
+    { id: "thinking", name: "Thinking", category: "thought_level", type: "select", value: effort ?? "default", choices: [{ value: "default", name: "pi's default" }, ...PI_THINKING.map((t) => ({ value: t, name: t }))] },
+  ];
+}
+
 const clip = (raw: unknown): string => {
   const oneLine = String(raw ?? "").replace(/\s+/g, " ").trim();
   return oneLine.length > 120 ? `${oneLine.slice(0, 120)}…` : oneLine;
@@ -41,11 +72,21 @@ export function startPiBackend(
   const sessionId = randomUUID();
   let child: ChildProcessWithoutNullStreams | null = null;
   let cancelled = false;
-  const tuningArgs = [
-    ...(tuning.model ? ["--model", tuning.model] : []),
-    ...(tuning.effort ? ["--thinking", tuning.effort] : []),
+  // pi runs one process per message: a changed setting applies from the next one.
+  let model = tuning.model;
+  let effort = tuning.effort;
+  const args = () => [
+    ...(model ? ["--model", model] : []),
+    ...(effort ? ["--thinking", effort] : []),
     ...(tuning.skillDirs ?? []).flatMap((dir) => ["--skill", dir]),
   ];
+  const models = listPiModels();
+  const announce = async () => {
+    const options = piOptions(await models, model, effort);
+    hooks.emit({ type: "config", options });
+    return options;
+  };
+  void announce();
 
   return {
     prompt(
@@ -56,7 +97,7 @@ export function startPiBackend(
       if (files?.length) text += `\n\nAttached files:\n${files.map((f) => `- ${f.name} (${f.mimeType}, ${f.path})`).join("\n")}`;
       cancelled = false;
       return new Promise((resolve, reject) => {
-        const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...tuningArgs], {
+        const proc = spawn("pi", ["-p", "--mode", "json", "--session-id", sessionId, ...args()], {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...workspaceEnv(), ...(tuning.temp ? tempEnv(tuning.temp) : {}), ...identityEnv("pi", tuning) },
@@ -138,6 +179,15 @@ export function startPiBackend(
           resolve({ stopReason: "end_turn" });
         });
       });
+    },
+    async setConfig(configId: string, value: string | boolean): Promise<ConfigOption[]> {
+      const v = typeof value === "string" && value !== "default" ? value : undefined;
+      if (configId === "model") model = v;
+      else if (configId === "thinking") {
+        if (v && !PI_THINKING.includes(v)) throw new Error(`pi has no thinking level "${v}"`);
+        effort = v;
+      } else throw new Error(`pi has no setting "${configId}"`);
+      return announce();
     },
     cancel(): void {
       cancelled = true;

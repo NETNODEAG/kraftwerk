@@ -37,6 +37,7 @@ export function SessionHome({
   hrefOf,
   create,
   pickProject,
+  defaultControls,
   children,
 }: {
   placeholder: string;
@@ -58,6 +59,8 @@ export function SessionHome({
    * that project's assistant (Ralv's overview); "filed": the default stays, the session is filed under the project.
    */
   pickProject?: "assistant" | "filed";
+  /** Beside the pickers while the default itself (no agent, no project) is picked: what it runs on (Ralv's agent and model). */
+  defaultControls?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const agents = useApi("agents.list", {}, { interval: 30_000 });
@@ -172,6 +175,7 @@ export function SessionHome({
               )}
             </Popover>
             {pickProject && <ProjectSelect value={project} onChange={setProject} projects={choices} />}
+            {!picked && !inProject && defaultControls}
           </>
         }
       />
@@ -204,7 +208,7 @@ export function SessionHome({
 }
 
 /** A start function for `SessionHome`: create the chat, answer its id and where it opens. */
-export async function createSession(body: { agent: ChatAgentId; scope: Record<string, unknown>; project?: string }, hrefOf: (id: string) => string) {
+export async function createSession(body: { agent: ChatAgentId; scope: Record<string, unknown>; project?: string; config?: Record<string, string> }, hrefOf: (id: string) => string) {
   const r = await api.request("chats.create", { body: body as never });
   return r.ok ? { id: r.data.id, href: hrefOf(r.data.id) } : { error: failure(r) };
 }

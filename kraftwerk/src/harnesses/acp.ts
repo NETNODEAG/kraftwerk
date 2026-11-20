@@ -6,7 +6,7 @@ import {
 } from "@agentclientprotocol/sdk/unstable";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { AgentInvocation, AgentResult, Harness, HarnessId } from "../harness.js";
-import { acpMcpServers, adapterEnv, connectAcp, openSession, type AcpAgent, type AcpClient, type AcpConnection } from "../acp.js";
+import { acpMcpServers, adapterEnv, connectAcp, openSession, applyTuningConfig, type AcpAgent, type AcpClient, type AcpConnection } from "../acp.js";
 import { declineOption, unattendedMode } from "../core/chat/permissions.js";
 
 /**
@@ -172,6 +172,10 @@ async function open(agent: AcpAgent, inv: AgentInvocation, resume?: string): Pro
       console.log(`  ⚠ could not resume session ${resume} (${session.resumeError}) — a new ${agent} session starts without the earlier phases in context`);
     }
     state.sessionId = session.sessionId;
+    // Antigravity takes model and thinking depth as session settings.
+    await applyTuningConfig(agent, conn, session.sessionId, { model: inv.model, effort: inv.effort }, session.configOptions, (message) =>
+      console.log(`  ⚠ ${message} — the ${agent} default applies`)
+    );
     const modeId = unattendedMode(agent, session.modes?.currentModeId);
     if (modeId) {
       await conn.setSessionMode({ sessionId: session.sessionId, modeId }).catch((err: Error) => {

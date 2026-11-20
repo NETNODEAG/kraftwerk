@@ -9,6 +9,7 @@ const AGENTS: Array<{ id: ChatAgentId; label: string; hint: string }> = [
   { id: "claude", label: "claude", hint: "Claude Code via ACP" },
   { id: "codex", label: "codex", hint: "Codex (ChatGPT) via ACP" },
   { id: "pi", label: "pi", hint: "pi coding agent" },
+  { id: "antigravity", label: "antigravity", hint: "Google Antigravity (agy) via ACP" },
 ];
 
 /** Start a chat and open it; `project` files an agent's chat under that project (it opens there, with the project around it). */

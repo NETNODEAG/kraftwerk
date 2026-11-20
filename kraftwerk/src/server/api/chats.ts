@@ -10,6 +10,7 @@ import {
   forkChat,
   getChat,
   listAgentSessionsFor,
+  startOptionsFor,
   listChats,
   localPerson,
   postMessage,
@@ -32,7 +33,7 @@ import { MIME } from "./mime.js";
 import { projectErrors } from "./projects.js";
 import { ApiError, fail, readRawBody, reply, route, type Ctx } from "./router.js";
 
-const AGENTS: readonly string[] = ["claude", "codex", "pi"];
+const AGENTS: readonly string[] = ["claude", "codex", "pi", "antigravity"];
 
 /** A chat id that names no chat folder (or a malformed one) is a 400. */
 const validChat = <T>(p: Promise<T>, message = "invalid chat id"): Promise<T> =>
@@ -58,6 +59,8 @@ const NewChat = z.object({
   project: z.string().optional(),
   /** The board task the chat works on (<project>/<board>/<task> or <board>/<task>): listed on the task's page (meta.task). */
   task: z.string().optional(),
+  /** Settings to start with, by config id (see agents.options): applied before the first prompt. */
+  config: z.record(z.string(), z.union([z.string(), z.boolean()])).optional(),
 });
 
 /** An action on a running chat: `{ok}` when it went through, 409 with the reason when the chat refused. */
@@ -146,11 +149,11 @@ export const chatRoutes = [
     const chats = await listChats();
     return { chats: remoteCaller(c.trust) ? chats.filter((x) => !x.private) : chats };
   }),
-  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?, task?}", errors: 404, body: NewChat }, async (c) => {
+  route({ name: "chats.create", method: "POST", path: "/api/chats", summary: "start a chat {agent, scope, resume?, project?, task?, config?}", errors: 404, body: NewChat }, async (c) => {
     // `resume` continues one of the agent's own sessions (see agents.sessions).
     const body = await c.body();
     const { agent, scope } = await scopeOf(body);
-    if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, or pi");
+    if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, pi, or antigravity");
     if (body.project && scope.kind !== "agent") fail(400, "only an agent's chat takes a project");
     const project = body.project ? await projectSlug(body.project) : undefined;
     const task = body.task ? ((await findTask(body.task).catch(() => null)) ?? fail(404, `no task "${body.task}"`)).ref : undefined;
@@ -162,15 +165,25 @@ export const chatRoutes = [
         ...(project ? { project } : {}),
         ...(task ? { task } : {}),
         ...(body.resume ? { resume: body.resume } : {}),
+        ...(body.config ? { config: body.config } : {}),
       });
     } catch (err) {
       throw new ApiError(400, (err as Error).message);
     }
   }),
-  route({ name: "agents.sessions", method: "GET", path: "/api/agent-sessions", summary: "the agent's own sessions in the workspace ?agent=claude|codex|pi", errors: 502 }, async (c) => {
+  route({ name: "agents.sessions", method: "GET", path: "/api/agent-sessions", summary: "the agent's own sessions in the workspace ?agent=claude|codex|pi|antigravity", errors: 502 }, async (c) => {
     const agent = c.query.get("agent") ?? "claude";
-    if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, or pi");
+    if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, pi, or antigravity");
     return { sessions: await listAgentSessionsFor(agent as ChatAgentId) };
+  }),
+  route({ name: "agents.options", method: "GET", path: "/api/agent-options", summary: "the model and thinking depth a new chat on ?agent= can start with, as the agent announces them", errors: 502 }, async (c) => {
+    const agent = c.query.get("agent") ?? "claude";
+    if (!AGENTS.includes(agent)) fail(400, "agent must be claude, codex, pi, or antigravity");
+    try {
+      return { options: await startOptionsFor(agent as ChatAgentId) };
+    } catch (err) {
+      throw new ApiError(502, `${agent} did not answer: ${(err as Error).message}`);
+    }
   }),
   route({ name: "chats.get", method: "GET", path: "/api/chats/:id", summary: "the chat's meta and events" }, async (c) => (await validChat(getChat(c.params.id))) ?? fail(404, "not found")),
   route({ name: "chats.delete", method: "DELETE", path: "/api/chats/:id", summary: "delete the chat" }, async (c) => {

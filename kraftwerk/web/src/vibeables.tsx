@@ -312,7 +312,7 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
   const [agent, setAgent] = useState<ChatAgentId>(() => {
     try {
       const v = localStorage.getItem(AGENT_KEY);
-      return v === "codex" || v === "pi" ? v : "claude";
+      return v === "codex" || v === "pi" || v === "antigravity" ? v : "claude";
     } catch {
       return "claude";
     }
@@ -517,6 +517,7 @@ export function VibeablesScreen({ slug }: { slug?: string }) {
               <option value="claude">claude</option>
               <option value="codex">codex</option>
               <option value="pi">pi</option>
+              <option value="antigravity">antigravity</option>
             </Select>
           }
           hint="opens a chat with the app beside it"

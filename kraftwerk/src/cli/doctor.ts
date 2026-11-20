@@ -222,13 +222,15 @@ export async function runDoctor(cwd: string, opts: { fix?: boolean } = {}): Prom
   let acp = false;
   for (const e of found) {
     for (const a of e.workflow?.meta.agents ?? []) {
-      if (a.protocol === "acp") acp = true;
+      if (a.harness === "antigravity") needed.add("antigravity");
+      else if (a.protocol === "acp") acp = true;
       else needed.add(a.harness ?? "claude");
     }
   }
   if (acp) report("ok", "agent protocol adapters", "claude-agent-acp + codex-acp bundled with kraftwerk");
-  for (const harness of ["claude", "codex", "pi"]) {
-    const version = cliVersion(harness);
+  // Antigravity has no bundled adapter: its own CLI (agy) is the ACP server, needed on either protocol.
+  for (const harness of ["claude", "codex", "pi", "antigravity"]) {
+    const version = cliVersion(harness === "antigravity" ? "agy" : harness);
     const isNeeded = needed.has(harness);
     if (version) {
       report("ok", `${harness} CLI`, version);

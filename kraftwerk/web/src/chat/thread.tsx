@@ -327,7 +327,7 @@ function FailureCard({ b, chatId }: { b: Extract<Block, { kind: "failure" }>; ch
 
   async function act(action: SessionFailure["actions"][number]) {
     if (action === "login") {
-      setNote("Sign in again in a terminal (claude login, or codex login), then send your message again.");
+      setNote("Sign in again in a terminal (claude login, codex login, or agy acp --login), then send your message again.");
       return;
     }
     setSending(true);

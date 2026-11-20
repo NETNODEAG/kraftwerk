@@ -148,6 +148,7 @@ export function AgentEditor({ slug }: { slug?: string }) {
                 <option value="claude">claude</option>
                 <option value="codex">codex</option>
                 <option value="pi">pi</option>
+                <option value="antigravity">antigravity</option>
               </Select>
             </Field>
             <Field label="model" className="flex-1">

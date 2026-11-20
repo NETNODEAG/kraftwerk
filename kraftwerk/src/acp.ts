@@ -38,22 +38,31 @@ import { workspaceEnv } from "./core/env.js";
  * CLI on the PATH is needed), model/effort tuning, and spawning one adapter
  * as a subprocess speaking ACP over its stdio.
  *
- * Auth rides on the local CLI logins (Claude Code / Codex) via the
- * inherited environment — same story as the CLI harnesses.
+ * Auth rides on the local CLI logins (Claude Code / Codex / Antigravity)
+ * via the inherited environment — same story as the CLI harnesses.
+ *
+ * Antigravity is the exception to "bundled": Google ships no npm adapter,
+ * its own CLI speaks ACP natively (`agy acp`), so that one is spawned from
+ * the PATH and needs `agy` installed and logged in.
  */
 
-export type AcpAgent = "claude" | "codex";
+export type AcpAgent = "claude" | "codex" | "antigravity";
 
-const ADAPTERS: Record<AcpAgent, string> = {
+const ADAPTERS: Record<"claude" | "codex", string> = {
   claude: "@agentclientprotocol/claude-agent-acp",
   codex: "@agentclientprotocol/codex-acp",
+};
+
+/** Agents whose own CLI is the ACP server: command + args, spawned from the PATH. */
+const NATIVE: Partial<Record<AcpAgent, [string, string[]]>> = {
+  antigravity: ["agy", ["acp"]],
 };
 
 /**
  * The adapter's executable: its package's `bin` (the packages' `exports`
  * may hide dist/, and claude-agent-acp's main is a library, not the CLI).
  */
-function adapterEntry(agent: AcpAgent): string {
+function adapterEntry(agent: "claude" | "codex"): string {
   const pkgPath = fileURLToPath(import.meta.resolve(`${ADAPTERS[agent]}/package.json`));
   const bin = (JSON.parse(readFileSync(pkgPath, "utf8")) as { bin?: string | Record<string, string> }).bin;
   const rel = typeof bin === "string" ? bin : Object.values(bin ?? {})[0];
@@ -89,6 +98,38 @@ export function adapterEnv(agent: AcpAgent, tuning: { model?: string; effort?: s
     });
   }
   return env;
+}
+
+/** Effort tier -> Antigravity's thought_level choices (low | medium | high). */
+const ANTIGRAVITY_THOUGHT: Record<string, string> = { low: "low", medium: "medium", high: "high", xhigh: "high", max: "high" };
+
+/**
+ * Model/effort for an adapter that takes them as session config options
+ * (Antigravity: `model`, `thought_level`) instead of env or `_meta`: the
+ * values to set once the session is open. Only choices the session offers
+ * are set; anything else keeps the agent's default.
+ */
+export function tuningConfig(
+  agent: AcpAgent,
+  tuning: { model?: string; effort?: string },
+  options: SessionConfigOption[] | null | undefined
+): Array<{ configId: string; value: string }> {
+  if (agent !== "antigravity" || !options?.length) return [];
+  const offers = (id: string, value: string | undefined) => {
+    const o = options.find((x) => x.id === id);
+    return !!value && !!o && o.type === "select" && flatChoices(o).includes(value);
+  };
+  const out: Array<{ configId: string; value: string }> = [];
+  if (offers("model", tuning.model)) out.push({ configId: "model", value: tuning.model! });
+  const level = tuning.effort ? ANTIGRAVITY_THOUGHT[tuning.effort] : undefined;
+  if (offers("thought_level", level)) out.push({ configId: "thought_level", value: level! });
+  return out;
+}
+
+/** The values of a select option, its groups flattened. */
+function flatChoices(o: SessionConfigOption): string[] {
+  if (o.type !== "select") return [];
+  return (o.options as Array<{ value?: string; options?: Array<{ value: string }> }>).flatMap((c) => (c.options ? c.options.map((x) => x.value) : c.value ? [c.value] : []));
 }
 
 /** Kraftwerk's MCP config (stdio or url) -> the protocol's session mcpServers entries. */
@@ -334,8 +375,12 @@ export async function connectAcp(
   }
 ): Promise<AcpProcess> {
   // KRAFTWERK_ACP_ADAPTER: a script standing in for the adapter (the tests' scripted fake agent).
-  const entry = process.env.KRAFTWERK_ACP_ADAPTER || adapterEntry(agent);
-  const child = spawn(process.execPath, [entry], {
+  const fake = process.env.KRAFTWERK_ACP_ADAPTER;
+  const native = NATIVE[agent];
+  const [command, args] = fake
+    ? [process.execPath, [fake]]
+    : native ?? [process.execPath, [adapterEntry(agent as "claude" | "codex")]];
+  const child = spawn(command, args, {
     cwd: opts.cwd,
     stdio: ["pipe", "pipe", "pipe"],
     env: opts.env,
@@ -401,6 +446,35 @@ export async function withAdapter<T>(
   } finally {
     child.kill("SIGTERM");
   }
+}
+
+/**
+ * Set the model and thinking depth an adapter takes as session settings
+ * (see tuningConfig), the model first: what the thinking depth offers
+ * depends on it (agy drops thought_level for a model without levels). A
+ * refused setting is reported through `warn` and the agent's default
+ * stays. Returns the session's settings as they are afterwards.
+ */
+export async function applyTuningConfig(
+  agent: AcpAgent,
+  conn: Pick<AcpConnection, "setSessionConfigOption">,
+  sessionId: string,
+  tuning: { model?: string; effort?: string },
+  options: SessionConfigOption[] | null | undefined,
+  warn: (message: string) => void
+): Promise<SessionConfigOption[] | null | undefined> {
+  let current = options;
+  for (const configId of ["model", "thought_level"]) {
+    const c = tuningConfig(agent, tuning, current).find((x) => x.configId === configId);
+    if (!c) continue;
+    try {
+      const res = await conn.setSessionConfigOption({ sessionId, ...c });
+      if (res.configOptions) current = res.configOptions;
+    } catch (err) {
+      warn(`could not set ${c.configId} to ${c.value} (${(err as Error).message})`);
+    }
+  }
+  return current;
 }
 
 /** The subset of the connection a session open needs (a test can stand in for it). */

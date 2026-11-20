@@ -1,10 +1,10 @@
-import { useEffect } from "react";
-import type { Agent } from "../types";
+import { useEffect, useState } from "react";
+import type { Agent, ChatAgentId, ConfigOption } from "../types";
 import { SessionHome, createSession, type HomeChat } from "../session-home";
-import { api, useApi } from "../api";
+import { api, failure, useApi } from "../api";
 import { navigate } from "../shared";
 import type { Session } from "../sessions";
-import { Button, EmptyState } from "../ui";
+import { Button, EmptyState, Select } from "../ui";
 
 /**
  * Landings: the overviews of an agent and of Ralv (`SessionHome`), and
@@ -55,13 +55,15 @@ export function AgentHome({ slug }: { slug: string }) {
  * are no tabs.
  */
 export function RalvHome() {
+  const start = useStartChoice();
   const chats = useApi("chats.list", {});
   const projects = useApi("projects.list", {}, { interval: 60_000 });
   const projectTitle = (p: string) => projects?.projects.find((x) => x.slug === p)?.title ?? p;
   return (
     <SessionHome
       placeholder="New chat with Ralv"
-      byDefault={{ emoji: "🎩", name: "Ralv", sub: "chief of staff: knows the workspace, advises, launches things", hint: "claude · knows the workspace" }}
+      byDefault={{ emoji: "🎩", name: "Ralv", sub: "chief of staff: knows the workspace, advises, launches things", hint: "knows the workspace" }}
+      defaultControls={<StartPicker {...start} />}
       agentHint="opens in the agent's sessions"
       placeOf={(c) => (projectOf(c) ? `📁 ${projectTitle(projectOf(c)!)}` : undefined)}
       sessions={chats ? (allChats(chats.chats) as HomeChat[]) : null}
@@ -76,9 +78,115 @@ export function RalvHome() {
             project ? inProject : (id) => `/agents/${encodeURIComponent(agent)}/chat/${id}`,
           );
         if (project) return createSession({ agent: project.harness, scope: { kind: "project", slug: project.slug } }, inProject);
-        return createSession({ agent: "claude", scope: { kind: "kraftwerk" } }, (id) => `/agents/chats/${id}`);
+        return createSession({ agent: start.agent, scope: { kind: "kraftwerk" }, ...(start.config ? { config: start.config } : {}) }, (id) => `/agents/chats/${id}`);
       }}
     />
+  );
+}
+
+/* ---------- what Ralv runs on ---------- */
+
+const START_AGENTS: ChatAgentId[] = ["claude", "codex", "antigravity", "pi"];
+const START_KEY = "kw-ralv-start";
+
+interface StartChoice {
+  agent: ChatAgentId;
+  /** Picked settings by config id (model, thinking depth); absent = the agent's default. */
+  picks: Record<string, string>;
+}
+
+function readStart(): StartChoice {
+  try {
+    const v = JSON.parse(localStorage.getItem(START_KEY) ?? "null") as StartChoice | null;
+    if (v && START_AGENTS.includes(v.agent)) return { agent: v.agent, picks: v.picks ?? {} };
+  } catch {
+    /* no storage: the defaults */
+  }
+  return { agent: "claude", picks: {} };
+}
+
+/**
+ * Which agent a new Ralv chat runs on and with which model and thinking
+ * depth — remembered in this browser. The choices are the ones the agent
+ * announces for this login (agents.options), so they are never a stale
+ * list; a pick the agent no longer offers falls back to its default.
+ */
+function useStartChoice() {
+  const [choice, setChoice] = useState<StartChoice>(readStart);
+  // The server caches what each agent offers; asking again on every switch is cheap after the first time.
+  const [offered, setOffered] = useState<{ agent: ChatAgentId; options: ConfigOption[]; error?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api.request("agents.options", { query: { agent: choice.agent } }).then((r) => {
+      if (alive) setOffered(r.ok ? { agent: choice.agent, options: r.data.options } : { agent: choice.agent, options: [], error: failure(r) });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [choice.agent]);
+  const mine = offered?.agent === choice.agent ? offered : null;
+  const options = mine?.options ?? [];
+  const save = (next: StartChoice) => {
+    setChoice(next);
+    try {
+      localStorage.setItem(START_KEY, JSON.stringify(next));
+    } catch {
+      /* not remembered */
+    }
+  };
+  const valid = Object.entries(choice.picks).filter(([id, v]) => options.some((o) => o.id === id && o.type === "select" && o.choices.some((c) => c.value === v)));
+  return {
+    agent: choice.agent,
+    picks: choice.picks,
+    options,
+    loading: !mine,
+    error: mine?.error,
+    config: valid.length ? Object.fromEntries(valid) : undefined,
+    setAgent: (agent: ChatAgentId) => save({ agent, picks: {} }),
+    pick: (id: string, value: string) => {
+      const picks = { ...choice.picks };
+      if (value) picks[id] = value;
+      else delete picks[id];
+      save({ ...choice, picks });
+    },
+  };
+}
+
+const pill = "h-8 w-auto max-w-[220px] rounded-full border-0 bg-transparent text-sm font-medium hover:bg-surface-2";
+
+function StartPicker({ agent, picks, options, loading, error, setAgent, pick }: ReturnType<typeof useStartChoice>) {
+  return (
+    <>
+      <Select aria-label="agent" value={agent} onChange={(e) => setAgent(e.target.value as ChatAgentId)} className={pill}>
+        {START_AGENTS.map((a) => (
+          <option key={a} value={a}>
+            {a}
+          </option>
+        ))}
+      </Select>
+      {loading && <span className="px-2 text-xs text-fg-2">asking {agent} for its models…</span>}
+      {error && (
+        <span className="max-w-[260px] truncate px-2 text-xs text-bad" title={error}>
+          {agent} did not answer — its default model
+        </span>
+      )}
+      {options.map((o) =>
+        o.type !== "select" ? null : (
+          <Select key={o.id} aria-label={o.category === "model" ? "model" : "thinking"} value={picks[o.id] ?? ""} onChange={(e) => pick(o.id, e.target.value)} className={pill}>
+            <option value="">
+              {o.category === "model" ? "model" : "thinking"}: default{o.value === "default" ? "" : ` (${o.choices.find((c) => c.value === o.value)?.name ?? o.value})`}
+            </option>
+            {o.choices
+              .filter((c) => c.value !== "default")
+              .map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.name}
+                </option>
+              ))}
+          </Select>
+        ),
+      )}
+    </>
   );
 }
 

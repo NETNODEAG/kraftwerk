@@ -3,7 +3,8 @@ import { workspaceRoot } from "../context.js";
 import { safeRunDir } from "../runs.js";
 import { getAgent } from "../agents.js";
 import { resolveVibeable } from "../vibeables.js";
-import { deleteAgentSession, listAgentSessions } from "./acp.js";
+import { announcedOptions, deleteAgentSession, listAgentSessions } from "./acp.js";
+import { listPiModels, piOptions } from "./pi.js";
 import { chatHref, pushNotification } from "../notifications.js";
 import { readIdentity } from "../identity.js";
 import type { Attachment, ChatAgentId, ChatMeta, ConfigOption, ChatPerson, ChatScope, ElicitationAnswer, StoredChatEvent } from "./types.js";
@@ -67,6 +68,8 @@ export async function createChat(opts: {
   author?: ChatPerson;
   /** A private routine's run: hidden from remote callers (meta.private). */
   private?: boolean;
+  /** Settings to start with (model, thinking depth, by config id): applied before the first prompt (meta.pendingConfig). */
+  config?: Record<string, string | boolean>;
 }): Promise<ChatMeta> {
   const cwd = defaultCwd(opts.scope);
   const now = new Date().toISOString();
@@ -82,6 +85,7 @@ export async function createChat(opts: {
     ...(opts.resume && opts.agent !== "pi" ? { sessions: { [MAIN]: opts.resume } } : {}),
     author,
     ...(opts.private ? { private: true } : {}),
+    ...(opts.config && Object.keys(opts.config).length ? { pendingConfig: opts.config } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -374,7 +378,7 @@ export async function setChatVibeable(
  * Fork a chat: a new chat with the same transcript whose agent continues
  * from a copy of this session (session/fork) — try something without
  * losing the original thread. Needs a session to fork: an agent that keeps
- * one (claude, codex — pi has no ACP session) that has answered at least
+ * one (claude — codex and antigravity have no fork, pi has no ACP session) that has answered at least
  * once. The source's process is (re)spawned if needed; the fork's own
  * process starts with its first message and resumes the forked id.
  */
@@ -384,7 +388,7 @@ export async function forkChat(id: string, by?: ChatPerson): Promise<{ error?: s
   const { meta } = state;
   if (meta.scope.kind === "channel") return { error: "a channel cannot be forked", status: 409 };
   if (meta.agent === "pi") return { error: "pi chats have no session to fork", status: 409 };
-  if (meta.agent === "codex") return { error: "fork is not supported by codex", status: 409 };
+  if (meta.agent === "codex" || meta.agent === "antigravity") return { error: `fork is not supported by ${meta.agent}`, status: 409 };
   if (!meta.sessions?.[MAIN]) return { error: "nothing to fork yet — the agent has not answered in this chat", status: 409 };
   if (isBusy(state)) return { error: "agent is still working — wait for the turn to finish", status: 409 };
   const seat = mainSeat(state);
@@ -516,6 +520,29 @@ async function pendConfig(state: NonNullable<Awaited<ReturnType<typeof loadState
 export async function listAgentSessionsFor(agent: ChatAgentId): Promise<Array<{ sessionId: string; title?: string; updatedAt?: string; cwd: string }>> {
   if (agent === "pi") return [];
   return listAgentSessions(agent, workspaceRoot());
+}
+
+// What each agent offers, per workspace: asking means starting the agent (a second or two), and it changes only with its login or version.
+const offered = new Map<string, { at: number; options: Promise<ConfigOption[]> }>();
+const OFFERED_TTL_MS = 30 * 60_000;
+
+/**
+ * The model and thinking depth a new chat on `agent` can start with — the
+ * choices the agent itself announces (they depend on its login and
+ * version, so there is no fixed list); pi's from `pi --list-models`.
+ */
+export async function startOptionsFor(agent: ChatAgentId): Promise<ConfigOption[]> {
+  if (agent === "pi") return piOptions(await listPiModels());
+  const cwd = workspaceRoot();
+  const key = `${cwd}\0${agent}`;
+  let hit = offered.get(key);
+  if (!hit || Date.now() - hit.at > OFFERED_TTL_MS) {
+    hit = { at: Date.now(), options: announcedOptions(agent, cwd).then((all) => all.filter((o) => o.category === "model" || o.category === "thought_level")) };
+    offered.set(key, hit);
+    // A failed ask (agent not installed, logged out) is asked again next time.
+    hit.options.catch(() => offered.delete(key));
+  }
+  return hit.options;
 }
 
 export async function resolvePermission(

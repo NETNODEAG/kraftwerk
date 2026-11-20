@@ -39,7 +39,7 @@ nothing to register.
      sequences fit YAML; if the requirements demand loops or human approval
      gates, STOP and tell the user this needs a TypeScript workflow instead.
    - **Agents**: one per role — persona (WHO), model + optional effort (WHAT
-     thinks), tools (governance), \`runs-on\` (WHERE: claude | codex | pi).
+     thinks), tools (governance), \`runs-on\` (WHERE: claude | codex | pi | antigravity).
    - **Gates** per step: what file evidence proves the step worked?
 3. Write \`${root}/<name>/workflow.yml\`. Complete example of every feature:
 
@@ -66,7 +66,7 @@ nothing to register.
        persona: |
          You analyze brands based on their website ...
      writer:
-       runs-on: codex           # optional: claude (default) | codex | pi
+       runs-on: codex           # optional: claude (default) | codex | pi | antigravity
        model: gpt-5.6-sol
        effort: high             # optional: low | medium | high | xhigh | max
        tools: [Read, Write, Edit]

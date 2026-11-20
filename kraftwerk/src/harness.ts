@@ -12,12 +12,13 @@
  * run directory (the workspace-context contract).
  */
 
-export type HarnessId = "claude" | "codex" | "pi";
+export type HarnessId = "claude" | "codex" | "pi" | "antigravity";
 
 /**
  * How the harness is driven: `cli` spawns the headless CLI per phase
  * (claude -p, codex exec, pi); `acp` keeps one Agent Client Protocol
- * adapter alive for the run (see harnesses/acp.ts). pi has no adapter.
+ * adapter alive for the run (see harnesses/acp.ts). pi has no adapter;
+ * antigravity has nothing but one (`agy acp`), so it always runs over ACP.
  */
 export type AgentProtocol = "cli" | "acp";
 

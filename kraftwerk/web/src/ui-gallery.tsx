@@ -66,7 +66,7 @@ export function UiGallery() {
               <TextField placeholder="e.g. Max" />
             </Field>
             <Field label="Harness">
-              <Select defaultValue="claude"><option>claude</option><option>codex</option><option>pi</option></Select>
+              <Select defaultValue="claude"><option>claude</option><option>codex</option><option>pi</option><option>antigravity</option></Select>
             </Field>
             <Field label="Role">
               <TextArea rows={3} placeholder="What this agent does" />

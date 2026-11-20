@@ -48,4 +48,11 @@ describe("unattended session mode", () => {
     assert.equal(unattendedMode("codex", "agent-full-access"), "agent");
     assert.equal(unattendedMode("codex", undefined), "agent");
   });
+
+  it("keeps antigravity's auto and accept-edits, lifts default", () => {
+    assert.equal(unattendedMode("antigravity", "auto"), null);
+    assert.equal(unattendedMode("antigravity", "accept-edits"), null);
+    assert.equal(unattendedMode("antigravity", "default"), "accept-edits");
+    assert.equal(unattendedMode("antigravity", undefined), "accept-edits");
+  });
 });

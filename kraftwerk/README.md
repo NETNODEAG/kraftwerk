@@ -486,7 +486,7 @@ For a client of your own, `@netnodeag/kraftwerk/client` takes the token:
 
 The repo root ships [`deploy-starter/`](../deploy-starter/). Copy it into your
 consumer repo as `deploy/` and it builds a small image, this package from npm
-plus the claude, codex and pi CLIs, that serves `kraftwerk ui` for that repo
+plus the claude, codex, pi and agy CLIs, that serves `kraftwerk ui` for that repo
 bind-mounted at `/work`. `compose.yml` is localhost-only, reachable over an
 SSH tunnel. `compose.traefik.yml` layers traefik routing and mandatory
 basic-auth on top. Treat that auth as load-bearing. In a container the UI
@@ -569,7 +569,7 @@ record** and the **links**:
 title: Relaunch netnode.ch
 status: active
 goal: Ship the new site on NodeHive by 2026-11-30
-harness: claude                 # claude | codex | pi — every chat in the project runs on it
+harness: claude                 # claude | codex | pi | antigravity — every chat in the project runs on it
 model: sonnet                   # optional, like an agent's
 effort: high                    # optional: low | medium | high | xhigh | max
 records:
@@ -1027,7 +1027,7 @@ agents/max/
 name: Max
 emoji: 🛠️
 description: Runs and explains this project's workflows
-harness: claude        # claude | codex | pi (which chat backend runs it)
+harness: claude        # claude | codex | pi | antigravity (which chat backend runs it)
 model: sonnet          # optional; harness default when omitted
 effort: medium         # optional: low | medium | high | xhigh | max
 workflows: [tagline, website-check]
@@ -1395,7 +1395,7 @@ agents:
 export const desloper = defineAgent({
   id: "desloper",
   name: "Lektorat",
-  harness: "codex",                 // WHERE it runs: claude (default) | codex | pi
+  harness: "codex",                 // WHERE it runs: claude (default) | codex | pi | antigravity
   model: "gpt-5.6-sol",             // WHAT thinks, in the harness's naming
   effort: "high",                   // optional: low | medium | high | xhigh | max
   tools: ["Read", "Write", "Edit"], // governance: capability boundary
@@ -1450,19 +1450,29 @@ Prerequisites per harness:
 - **pi** needs `npm install -g @earendil-works/pi-coding-agent`. Anthropic
   models reuse the Claude subscription OAuth, other vendors need their key in
   the env (check with `pi auth check --provider deepseek`).
+- **antigravity** needs Google's Antigravity CLI (`agy`) on the PATH and
+  logged in (`agy acp --login`). It has no headless CLI mode kraftwerk
+  drives: its CLI *is* an ACP server (`agy acp`), so `runs-on: antigravity`
+  always runs over the agent protocol, whatever `protocol` says. `model`
+  picks one of the models `agy models` lists; `effort` becomes its
+  thinking level (low / medium / high; xhigh and max are high) where the
+  model has one. MCP servers reach it the protocol's way (session
+  `mcpServers`). Chats on it cannot be forked.
 
 ### Agent protocol
 
 Phases can also run over the [Agent Client Protocol](https://agentclientprotocol.com)
 — the same adapters the inspector's chats use (`claude-agent-acp`,
-`codex-acp`), bundled with kraftwerk, so nothing needs to be on the PATH.
+`codex-acp`), bundled with kraftwerk, so nothing needs to be on the PATH —
+except for antigravity, whose own CLI is the adapter (`agy acp`).
 Set `protocol: acp` at the top of a workflow (every agent) or on one agent;
 `runs-on` still picks the harness (pi has no adapter). The adapter process
 stays alive for the whole run, so phases on one harness share a session
 like `--resume` does on the CLI. Persona and workspace context travel inside
 each phase prompt. On claude the agent's `tools`, CLI grants and MCP servers
 become the session's allowlist (settings sources off) and the session is
-switched to `acceptEdits`; codex runs in its workspace-write mode. A permission request the harness
+switched to `acceptEdits`; codex runs in its workspace-write mode,
+antigravity in `accept-edits`. A permission request the harness
 still raises is declined — nobody watches a workflow run, and kraftwerk
 never answers for a human. A programmatic `Run` ends its adapters with
 `disposeAcpSessions(runDir)` (the YAML runner does this itself).
@@ -1500,7 +1510,7 @@ workspace: |
   Dateien: brand.md, tagline.md
 agents:
   analyst:
-    runs-on: claude              # claude (default) | codex | pi
+    runs-on: claude              # claude (default) | codex | pi | antigravity
     model: haiku                 # effort: low..max optional
     tools: [Read, Write, Edit, WebFetch]
     persona: |
