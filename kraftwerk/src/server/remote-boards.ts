@@ -1,4 +1,4 @@
-import { resolveWorkspace } from "../config.js";
+import { resolveWorkspace, usersMode } from "../config.js";
 import { readAccountFile } from "../core/cloud.js";
 import { workspaceRoot } from "../core/context.js";
 import { ApiError } from "./api/router.js";
@@ -23,6 +23,10 @@ import type { Trust } from "./trust.js";
  * the cloud never takes a human actor from a machine. The cloud allows a
  * machine to act only for its account and the people who signed in to it.
  *
+ * New cloud boards are made in cloud mode only (kraftwerk.yml `users:
+ * cloud`); a workspace in local mode with an id keeps the ones it has, and
+ * one without an id has none (409 with `local: true`).
+ *
  * Offline is offline: no cache. With the machine not connected (cloud off,
  * not claimed, the workspace without a ws_ id) or the cloud not answering,
  * calls fail 503 with `offline: true` and the UI marks remote boards offline.
@@ -44,21 +48,39 @@ const READ_TIMEOUT_MS = 4_000;
 const DOWN_FOR_MS = 15_000;
 let down: { until: number; why: string } | null = null;
 
+export const LOCAL_MODE = "this workspace runs locally — switch it to cloud mode (settings → local or cloud, or `kraftwerk cloud connect`) for new cloud boards";
+
+const localMode = (): ApiError => new ApiError(409, LOCAL_MODE, { error: LOCAL_MODE, local: true });
+
+/** Whether this workspace is in local mode (kraftwerk.yml `users:`). */
+export async function inLocalMode(): Promise<boolean> {
+  const ws = await resolveWorkspace(workspaceRoot()).catch(() => null);
+  return !ws || usersMode(ws.config) !== "cloud";
+}
+
+/** New cloud boards only in cloud mode: 409 `local: true` otherwise. */
+export async function requireCloudMode(): Promise<void> {
+  if (await inLocalMode()) throw localMode();
+}
+
 const offline = (why: string): ApiError => new ApiError(503, why, { error: why, offline: true });
 
 /** The ws_ id of the workspace this request is in; 409 without one (`kraftwerk doctor --fix` writes it). */
 export async function remoteWorkspaceId(): Promise<string> {
   const ws = await resolveWorkspace(workspaceRoot());
   const id = ws.config.id;
+  // A workspace in local mode without an id has no cloud boards; one with an id keeps reaching those it has
+  // (made before cloud mode existed) — new ones need cloud mode (requireCloudMode).
+  if (!id && usersMode(ws.config) !== "cloud") throw localMode();
   if (!id) throw new ApiError(409, "this workspace has no id yet — `kraftwerk doctor --fix` gives it one", { error: "this workspace has no id yet — `kraftwerk doctor --fix` gives it one", offline: true });
   return id;
 }
 
 export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> {
   if (trust.kind === "member") throw new ApiError(403, "remote boards are in kraftwerk cloud — open them there");
+  const wsId = await remoteWorkspaceId();
   const link = machineLink();
   if (!link) throw offline("kraftwerk cloud is off or not connected on this machine");
-  const wsId = await remoteWorkspaceId();
   const [person, account] = await Promise.all([personOf(trust), readAccountFile()]);
   if (!account) throw offline("this machine is not claimed by a cloud account — `kraftwerk login`");
   const as = person.id && person.id !== account.id ? person.id : undefined;

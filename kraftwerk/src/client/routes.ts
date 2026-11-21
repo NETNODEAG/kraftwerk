@@ -208,6 +208,8 @@ export const ROUTES = {
   "workflows.list": ["GET", "/api/workflows"],
   "workflows.run": ["POST", "/api/workflows/:slug/run"],
   "workflows.runner": ["GET", "/api/workflows/:slug/run"],
+  "workspace.cloud.get": ["GET", "/api/workspace/cloud"],
+  "workspace.cloud.set": ["POST", "/api/workspace/cloud"],
   "workspaces.forget": ["POST", "/api/workspaces/forget"],
   "workspaces.list": ["GET", "/api/workspaces"],
   "workspaces.start": ["POST", "/api/workspaces/start"],

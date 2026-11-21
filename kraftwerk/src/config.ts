@@ -274,6 +274,14 @@ export type UsersMode = "local" | "cloud";
 /** A workspace's users mode: `cloud` only when kraftwerk.yml says so. */
 export const usersMode = (config: WorkspaceConfig): UsersMode => (config.users?.mode === "cloud" ? "cloud" : "local");
 
+/**
+ * Whether the machine's cloud record lists this workspace. `cloud.enabled:
+ * false` leaves a workspace in local mode out (its minimal usage report);
+ * a workspace in cloud mode is always in, since cloud mode needs the cloud
+ * to know it — and switching back to local finds the opt-out still there.
+ */
+export const cloudIncluded = (config: WorkspaceConfig): boolean => usersMode(config) === "cloud" || config.cloud?.enabled !== false;
+
 export const CLOUD_DEFAULT_URL = "https://srv.kraftwerk-cloud.netnode.cloud";
 
 /** A directory as a .gitignore entry: relative, forward slashes, no trailing slash; undefined outside the root. */

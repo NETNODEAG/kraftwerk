@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import chalk from "chalk";
 import { machineCloud } from "../core/cloud.js";
-import { addWorkspaceId, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
+import { addWorkspaceId, cloudIncluded, ignoreEntryFor, isDir, reposRootFor, resolveWorkspace, workspaceSlug } from "../config.js";
 import { discoverWorkflows } from "../discover.js";
 import { missingEnv } from "../yaml.js";
 import { applyDotenv, DOTENV_FILE } from "../dotenv.js";
@@ -190,7 +190,7 @@ export async function runDoctor(cwd: string, opts: { fix?: boolean } = {}): Prom
   // The kraftwerk cloud: the daemon registers the machine; doctor only says what would happen to this workspace.
   const ymlCloud = project.config.cloud;
   const cloud = await machineCloud(ymlCloud?.url ? [ymlCloud.url] : []);
-  if (ymlCloud?.enabled === false) {
+  if (!cloudIncluded(project.config)) {
     report("info", "cloud: this workspace is left out", "cloud.enabled: false in kraftwerk.yml — the machine's cloud record does not list it");
   } else if (!cloud.enabled) {
     report("info", "cloud: off", cloud.reason ?? "");

@@ -1297,6 +1297,13 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
           ))}
           {data && !data.enabled && <SideNote>{data.error}</SideNote>}
           {data?.enabled && boards.length === 0 && <SideNote>no {project ? "" : "workspace "}boards yet</SideNote>}
+          {!project && data && "cloud" in data && data.cloud?.local && (
+            <SideNote>
+              <a href="#/settings/cloud" className="inline-flex items-center gap-1 text-accent" title="Cloud boards are shared with everyone on the workspace — they need cloud mode">
+                <Icon name="cloud" className="ms-sm" /> shared boards: try cloud mode
+              </a>
+            </SideNote>
+          )}
           {!project && data && "cloud" in data && data.cloud?.offline && (
             <SideNote>
               <span className="inline-flex items-center gap-1" title={data.cloud.error}>
@@ -1357,10 +1364,10 @@ function Redirect({ to }: { to: string }) {
   return <EmptyState>opening the board…</EmptyState>;
 }
 
-function NewBoard({ root, project, cloudState }: { root?: string; project?: string; cloudState?: { offline?: boolean; error?: string } }) {
+function NewBoard({ root, project, cloudState }: { root?: string; project?: string; cloudState?: { local?: boolean; offline?: boolean; error?: string } }) {
   const [title, setTitle] = useState("");
   // Only a workspace board can live in the cloud; offered while the cloud answers.
-  const cloudOk = !project && !!cloudState && !cloudState.error;
+  const cloudOk = !project && !!cloudState && !cloudState.error && !cloudState.local;
   const [where, setWhere] = useState<"local" | "cloud">("local");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1395,8 +1402,14 @@ function NewBoard({ root, project, cloudState }: { root?: string; project?: stri
               <Field label="where">
                 <Select value={where} aria-label="where the board lives" onChange={(e) => setWhere(e.target.value as "local" | "cloud")}>
                   <option value="local">this workspace's files — single player</option>
-                  <option value="cloud" disabled={!cloudOk}>kraftwerk cloud — shared with everyone on the workspace{cloudOk ? "" : cloudState?.offline ? " (offline)" : " (not available)"}</option>
+                  <option value="cloud" disabled={!cloudOk}>kraftwerk cloud — shared with everyone on the workspace{cloudOk ? "" : cloudState?.local ? " (needs cloud mode)" : cloudState?.offline ? " (offline)" : " (not available)"}</option>
                 </Select>
+                {cloudState?.local && (
+                  <Hint className="mt-1.5">
+                    <Icon name="cloud" className="ms-sm align-[-3px] text-accent" /> Want to share a board with others? Cloud boards need the workspace in cloud mode —{" "}
+                    <a href="#/settings/cloud" className="text-accent">switch to cloud</a>.
+                  </Hint>
+                )}
               </Field>
             )}
             <FieldRow>

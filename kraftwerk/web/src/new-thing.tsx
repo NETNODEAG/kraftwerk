@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { api, failure, useApi } from "./api";
 import { ChatCard, OpenHere, ProjectSelect, WhoSelect, startChat, useOpen, useProjectChoices } from "./chat-card";
 import { NewEntityForm, type EntityKind } from "./entities";
+import { useWorkspaceCloud } from "./cloud-mode";
 import { RunForm } from "./run-launcher";
 import { Icon } from "./shared";
 import { Button, Checkbox, Field, FieldRow, FormStack, IconButton, Select, TextField } from "./ui";
@@ -253,6 +254,9 @@ export function QuickTask({ project, onMade }: { project?: string; onMade?: (t: 
 function NewBoardForm({ project, onMade, onCancel }: { project?: string; onMade: (board: string) => void; onCancel: () => void }) {
   const [title, setTitle] = useState("");
   const [inCloud, setInCloud] = useState(false);
+  // Cloud boards need the workspace in cloud mode (cloud-mode.tsx); in local mode the option says so.
+  // Unknown (a paired device, which cannot ask, or an older server): offered as before; the server says no if it must.
+  const local = useWorkspaceCloud().cloud?.mode === "local";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const create = async () => {
@@ -281,10 +285,16 @@ function NewBoardForm({ project, onMade, onCancel }: { project?: string; onMade:
         hint={inCloud ? "Kept in kraftwerk cloud: everyone on the workspace sees and edits it; tasks go to people or agents." : "Starts with the columns Draft, Todo, In progress, Review and Done; change them in the board's settings."}
       />
       {/* Only a workspace board can live in the cloud. */}
-      {!project && (
+      {!project && !local && (
         <Checkbox checked={inCloud} onChange={setInCloud} className="mt-3 text-sm">
           in kraftwerk cloud — shared with everyone on the workspace
         </Checkbox>
+      )}
+      {!project && local && (
+        <p className="m-0 mt-3 text-xs text-fg-2">
+          <Icon name="cloud" className="ms-sm align-[-3px] text-accent" /> Shared with others? Cloud boards need cloud mode —{" "}
+          <a href="#/settings/cloud" className="text-accent">switch to cloud</a>.
+        </p>
       )}
     </>
   );

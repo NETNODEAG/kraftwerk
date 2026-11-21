@@ -1,3 +1,4 @@
+import { CloudModePanel } from "./cloud-mode";
 import { DevicesPanel } from "./devices";
 import { useEffect, useState, type ReactNode } from "react";
 import { api, useApi } from "./api";
@@ -155,7 +156,7 @@ interface CloudMeta {
  * screen is open, because the claim happens in the cloud and reaches the
  * daemon with the next heartbeat.
  */
-function CloudPanel() {
+export function CloudPanel() {
   const [cloud, setCloud] = useState<CloudMeta | null>(null);
   const [copied, setCopied] = useState(false);
   // While the claim page is open in another tab, sync every 2 s so the claim lands here in seconds, not a heartbeat.
@@ -199,7 +200,7 @@ function CloudPanel() {
     <Panel
       title={
         <span className="inline-flex items-center gap-2">
-          cloud <Tag tone={tone}>{word}</Tag>
+          this machine in the cloud <Tag tone={tone}>{word}</Tag>
         </span>
       }
       actions={
@@ -580,7 +581,7 @@ export function SettingsScreen() {
         ))}
       </Panel>
 
-      <CloudPanel />
+      <CloudModePanel />
       <DevicesPanel />
 
       <Panel

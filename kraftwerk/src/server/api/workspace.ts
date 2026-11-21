@@ -1,6 +1,6 @@
 import path from "node:path";
 import * as z from "zod";
-import { absolutePath, resolveWorkspace, slugFromFolder, usersMode, workspaceSlug } from "../../config.js";
+import { absolutePath, cloudIncluded, resolveWorkspace, slugFromFolder, usersMode, workspaceSlug } from "../../config.js";
 import { disposeAllBackends } from "../../core/chat/sessions.js";
 import { cloudStatus } from "../cloud.js";
 import { workspaceRoot } from "../../core/context.js";
@@ -123,7 +123,7 @@ export const workspaceRoutes = [
       /** @deprecated Always "": the Cloudflare Tunnel that set it was removed in 0.65. Removed with protocol 2. */
       publicUrl: "",
       // The machine's cloud record (only the daemon registers one); `included`: this workspace rides along (no cloud.enabled: false veto).
-      cloud: { ...cloudStatus(), included: ws?.config.cloud?.enabled !== false },
+      cloud: { ...cloudStatus(), included: ws ? cloudIncluded(ws.config) : true },
       switcher,
     };
   }),

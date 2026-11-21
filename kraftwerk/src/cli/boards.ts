@@ -21,15 +21,15 @@ import {
   saveTask,
   type BoardDetail,
   type BoardRef,
+  type BoardSummary,
   type TaskDetail,
   type TaskSummary,
 } from "../core/boards.js";
 import { taskSessions, type TaskSession } from "../core/board-wake.js";
+import { workspaceCall } from "./daemon-call.js";
 import { initContext as prepare } from "./routines.js";
 import { fmtAgo } from "./workspaces.js";
 import { actorFor } from "../core/person.js";
-import { resolveWorkspace, workspaceSlug } from "../config.js";
-import { findDaemon } from "../core/daemon.js";
 
 /**
  * `kraftwerk boards` and `kraftwerk tasks` — the boards (columns of tasks)
@@ -100,18 +100,7 @@ const isCloud = (w: Where): boolean => !!w.board?.trim().startsWith("@");
 
 /** The boards API of this workspace on the running daemon — the way to a cloud board. */
 async function cloudApi<T>(method: string, route: string, body?: unknown): Promise<T> {
-  const ws = await resolveWorkspace(process.cwd());
-  const daemon = await findDaemon();
-  if (!daemon) die("cloud boards go through the daemon, and it is not running — `kraftwerk daemon start`");
-  const r = await fetch(`http://127.0.0.1:${daemon!.port}/w/${encodeURIComponent(workspaceSlug(ws))}${route}`, {
-    method,
-    headers: body !== undefined ? { "content-type": "application/json" } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(20_000),
-  }).catch((err: Error) => die(`the daemon did not answer: ${err.message}`));
-  const data = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) die(data.error ?? `${r.status} from the daemon`);
-  return data;
+  return workspaceCall<T>(method, route, body).catch((err: Error) => die(err.message));
 }
 const cloudTask = (w: Where, task: string, rest = ""): string => `/api/boards/${encodeURIComponent(w.board!.trim())}/tasks/${encodeURIComponent(task)}${rest}`;
 
@@ -225,8 +214,17 @@ export function registerBoardCommands(program: Command): void {
     .option("--columns <list>", "Comma-separated column slugs")
     .option("--agent <slug>", "Default agent: tasks entering todo unassigned go to it")
     .option("--notes <text>", "The board's rules (the body of board.md)")
+    .option("--cloud", "Keep it in kraftwerk cloud, shared with everyone on the workspace (cloud mode: `kraftwerk cloud connect`)")
     .option("--json", "Print the board as JSON")
-    .action(async (title: string, opts: { project?: string; slug?: string; columns?: string; agent?: string; notes?: string; json?: boolean }) => {
+    .action(async (title: string, opts: { project?: string; slug?: string; columns?: string; agent?: string; notes?: string; cloud?: boolean; json?: boolean }) => {
+      if (opts.cloud) {
+        if (opts.project) die("a cloud board belongs to the workspace, not a project — drop --project");
+        if (opts.agent || opts.notes) die("a cloud board has no default agent or rules — drop --agent and --notes");
+        const b = await cloudApi<BoardSummary>("POST", "/api/boards", { title, cloud: true, ...(opts.slug ? { slug: opts.slug } : {}), ...(opts.columns ? { columns: opts.columns.split(",").map((s) => s.trim()).filter(Boolean) } : {}) });
+        if (opts.json) console.log(JSON.stringify(b, null, 2));
+        else console.log(`${chalk.green("✔")} ${chalk.cyan(b.board)} ${chalk.dim(`in kraftwerk cloud (columns: ${b.columns.map((c) => c.slug).join(", ")})`)}`);
+        return;
+      }
       await prepare();
       try {
         const b = await createBoard({ project: opts.project, title, slug: opts.slug, columns: opts.columns ? opts.columns.split(",").map((s) => s.trim()).filter(Boolean) : undefined, agent: opts.agent, notes: opts.notes });

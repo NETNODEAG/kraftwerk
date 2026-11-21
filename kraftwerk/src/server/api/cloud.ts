@@ -2,7 +2,8 @@ import * as z from "zod";
 import { writeCloudFile } from "../../core/cloud.js";
 import { applyMachineCloud, cloudStatus, createWorkspaceInvite, syncMachineCloud, unlinkMachineCloud } from "../cloud.js";
 import { currentHub } from "../hub-context.js";
-import { route } from "./router.js";
+import { setWorkspaceCloud, workspaceCloud } from "../workspace-cloud.js";
+import { fail, route } from "./router.js";
 
 /**
  * The machine in the kraftwerk cloud (server/cloud.ts): its record, turning
@@ -55,4 +56,24 @@ export const cloudRoutes = [
     daemon: currentHub().daemon === true,
     ...(await unlinkMachineCloud()),
   })),
+  // This workspace's mode — local or cloud — as one switch (server/workspace-cloud.ts).
+  route({ name: "workspace.cloud.get", method: "GET", path: "/api/workspace/cloud", summary: "this workspace's mode (local | cloud) and the steps cloud mode needs: machine on, claimed, workspace id, sign-in", access: "local" }, async () =>
+    workspaceCloud(),
+  ),
+  route(
+    {
+      name: "workspace.cloud.set",
+      method: "POST",
+      path: "/api/workspace/cloud",
+      summary: "switch this workspace to local or cloud {mode}; cloud does every step it can and answers next: \"claim\" while the browser has to claim the machine",
+      access: "local",
+      errors: 400,
+      body: z.object({ mode: z.enum(["local", "cloud"]) }),
+    },
+    async (c) => {
+      // In cloud mode only an owner switches the workspace back.
+      if (c.trust.kind === "local" && c.trust.user && c.trust.user.role !== "owner") fail(403, "only an owner of the workspace switches its mode");
+      return setWorkspaceCloud((await c.body()).mode);
+    },
+  ),
 ];

@@ -253,4 +253,79 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     const t = await browser("/w/solo/api/boards/ops/tasks", { origin: true, body: { title: "Plan" } });
     assert.match(((await t.json()) as { log: string }).log, /\(human:studio-owner\)/);
   });
+
+  it("local or cloud is one switch: cloud does every step (id, sign-in), waits for a claim, and local goes back with the opt-out intact", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const yml = path.join(b.root, "kraftwerk.yml");
+    // A workspace without an id that left itself out of the cloud — what local mode looks like from the start.
+    await writeFile(yml, "# the solo workspace\nname: Solo\nslug: solo\nboards: {}\ncloud:\n  enabled: false\ngit:\n  interval: 0\n");
+    const before = (await (await script("/w/solo/api/workspace/cloud")).json()) as { mode: string; next: string | null; steps: Record<string, boolean> };
+    assert.deepEqual([before.mode, before.steps], ["local", { machine: true, claim: true, workspace: false, signin: false }]);
+    // Local is local: no cloud boards, and the boards list says why.
+    assert.equal((await script("/w/solo/api/remote-boards")).status, 409);
+    const listed = (await (await script("/w/solo/api/boards")).json()) as { cloud?: { local?: boolean } };
+    assert.equal(listed.cloud?.local, true);
+
+    const on = (await (await browser("/w/solo/api/workspace/cloud", { origin: true, body: { mode: "cloud" } })).json()) as { mode: string; next: string | null; steps: Record<string, boolean>; workspaceUrl: string };
+    assert.deepEqual([on.mode, on.next, on.steps], ["cloud", null, { machine: true, claim: true, workspace: true, signin: true }]);
+    const text = await readFile(yml, "utf8");
+    const id = /^id: (ws_[a-z0-9]{10})/m.exec(text)?.[1];
+    assert.ok(id, text);
+    assert.match(text, /^# the solo workspace$/m, "the comments stay");
+    assert.match(text, /^users:\n {2}mode: cloud$/m);
+    // The opt-out of the usage report stays where it was: in cloud mode the workspace is reported anyway.
+    assert.match(text, /^ {2}enabled: false$/m);
+    assert.equal(on.workspaceUrl, `${cloud.url}/w/${id}`);
+    const meta = (await (await script("/w/solo/api/meta")).json()) as { cloud: { included: boolean } };
+    assert.equal(meta.cloud.included, true);
+    // Cloud mode: this machine's browser signs in now.
+    assert.equal((await browser("/w/solo/api/me")).status, 401);
+    // A cloud board made in cloud mode …
+    assert.equal((await script("/w/solo/api/boards", { title: "Kept", cloud: true })).status, 201);
+
+    // Back to local: open again, the id kept.
+    const off = (await (await script("/w/solo/api/workspace/cloud", { mode: "local" })).json()) as { mode: string };
+    assert.equal(off.mode, "local");
+    assert.match(await readFile(yml, "utf8"), /^users:\n {2}mode: local$/m);
+    assert.equal((await browser("/w/solo/api/me")).status, 200);
+    assert.match(await readFile(yml, "utf8"), /^ {2}enabled: false$/m, "the opt-out is still there");
+    const metaLocal = (await (await script("/w/solo/api/meta")).json()) as { cloud: { included: boolean } };
+    assert.equal(metaLocal.cloud.included, false, "and holds again in local mode");
+    // … stays in local mode for a workspace with an id that is not opted out (as before cloud mode existed);
+    // a new one needs cloud mode. (Opted out, the cloud does not know the workspace from here at all.)
+    await writeFile(yml, (await readFile(yml, "utf8")).replace(/^cloud:\n {2}enabled: false\n/m, ""));
+    await cloudMod.syncMachineCloud();
+    const kept = (await (await script("/w/solo/api/boards")).json()) as { boards: { board: string }[]; cloud?: { local?: boolean } };
+    assert.ok(kept.boards.some((x) => x.board === "@kept"));
+    assert.equal(kept.cloud?.local, true);
+    const refused = await script("/w/solo/api/boards", { title: "New", cloud: true });
+    assert.equal(refused.status, 409);
+    assert.equal(((await refused.json()) as { local?: boolean }).local, true);
+
+    // An unclaimed machine: the switch does what it can and waits for the claim — the link to make it in the answer.
+    await cloudMod.unlinkMachineCloud();
+    try {
+      const wait = (await (await script("/w/solo/api/workspace/cloud", { mode: "cloud" })).json()) as { mode: string; next: string; claimUrl: string; steps: Record<string, boolean> };
+      assert.deepEqual([wait.mode, wait.next, wait.steps.claim, wait.steps.workspace], ["local", "claim", false, true]);
+      assert.match(wait.claimUrl, /\/claim\//);
+      cloud.claim(machineId, "lukas@example.com");
+      const done = (await (await script("/w/solo/api/workspace/cloud", { mode: "cloud" })).json()) as { mode: string; account: string };
+      assert.deepEqual([done.mode, done.account], ["cloud", "lukas@example.com"]);
+    } finally {
+      if (!cloud.machines.get(machineId)?.account) cloud.claim(machineId, "lukas@example.com");
+      await cloudMod.syncMachineCloud();
+      await script("/w/solo/api/workspace/cloud", { mode: "local" });
+    }
+  });
+
+  it("two switches at once run one after the other: the workspace gets one id", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const yml = path.join(b.root, "kraftwerk.yml");
+    await writeFile(yml, "name: Solo\nslug: solo\nboards: {}\ngit:\n  interval: 0\n");
+    const [x, y] = await Promise.all([script("/w/solo/api/workspace/cloud", { mode: "cloud" }), script("/w/solo/api/workspace/cloud", { mode: "cloud" })]);
+    assert.deepEqual([x.status, y.status], [200, 200]);
+    const ids = (await readFile(yml, "utf8")).match(/^id: ws_[a-z0-9]{10}/gm) ?? [];
+    assert.equal(ids.length, 1);
+    await script("/w/solo/api/workspace/cloud", { mode: "local" });
+  });
 });

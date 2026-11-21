@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { log } from "../core/log.js";
 import os from "node:os";
-import { resolveWorkspace } from "../config.js";
+import { cloudIncluded, resolveWorkspace } from "../config.js";
 import {
   claimUrlFor,
   machineCloud,
@@ -125,7 +125,7 @@ async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; 
   for (const o of m.source()) {
     const ws = await resolveWorkspace(o.root).catch(() => null);
     const c = ws?.config.cloud;
-    if (c?.enabled === false) continue;
+    if (ws && !cloudIncluded(ws.config)) continue;
     if (c?.url) ymlUrls.push(c.url.replace(/\/+$/, ""));
     list.push({ ...(ws?.config.id ? { id: ws.config.id } : {}), name: o.name, slug: o.slug, ...(withRoots ? { root: o.root } : {}) });
   }
@@ -151,7 +151,7 @@ async function routineEntries(): Promise<RoutineReportEntry[]> {
   for (const o of m.source()) {
     const ws = await resolveWorkspace(o.root).catch(() => null);
     const id = ws?.config.id;
-    if (!id || ws.config.cloud?.enabled === false || !o.ws) continue;
+    if (!id || !cloudIncluded(ws.config) || !o.ws) continue;
     // A workspace closing meanwhile throws "workspace closed": it simply reports nothing.
     const run = o.ws.run.bind(o.ws);
     const ran = await Promise.resolve()
@@ -377,7 +377,7 @@ export function machineLink(): { url: string; creds: Credentials; version: strin
 export async function servedWorkspace(id: string): Promise<{ slug: string; name: string; root: string } | null> {
   for (const o of m.source()) {
     const ws = await resolveWorkspace(o.root).catch(() => null);
-    if (ws?.config.id === id && ws.config.cloud?.enabled !== false) return { slug: o.slug, name: o.name, root: o.root };
+    if (ws?.config.id === id && cloudIncluded(ws.config)) return { slug: o.slug, name: o.name, root: o.root };
   }
   return null;
 }
@@ -391,7 +391,7 @@ export async function createWorkspaceInvite(which: { slug?: string; root?: strin
   const o = m.source().find((x) => (which.root && x.root === which.root) || (which.slug && x.slug === which.slug));
   if (!o) throw new Error(`the daemon does not serve ${which.slug ? `"${which.slug}"` : which.root} — open it first (\`kraftwerk ui\` in its folder)`);
   const ws = await resolveWorkspace(o.root);
-  if (ws.config.cloud?.enabled === false) throw new Error(`${o.slug} is left out of the cloud (cloud.enabled: false in kraftwerk.yml)`);
+  if (!cloudIncluded(ws.config)) throw new Error(`${o.slug} is left out of the cloud (cloud.enabled: false in kraftwerk.yml)`);
   const id = ws.config.id;
   if (!id) throw new Error(`${o.slug} has no workspace id (ws_…) in kraftwerk.yml — run \`kraftwerk doctor --fix\``);
   const link = machineLink();

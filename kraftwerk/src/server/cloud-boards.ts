@@ -1,7 +1,7 @@
 import type { RemoteBoardSummary, RemotePerson, RemoteTaskDetail, RemoteTaskSummary } from "./api/remote-boards.js";
 import { ApiError } from "./api/router.js";
 import type { BoardDetail, BoardSummary, Column, ListedTask, TaskDetail, TaskSummary } from "../core/boards.js";
-import { remoteCall } from "./remote-boards.js";
+import { inLocalMode, remoteCall, requireCloudMode } from "./remote-boards.js";
 import type { Trust } from "./trust.js";
 
 /**
@@ -106,6 +106,8 @@ export interface CloudList {
   /** Why there are none to show: offline (the cloud off or not answering), or not set up for this workspace. */
   error?: string;
   offline?: boolean;
+  /** The workspace is in local mode: no cloud boards until it is switched to cloud. */
+  local?: boolean;
   /** This workspace in the cloud's web app. */
   url?: string | null;
 }
@@ -114,10 +116,12 @@ export interface CloudList {
 export async function listCloudBoards(trust: Trust): Promise<CloudList> {
   try {
     const r = await remoteCall<{ boards: RemoteBoardSummary[] }>(trust, { method: "GET", path: "boards" });
-    return { boards: r.boards.map(summary) };
+    // In local mode the ones made before stay; `local` tells the UI to offer cloud mode for new ones.
+    return { boards: r.boards.map(summary), ...((await inLocalMode()) ? { local: true } : {}) };
   } catch (err) {
     const e = err as ApiError;
-    const body = (e.body ?? {}) as { offline?: boolean };
+    const body = (e.body ?? {}) as { offline?: boolean; local?: boolean };
+    if (body.local) return { boards: [], local: true };
     return { boards: [], error: e.message, ...(body.offline ? { offline: true } : {}) };
   }
 }
@@ -151,6 +155,7 @@ export async function getCloudTask(trust: Trust, board: string, t: string): Prom
 /* ---------- writes ---------- */
 
 export async function createCloudBoard(trust: Trust, input: { title: string; slug?: string; columns?: unknown }): Promise<BoardSummary & CloudMark> {
+  await requireCloudMode();
   const columns = Array.isArray(input.columns) ? input.columns.map((c) => (typeof c === "string" ? { title: c } : { slug: (c as Column).slug, title: (c as Column).label ?? (c as Column).slug })) : undefined;
   const r = await remoteCall<{ board: RemoteBoardSummary }>(trust, { method: "POST", path: "boards", body: { title: input.title, ...(input.slug ? { slug: input.slug } : {}), ...(columns ? { columns } : {}) } });
   return summary(r.board);

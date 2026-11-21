@@ -82,7 +82,7 @@ export const boardRoutes = [
       project && !all ? null : cloud.listCloudBoards(c.trust),
     ]);
     if (!remote) return local;
-    return { ...local, boards: [...local.boards, ...remote.boards], cloud: { ...(remote.offline ? { offline: true } : {}), ...(remote.error ? { error: remote.error } : {}) } };
+    return { ...local, boards: [...local.boards, ...remote.boards], cloud: { ...(remote.local ? { local: true } : {}), ...(remote.offline ? { offline: true } : {}), ...(remote.error ? { error: remote.error } : {}) } };
   }),
   route(
     {

@@ -14,10 +14,13 @@ import {
   writeCloudFile,
   type Credentials,
 } from "../core/cloud.js";
+import { resolveWorkspace, workspaceSlug } from "../config.js";
+import { workspaceCall } from "./daemon-call.js";
 import { findDaemon } from "../core/daemon.js";
 import { identityString, readIdentity } from "../core/identity.js";
 import { relayId, fromBase64Url } from "../client/relay.js";
 import type { CloudStatus } from "../server/cloud.js";
+import type { WorkspaceCloud } from "../server/workspace-cloud.js";
 import { machineCredentials, readRelaySettings } from "../server/relay.js";
 import { getPkgVersion } from "../server/version.js";
 
@@ -34,6 +37,8 @@ import { getPkgVersion } from "../server/version.js";
  *   kraftwerk cloud off            … and says goodbye
  *   kraftwerk login [--open]       print the claim link and code, wait until the machine is claimed
  *   kraftwerk logout               release the claim; the cloud hands out a fresh code
+ *   kraftwerk cloud connect        this workspace to cloud mode: every step at once (see server/workspace-cloud.ts)
+ *   kraftwerk cloud disconnect     this workspace back to local mode
  */
 
 type DaemonCloud = CloudStatus & { daemon?: boolean; error?: string };
@@ -245,14 +250,64 @@ async function logout(): Promise<void> {
   console.log(chalk.dim("  `kraftwerk login` claims it again"));
 }
 
+/** This folder's workspace's mode on the daemon (opened there when needed): GET, or a switch. */
+const workspaceMode = (mode?: "local" | "cloud"): Promise<WorkspaceCloud> =>
+  workspaceCall<WorkspaceCloud>(mode ? "POST" : "GET", "/api/workspace/cloud", mode ? { mode } : undefined, { open: true });
+
+async function connect(opts: { open?: boolean; timeout?: string }): Promise<void> {
+  const timeout = Number(opts.timeout ?? 600);
+  if (!Number.isFinite(timeout) || timeout <= 0) fail("--timeout must be a positive number of seconds", 2);
+  const ws = await resolveWorkspace(process.cwd()).catch((err: Error) => fail(err.message));
+  let st = await workspaceMode("cloud").catch((err: Error) => fail(err.message));
+  const until = Date.now() + timeout * 1000;
+  let shown = false;
+  // Waiting is for the machine to connect and for the claim in the browser; anything else needs the person.
+  while ((st.next === "connect" || st.next === "claim") && Date.now() < until) {
+    if (st.next === "claim" && !shown) {
+      shown = true;
+      console.log("Sign in (or sign up) in the browser and claim this machine — once, for every workspace on it:");
+      printClaim({ url: st.url, claimCode: st.claimCode, claimUrl: st.claimUrl });
+      if (opts.open && st.claimUrl) openBrowser(st.claimUrl);
+      console.log(chalk.dim("waiting for the claim … (Ctrl-C stops; `kraftwerk cloud connect` picks up again)"));
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    st = await workspaceMode("cloud").catch(() => st);
+  }
+  if (st.mode !== "cloud") {
+    fail(
+      st.problem ??
+        (st.next === "claim" ? `not claimed within ${timeout}s — the code stays valid; \`kraftwerk cloud connect\` waits again` : st.next === "connect" ? `${st.url} did not answer within ${timeout}s` : `could not reach ${st.url}`),
+    );
+  }
+  const name = workspaceSlug(ws!);
+  console.log(`${chalk.green("✔")} ${chalk.bold(name)} is in cloud mode ${chalk.dim(`— claimed by ${st.account}`)}`);
+  console.log(`  in the browser   ${chalk.dim("the workspace asks you to sign in with your cloud account")}`);
+  if (st.workspaceUrl) console.log(`  in the cloud     ${chalk.cyan(st.workspaceUrl)}`);
+  console.log(chalk.dim("  cloud boards: `kraftwerk boards create <title> --cloud`, invite people: `kraftwerk invite`"));
+}
+
+async function disconnect(): Promise<void> {
+  const ws = await resolveWorkspace(process.cwd()).catch((err: Error) => fail(err.message));
+  await workspaceMode("local").catch((err: Error) => fail(err.message));
+  console.log(`${chalk.green("✔")} ${chalk.bold(workspaceSlug(ws!))} is in local mode ${chalk.dim("— no sign-in; new cloud boards need cloud mode again")}`);
+  console.log(chalk.dim("  the machine stays connected for the minimal usage report — `cloud: { enabled: false }` in kraftwerk.yml leaves this workspace out, `kraftwerk cloud off` the whole machine"));
+}
+
 export function registerCloudCommands(program: Command): void {
   const cloud = program
     .command("cloud")
-    .description("This machine in the kraftwerk cloud: status, on, off (`kraftwerk login` claims it)")
+    .description("Local or cloud: `connect` switches this workspace to cloud mode, `disconnect` back; status, on, off for this machine")
     .option("--json", "Machine-readable output")
     .addHelpText(
       "after",
       `
+A workspace runs in local mode (files on this machine, single player, no
+account) until you switch it to cloud mode: people sign in with their cloud
+account, cloud boards are shared, others join as members, you reach it from
+anywhere.
+  kraftwerk cloud connect [--open]  this workspace to cloud mode — every step at once
+  kraftwerk cloud disconnect        back to local mode
+
 The daemon registers this machine once; its open workspaces ride along.
   kraftwerk cloud                 registered? claimed? url, machine id, last heartbeat
   kraftwerk cloud on [--url <u>]  turn it on (~/.kraftwerk/cloud.json); the daemon follows at once
@@ -272,6 +327,16 @@ A workspace stays out with \`cloud: { enabled: false }\` in its kraftwerk.yml.`,
     .description("Turn the cloud on for this machine (the running daemon registers at once)")
     .option("--url <url>", "The cloud's origin (default: the kraftwerk cloud)")
     .action(async (opts: { url?: string }) => setEnabled(true, opts.url));
+  cloud
+    .command("connect")
+    .description("Switch this workspace to cloud mode: turns the cloud on, claims the machine (in the browser), gives the workspace its id, makes people sign in")
+    .option("--open", "Open the claim link in the browser")
+    .option("--timeout <seconds>", "How long to wait for the claim", "600")
+    .action(async (opts: { open?: boolean; timeout?: string }) => connect(opts));
+  cloud
+    .command("disconnect")
+    .description("Switch this workspace back to local mode (no sign-in, no cloud boards); the machine stays as it is")
+    .action(async () => disconnect());
   cloud
     .command("off")
     .description("Turn the cloud off for this machine (the running daemon says goodbye)")

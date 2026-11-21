@@ -496,6 +496,52 @@ repo. Agent logins made inside the container persist in the `agent-home`
 volume. This is a different image from the `kraftwerk-runner` sandbox
 (`runner/Dockerfile`) used by `run --sandbox`.
 
+### Local or cloud: one switch
+
+A workspace runs in **local mode** until you say otherwise: no account,
+everything in files on this machine, single player. That is all you need to
+try kraftwerk. **Cloud mode** adds people and a way in from anywhere:
+
+| | Local | Cloud |
+|---|---|---|
+| Who | you, on this machine | everyone on the workspace, signed in with their kraftwerk cloud account |
+| Boards | local boards (files) | local boards and cloud boards, shared with everyone on the workspace |
+| Others | — | invite members (no clone, no install); a clone signs in with its own account |
+| From elsewhere | — | another computer or your phone reaches the workspace |
+| Your files, chats, runs, agents | on this machine | on this machine |
+
+Local mode is not silent: kraftwerk reports minimal usage info — the
+machine (name, handle, hostname, platform, version) and the workspaces it serves (names and ids, no
+paths, no content) — so the machine can be claimed later. That is on by
+default; a workspace opts out in its kraftwerk.yml, the whole machine with
+`kraftwerk cloud off`:
+
+```yaml
+cloud:
+  enabled: false   # report nothing about this workspace while it is in local mode
+```
+
+In cloud mode the workspace is always reported (the cloud has to know it);
+the opt-out stays in kraftwerk.yml and holds again once you switch back.
+
+The mode sits in the top bar (`local · try cloud` or `cloud`); a click
+switches it, and Settings → *local or cloud* explains the difference. In the
+terminal:
+
+```bash
+kraftwerk cloud connect --open   # this workspace to cloud mode
+kraftwerk cloud disconnect       # back to local
+```
+
+Switching to cloud does in one go what used to be several steps: it turns
+the machine's cloud on, gives the workspace its `id:`, and — once the
+machine is claimed — writes `users: cloud`. Claiming is the one step you do yourself, in the browser,
+once per machine: the switch shows the link and code and finishes on its
+own when the claim lands; the page then asks you to sign in. Switching back
+writes `users: local` and leaves the machine as it is. Only an owner
+switches a workspace in cloud mode, and two switches never run at once. `GET /api/workspace/cloud` reports the mode and
+its steps, `POST /api/workspace/cloud {mode}` switches.
+
 ### This machine in the kraftwerk cloud
 
 The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the
@@ -519,7 +565,7 @@ kraftwerk logout          # release the machine; a fresh claim code follows
 kraftwerk cloud off       # turn it off for this machine (the daemon says goodbye); `on [--url]` back on
 ```
 
-The claim code is also shown under Settings → Cloud. The switch and the
+The claim code is also shown under Settings → *local or cloud*. The switch and the
 cloud's origin live in `~/.kraftwerk/cloud.json` (`{ "enabled": false,
 "url": "…" }`); `KRAFTWERK_CLOUD_URL` in the environment wins (`off` turns
 the feature off — what the test suites set). In kraftwerk.yml, `cloud:` is
@@ -575,10 +621,13 @@ Cloud boards are multiplayer. They live in kraftwerk cloud, belong to the
 workspace's `id:`, and everyone on the workspace sees and edits them, from
 their own machine or the cloud's web app (`/w/<ws id>`). A task goes to
 anyone on the workspace or to an agent. They never sync with local boards.
+New ones are made in cloud mode only: in local mode the boards page points
+to the switch and creating one answers 409 with `local: true`. A workspace
+in local mode with an `id:` keeps reaching the cloud boards it already has.
 
 Here they are boards like any other, with a cloud mark: on Home, in the
 boards page, on a task's page beside its chat. Pick "kraftwerk cloud" when
-you make a board. A cloud board's slug starts with `@`, so the same API
+you make a board (`kraftwerk boards create <title> --cloud`). A cloud board's slug starts with `@`, so the same API
 (`/api/boards/@launch/tasks/3`) and the same commands
 (`kraftwerk tasks show 3 --board @launch`) work on it. A cloud task has no
 folder and no files; a cloud board has no default agent, rules or project

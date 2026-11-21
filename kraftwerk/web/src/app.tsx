@@ -15,6 +15,7 @@ import { SkillsScreen } from "./skills";
 import { AgentsScreen } from "./agents";
 import { ChannelsScreen } from "./channels";
 import { SettingsScreen } from "./settings";
+import { CloudScreen, ModeChip } from "./cloud-mode";
 import { TrashScreen } from "./trash";
 import { FilesScreen } from "./files";
 import { UiGallery } from "./ui-gallery";
@@ -247,6 +248,7 @@ export function App() {
       : seg[1] === "apps" ? <AppsAdmin />
       : seg[1] === "projects" ? <ProjectsAdmin />
       : seg[1] === "skills" ? <SkillsAdmin />
+      : seg[1] === "cloud" ? <CloudScreen />
       : <SettingsScreen />;
   else if (seg[0] === "trash") globalScreen = <TrashScreen />;
   else if (seg[0] === "ui") globalScreen = <UiGallery />;
@@ -318,6 +320,7 @@ export function App() {
         <span className="flex-[1_1_8px]" />
         <SearchPalette />
         <TopbarTools path={path} />
+        <ModeChip />
         <IconButton icon="settings" label="settings" href="/settings" aria-current={seg[0] === "settings" ? "page" : undefined} />
         <ExpertToggle />
         <NextButton />

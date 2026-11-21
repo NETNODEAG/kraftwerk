@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { remoteCall, remoteWorkspaceUrl } from "../remote-boards.js";
+import { remoteCall, remoteWorkspaceUrl, requireCloudMode } from "../remote-boards.js";
 import { reply, route, type Ctx } from "./router.js";
 
 /**
@@ -86,9 +86,10 @@ export const remoteBoardRoutes = [
     const r = await remoteCall<{ boards: RemoteBoardSummary[]; role: "owner" | "member"; actor: string }>(c.trust, { method: "GET", path: "boards", actor: actorOf(c) });
     return { ...r, cloudUrl: await remoteWorkspaceUrl() };
   }),
-  route({ name: "remoteBoards.create", method: "POST", path: "/api/remote-boards", summary: "create a remote board {title, slug?, columns?}", body: BoardFields }, async (c) =>
-    reply(201, await remoteCall<{ board: RemoteBoardSummary }>(c.trust, { method: "POST", path: "boards", body: await c.body() })),
-  ),
+  route({ name: "remoteBoards.create", method: "POST", path: "/api/remote-boards", summary: "create a remote board {title, slug?, columns?}", body: BoardFields }, async (c) => {
+    await requireCloudMode();
+    return reply(201, await remoteCall<{ board: RemoteBoardSummary }>(c.trust, { method: "POST", path: "boards", body: await c.body() }));
+  }),
   route({ name: "remoteBoards.people", method: "GET", path: "/api/remote-boards/people", summary: "the people of the workspace (assignable as human:<handle>) and who you are there" }, async (c) =>
     remoteCall<{ people: RemotePerson[]; actor: string; role: "owner" | "member" }>(c.trust, { method: "GET", path: "people", actor: actorOf(c) }),
   ),
