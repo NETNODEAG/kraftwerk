@@ -78,6 +78,14 @@ export interface GitStatus {
   /** Configured or inferred upstream, absent when the branch tracks nothing. */
   upstream?: string;
   remote?: string;
+  /** Where the remote lives (`git remote get-url`), any credentials in it cut out; absent without a remote. */
+  remoteUrl?: string;
+  /**
+   * Who hosts the remote: "kraftwerk" (kraftwerk sync, the workspace's repo in
+   * kraftwerk cloud), "custom" (an own git provider — expert mode) or "none"
+   * (no remote yet). Set by the API, which knows the cloud.
+   */
+  hosting?: "kraftwerk" | "custom" | "none";
   ahead?: number;
   behind?: number;
   /** True when the branches have diverged, which needs a terminal. */
@@ -211,7 +219,31 @@ export async function sshCommandFor(repoRoot: string): Promise<string> {
 
 /** A git call that may touch the network: longer timeout, non-interactive ssh. */
 export async function gitNet(args: string[], repoRoot: string): Promise<GitResult> {
-  return git(args, repoRoot, NET_TIMEOUT, { GIT_SSH_COMMAND: await sshCommandFor(repoRoot) });
+  return git(args, repoRoot, NET_TIMEOUT, { GIT_SSH_COMMAND: await sshCommandFor(repoRoot), ...remoteAuthEnv() });
+}
+
+/**
+ * HTTP credentials git gets for some remotes, by URL prefix → header. The
+ * daemon sets one for kraftwerk sync (`<cloud>/git/` → the machine's key, see
+ * server/cloud.ts), so a workspace syncs with its cloud repo without a token
+ * in a remote URL or a credential helper. They go in through the
+ * environment as URL-scoped `http.<prefix>.extraHeader` — never written to a
+ * git config, and git sends them to that prefix only.
+ */
+let remoteAuth: () => Record<string, string> = () => ({});
+export function setRemoteAuth(fn: () => Record<string, string>): void {
+  remoteAuth = fn;
+}
+export function remoteAuthEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const headers = Object.entries(remoteAuth());
+  if (headers.length === 0) return {};
+  const start = Number(base.GIT_CONFIG_COUNT ?? 0) || 0;
+  const env: NodeJS.ProcessEnv = { GIT_CONFIG_COUNT: String(start + headers.length) };
+  headers.forEach(([prefix, header], i) => {
+    env[`GIT_CONFIG_KEY_${start + i}`] = `http.${prefix}.extraHeader`;
+    env[`GIT_CONFIG_VALUE_${start + i}`] = header;
+  });
+  return env;
 }
 
 /**
@@ -457,6 +489,11 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
  * of times, and the nav badge polls it from every open tab, so results are
  * cached for a beat.
  */
+/** A remote URL fit to show: `https://user:secret@host/x` → `https://host/x`. */
+export function withoutCredentials(url: string): string {
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, "$1");
+}
+
 export async function gitStatus(fresh = false): Promise<GitStatus> {
   const cached = gitState().statusCache;
   if (!fresh && cached && Date.now() - cached.at < CACHE_MS) return cached.value;
@@ -467,12 +504,14 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
   if (!repo) return { enabled: true, error: opened.error, autosync: cfg?.autosync, interval: cfg?.interval };
   const { repoRoot } = repo;
 
-  const [head, upstreamRes, status] = await Promise.all([
+  const [head, upstreamRes, status, urlRes] = await Promise.all([
     checkedOut(repo),
     git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], repoRoot),
     git(["status", "--porcelain=v1", "-z", "--untracked-files=all"], repoRoot),
+    git(["remote", "get-url", repo.cfg.remote], repoRoot),
   ]);
   const upstream = upstreamRes.ok ? upstreamRes.stdout.trim() : undefined;
+  const remoteUrl = urlRes.ok && urlRes.stdout.trim() ? withoutCredentials(urlRes.stdout.trim()) : undefined;
 
   let ahead: number | undefined;
   let behind: number | undefined;
@@ -491,6 +530,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     branch: head.branch,
     upstream,
     remote: cfg?.remote ?? repo.cfg.remote,
+    remoteUrl,
     ahead,
     behind,
     diverged: !!ahead && !!behind,

@@ -23,6 +23,7 @@ import {
 import { identityString, readIdentity } from "../core/identity.js";
 import { routineReport } from "../core/routines.js";
 import { machineCredentials } from "./relay.js";
+import { setRemoteAuth } from "../core/git.js";
 
 /**
  * The machine client: the daemon registers THIS MACHINE with the kraftwerk
@@ -289,6 +290,11 @@ export async function startMachineCloud(opts: { version: string; workspaces: Wor
   await fs.rm(retiredCloudDir(), { recursive: true, force: true }).catch(() => {});
   // The machine's id exists from the daemon's first start on, with the relay still off.
   m.creds = await machineCredentials().catch(() => null);
+  // kraftwerk sync: git reaches the workspaces' cloud repos with this machine's key (core/git.ts).
+  setRemoteAuth(() => {
+    const link = machineLink();
+    return link ? { [`${link.url}/git/`]: syncAuthHeader(link.creds) } : {};
+  });
   await serial(register);
   schedule();
   return m.status;
@@ -371,6 +377,15 @@ export async function stopMachineCloud(owner?: unknown): Promise<void> {
 export function machineLink(): { url: string; creds: Credentials; version: string } | null {
   if (!m.started || m.status.state === "off" || !m.creds || !m.status.url) return null;
   return { url: m.status.url, creds: m.creds, version: m.version };
+}
+
+/** HTTP Basic with the machine's id and secret — what kraftwerk sync's git server takes from a machine. */
+export const syncAuthHeader = (creds: Credentials): string => `Authorization: Basic ${Buffer.from(`${creds.id}:${creds.secret}`).toString("base64")}`;
+
+/** kraftwerk sync's repository for workspace `id` on this machine's cloud, or null without one. */
+export function syncUrl(id: string): string | null {
+  const url = cloudStatus().url;
+  return url ? `${url}/git/${encodeURIComponent(id)}.git` : null;
 }
 
 /** The served workspace whose kraftwerk.yml `id` is `id` (vetoed ones not), or null. */

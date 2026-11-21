@@ -120,4 +120,34 @@ describe("git sync against a remote", () => {
     assert.match((await status()).lastError ?? "", /diverged/);
     assert.equal(fx.git("log", "--format=%s", "-1"), "mine", "nothing was merged");
   });
+
+  it("shows where the remote is and who hosts it", async () => {
+    const own = await status();
+    assert.equal(own.remoteUrl, remote);
+    assert.equal(own.hosting, "custom", "a remote of one's own is expert mode");
+
+    // kraftwerk sync: the workspace's repo in the cloud, `/git/<id>.git`; a credential in the URL is never shown.
+    const yml = path.join(fx.root, "kraftwerk.yml");
+    const { readFile } = await import("node:fs/promises");
+    const before = await readFile(yml, "utf8");
+    await writeFile(yml, `id: ws_alpbach012\n${before}`);
+    fx.git("remote", "set-url", "origin", "https://m1:s3cret@cloud.example/git/ws_alpbach012.git");
+    try {
+      const synced = await status();
+      assert.equal(synced.remoteUrl, "https://cloud.example/git/ws_alpbach012.git");
+      assert.equal(synced.hosting, "kraftwerk");
+      fx.git("remote", "set-url", "origin", "git@github.com:acme/alpbach.git");
+      assert.equal((await status()).hosting, "custom");
+      fx.git("remote", "remove", "origin");
+      const none = await status();
+      assert.equal(none.remoteUrl, undefined);
+      assert.equal(none.hosting, "none");
+    } finally {
+      await writeFile(yml, before);
+      try {
+        fx.git("remote", "remove", "origin");
+      } catch {}
+      fx.git("remote", "add", "origin", remote);
+    }
+  });
 });

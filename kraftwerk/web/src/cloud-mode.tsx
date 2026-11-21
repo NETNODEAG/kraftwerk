@@ -501,6 +501,13 @@ export function CloudModePanel() {
           </span>
         </div>
         {sw.waiting && <Steps cloud={cloud} waiting />}
+        {cloud.mode === "cloud" && !sw.waiting && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-2">
+            <Icon name="cloud_sync" className="ms-sm" />
+            The workspace's files: kraftwerk sync keeps their history in kraftwerk cloud, for everyone on it.
+            <a href="#/git">set it up or see it on the Git page →</a>
+          </div>
+        )}
         <Problem cloud={cloud} error={sw.error} />
       </div>
     </Panel>

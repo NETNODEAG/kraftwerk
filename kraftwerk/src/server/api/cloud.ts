@@ -2,6 +2,7 @@ import * as z from "zod";
 import { writeCloudFile } from "../../core/cloud.js";
 import { applyMachineCloud, cloudStatus, createWorkspaceInvite, syncMachineCloud, unlinkMachineCloud } from "../cloud.js";
 import { currentHub } from "../hub-context.js";
+import { joinWorkspace } from "../join.js";
 import { setWorkspaceCloud, workspaceCloud } from "../workspace-cloud.js";
 import { fail, route } from "./router.js";
 
@@ -50,6 +51,22 @@ export const cloudRoutes = [
     async (c) => {
       const { slug, root, role } = await c.body();
       return createWorkspaceInvite({ slug, root }, role);
+    },
+  ),
+  // Start on the platform: `kraftwerk join <link>` (server/join.ts).
+  route(
+    {
+      name: "cloud.join",
+      method: "POST",
+      path: "/api/cloud/join",
+      summary: "bring a workspace from kraftwerk cloud onto this machine {link, dir?, cwd}: claim, clone from kraftwerk sync, open",
+      access: "local",
+      errors: 409,
+      body: z.object({ link: z.string().min(1, "link is required"), dir: z.string().optional(), cwd: z.string().min(1, "cwd is required") }),
+    },
+    async (c) => {
+      const { link, dir, cwd } = await c.body();
+      return joinWorkspace(link, dir, cwd);
     },
   ),
   route({ name: "cloud.unlink", method: "POST", path: "/api/cloud/unlink", summary: "release the machine from its account; the cloud hands out a fresh claim code", access: "local", errors: 400 }, async () => ({

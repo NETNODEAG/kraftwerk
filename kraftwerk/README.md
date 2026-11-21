@@ -542,6 +542,43 @@ writes `users: local` and leaves the machine as it is. Only an owner
 switches a workspace in cloud mode, and two switches never run at once. `GET /api/workspace/cloud` reports the mode and
 its steps, `POST /api/workspace/cloud {mode}` switches.
 
+### Start on the platform: `kraftwerk join`
+
+The quickest way in starts on kraftwerk cloud: sign up, click **New
+workspace**, and copy the one command it shows:
+
+```bash
+npm i -g @netnodeag/kraftwerk && kraftwerk join https://srv.kraftwerk-cloud.netnode.cloud/join/XKQ7-2MPD-HH3A
+```
+
+It installs kraftwerk for good (the daemon then runs from that install), starts
+the daemon if it does not run, links this machine to your account
+(no claim code), clones the workspace from kraftwerk sync into `./<its name>`
+(or `kraftwerk join <link> <folder>`) and opens it in the browser — already
+in cloud mode. An invite works the same way: the person accepts it in the
+browser (signing up on the way), and the page shows the same command. A
+workspace's page in the cloud gives you a fresh command for each further
+machine (*Install on a machine*). Running it again on a folder that holds the
+workspace just opens it. `POST /api/cloud/join {link, cwd, dir?}` on the
+daemon does the work.
+
+### kraftwerk sync: the workspace's files in the cloud
+
+In cloud mode a workspace's history can live in its own repository in
+kraftwerk cloud (`<cloud>/git/<id>.git`) — no GitHub needed to share a
+workspace. The daemon brings the machine's key along when git talks to that
+address (a URL-scoped `http.extraHeader` in git's environment, never written
+to a config), so there is no token to paste and no credential helper.
+
+Workspaces made on the platform start with it. For one you started locally,
+switch it to cloud, then on the **Git** page click *set up kraftwerk sync*
+(`POST /api/git/sync-setup`): a repository if there is none, `git:` on with
+`autosync: push`, the remote, a first commit, a push. A remote of your own
+(GitHub, GitLab, a server in-house) is expert mode: kraftwerk never replaces
+it, and the Git page says which of the two a workspace uses
+(*managed by kraftwerk* or *own git provider · expert mode*) and shows the
+remote's address.
+
 ### This machine in the kraftwerk cloud
 
 The kraftwerk cloud is the `~/.kraftwerk` registry made reachable over the

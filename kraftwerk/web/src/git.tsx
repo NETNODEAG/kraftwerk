@@ -3,6 +3,7 @@ import { api, failure, type CallInput } from "./api";
 import { fmtAgo, Icon } from "./shared";
 import { Button, cn, EmptyState, Notice, Page, PageHeader, Panel, TextField } from "./ui";
 import type { GitStatus } from "./types";
+import { useWorkspaceCloud } from "./cloud-mode";
 
 /**
  * Workspace git sync (#/git, expert mode). Shows what changed under the
@@ -219,6 +220,7 @@ export function GitScreen() {
           <p className={PANEL_EMPTY}>
             Git sync is off. Turn it on in <a href="#/settings">settings</a>, or add a <code>git:</code> block to kraftwerk.yml.
           </p>
+          <SyncSetup onDone={() => void reload()} />
         </Panel>
       </Page>
     );
@@ -246,6 +248,8 @@ export function GitScreen() {
           </>
         }
       />
+
+      {!st.error && <Repository st={st} onSetup={() => void reload()} />}
 
       <Panel
         title="branch"
@@ -403,6 +407,154 @@ export function GitScreen() {
         {st.interval && st.autosync === "push" ? "Committing is always manual." : "Commit and push are always manual."}
       </p>
     </Page>
+  );
+}
+
+/** What each hosting says about who manages the remote. */
+const HOSTING: Record<NonNullable<GitStatus["hosting"]>, { icon: string; label: string; text: string }> = {
+  kraftwerk: {
+    icon: "cloud_done",
+    label: "managed by kraftwerk",
+    text: "kraftwerk sync: this workspace's own repository in kraftwerk cloud. Everyone on the workspace pulls and pushes here, with their cloud account — access follows the workspace's members, no git provider to set up.",
+  },
+  custom: {
+    icon: "construction",
+    label: "own git provider · expert mode",
+    text: "This workspace syncs through a git server of your own (GitHub, GitLab, Bitbucket, a server in-house). Hosting, access and credentials are yours to manage there; kraftwerk only fetches, pulls and pushes.",
+  },
+  none: {
+    icon: "cloud_off",
+    label: "no remote yet",
+    text: "History stays on this machine. In cloud mode, kraftwerk sync gives the workspace a repository in kraftwerk cloud; or add a remote of your own with `git remote add`.",
+  },
+};
+
+/** Where the workspace's history goes, and who manages that place. */
+function Repository({ st, onSetup }: { st: GitStatus; onSetup: () => void }) {
+  const { cloud } = useWorkspaceCloud();
+  const [copied, setCopied] = useState(false);
+  const hosting = st.hosting ?? (st.remoteUrl ? "custom" : "none");
+  const h = HOSTING[hosting];
+  let host = "";
+  try {
+    host = st.remoteUrl ? new URL(st.remoteUrl).host : "";
+  } catch {
+    host = st.remoteUrl?.match(/@([^:]+):/)?.[1] ?? "";
+  }
+  return (
+    <Panel
+      title="repository"
+      actions={
+        <span className={cn("git-hosting inline-flex items-center gap-1 text-xs font-semibold", hosting === "kraftwerk" ? "text-ok" : hosting === "custom" ? "text-accent" : "text-fg-2")}>
+          <Icon name={h.icon} className="ms-sm" /> {h.label}
+        </span>
+      }
+    >
+      <div className="flex flex-col gap-2.5 px-[18px] py-3.5">
+        {st.remoteUrl ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={NOTE}>{st.remote ?? "origin"}</span>
+            <code className="git-remote-url min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-2.5 py-1.5 font-mono text-[12.5px]" title={st.remoteUrl}>
+              {st.remoteUrl}
+            </code>
+            <Button
+              size="sm"
+              icon={copied ? "check" : "content_copy"}
+              onClick={() => {
+                void navigator.clipboard?.writeText(st.remoteUrl!).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                });
+              }}
+            >
+              {copied ? "copied" : "copy"}
+            </Button>
+          </div>
+        ) : null}
+        <div className={cn(NOTE, "flex flex-wrap items-center gap-x-1.5")}>
+          <span>{h.text}</span>
+          {st.repoRoot && (
+            <span>
+              Local folder <code>{st.repoRoot}</code>.
+            </span>
+          )}
+          {hosting === "kraftwerk" && cloud?.workspaceUrl && (
+            <a href={cloud.workspaceUrl} target="_blank" rel="noreferrer">
+              the workspace in kraftwerk cloud ↗
+            </a>
+          )}
+          {hosting === "custom" && host && <span>Provider: <strong>{host}</strong>.</span>}
+          {hosting !== "kraftwerk" && <a href="#/settings/cloud">what kraftwerk sync is</a>}
+        </div>
+      </div>
+      {hosting === "none" && <SyncSetup onDone={onSetup} />}
+    </Panel>
+  );
+}
+
+/**
+ * kraftwerk sync in one click (POST /api/git/sync-setup): a repository if
+ * there is none, git sync on, the workspace's cloud repo as the remote, a
+ * first commit and push. The daemon brings the machine's key along — nothing
+ * to paste. Before cloud mode it says so and links the switch.
+ */
+export function SyncSetup({ onDone }: { onDone: () => void }) {
+  const { cloud } = useWorkspaceCloud();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState<string[]>([]);
+  const ready = cloud?.mode === "cloud" && cloud.steps.claim;
+  const run = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api.request("git.setupSync", { body: {} });
+      if (r.ok && r.data.ok) {
+        setDone(r.data.done);
+        onDone();
+      } else {
+        if (r.data && typeof r.data === "object" && "done" in r.data && Array.isArray(r.data.done)) setDone(r.data.done);
+        setError(failure(r) || "setting up kraftwerk sync failed");
+        onDone();
+      }
+    } catch (err) {
+      setError((err as Error).message || "setting up kraftwerk sync failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="sync-setup flex flex-col gap-2 border-t border-line bg-surface-2 px-[18px] py-3.5">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-[240px] flex-1">
+          <strong className="text-sm">Sync with kraftwerk cloud</strong>
+          <div className={NOTE}>
+            {ready
+              ? "One click: the workspace gets its repository in kraftwerk cloud, git sync turns on, and what is committed goes up by itself. This machine signs in with its own key — no token, no git provider."
+              : "kraftwerk sync comes with cloud mode: switch the workspace to cloud, then set it up here in one click."}
+          </div>
+        </div>
+        {ready ? (
+          <Button size="sm" variant="primary" icon="cloud_upload" busy={busy} disabled={busy} onClick={() => void run()}>
+            set up kraftwerk sync
+          </Button>
+        ) : (
+          <a className="text-sm font-semibold" href="#/settings/cloud">
+            switch to cloud mode →
+          </a>
+        )}
+      </div>
+      {done.length > 0 && (
+        <ul className={cn(NOTE, "m-0 list-none p-0")}>
+          {done.map((d) => (
+            <li key={d} className="inline-flex items-center gap-1 pr-3 text-ok">
+              <Icon name="check" className="ms-sm" /> {d}
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <Notice tone="bad">{error}</Notice>}
+    </div>
   );
 }
 
