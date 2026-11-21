@@ -184,6 +184,32 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     assert.equal((await browser("/w/team/api/meta", { cookie: session })).status, 401);
   });
 
+  it("remote boards go to the cloud as the caller: a signed-in browser as its person, the shell as the account, an agent as itself", async () => {
+    const mia = cookieFrom(await signIn("mia@example.com"), "kw_user");
+    const made = await browser("/w/team/api/remote-boards", { cookie: mia, origin: true, body: { title: "Launch" } });
+    assert.equal(made.status, 201, await made.clone().text());
+    assert.equal(((await made.json()) as { board: { createdBy: string } }).board.createdBy, "mia");
+    const listed = (await (await script("/w/team/api/remote-boards")).json()) as { boards: unknown[]; actor: string; cloudUrl: string };
+    assert.deepEqual([listed.boards.length, listed.actor, listed.cloudUrl], [1, "human:lukas", `${cloud.url}/w/${WS}`]);
+    // An agent names itself; a human actor in a body is never passed on.
+    await script("/w/team/api/remote-boards/launch/tasks/1/log", { entry: "draft ready", actor: "lisa/claude" });
+    await browser("/w/team/api/remote-boards/launch/tasks/1/log", { cookie: mia, origin: true, body: { entry: "looks good", actor: "human:mallory" } });
+    const calls = cloud.boardCalls.slice(-4).map((c) => `${c.method} ${c.user ? "mia" : "account"} ${c.actor}`);
+    assert.deepEqual(calls, ["POST mia human:mia", "GET account human:lukas", "POST account lisa/claude", "POST mia human:mia"]);
+    assert.equal(cloud.boardCalls.at(-4)!.user, cloud.accounts.get("mia@example.com")!.id);
+  });
+
+  it("offline is offline: remote boards answer 503 offline while the cloud does not", async () => {
+    cloud.down = true;
+    try {
+      const r = await script("/w/team/api/remote-boards");
+      assert.equal(r.status, 503);
+      assert.equal(((await r.json()) as { offline: boolean }).offline, true);
+    } finally {
+      cloud.down = false;
+    }
+  });
+
   it("a users: local workspace beside it stays open, signed with this machine's handle", async () => {
     const me = (await (await browser("/w/solo/api/me")).json()) as { mode: string; handle: string; actor: string; signedIn: boolean };
     assert.deepEqual([me.mode, me.handle, me.actor, me.signedIn], ["local", "studio-owner", "human:studio-owner", false]);

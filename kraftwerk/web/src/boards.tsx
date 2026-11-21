@@ -33,6 +33,7 @@ import {
   Title,
 } from "./ui";
 import type { BoardSummary, Column, TaskSession, TaskSummary } from "./types";
+import { REMOTE_SEG, RemoteBoardScreen, RemoteBoardsSide } from "./remote-boards";
 
 /**
  * Boards and tasks: the work of a project (or of the whole workspace) as
@@ -231,7 +232,7 @@ export function BoardPage({ project, board }: BoardAt) {
           <Select className="h-8 w-auto text-sm" value={assignee} aria-label="assignee" onChange={(e) => setAssignee(e.target.value)}>
             <option value="">anyone</option>
             {assignees.map((a) => (
-              <option key={a} value={a}>{a}</option>
+              <option key={a} value={a}>{assigneeLabel(a)}</option>
             ))}
           </Select>
         )}
@@ -291,6 +292,9 @@ export function BoardPage({ project, board }: BoardAt) {
   );
 }
 
+/** A person assignee (`human:<handle>`) reads as its handle; an agent slug stays as it is. */
+const assigneeLabel = (a: string): string => (a.startsWith("human:") ? a.slice("human:".length) : a);
+
 /** One card of the board: the title (a link to the task), its number, who (always: an unassigned task says so), when, files, tags and the last line of its log. */
 function TaskCard({ at, task: t, agent, dragging, ...drag }: { at: BoardAt; task: TaskSummary; agent?: { name: string; emoji: string }; dragging: boolean } & Record<string, unknown>) {
   const overdue = !!t.due && t.due.slice(0, 10) < today();
@@ -311,7 +315,7 @@ function TaskCard({ at, task: t, agent, dragging, ...drag }: { at: BoardAt; task
         {t.assignee ? (
           <span className="inline-flex h-5 items-center gap-1 rounded-full bg-surface-2 px-1.5 font-medium text-fg" title={`assigned to ${agent ? `${agent.name} (${t.assignee})` : t.assignee}`}>
             {agent?.emoji ? <span aria-hidden>{agent.emoji}</span> : <Icon name="person" className="ms-sm text-[13px]" />}
-            {agent?.name ?? t.assignee}
+            {agent?.name ?? assigneeLabel(t.assignee)}
           </span>
         ) : (
           <span className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-fg-2 ring-1 ring-inset ring-line" title="nobody is assigned">
@@ -403,6 +407,7 @@ function NewTaskModal({ at, columns, agents, onClose }: { at: BoardAt; columns: 
   const [title, setTitle] = useState("");
   const [status, setStatus] = useState(() => (columns.find((c) => c.slug === "todo") ?? columns[0])?.slug ?? "");
   const [assignee, setAssignee] = useState("");
+  const me = useApi("me.get", {});
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -455,6 +460,7 @@ function NewTaskModal({ at, columns, agents, onClose }: { at: BoardAt; columns: 
             <Field label="assignee">
               <Select value={assignee} aria-label="new task assignee" disabled={busy} onChange={(e) => setAssignee(e.target.value)}>
                 <option value="">unassigned</option>
+                {me && <option value={me.actor}>👤 {me.handle} (me)</option>}
                 {agents.map((a) => (
                   <option key={a.slug} value={a.slug}>
                     {a.emoji ? `${a.emoji} ` : ""}
@@ -746,6 +752,7 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
     return sessions.find((s) => s.agent === slug) ?? (slug === "kraftwerk-chat" && harness ? sessions.find((s) => s.agent === harness) : undefined);
   };
   const team = (agents?.agents ?? []).filter((a) => !a.archived);
+  const me = useApi("me.get", {});
 
   if (!detail) return <EmptyState>loading…</EmptyState>;
   const done = doneColumn(columns);
@@ -961,7 +968,8 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
               <dd className="m-0">
                 <Select value={detail.assignee ?? ""} aria-label="assignee" className={QUIET} disabled={busy} onChange={(e) => void save({ assignee: e.target.value || null })}>
                   <option value="">unassigned</option>
-                  {detail.assignee && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{detail.assignee}</option>}
+                  {me && <option value={me.actor}>👤 {me.handle} (me)</option>}
+                  {detail.assignee && detail.assignee !== me?.actor && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{assigneeLabel(detail.assignee)}</option>}
                   {team.map((a) => (
                     <option key={a.slug} value={a.slug}>{a.emoji ? `${a.emoji} ` : ""}{a.name}</option>
                   ))}
@@ -1237,8 +1245,10 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
   const linkedHere = project ? boards.filter((b) => !b.project) : [];
   const shown = boards.find((b) => b.board === board && b.project === project);
 
+  const remote = !project && seg[0] === REMOTE_SEG;
   let main: React.ReactNode;
-  if (data && !data.enabled)
+  if (remote) main = <RemoteBoardScreen seg={seg.slice(1)} />;
+  else if (data && !data.enabled)
     main = (
       <EmptyState icon="view_kanban">
         {data.error && !/are off/.test(data.error) ? <span className="text-bad">{data.error}</span> : <>Boards are off. Turn them on in <a href="#/settings">settings</a> or add a <code>boards:</code> block to kraftwerk.yml.</>}
@@ -1268,7 +1278,7 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
             <ListRow
               key={`${b.project ?? ""}/${b.board}`}
               href={boardHref(where(b))}
-              active={!!shown && shown === b}
+              active={!remote && !!shown && shown === b}
               size="sm"
               leading={<Icon name={project && !b.project ? "link" : "view_kanban"} className="ms-sm" />}
               title={b.title}
@@ -1280,6 +1290,7 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
           ))}
           {data && !data.enabled && <SideNote>{data.error}</SideNote>}
           {data?.enabled && boards.length === 0 && <SideNote>no {project ? "" : "workspace "}boards yet</SideNote>}
+          {!project && <RemoteBoardsSide active={remote && seg[1] ? decodeURIComponent(seg[1]) : undefined} />}
           {project && data?.enabled && <LinkBoard project={project} />}
           {project && (
             <SideNote>
@@ -1484,7 +1495,7 @@ export function BoardGlance({ project, board }: BoardAt) {
                       {t.stale && <Icon name="hourglass_bottom" className="ms-sm text-[13px] text-on-ask-soft" />}
                       {t.assignee && (
                         <span className="ml-auto" title={a ? `${a.name} (${t.assignee})` : t.assignee}>
-                          {a?.emoji ? a.emoji : t.assignee}
+                          {a?.emoji ? a.emoji : assigneeLabel(t.assignee)}
                         </span>
                       )}
                     </span>

@@ -10,6 +10,7 @@ import { openProjects, safeProjectSlug } from "./projects.js";
 import { findRefs, resolveTokens, type RefKind } from "./refs.js";
 import { SLUG_RE, slugify } from "./slug.js";
 import { moveToTrash } from "./trash.js";
+import { IDENTITY_PART_RE } from "./identity.js";
 import { actorFor } from "./person.js";
 
 /**
@@ -305,6 +306,23 @@ const cleanAgentSlug = (v: unknown): string | undefined => {
   return v.trim();
 };
 
+/** A person as assignee: `human:<handle>`, the same form logs sign human changes with. */
+export const isHumanAssignee = (a: string | undefined | null): a is string => !!a && a.startsWith("human:");
+
+/** An assignee is an agent slug or a person (`human:<handle>`); a person is never woken. */
+const cleanAssignee = (v: unknown): string | undefined => {
+  if (typeof v === "string" && v.trim().startsWith("human:")) {
+    const handle = v.trim().slice("human:".length);
+    if (!IDENTITY_PART_RE.test(handle)) throw new Error(`assignee "${v.trim()}" must be an agent slug or human:<handle>`);
+    return `human:${handle}`;
+  }
+  try {
+    return cleanAgentSlug(v);
+  } catch {
+    throw new Error(`assignee must be an agent slug or human:<handle>, not "${String(v)}"`);
+  }
+};
+
 /** Split a Markdown file into its frontmatter text and body (same rule as entities.ts). */
 function splitFrontmatter(raw: string): { fm: string | null; body: string } {
   if (!raw.startsWith("---")) return { fm: null, body: raw };
@@ -426,7 +444,7 @@ function parseTask(slug: string, data: Record<string, unknown>, columns: Column[
   const order = data.order === undefined || data.order === null ? 0 : Number(data.order);
   if (!Number.isFinite(order)) throw new Error("order must be a number");
   const def: TaskDef = { slug, number, title, status, order, created: cleanDate(data.created, "created") ?? "", tags: strList(data.tags, "tags"), refs: strList(data.refs, "refs") };
-  const assignee = cleanAgentSlug(data.assignee);
+  const assignee = cleanAssignee(data.assignee);
   if (assignee) def.assignee = assignee;
   const due = cleanDate(data.due, "due");
   if (due) def.due = due;
@@ -832,7 +850,8 @@ async function emitTaskEvent(ev: TaskEvent): Promise<void> {
 /** After a write: wake the assignee when the (assignee, status) pair changed into "an agent in a work column". */
 async function maybeEmit(ref: BoardRef, board: BoardDef, before: Pick<TaskDef, "assignee" | "status"> | null, after: TaskDef, reason: TaskEvent["reason"], actor: string, message?: string): Promise<void> {
   const col = board.columns.find((c) => c.slug === after.status);
-  if (!after.assignee || !isWorkColumn(col, board.columns)) return;
+  // A person works on their own: only agents are woken.
+  if (!after.assignee || isHumanAssignee(after.assignee) || !isWorkColumn(col, board.columns)) return;
   if (before && before.assignee === after.assignee && before.status === after.status) return;
   // The assignee acting on its own task (moving it to progress, logging) is already at work: no wake.
   if (actor === after.assignee || actor.startsWith(`${after.assignee}/`)) return;
@@ -878,7 +897,7 @@ function applyInput(def: TaskDef, input: TaskInput, board: BoardDef): TaskDef {
     next.order = Number(input.order);
   }
   if (input.assignee !== undefined) {
-    const a = cleanAgentSlug(input.assignee ?? undefined);
+    const a = cleanAssignee(input.assignee ?? undefined);
     if (a) next.assignee = a;
     else delete next.assignee;
   }

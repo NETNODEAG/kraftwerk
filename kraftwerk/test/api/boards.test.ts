@@ -324,6 +324,31 @@ describe("boards API", () => {
     assert.equal((await chats()).some((c) => c.scope.kind === "agent" && c.scope.slug === "max" && c.scope.task === saved.ref), false, "no session was opened for max");
   });
 
+  it("a person can be assigned (human:<handle>, single player: yourself from /api/me) and is never woken", async () => {
+    const made = await post("/api/boards/tasks/tasks?project=netnode", { title: "Mine to do", status: "todo", assignee: `human:${ME}` });
+    const t = (await made.json()) as TaskDetail;
+    assert.equal(made.status, 201, JSON.stringify(t));
+    assert.equal(t.assignee, `human:${ME}`);
+    assert.match(t.log, new RegExp(`assigned to human:${ME}`));
+    const events = path.join(fx.root, "output/boards/events.jsonl");
+    const woken = async () => (existsSync(events) ? await readFile(events, "utf8") : "").split("\n").some((l) => l.includes(`"task":"${t.slug}"`));
+    await new Promise((res) => setTimeout(res, 300));
+    assert.equal(await woken(), false, "no wake event for a person");
+
+    // An agent handing its task over to the person: the person is not woken either.
+    const wakes = async (slug: string) => (existsSync(events) ? await readFile(events, "utf8") : "").split("\n").filter((l) => l.includes(`"task":"${slug}"`)).length;
+    const other = (await (await post("/api/boards/tasks/tasks?project=netnode", { title: "Over to you", status: "todo", assignee: "max" })).json()) as TaskDetail;
+    await new Promise((res) => setTimeout(res, 300));
+    const before = await wakes(other.slug);
+    const handed = await put(`/api/boards/tasks/tasks/${other.number}?project=netnode`, { assignee: `human:${ME}`, actor: "max/claude" });
+    assert.equal(handed.status, 200);
+    await new Promise((res) => setTimeout(res, 300));
+    assert.equal(await wakes(other.slug), before, "no wake event when an agent hands a task to a person");
+
+    const r = await put(`/api/boards/tasks/tasks/${t.number}?project=netnode`, { assignee: "human:Not A Handle" });
+    assert.equal(r.status, 400, "a person is human:<handle>");
+  });
+
   it("DELETE moves a task, then a board, to the trash; settings turn the feature off", async () => {
     assert.equal((await del("/api/boards/tasks/tasks/2?project=netnode")).status, 200);
     assert.equal((await del("/api/boards/tasks/tasks/2?project=netnode")).status, 404);

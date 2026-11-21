@@ -52,6 +52,15 @@ export interface StubPerson {
   handle: string;
 }
 
+export interface BoardCall {
+  method: string;
+  path: string;
+  body: Record<string, unknown>;
+  /** x-kw-user: the person the machine acts for (null: its account). */
+  user: string | null;
+  actor: string;
+}
+
 export interface StubCloud {
   url: string;
   /** Accounts by email: the uuid and handle a claim or sign-in names. */
@@ -75,6 +84,8 @@ export interface StubCloud {
   verifies(): Hit[];
   /** Calls to /api/workspaces/:id/invites. */
   invites(): Hit[];
+  /** Calls to the remote boards (/api/workspaces/:id/boards…, /people): for whom and as which actor. */
+  boardCalls: BoardCall[];
   /** Unreachable: every connection is dropped while true. */
   down: boolean;
   close(): Promise<void>;
@@ -91,6 +102,8 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
   const accounts = new Map<string, StubPerson>();
   const people = new Map<string, "owner" | "member">();
   const codes = new Map<string, { email: string; workspace: string; machine: string; redirect: string; used: boolean }>();
+  const remoteBoards = new Map<string, unknown[]>();
+  const boardCalls: BoardCall[] = [];
   const account = (email: string): StubPerson => {
     let a = accounts.get(email);
     if (!a) {
@@ -114,6 +127,30 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
       const body = JSON.parse(text || "{}") as Record<string, unknown>;
       const p = req.url ?? "";
       hits.push({ path: p, body, at: Date.now() });
+      // Remote boards (the cloud's boards.ts): the machine in headers; who it acts for and the actor are recorded.
+      const rb = /^\/api\/workspaces\/([^/]+)\/(boards|people)(?:\/(.*))?$/.exec(p);
+      if (rb) {
+        const mach = machines.get(String(req.headers["x-kw-machine-id"] ?? ""));
+        if (!mach || mach.secret !== req.headers["x-kw-machine-secret"]) return send(res, 403, { error: "unknown machine" });
+        const wsId = decodeURIComponent(rb[1]);
+        if (!mach.account || !reports(mach, wsId)) return send(res, 403, { error: "this machine does not host that workspace" });
+        const as = String(req.headers["x-kw-user"] ?? "");
+        const person = as ? [...accounts.values()].find((x) => x.id === as) : account(mach.account);
+        if (!person) return send(res, 403, { error: "this machine may act only for its account and the people who signed in to it" });
+        const actor = String(req.headers["x-kw-actor"] ?? "") || `human:${person.handle}`;
+        boardCalls.push({ method: req.method ?? "GET", path: p, body, user: as || null, actor });
+        const list = remoteBoards.get(wsId) ?? [];
+        remoteBoards.set(wsId, list);
+        if (rb[2] === "people") return send(res, 200, { people: [], actor, role: "owner" });
+        if (!rb[3] && req.method === "GET") return send(res, 200, { boards: list, role: "owner", actor });
+        if (!rb[3] && req.method === "POST") {
+          const board = { slug: String(body.slug ?? body.title).toLowerCase(), title: String(body.title), columns: [{ slug: "todo", title: "To do" }], counts: {}, taskCount: 0, createdBy: person.handle, createdAt: 1, updatedAt: 1 };
+          list.push(board);
+          return send(res, 201, { board });
+        }
+        if (rb[3]?.endsWith("/log")) return send(res, 200, { task: { number: 1, title: "t", log: [{ at: 1, actor, entry: String(body.entry) }] } });
+        return send(res, 404, { error: "no such board" });
+      }
       const id = String(body.id ?? "");
       const m = machines.get(id);
       if (p === "/api/machines/register") {
@@ -180,6 +217,7 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
   const stub: StubCloud = {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     hits,
+    boardCalls,
     machines,
     accounts,
     people,

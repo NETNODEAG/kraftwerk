@@ -565,6 +565,28 @@ An API caller cannot name another person: a `human:…` actor in a request
 body is replaced by whoever asks. Agents and processes still name
 themselves (`lisa/claude`, `process:sync`).
 
+### Single player and multiplayer: local and cloud boards
+
+Local boards (files under `kraftwerk-data/boards`) are single player: a
+task goes to an agent or to yourself (`human:<handle>`, the person
+`GET /api/me` names), and a person is never woken.
+
+Cloud boards are multiplayer. They live in kraftwerk cloud, belong to the
+workspace's `id:`, and everyone on the workspace sees and edits them, from
+their own machine or the cloud's web app (`/w/<ws id>`). A task goes to
+anyone on the workspace or to an agent. They show in the boards page
+under the local ones, with a cloud mark, and never sync with them. This
+machine reaches them through `/api/remote-boards/…`:
+
+- A signed-in browser (`users: cloud`) acts as its person.
+- Everything else on the machine acts as the account that claimed it.
+- An agent names itself with `actor`.
+
+The cloud lets a machine act only for that account and for people who
+signed in to its UI. Offline is offline: while the cloud does not answer,
+cloud boards are marked offline and nothing is cached. Agents are not
+woken from a cloud board yet.
+
 ## Projects
 
 Turn on `projects:` in `kraftwerk.yml` (or the checkbox in settings) and

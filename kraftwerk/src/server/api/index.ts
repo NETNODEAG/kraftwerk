@@ -13,6 +13,7 @@ import { gitRoutes } from "./git.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { presentationRoutes } from "./presentations.js";
 import { projectRoutes } from "./projects.js";
+import { remoteBoardRoutes } from "./remote-boards.js";
 import { createRouter, route, type BodyInputOf, type PathOf, type ResultOf, type Route } from "./router.js";
 import { runRoutes } from "./runs.js";
 import { vibeableRoutes } from "./vibeables.js";
@@ -36,6 +37,7 @@ const domainRoutes = [
   ...channelRoutes,
   ...projectRoutes,
   ...boardRoutes,
+  ...remoteBoardRoutes,
   ...presentationRoutes,
   ...contactRoutes,
   ...placeRoutes,
