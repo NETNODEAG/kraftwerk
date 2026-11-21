@@ -4,7 +4,7 @@ import { DAEMON_PORT, daemonState, lastOpenRoots, setDaemonVersion, writeDaemonF
 import { tildify } from "../core/instances.js";
 import { log } from "../core/log.js";
 import { networkUrls } from "../server/bind.js";
-import { startMachineCloud } from "../server/cloud.js";
+import { cloudStatus, startMachineCloud, syncMachineCloud } from "../server/cloud.js";
 import { startPushWatcher } from "../server/push.js";
 import { applyRelay, relayPush } from "../server/relay.js";
 import { startHub } from "../server/server.js";
@@ -38,7 +38,12 @@ export async function runDaemon(opts: { port?: string; lan?: boolean }): Promise
     port,
     staticDir: ensureBuilt(),
     daemon: true,
-    onChange: (h) => writeDaemonFile(h.port, h.list().map((o) => o.root)),
+    onChange: async (h) => {
+      await writeDaemonFile(h.port, h.list().map((o) => o.root));
+      // A workspace opened or closed: the cloud hears it now, not with the next heartbeat (up to a minute) —
+      // until then its cloud boards and git answer "this machine does not host that workspace".
+      if (cloudStatus().state === "connected") void syncMachineCloud().catch(() => {});
+    },
   });
   await writeDaemonFile(hub.port, []);
   for (const root of reopen) {

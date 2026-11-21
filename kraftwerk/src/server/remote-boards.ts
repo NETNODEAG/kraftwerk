@@ -2,7 +2,7 @@ import { resolveWorkspace, usersMode } from "../config.js";
 import { readAccountFile } from "../core/cloud.js";
 import { workspaceRoot } from "../core/context.js";
 import { ApiError } from "./api/router.js";
-import { machineLink } from "./cloud.js";
+import { machineLink, syncMachineCloud } from "./cloud.js";
 import { personOf } from "./person.js";
 import type { Trust } from "./trust.js";
 
@@ -86,9 +86,8 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
   const as = person.id && person.id !== account.id ? person.id : undefined;
   const actor = call.actor && !call.actor.trim().startsWith("human:") ? call.actor.trim() : undefined;
   if (down && down.until > Date.now()) throw offline(down.why);
-  let r: Response;
-  try {
-    r = await fetch(`${link.url}/api/workspaces/${encodeURIComponent(wsId)}/${call.path}`, {
+  const send = (): Promise<Response> =>
+    fetch(`${link.url}/api/workspaces/${encodeURIComponent(wsId)}/${call.path}`, {
       method: call.method,
       headers: {
         "user-agent": `kraftwerk/${link.version}`,
@@ -101,6 +100,15 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
       body: call.body !== undefined ? JSON.stringify(call.body) : undefined,
       signal: AbortSignal.timeout(call.method === "GET" ? READ_TIMEOUT_MS : REMOTE_TIMEOUT_MS),
     });
+  let r: Response;
+  try {
+    r = await send();
+    // The cloud has not heard of this workspace on this machine yet (opened since the last heartbeat):
+    // tell it now and ask once more.
+    if (r.status === 403 && /does not host/.test(await r.clone().text())) {
+      await syncMachineCloud().catch(() => {});
+      r = await send();
+    }
   } catch (err) {
     const why = `kraftwerk cloud does not answer (${(err as Error).message})`;
     down = { until: Date.now() + DOWN_FOR_MS, why };
@@ -116,7 +124,9 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
   }
   if (r.status >= 500) throw offline(String(data.error ?? `kraftwerk cloud answered ${r.status}`));
   if (!r.ok) {
-    const error = String(data.error ?? `kraftwerk cloud answered ${r.status}`);
+    let error = String(data.error ?? `kraftwerk cloud answered ${r.status}`);
+    // Still unknown after telling it: the account on this machine is not on the workspace (removed, or never invited).
+    if (r.status === 403 && /does not host/.test(error)) error = "kraftwerk cloud does not let this machine into this workspace — its account is not (or no longer) a member; ask an owner for an invite";
     // A person who signed in before the cloud kept sign-ins must sign in once more.
     const signin = r.status === 403 && /may act only for/.test(error) && as ? { signin: true } : {};
     throw new ApiError(r.status, error, { error, ...signin });

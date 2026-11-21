@@ -328,4 +328,15 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     assert.equal(ids.length, 1);
     await script("/w/solo/api/workspace/cloud", { mode: "local" });
   });
+
+  it("a workspace the cloud has not heard of yet on this machine: the daemon tells it and asks again, instead of failing", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    const yml = path.join(b.root, "kraftwerk.yml");
+    // A fresh id the machine has never reported (as right after cloning and opening a workspace).
+    await writeFile(yml, "id: ws_fresh00001\nname: Solo\nslug: solo\nboards: {}\nusers:\n  mode: cloud\ngit:\n  interval: 0\n");
+    const r = await script("/w/solo/api/remote-boards");
+    assert.equal(r.status, 200, await r.clone().text());
+    await writeFile(yml, "name: Solo\nslug: solo\nboards: {}\ngit:\n  interval: 0\n");
+    await cloudMod.syncMachineCloud();
+  });
 });
