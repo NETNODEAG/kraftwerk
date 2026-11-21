@@ -33,7 +33,6 @@ import {
   Title,
 } from "./ui";
 import type { BoardSummary, Column, TaskSession, TaskSummary } from "./types";
-import { REMOTE_SEG, RemoteBoardScreen, RemoteBoardsSide } from "./remote-boards";
 
 /**
  * Boards and tasks: the work of a project (or of the whole workspace) as
@@ -753,6 +752,8 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
   };
   const team = (agents?.agents ?? []).filter((a) => !a.archived);
   const me = useApi("me.get", {});
+  // A cloud board names the people on the workspace (server/cloud-boards.ts).
+  const people = (boardData as { people?: { id: string; handle: string }[] } | null)?.people ?? [];
 
   if (!detail) return <EmptyState>loading…</EmptyState>;
   const done = doneColumn(columns);
@@ -904,12 +905,12 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
               </div>
             </section>
 
-            <section className="flex flex-col gap-2" aria-label="files">
+            {!detail.cloud && <section className="flex flex-col gap-2" aria-label="files">
               <h3 className="m-0 text-sm font-semibold text-fg">Files</h3>
               <div className="rounded-card border border-line bg-surface px-2 py-1" title="the task's folder: drop files on the list">
                 <FileBrowser key={detail.ref} compact scope={`task:${detail.ref}`} dir={filesAt.dir} file={filesAt.file} onOpen={(dir, file) => setFilesAt({ dir, file })} />
               </div>
-            </section>
+            </section>}
 
             <section className="flex flex-col gap-2" aria-label="activity">
               <h3 className="m-0 text-sm font-semibold text-fg">Activity</h3>
@@ -969,7 +970,11 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
                 <Select value={detail.assignee ?? ""} aria-label="assignee" className={QUIET} disabled={busy} onChange={(e) => void save({ assignee: e.target.value || null })}>
                   <option value="">unassigned</option>
                   {me && <option value={me.actor}>👤 {me.handle} (me)</option>}
-                  {detail.assignee && detail.assignee !== me?.actor && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{assigneeLabel(detail.assignee)}</option>}
+                  {/* A cloud board: everyone on the workspace can take it. */}
+                  {people.filter((p) => `human:${p.handle}` !== me?.actor).map((p) => (
+                    <option key={p.id} value={`human:${p.handle}`}>👤 {p.handle}</option>
+                  ))}
+                  {detail.assignee && detail.assignee !== me?.actor && !people.some((p) => `human:${p.handle}` === detail.assignee) && !team.some((a) => a.slug === detail.assignee) && <option value={detail.assignee}>{assigneeLabel(detail.assignee)}</option>}
                   {team.map((a) => (
                     <option key={a.slug} value={a.slug}>{a.emoji ? `${a.emoji} ` : ""}{a.name}</option>
                   ))}
@@ -1143,7 +1148,7 @@ export function BoardSettings({ project, board }: BoardAt) {
             <Field label="title">
               <TextField value={title} aria-label="board title" onChange={(e) => { setTitle(e.target.value); touch(); }} />
             </Field>
-            <FieldRow>
+            {!loaded.cloud && <FieldRow>
               <Field label="default agent" hint="a task entering the pick column without an assignee goes to this agent, which is woken" className="flex-1">
                 <Select value={agent} aria-label="default agent" onChange={(e) => { setAgent(e.target.value); touch(); }}>
                   <option value="">none</option>
@@ -1156,11 +1161,11 @@ export function BoardSettings({ project, board }: BoardAt) {
               <Field label="stale after" hint="a task in a work column with nothing logged for this long is marked stale (default 1d)">
                 <TextField value={staleAfter} placeholder="1d" aria-label="stale after" className="w-[120px]" onChange={(e) => { setStaleAfter(e.target.value); touch(); }} />
               </Field>
-            </FieldRow>
+            </FieldRow>}
           </FormStack>
         </Panel>
 
-        {!project && features.projects && (
+        {!project && !loaded.cloud && features.projects && (
           <Panel title="linked projects">
             <FormStack>
               {linkable.length === 0 ? (
@@ -1209,14 +1214,14 @@ export function BoardSettings({ project, board }: BoardAt) {
           </Hint>
         </Panel>
 
-        <Panel title="rules">
+        {!loaded.cloud && <Panel title="rules">
           <FormStack>
             <TextArea value={notes} aria-label="rules" rows={8} className="font-mono text-[13px]" placeholder="What the board is for and the rules agents follow — Markdown, the body of board.md" onChange={(e) => { setNotes(e.target.value); touch(); }} />
             <Hint>
               Everything here is <code>board.md</code> in <code title={loaded.path}>{loaded.path}</code>: frontmatter (title, columns, agent, stale_after{project ? "" : ", projects"}) and these rules as its body. The file can be edited by hand just as well.
             </Hint>
           </FormStack>
-        </Panel>
+        </Panel>}
       </Page>
     </div>
   );
@@ -1245,9 +1250,11 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
   const linkedHere = project ? boards.filter((b) => !b.project) : [];
   const shown = boards.find((b) => b.board === board && b.project === project);
 
-  const remote = !project && seg[0] === REMOTE_SEG;
   let main: React.ReactNode;
-  if (remote) main = <RemoteBoardScreen seg={seg.slice(1)} />;
+  if (board?.startsWith("@") && !project) {
+    // A cloud board: served like a local one, whether local boards are on or not.
+    main = sub === "settings" ? <BoardSettings key={`${board}/settings`} board={board} /> : sub ? <TaskPage key={`${board}/${sub}`} board={board} task={sub} /> : <BoardPage key={board} board={board} />;
+  } else if (creating) main = <NewBoard root={data?.root} project={project} cloudState={data && "cloud" in data ? data.cloud : undefined} />;
   else if (data && !data.enabled)
     main = (
       <EmptyState icon="view_kanban">
@@ -1278,19 +1285,25 @@ export function BoardsScreen({ seg, project }: { seg: string[]; project?: string
             <ListRow
               key={`${b.project ?? ""}/${b.board}`}
               href={boardHref(where(b))}
-              active={!remote && !!shown && shown === b}
+              active={!!shown && shown === b}
               size="sm"
-              leading={<Icon name={project && !b.project ? "link" : "view_kanban"} className="ms-sm" />}
+              leading={<Icon name={b.cloud ? "cloud" : project && !b.project ? "link" : "view_kanban"} className="ms-sm" />}
               title={b.title}
               titleExtra={<Badge n={b.review} title="waiting for review" />}
-              sub={b.configError ? "unreadable board.md" : `${project && !b.project ? "workspace board · " : ""}${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
+              sub={b.configError ? "unreadable board.md" : `${b.cloud ? "cloud · " : project && !b.project ? "workspace board · " : ""}${b.tasks} ${b.tasks === 1 ? "task" : "tasks"}`}
               subTone={b.configError ? "bad" : "plain"}
               meta={b.updatedAt && <span title={b.updatedAt}>{fmtAgo(b.updatedAt)}</span>}
             />
           ))}
           {data && !data.enabled && <SideNote>{data.error}</SideNote>}
           {data?.enabled && boards.length === 0 && <SideNote>no {project ? "" : "workspace "}boards yet</SideNote>}
-          {!project && <RemoteBoardsSide active={remote && seg[1] ? decodeURIComponent(seg[1]) : undefined} />}
+          {!project && data && "cloud" in data && data.cloud?.offline && (
+            <SideNote>
+              <span className="inline-flex items-center gap-1" title={data.cloud.error}>
+                <Icon name="cloud_off" className="ms-sm" /> cloud boards offline
+              </span>
+            </SideNote>
+          )}
           {project && data?.enabled && <LinkBoard project={project} />}
           {project && (
             <SideNote>
@@ -1344,8 +1357,11 @@ function Redirect({ to }: { to: string }) {
   return <EmptyState>opening the board…</EmptyState>;
 }
 
-function NewBoard({ root, project }: { root?: string; project?: string }) {
+function NewBoard({ root, project, cloudState }: { root?: string; project?: string; cloudState?: { offline?: boolean; error?: string } }) {
   const [title, setTitle] = useState("");
+  // Only a workspace board can live in the cloud; offered while the cloud answers.
+  const cloudOk = !project && !!cloudState && !cloudState.error;
+  const [where, setWhere] = useState<"local" | "cloud">("local");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const create = async () => {
@@ -1353,7 +1369,7 @@ function NewBoard({ root, project }: { root?: string; project?: string }) {
     if (!t || busy) return;
     setBusy(true);
     setError("");
-    const r = await api.request("boards.create", { body: { title: t, ...(project ? { project } : {}) } });
+    const r = await api.request("boards.create", { body: { title: t, ...(project ? { project } : {}), ...(where === "cloud" ? { cloud: true } : {}) } });
     setBusy(false);
     if (!r.ok) return setError(failure(r));
     navigate(boardHref({ ...(project ? { project } : {}), board: r.data.board }), { replace: true });
@@ -1375,6 +1391,14 @@ function NewBoard({ root, project }: { root?: string; project?: string }) {
             <Field label="title">
               <TextField value={title} aria-label="board title" autoFocus placeholder="e.g. Marketing" onChange={(e) => setTitle(e.target.value)} />
             </Field>
+            {!project && (
+              <Field label="where">
+                <Select value={where} aria-label="where the board lives" onChange={(e) => setWhere(e.target.value as "local" | "cloud")}>
+                  <option value="local">this workspace's files — single player</option>
+                  <option value="cloud" disabled={!cloudOk}>kraftwerk cloud — shared with everyone on the workspace{cloudOk ? "" : cloudState?.offline ? " (offline)" : " (not available)"}</option>
+                </Select>
+              </Field>
+            )}
             <FieldRow>
               <Button variant="primary" type="submit" icon="add" busy={busy} disabled={!title.trim() || busy}>
                 create board
@@ -1383,7 +1407,8 @@ function NewBoard({ root, project }: { root?: string; project?: string }) {
               {error && <span className="text-sm text-bad">{error}</span>}
             </FieldRow>
             <Hint>
-              One folder {project ? <>under the project's <code>boards/</code></> : <>under <code title={root}>{root ?? "the boards root"}</code></>} with board.md and a tasks/ folder; the columns start as Draft, Todo, In progress, Review, Done and are changed in the board's settings.
+              {where === "cloud" ? <>Kept in kraftwerk cloud, not in this workspace's files: everyone on the workspace sees and edits it, here or in the cloud's web app. Tasks go to people on the workspace or to agents.</> : <>
+              One folder {project ? <>under the project's <code>boards/</code></> : <>under <code title={root}>{root ?? "the boards root"}</code></>} with board.md and a tasks/ folder; the columns start as Draft, Todo, In progress, Review, Done and are changed in the board's settings.</>}
             </Hint>
           </FormStack>
         </form>

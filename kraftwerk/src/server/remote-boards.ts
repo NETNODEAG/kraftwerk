@@ -38,6 +38,11 @@ export interface RemoteCall {
 }
 
 const REMOTE_TIMEOUT_MS = 10_000;
+/** Reads wait less: the boards list asks on every poll. */
+const READ_TIMEOUT_MS = 4_000;
+/** After the cloud did not answer, calls fail at once for this long instead of each waiting out a timeout. */
+const DOWN_FOR_MS = 15_000;
+let down: { until: number; why: string } | null = null;
 
 const offline = (why: string): ApiError => new ApiError(503, why, { error: why, offline: true });
 
@@ -58,6 +63,7 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
   if (!account) throw offline("this machine is not claimed by a cloud account — `kraftwerk login`");
   const as = person.id && person.id !== account.id ? person.id : undefined;
   const actor = call.actor && !call.actor.trim().startsWith("human:") ? call.actor.trim() : undefined;
+  if (down && down.until > Date.now()) throw offline(down.why);
   let r: Response;
   try {
     r = await fetch(`${link.url}/api/workspaces/${encodeURIComponent(wsId)}/${call.path}`, {
@@ -71,11 +77,14 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
         ...(call.body !== undefined ? { "content-type": "application/json" } : {}),
       },
       body: call.body !== undefined ? JSON.stringify(call.body) : undefined,
-      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(call.method === "GET" ? READ_TIMEOUT_MS : REMOTE_TIMEOUT_MS),
     });
   } catch (err) {
-    throw offline(`kraftwerk cloud does not answer (${(err as Error).message})`);
+    const why = `kraftwerk cloud does not answer (${(err as Error).message})`;
+    down = { until: Date.now() + DOWN_FOR_MS, why };
+    throw offline(why);
   }
+  down = null;
   const text = await r.text();
   let data: Record<string, unknown> = {};
   try {
@@ -94,6 +103,11 @@ export async function remoteCall<T>(trust: Trust, call: RemoteCall): Promise<T> 
 }
 
 /** The cloud's address for this workspace's page, for "open in cloud" links. */
+/** Forget that the cloud was down (tests; `kraftwerk cloud sync`). */
+export const resetRemoteDown = (): void => {
+  down = null;
+};
+
 export async function remoteWorkspaceUrl(): Promise<string | null> {
   const link = machineLink();
   if (!link) return null;

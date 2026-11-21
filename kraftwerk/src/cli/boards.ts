@@ -28,6 +28,8 @@ import { taskSessions, type TaskSession } from "../core/board-wake.js";
 import { initContext as prepare } from "./routines.js";
 import { fmtAgo } from "./workspaces.js";
 import { actorFor } from "../core/person.js";
+import { resolveWorkspace, workspaceSlug } from "../config.js";
+import { findDaemon } from "../core/daemon.js";
 
 /**
  * `kraftwerk boards` and `kraftwerk tasks` — the boards (columns of tasks)
@@ -54,7 +56,9 @@ import { actorFor } from "../core/person.js";
  *   kraftwerk tasks remove <n>
  *
  * --board defaults to the project's `tasks` board (or the only board); the
- * number alone names a task.
+ * number alone names a task. A cloud board (`--board @launch`, kept in
+ * kraftwerk cloud, server/cloud-boards.ts) is reached through the running
+ * daemon, which asks the cloud for this machine; the same commands work.
  */
 
 const die = (msg: string): never => {
@@ -91,6 +95,26 @@ async function whereOf(w: Where, create = false): Promise<BoardRef> {
   return die(`several boards here (${view.boards.map((b) => b.board).join(", ")}) — say which with --board`);
 }
 
+/** A cloud board: `@<slug>`. */
+const isCloud = (w: Where): boolean => !!w.board?.trim().startsWith("@");
+
+/** The boards API of this workspace on the running daemon — the way to a cloud board. */
+async function cloudApi<T>(method: string, route: string, body?: unknown): Promise<T> {
+  const ws = await resolveWorkspace(process.cwd());
+  const daemon = await findDaemon();
+  if (!daemon) die("cloud boards go through the daemon, and it is not running — `kraftwerk daemon start`");
+  const r = await fetch(`http://127.0.0.1:${daemon!.port}/w/${encodeURIComponent(workspaceSlug(ws))}${route}`, {
+    method,
+    headers: body !== undefined ? { "content-type": "application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(20_000),
+  }).catch((err: Error) => die(`the daemon did not answer: ${err.message}`));
+  const data = (await r.json().catch(() => ({}))) as T & { error?: string };
+  if (!r.ok) die(data.error ?? `${r.status} from the daemon`);
+  return data;
+}
+const cloudTask = (w: Where, task: string, rest = ""): string => `/api/boards/${encodeURIComponent(w.board!.trim())}/tasks/${encodeURIComponent(task)}${rest}`;
+
 const flags = (ref: BoardRef): string => (ref.project ? `--project ${ref.project} --board ${ref.board}` : `--board ${ref.board}`);
 
 function taskRow(t: TaskSummary): string[] {
@@ -109,7 +133,7 @@ function printBoard(b: BoardDetail): void {
   console.log(`${chalk.bold(b.title)} ${chalk.dim(`(${b.project ? `${b.project}/` : ""}${b.board}${b.agent ? `, default agent ${b.agent}` : ""})`)}`);
   if (b.configError) console.log(chalk.red(`board.md: ${b.configError}`));
   if (b.notes.trim()) console.log(b.notes.trim());
-  console.log(chalk.dim(b.path));
+  console.log(chalk.dim(b.cloud ? "a cloud board (kraftwerk cloud), shared with everyone on the workspace" : b.path));
   for (const c of b.columns) {
     const items = b.items.filter((t) => t.status === c.slug);
     console.log(`\n${chalk.bold(c.label)} ${chalk.dim(`(${items.length}${c.limit ? `/${c.limit}` : ""}${c.review ? ", review" : c.done ? ", done" : ""})`)}`);
@@ -126,13 +150,15 @@ function printTask(t: TaskDetail): void {
   console.log(`${chalk.cyan(String(t.number))} ${chalk.bold(t.title)} ${chalk.dim(`(${t.ref})`)}`);
   console.log(`${t.status}${t.assignee ? ` · ${t.assignee}` : " · unassigned"}${t.due ? ` · due ${t.due}` : ""}${t.tags.length ? ` · ${t.tags.join(", ")}` : ""}${t.stale ? chalk.yellow(" · stale") : ""}`);
   if (t.refs.length) console.log(chalk.dim(`refs: ${t.refs.join(", ")}`));
-  console.log(chalk.dim(`folder: ${t.path}`));
+  console.log(chalk.dim(t.cloud ? "on a cloud board (kraftwerk cloud) — no folder" : `folder: ${t.path}`));
   const sessions = (t as TaskDetail & { sessions?: TaskSession[] }).sessions ?? [];
   if (sessions.length) console.log(chalk.dim(`sessions: ${sessions.map((s) => `${s.emoji ? `${s.emoji} ` : ""}${s.name ?? s.agent} ${s.id}${s.busy ? " (working)" : ""}`).join(", ")}`));
   if (t.configError) console.log(chalk.red(`task.md: ${t.configError}`));
   if (t.notes.trim()) console.log(`\n${t.notes.trim()}`);
-  console.log(`\n${chalk.bold("files")}${t.fileList.length ? "" : chalk.dim(" (none)")}`);
-  for (const f of t.fileList) console.log(`  ${f}`);
+  if (!t.cloud) {
+    console.log(`\n${chalk.bold("files")}${t.fileList.length ? "" : chalk.dim(" (none)")}`);
+    for (const f of t.fileList) console.log(`  ${f}`);
+  }
   if (t.log.trim()) console.log(`\n${chalk.bold("log")}\n${t.log.trim()}`);
 }
 
@@ -181,7 +207,7 @@ export function registerBoardCommands(program: Command): void {
     .action(async (board: string, opts: { project?: string; json?: boolean }) => {
       await prepare();
       try {
-        const b = await getBoard({ ...(opts.project ? { project: opts.project } : {}), board });
+        const b = board.startsWith("@") ? await cloudApi<BoardDetail>("GET", `/api/boards/${encodeURIComponent(board)}`) : await getBoard({ ...(opts.project ? { project: opts.project } : {}), board });
         if (!b) die(`no board "${board}"`);
         if (opts.json) console.log(JSON.stringify(b, null, 2));
         else printBoard(b!);
@@ -271,8 +297,8 @@ export function registerBoardCommands(program: Command): void {
     .action(async (opts: Where & { status?: string; assignee?: string; mine?: boolean; as?: string; json?: boolean }) => {
       await prepare();
       try {
-        const ref = await whereOf(opts);
-        const b = await getBoard(ref);
+        const ref: BoardRef = isCloud(opts) ? { board: opts.board!.trim() } : await whereOf(opts);
+        const b = isCloud(opts) ? await cloudApi<BoardDetail>("GET", `/api/boards/${encodeURIComponent(ref.board)}`) : await getBoard(ref);
         if (!b) die(`no board "${ref.board}"`);
         const me = opts.mine ? agentOf(opts.as) || die("--mine needs --as <agent> outside an agent session") : undefined;
         const items = b!.items.filter((t) => (opts.status === undefined || t.status === opts.status) && (opts.assignee === undefined || (t.assignee ?? "") === opts.assignee) && (me === undefined || t.assignee === me));
@@ -300,6 +326,12 @@ export function registerBoardCommands(program: Command): void {
     .action(async (task: string, opts: Where & { json?: boolean }) => {
       await prepare();
       try {
+        if (isCloud(opts)) {
+          const t = await cloudApi<TaskDetail & { sessions?: TaskSession[] }>("GET", cloudTask(opts, task));
+          if (opts.json) console.log(JSON.stringify(t, null, 2));
+          else printTask(t);
+          return;
+        }
         const found = await getTask(await whereOf(opts), task);
         if (!found) die(`no task "${task}"`);
         const t = { ...found!, sessions: await taskSessions(found!.ref).catch(() => []) };
@@ -326,8 +358,7 @@ export function registerBoardCommands(program: Command): void {
     .action(async (title: string, opts: Where & { status?: string; assign?: string; due?: string; tags?: string; refs?: string; file?: string; notes?: string; message?: string; actor?: string; json?: boolean }) => {
       await prepare();
       try {
-        const ref = await whereOf(opts, true);
-        const t = await createTask(ref, {
+        const input = {
           title,
           status: opts.status,
           assignee: opts.assign,
@@ -337,9 +368,12 @@ export function registerBoardCommands(program: Command): void {
           notes: opts.file ? await readFile(opts.file, "utf8") : opts.notes,
           actor: actorOf(opts.actor),
           message: opts.message,
-        });
+        };
+        const t = isCloud(opts)
+          ? await cloudApi<TaskDetail>("POST", `/api/boards/${encodeURIComponent(opts.board!.trim())}/tasks`, { ...input, tags: input.tags?.split(",").map((x) => x.trim()).filter(Boolean), refs: undefined })
+          : await createTask(await whereOf(opts, true), input);
         if (opts.json) console.log(JSON.stringify(t, null, 2));
-        else console.log(`${chalk.green("✔")} ${chalk.cyan(String(t.number))} ${t.title} ${chalk.dim(`(${t.status}${t.assignee ? `, ${t.assignee}` : ""}) → ${t.path}`)}`);
+        else console.log(`${chalk.green("✔")} ${chalk.cyan(String(t.number))} ${t.title} ${chalk.dim(`(${t.status}${t.assignee ? `, ${t.assignee}` : ""}) → ${t.path || t.ref}`)}`);
       } catch (err) {
         die((err as Error).message);
       }
@@ -366,7 +400,9 @@ export function registerBoardCommands(program: Command): void {
           ...(opts.notesFile ? { notes: await readFile(opts.notesFile, "utf8") } : {}),
         };
         if (Object.keys(input).length === 0) die("nothing to set — pass --title, --due, --tags, --refs or --notes-file");
-        const t = await saveTask(await whereOf(opts), task, input, { actor: actorOf(opts.actor) });
+        const t = isCloud(opts)
+          ? await cloudApi<TaskDetail>("PUT", cloudTask(opts, task), { ...input, ...(typeof input.tags === "string" ? { tags: input.tags.split(",").map((x) => x.trim()).filter(Boolean) } : {}), refs: undefined, actor: actorOf(opts.actor) })
+          : await saveTask(await whereOf(opts), task, input, { actor: actorOf(opts.actor) });
         if (opts.json) console.log(JSON.stringify(t, null, 2));
         else console.log(`${chalk.green("✔")} ${chalk.cyan(String(t.number))} ${t.title} saved`);
       } catch (err) {
@@ -384,7 +420,9 @@ export function registerBoardCommands(program: Command): void {
     .action(async (task: string, column: string, opts: Where & { message?: string; actor?: string; json?: boolean }) => {
       await prepare();
       try {
-        const t = await moveTask(await whereOf(opts), task, column, { message: opts.message, actor: actorOf(opts.actor) });
+        const t = isCloud(opts)
+          ? await cloudApi<TaskDetail>("POST", cloudTask(opts, task, "/move"), { status: column, message: opts.message, actor: actorOf(opts.actor) })
+          : await moveTask(await whereOf(opts), task, column, { message: opts.message, actor: actorOf(opts.actor) });
         if (opts.json) console.log(JSON.stringify(t, null, 2));
         else console.log(`${chalk.green("✔")} ${chalk.cyan(String(t.number))} ${t.title} → ${t.status}`);
       } catch (err) {
@@ -405,7 +443,9 @@ export function registerBoardCommands(program: Command): void {
       const to = (opts.to ?? agent ?? "").trim();
       if (!to) die('say who: `tasks assign <n> <agent>` or `--to human`');
       try {
-        const t = await assignTask(await whereOf(opts), task, to === "human" ? null : to, { message: opts.message, actor: actorOf(opts.actor) });
+        const t = isCloud(opts)
+          ? await cloudApi<TaskDetail>("POST", cloudTask(opts, task, "/assign"), { to: to === "human" ? null : to, message: opts.message, actor: actorOf(opts.actor) })
+          : await assignTask(await whereOf(opts), task, to === "human" ? null : to, { message: opts.message, actor: actorOf(opts.actor) });
         if (opts.json) console.log(JSON.stringify(t, null, 2));
         else console.log(`${chalk.green("✔")} ${chalk.cyan(String(t.number))} ${t.title} → ${t.assignee ?? `humans (${t.status})`}`);
       } catch (err) {
@@ -423,9 +463,10 @@ export function registerBoardCommands(program: Command): void {
     .action(async (task: string, entry: string | undefined, opts: Where & { file?: string; tail?: string; actor?: string }) => {
       await prepare();
       try {
-        const ref = await whereOf(opts);
+        const cloudBoard = isCloud(opts);
+        const ref: BoardRef = cloudBoard ? { board: opts.board!.trim() } : await whereOf(opts);
         if (opts.tail !== undefined) {
-          const t = await getTask(ref, task);
+          const t = cloudBoard ? await cloudApi<TaskDetail>("GET", cloudTask(opts, task)) : await getTask(ref, task);
           if (!t) die(`no task "${task}"`);
           const n = Number(opts.tail) || 5;
           console.log(
@@ -438,7 +479,7 @@ export function registerBoardCommands(program: Command): void {
           return;
         }
         const text = opts.file ? await readFile(opts.file, "utf8") : entry ?? "";
-        const t = await appendTaskLog(ref, task, text, actorOf(opts.actor));
+        const t = cloudBoard ? await cloudApi<TaskDetail>("POST", cloudTask(opts, task, "/log"), { entry: text, actor: actorOf(opts.actor) }) : await appendTaskLog(ref, task, text, actorOf(opts.actor));
         console.log(`${chalk.green("✔")} logged on ${chalk.cyan(String(t.number))} ${chalk.dim(`(${await actorFor(actorOf(opts.actor))})`)}`);
       } catch (err) {
         die((err as Error).message);
@@ -455,7 +496,9 @@ export function registerBoardCommands(program: Command): void {
       const agent = agentOf(opts.as);
       if (!agent) die("who picks? pass --as <agent> (inside an agent session KRAFTWERK_AGENT is set)");
       try {
-        const t = await pickTask(await whereOf(opts), agent, { column: opts.column, actor: process.env.KRAFTWERK_ACTOR || agent });
+        const t = isCloud(opts)
+          ? (await cloudApi<{ task: TaskDetail | null }>("POST", `/api/boards/${encodeURIComponent(opts.board!.trim())}/pick`, { agent, ...(opts.column ? { column: opts.column } : {}) })).task
+          : await pickTask(await whereOf(opts), agent, { column: opts.column, actor: process.env.KRAFTWERK_ACTOR || agent });
         if (!t) {
           if (opts.json) console.log("null");
           else console.log(chalk.dim("nothing to pick"));
@@ -477,6 +520,10 @@ export function registerBoardCommands(program: Command): void {
     .action(async (task: string, opts: Where) => {
       await prepare();
       try {
+        if (isCloud(opts)) {
+          await cloudApi("DELETE", cloudTask(opts, task));
+          return void console.log(`${chalk.green("✔")} deleted task ${chalk.cyan(task)} from the cloud board`);
+        }
         await deleteTask(await whereOf(opts), task);
         console.log(`${chalk.green("✔")} moved task ${chalk.cyan(task)} to the trash`);
       } catch (err) {

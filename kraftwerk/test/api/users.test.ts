@@ -199,14 +199,49 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     assert.equal(cloud.boardCalls.at(-4)!.user, cloud.accounts.get("mia@example.com")!.id);
   });
 
+  it("cloud boards are boards: the boards API lists, shows and edits them as @<slug>, beside the local ones", async () => {
+    const made = await script("/w/team/api/boards", { title: "Ops board", cloud: true });
+    assert.equal(made.status, 201, await made.clone().text());
+    assert.deepEqual(await made.json().then((b: { board: string; cloud?: boolean }) => [b.board, b.cloud]), ["@ops-board", true]);
+    const list = (await (await script("/w/team/api/boards")).json()) as { boards: { board: string; cloud?: boolean; tasks: number }[]; cloud?: { offline?: boolean } };
+    assert.deepEqual(list.boards.filter((b) => b.cloud).map((b) => b.board).sort(), ["@launch", "@ops-board"]);
+    assert.ok(!list.cloud?.offline);
+
+    const t = await script("/w/team/api/boards/@ops-board/tasks", { title: "Rotate the keys", status: "todo", actor: "lisa/claude" });
+    assert.equal(t.status, 201, await t.clone().text());
+    const task = (await t.json()) as { ref: string; number: number; slug: string; cloud?: boolean };
+    assert.deepEqual([task.ref, task.number, task.slug, task.cloud], ["@ops-board/1", 1, "1-rotate-the-keys", true]);
+    assert.equal(cloud.boardCalls.at(-1)!.actor, "lisa/claude");
+
+    const moved = (await (await script("/w/team/api/boards/@ops-board/tasks/1-rotate-the-keys/move", { status: "doing" })).json()) as { status: string };
+    assert.equal(moved.status, "doing");
+    const back = (await (await script("/w/team/api/boards/@ops-board/tasks/1/assign", { to: null })).json()) as { status: string; assignee?: string };
+    assert.deepEqual([back.status, back.assignee], ["review", undefined], "handed back to the humans: unassigned, into review");
+    const shown = (await (await script("/w/team/api/boards/@ops-board/tasks/1")).json()) as { log: string; sessions: unknown[]; fileList: string[] };
+    assert.match(shown.log, /^## \d{4}-\d{2}-\d{2}$/m);
+    assert.match(shown.log, /^\* \d{2}:\d{2} Moved to doing \(human:lukas\)$/m);
+    assert.deepEqual([shown.sessions, shown.fileList], [[], []]);
+    const board = (await (await script("/w/team/api/boards/@ops-board")).json()) as { columns: { slug: string; review?: boolean; done?: boolean }[]; items: unknown[] };
+    assert.deepEqual(board.columns.filter((c) => c.review || c.done).map((c) => c.slug), ["review", "done"]);
+    const all = (await (await script("/w/team/api/tasks")).json()) as { tasks: { ref: string; boardTitle: string }[] };
+    assert.ok(all.tasks.some((x) => x.ref === "@ops-board/1" && x.boardTitle === "Ops board"));
+    assert.equal((await fetch(`http://127.0.0.1:${hub.port}/w/team/api/boards/@ops-board/tasks/1`, { method: "DELETE" })).status, 200);
+    // A project never lists cloud boards: they are the workspace's.
+    assert.equal((await script("/w/team/api/boards/@ops-board?project=x")).status !== 200, true);
+  });
+
   it("offline is offline: remote boards answer 503 offline while the cloud does not", async () => {
     cloud.down = true;
     try {
       const r = await script("/w/team/api/remote-boards");
       assert.equal(r.status, 503);
       assert.equal(((await r.json()) as { offline: boolean }).offline, true);
+      // The boards list still answers, its local boards in it, the cloud marked offline.
+      const l = (await (await script("/w/team/api/boards")).json()) as { boards: { cloud?: boolean }[]; cloud?: { offline?: boolean } };
+      assert.deepEqual([l.boards.some((b) => b.cloud), l.cloud?.offline], [false, true]);
     } finally {
       cloud.down = false;
+      (await import("../../src/server/remote-boards.js")).resetRemoteDown();
     }
   });
 

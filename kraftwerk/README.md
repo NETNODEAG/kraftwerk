@@ -574,9 +574,16 @@ task goes to an agent or to yourself (`human:<handle>`, the person
 Cloud boards are multiplayer. They live in kraftwerk cloud, belong to the
 workspace's `id:`, and everyone on the workspace sees and edits them, from
 their own machine or the cloud's web app (`/w/<ws id>`). A task goes to
-anyone on the workspace or to an agent. They show in the boards page
-under the local ones, with a cloud mark, and never sync with them. This
-machine reaches them through `/api/remote-boards/…`:
+anyone on the workspace or to an agent. They never sync with local boards.
+
+Here they are boards like any other, with a cloud mark: on Home, in the
+boards page, on a task's page beside its chat. Pick "kraftwerk cloud" when
+you make a board. A cloud board's slug starts with `@`, so the same API
+(`/api/boards/@launch/tasks/3`) and the same commands
+(`kraftwerk tasks show 3 --board @launch`) work on it. A cloud task has no
+folder and no files; a cloud board has no default agent, rules or project
+links. `/api/remote-boards/…` speaks the cloud's own shapes. Calls go to
+the cloud as the caller:
 
 - A signed-in browser (`users: cloud`) acts as its person.
 - Everything else on the machine acts as the account that claimed it.

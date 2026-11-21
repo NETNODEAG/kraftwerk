@@ -52,6 +52,29 @@ export interface StubPerson {
   handle: string;
 }
 
+interface StubTask {
+  number: number;
+  title: string;
+  status: string;
+  position: number;
+  assignee: string | null;
+  due: string | null;
+  tags: string[];
+  notes: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  board: string;
+  log: { at: number; actor: string; entry: string }[];
+}
+interface StubBoard {
+  slug: string;
+  title: string;
+  columns: { slug: string; title: string }[];
+  createdBy: string;
+  tasks: StubTask[];
+}
+
 export interface BoardCall {
   method: string;
   path: string;
@@ -139,17 +162,54 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
         if (!person) return send(res, 403, { error: "this machine may act only for its account and the people who signed in to it" });
         const actor = String(req.headers["x-kw-actor"] ?? "") || `human:${person.handle}`;
         boardCalls.push({ method: req.method ?? "GET", path: p, body, user: as || null, actor });
-        const list = remoteBoards.get(wsId) ?? [];
+        // A small in-memory cloud: boards with tasks and a log, shaped like the cloud's boards.ts.
+        const list = (remoteBoards.get(wsId) ?? []) as StubBoard[];
         remoteBoards.set(wsId, list);
+        const pub = (b: StubBoard) => {
+          const counts: Record<string, number> = {};
+          for (const t of b.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+          return { slug: b.slug, title: b.title, columns: b.columns, counts, taskCount: b.tasks.length, createdBy: b.createdBy, createdAt: 1, updatedAt: 1 };
+        };
+        const taskPub = (t: StubTask) => ({ ...t, last: t.log.length ? `${t.log.at(-1)!.entry} (${t.log.at(-1)!.actor})` : null });
+        const rest = (rb[3] ?? "").split("/").filter(Boolean);
+        const method = req.method ?? "GET";
         if (rb[2] === "people") return send(res, 200, { people: [], actor, role: "owner" });
-        if (!rb[3] && req.method === "GET") return send(res, 200, { boards: list, role: "owner", actor });
-        if (!rb[3] && req.method === "POST") {
-          const board = { slug: String(body.slug ?? body.title).toLowerCase(), title: String(body.title), columns: [{ slug: "todo", title: "To do" }], counts: {}, taskCount: 0, createdBy: person.handle, createdAt: 1, updatedAt: 1 };
-          list.push(board);
-          return send(res, 201, { board });
+        if (rest.length === 0 && method === "GET") return send(res, 200, { boards: list.map(pub), role: "owner", actor });
+        if (rest.length === 0 && method === "POST") {
+          const b: StubBoard = { slug: String(body.slug ?? body.title).toLowerCase().replace(/[^a-z0-9]+/g, "-"), title: String(body.title), columns: [{ slug: "todo", title: "To do" }, { slug: "doing", title: "In progress" }, { slug: "review", title: "Review" }, { slug: "done", title: "Done" }], createdBy: person.handle, tasks: [] };
+          list.push(b);
+          return send(res, 201, { board: pub(b) });
         }
-        if (rb[3]?.endsWith("/log")) return send(res, 200, { task: { number: 1, title: "t", log: [{ at: 1, actor, entry: String(body.entry) }] } });
-        return send(res, 404, { error: "no such board" });
+        const b = list.find((x) => x.slug === decodeURIComponent(rest[0]));
+        if (!b) return send(res, 404, { error: "no such board" });
+        if (rest.length === 1 && method === "GET") return send(res, 200, { board: pub(b), tasks: b.tasks.map(taskPub), people: [], actor });
+        if (rest.length === 1 && method === "DELETE") {
+          list.splice(list.indexOf(b), 1);
+          return send(res, 200, { ok: true });
+        }
+        if (rest.length === 2 && method === "POST") {
+          const t: StubTask = { number: b.tasks.length + 1, title: String(body.title), status: String(body.status ?? "todo"), position: b.tasks.length + 1, assignee: (body.assignee as string) ?? null, due: null, tags: [], notes: String(body.notes ?? ""), createdBy: actor, createdAt: 1, updatedAt: 1, board: b.slug, log: [{ at: Date.now(), actor, entry: "Created" }] };
+          b.tasks.push(t);
+          return send(res, 201, { task: taskPub(t) });
+        }
+        const t = b.tasks.find((x) => x.number === Number(rest[2]));
+        if (!t) return send(res, 404, { error: "no such task" });
+        if (rest.length === 3 && method === "GET") return send(res, 200, { task: taskPub(t) });
+        if (rest.length === 3 && method === "DELETE") {
+          b.tasks.splice(b.tasks.indexOf(t), 1);
+          return send(res, 200, { ok: true });
+        }
+        if (rest.length === 3 && method === "PUT") {
+          for (const k of ["title", "status", "position", "assignee", "due", "tags", "notes"] as const) if (body[k] !== undefined) (t as unknown as Record<string, unknown>)[k] = body[k];
+          if (body.status !== undefined) t.log.push({ at: Date.now(), actor, entry: `Moved to ${String(body.status)}` });
+          if (body.assignee !== undefined) t.log.push({ at: Date.now(), actor, entry: body.assignee ? `Assigned to ${String(body.assignee)}` : "Unassigned" });
+          return send(res, 200, { task: taskPub(t) });
+        }
+        if (rest.length === 4 && rest[3] === "log") {
+          t.log.push({ at: Date.now(), actor, entry: String(body.entry) });
+          return send(res, 200, { task: taskPub(t) });
+        }
+        return send(res, 404, { error: "no such route" });
       }
       const id = String(body.id ?? "");
       const m = machines.get(id);

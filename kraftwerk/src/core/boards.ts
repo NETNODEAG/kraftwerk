@@ -102,6 +102,8 @@ export interface BoardSummary extends BoardDef {
   tasks: number;
   /** Tasks in a review column. */
   review: number;
+  /** A cloud board (server/cloud-boards.ts): kept in kraftwerk cloud, `board` is "@<slug>", no folder. */
+  cloud?: true;
 }
 
 export interface BoardDetail extends BoardSummary {
@@ -142,6 +144,8 @@ export interface TaskSummary extends TaskDef {
   lastLog?: string;
   /** In a work column with an assignee and nothing logged for staleAfter. */
   stale?: boolean;
+  /** On a cloud board: no folder, no files. */
+  cloud?: true;
 }
 
 export interface TaskDetail extends TaskSummary {

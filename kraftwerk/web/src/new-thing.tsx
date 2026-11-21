@@ -5,7 +5,7 @@ import { ChatCard, OpenHere, ProjectSelect, WhoSelect, startChat, useOpen, usePr
 import { NewEntityForm, type EntityKind } from "./entities";
 import { RunForm } from "./run-launcher";
 import { Icon } from "./shared";
-import { Button, Field, FieldRow, FormStack, IconButton, Select, TextField } from "./ui";
+import { Button, Checkbox, Field, FieldRow, FormStack, IconButton, Select, TextField } from "./ui";
 
 const enc = encodeURIComponent;
 
@@ -252,6 +252,7 @@ export function QuickTask({ project, onMade }: { project?: string; onMade?: (t: 
 
 function NewBoardForm({ project, onMade, onCancel }: { project?: string; onMade: (board: string) => void; onCancel: () => void }) {
   const [title, setTitle] = useState("");
+  const [inCloud, setInCloud] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const create = async () => {
@@ -259,13 +260,33 @@ function NewBoardForm({ project, onMade, onCancel }: { project?: string; onMade:
     if (!t || busy) return;
     setBusy(true);
     setError("");
-    const r = await api.request("boards.create", { body: { title: t, ...(project ? { project } : {}) } });
+    const r = await api.request("boards.create", { body: { title: t, ...(project ? { project } : {}), ...(inCloud ? { cloud: true } : {}) } });
     setBusy(false);
     if (!r.ok) return setError(failure(r));
     onMade(r.data.board);
   };
   return (
-    <NameForm label="title" inputLabel="board title" placeholder="e.g. Marketing" value={title} onChange={setTitle} submit="create board" busy={busy} error={error} onSubmit={create} onCancel={onCancel} hint="Starts with the columns Draft, Todo, In progress, Review and Done; change them in the board's settings." />
+    <>
+      <NameForm
+        label="title"
+        inputLabel="board title"
+        placeholder="e.g. Marketing"
+        value={title}
+        onChange={setTitle}
+        submit="create board"
+        busy={busy}
+        error={error}
+        onSubmit={create}
+        onCancel={onCancel}
+        hint={inCloud ? "Kept in kraftwerk cloud: everyone on the workspace sees and edits it; tasks go to people or agents." : "Starts with the columns Draft, Todo, In progress, Review and Done; change them in the board's settings."}
+      />
+      {/* Only a workspace board can live in the cloud. */}
+      {!project && (
+        <Checkbox checked={inCloud} onChange={setInCloud} className="mt-3 text-sm">
+          in kraftwerk cloud — shared with everyone on the workspace
+        </Checkbox>
+      )}
+    </>
   );
 }
 
