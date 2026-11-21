@@ -8,8 +8,10 @@ import { useWorkspaceCloud } from "./cloud-mode";
 /**
  * Workspace git sync (#/git, expert mode). Shows what changed under the
  * workspace roots, lets a human pick files and commit them, and pushes on
- * request. A commit is always a click; the server's timer fetches and
- * fast-forwards, and pushes only when `autosync: push` is set.
+ * request. The server's timer fetches and fast-forwards, pushes with
+ * `autosync: push`, and with `autosync: sync` (kraftwerk sync's default)
+ * also commits by itself and merges the remote in, keeping this machine's
+ * side of a conflict beside the remote's.
  */
 
 /** "45s" / "5 min" / "1 h 30 min", so a short interval never reads as "0 min". */
@@ -218,9 +220,8 @@ export function GitScreen() {
         <PageHeader icon="cloud_sync" title="Git sync" />
         <Panel>
           <p className={PANEL_EMPTY}>
-            Git sync is off. Turn it on in <a href="#/settings">settings</a>, or add a <code>git:</code> block to kraftwerk.yml.
+            Git sync is off. Turn it on in <a href="#/settings">settings → git sync</a> — in cloud mode with kraftwerk sync in one click — or add a <code>git:</code> block to kraftwerk.yml.
           </p>
-          <SyncSetup onDone={() => void reload()} />
         </Panel>
       </Page>
     );
@@ -249,7 +250,7 @@ export function GitScreen() {
         }
       />
 
-      {!st.error && <Repository st={st} onSetup={() => void reload()} />}
+      {!st.error && <Repository st={st} />}
 
       <Panel
         title="branch"
@@ -311,6 +312,21 @@ export function GitScreen() {
           </div>
         )}
       </Panel>
+
+      {!!st.conflicts?.length && (
+        <Panel title="conflicts kept beside" actions={<span className={NOTE}>two people changed these at once — the version that reached the cloud first stays, the other is next to it</span>}>
+          {st.conflicts.map((c) => (
+            <div key={c.copy + c.at} className={cn("git-conflict px-[18px]", ROW)}>
+              <Icon name="call_split" className="ms-sm text-accent" />
+              <span className={PATH}>{c.path}</span>
+              <span className={NOTE}>{c.by}'s version:</span>
+              <span className={cn(PATH, "text-accent")}>{c.copy}</span>
+              <span className={cn(NOTE, "ml-auto")} title={c.at}>{fmtAgo(c.at)}</span>
+            </div>
+          ))}
+          <p className={cn(NOTE, "m-0 border-t border-line px-[18px] py-2.5")}>Compare the two, keep what is right in the original, and delete the copy — the deletion syncs like any change.</p>
+        </Panel>
+      )}
 
       <Panel
         title="changes"
@@ -395,7 +411,11 @@ export function GitScreen() {
         Synced paths: {(st.scope ?? []).map((s, i) => (
           <span key={s}>{i > 0 && ", "}<code>{s}</code></span>
         ))}. Run artifacts and files like <code>.env</code> are never staged.{" "}
-        {st.interval
+        {st.interval && st.autosync === "sync"
+          ? `kraftwerk sync every ${fmtInterval(st.interval)}: commits what changed under these paths, takes the remote's changes in and pushes. Where both sides changed a file, the remote's version wins and yours is kept beside it.${
+              st.lastAutoCommit ? ` Last automatic commit ${fmtAgo(st.lastAutoCommit)}.` : ""
+            } `
+          : st.interval
           ? `Fetches every ${fmtInterval(st.interval)}${
               st.autosync === "push"
                 ? ", fast-forwards when the working tree is clean and pushes what is committed"
@@ -404,7 +424,7 @@ export function GitScreen() {
                   : ""
             }. `
           : "Background fetching is off. "}
-        {st.interval && st.autosync === "push" ? "Committing is always manual." : "Commit and push are always manual."}
+        {st.interval && st.autosync === "sync" ? "A commit by hand goes up at once." : st.interval && st.autosync === "push" ? "Committing is always manual." : "Commit and push are always manual."}
       </p>
     </Page>
   );
@@ -425,12 +445,12 @@ const HOSTING: Record<NonNullable<GitStatus["hosting"]>, { icon: string; label: 
   none: {
     icon: "cloud_off",
     label: "no remote yet",
-    text: "History stays on this machine. In cloud mode, kraftwerk sync gives the workspace a repository in kraftwerk cloud; or add a remote of your own with `git remote add`.",
+    text: "History stays on this machine. In cloud mode, kraftwerk sync gives the workspace a repository in kraftwerk cloud and keeps it in step with everyone's; or add a remote of your own with `git remote add`.",
   },
 };
 
 /** Where the workspace's history goes, and who manages that place. */
-function Repository({ st, onSetup }: { st: GitStatus; onSetup: () => void }) {
+function Repository({ st }: { st: GitStatus }) {
   const { cloud } = useWorkspaceCloud();
   const [copied, setCopied] = useState(false);
   const hosting = st.hosting ?? (st.remoteUrl ? "custom" : "none");
@@ -484,11 +504,52 @@ function Repository({ st, onSetup }: { st: GitStatus; onSetup: () => void }) {
             </a>
           )}
           {hosting === "custom" && host && <span>Provider: <strong>{host}</strong>.</span>}
-          {hosting !== "kraftwerk" && <a href="#/settings/cloud">what kraftwerk sync is</a>}
+          {hosting === "none" && <a href="#/settings">set up kraftwerk sync in settings → git sync</a>}
+          {hosting === "custom" && <a href="#/settings/cloud">what kraftwerk sync is</a>}
         </div>
       </div>
-      {hosting === "none" && <SyncSetup onDone={onSetup} />}
     </Panel>
+  );
+}
+
+/**
+ * Settings → git sync: where the workspace's history goes, and — while there
+ * is no remote — kraftwerk sync in one click. The one place git sync is set
+ * up; the git screen links here.
+ */
+export function GitRemoteSummary({ onSetup }: { onSetup: () => void }) {
+  const [st, setSt] = useState<GitStatus | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const r = await api.request("git.status", { query: { fresh: true } });
+      if (r.ok) setSt(r.data);
+    } catch {}
+  }, []);
+  useEffect(() => void load(), [load]);
+  if (!st) return null;
+  const hosting = !st.enabled ? "none" : (st.hosting ?? (st.remoteUrl ? "custom" : "none"));
+  const h = HOSTING[hosting];
+  return (
+    <>
+      {st.remoteUrl && (
+        <div className="git-remote-summary flex flex-wrap items-center gap-2 border-t border-line px-[18px] py-3">
+          <span className={cn("inline-flex items-center gap-1 text-xs font-semibold", hosting === "kraftwerk" ? "text-ok" : "text-accent")}>
+            <Icon name={h.icon} className="ms-sm" /> {h.label}
+          </span>
+          <code className="min-w-0 flex-1 truncate rounded-lg bg-surface-2 px-2.5 py-1 font-mono text-xs" title={st.remoteUrl}>
+            {st.remoteUrl}
+          </code>
+        </div>
+      )}
+      {hosting === "none" && (
+        <SyncSetup
+          onDone={() => {
+            void load();
+            onSetup();
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -530,8 +591,8 @@ export function SyncSetup({ onDone }: { onDone: () => void }) {
           <strong className="text-sm">Sync with kraftwerk cloud</strong>
           <div className={NOTE}>
             {ready
-              ? "One click: the workspace gets its repository in kraftwerk cloud, git sync turns on, and what is committed goes up by itself. This machine signs in with its own key — no token, no git provider."
-              : "kraftwerk sync comes with cloud mode: switch the workspace to cloud, then set it up here in one click."}
+              ? "One click: the workspace gets its repository in kraftwerk cloud and kraftwerk sync turns on — every minute what changed here goes up and the others' changes come in. This machine signs in with its own key — no token, no git provider."
+              : "kraftwerk sync comes with cloud mode: switch the workspace to cloud (below), then set it up here in one click. Or turn git sync on and use a remote of your own (expert mode)."}
           </div>
         </div>
         {ready ? (
@@ -540,7 +601,7 @@ export function SyncSetup({ onDone }: { onDone: () => void }) {
           </Button>
         ) : (
           <a className="text-sm font-semibold" href="#/settings/cloud">
-            switch to cloud mode →
+            what cloud mode is →
           </a>
         )}
       </div>

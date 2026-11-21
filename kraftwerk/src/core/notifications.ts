@@ -9,7 +9,8 @@ import type { ChatMeta } from "./chat/types.js";
 /**
  * Attention items: things that happened while nobody was looking and that
  * the user should see — a session waiting for a permission answer, a routine
- * that finished or failed, a workflow run that ended. The inspector shows
+ * that finished or failed, a workflow run that ended, a cloud-board task
+ * someone handed to the person this machine belongs to (server/cloud-events.ts). The inspector shows
  * them behind the bell in the top bar (count, list, browser notification);
  * this module is the one writer. Items are run-state, not config, so they
  * live in <output>/notifications.json (capped, newest first).
@@ -18,7 +19,7 @@ import type { ChatMeta } from "./chat/types.js";
  * and disappears again the moment someone answers (dismissKey).
  */
 
-export type NotificationKind = "approval" | "routine_done" | "routine_failed" | "run_done" | "run_failed" | "task_woken" | "task_wake_failed";
+export type NotificationKind = "approval" | "routine_done" | "routine_failed" | "run_done" | "run_failed" | "task_woken" | "task_wake_failed" | "task_assigned";
 
 /**
  * What a "diagnose" on a failure item should look at: a workflow run (chat

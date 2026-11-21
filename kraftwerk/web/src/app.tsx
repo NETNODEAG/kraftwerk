@@ -791,6 +791,7 @@ const NOTIF_ICON: Record<NotificationKind, string> = {
   run_failed: "account_tree",
   task_woken: "view_kanban",
   task_wake_failed: "view_kanban",
+  task_assigned: "assignment_ind",
 };
 
 const NOTIF_TOAST_DISMISSED = "kw.notif.toast.dismissed";

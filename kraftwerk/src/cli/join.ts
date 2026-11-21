@@ -20,6 +20,7 @@ import { startDaemon } from "./daemon-control.js";
 
 interface Joined {
   workspace: { id: string; name: string; slug: string; url: string };
+  signin?: string;
   root: string;
   role: string;
   account: string;
@@ -63,8 +64,9 @@ export function registerJoinCommand(program: Command): void {
       console.log(`${chalk.green("✔")} ${chalk.bold(data.workspace.name)} ${chalk.dim(`(${data.workspace.id}, ${data.role})`)} is on this machine`);
       console.log(`  ${chalk.dim("folder")}   ${tildify(data.root)}${data.cloned ? "" : chalk.dim(" (was already here)")}`);
       console.log(`  ${chalk.dim("account")}  ${data.account} — this machine is linked to it`);
-      console.log(`  ${chalk.dim("sync")}     kraftwerk sync: what you commit goes to the cloud, the others' changes come in`);
+      console.log(`  ${chalk.dim("sync")}     kraftwerk sync: what changes here goes to the cloud every minute, the others' changes come in`);
       console.log(`  ${chalk.dim("open")}     ${chalk.cyan(data.workspace.url)}`);
-      if (opts.open) openBrowser(data.workspace.url);
+      if (opts.open) openBrowser(data.signin ?? data.workspace.url);
+      else if (data.signin) console.log(`  ${chalk.dim("sign in")}  ${data.signin} ${chalk.dim("(once, within 5 minutes)")}`);
     });
 }

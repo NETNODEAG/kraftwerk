@@ -1,6 +1,7 @@
 import { CloudModePanel } from "./cloud-mode";
 import { DevicesPanel } from "./devices";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { GitRemoteSummary } from "./git";
 import { api, useApi } from "./api";
 import { Icon } from "./shared";
 import { Button, buttonClass, EmptyState, FormStack, Hint, IconButton, Notice, PageHeader, Panel, Select, Tag, TextField } from "./ui";
@@ -23,7 +24,7 @@ interface GitForm {
   remote: string;
   branch: string;
   interval: string;
-  autosync: "off" | "pull" | "push";
+  autosync: "off" | "pull" | "push" | "sync";
 }
 
 const GIT_OFF: GitForm = { enabled: false, remote: "origin", branch: "", interval: "300", autosync: "pull" };
@@ -43,7 +44,7 @@ interface SettingsData {
     agents?: string;
     skills?: string;
     switcher?: SwitcherRow[];
-    git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" | "push" };
+    git?: { enabled?: boolean; remote?: string; branch?: string; interval?: number; autosync?: "off" | "pull" | "push" | "sync" };
     repos?: { enabled?: boolean; root?: string };
     vibeables?: { enabled?: boolean; root?: string };
     projects?: { enabled?: boolean; root?: string };
@@ -313,7 +314,7 @@ export function SettingsScreen() {
   const [error, setError] = useState("");
   const identity = useApi("identity.get", {}, { interval: 60_000 });
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api
       .call("settings.get")
       .then((d) => {
@@ -332,6 +333,7 @@ export function SettingsScreen() {
       })
       .catch(() => setError("could not load settings"));
   }, []);
+  useEffect(() => load(), [load]);
 
   const touch = () => {
     setDirty(true);
@@ -539,6 +541,7 @@ export function SettingsScreen() {
 
       <Panel title="git sync" actions={<Button size="sm" icon="account_tree" href="/git">open git</Button>}>
         <ToggleRow id="set-git" icon="sync" title="Sync with a git remote" what="sync workflows, knowledge, agents and skills with a git remote" checked={git.enabled} onChange={(on) => setGitField({ enabled: on })} />
+        <GitRemoteSummary onSetup={load} />
         {git.enabled && (
           <>
             <SettingRow title="Remote" sub="The remote to fetch from and push to.">
@@ -550,10 +553,11 @@ export function SettingsScreen() {
             <SettingRow title="Interval" sub="Seconds between background fetches; 0 turns the timer off.">
               <TextField aria-label="interval (s)" className="h-8 w-24 text-sm tabular-nums" type="number" min={0} step={1} value={git.interval} placeholder="300" onChange={(e) => setGitField({ interval: e.target.value })} />
             </SettingRow>
-            <SettingRow title="Autosync" sub="Pull fast-forwards when behind and clean; push also pushes commits. Committing and a new branch's first push stay manual.">
-              <Select aria-label="autosync" className="h-8 w-56 text-sm" value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" | "push" })}>
+            <SettingRow title="Autosync" sub="Pull fast-forwards when behind and clean; push also pushes commits. Sync commits what changed as well, and where both sides changed a file the remote's version wins and this machine's is kept beside it (name.konflikt-<handle>.ext).">
+              <Select aria-label="autosync" className="h-8 w-64 text-sm" value={git.autosync} onChange={(e) => setGitField({ autosync: e.target.value as "off" | "pull" | "push" | "sync" })}>
                 <option value="pull">fetch and pull</option>
                 <option value="push">fetch, pull and push</option>
+                <option value="sync">sync: commit, pull and push</option>
                 <option value="off">fetch only</option>
               </Select>
             </SettingRow>

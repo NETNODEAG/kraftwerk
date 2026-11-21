@@ -1,3 +1,4 @@
+import { fetchCloudEvents } from "./cloud-events.js";
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import http from "node:http";
@@ -409,7 +410,10 @@ export async function startRelay(opts: RelayOptions): Promise<RelayLink> {
         const d = msg.d;
         conn.queue = conn.queue.then(() => onClientMessage(c, conn, d)).catch(() => {});
       } else if (msg.t === "close" && msg.c) dropConn(msg.c);
-      else if (msg.t === "push_invalid" && typeof (msg as { token?: unknown }).token === "string") {
+      else if (msg.t === "poke") {
+        // The cloud has events for this machine (a task handed to its person, one for an agent): fetch them now.
+        void fetchCloudEvents().catch(() => {});
+      } else if (msg.t === "push_invalid" && typeof (msg as { token?: unknown }).token === "string") {
         // Apple no longer knows the token (the app was deleted, or pushes turned off): stop sending to it.
         void dropPushToken((msg as { token: string }).token).catch(() => {});
       }

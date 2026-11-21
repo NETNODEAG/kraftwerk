@@ -843,8 +843,8 @@ export interface TaskEvent {
 
 export const EVENTS_FILE = "boards/events.jsonl";
 
-/** Append an event for the server on this machine (board-wake.ts reads the file). Local run-state: never in git. */
-async function emitTaskEvent(ev: TaskEvent): Promise<void> {
+/** Append an event for the server on this machine (board-wake.ts reads the file). Local run-state: never in git. Cloud tasks come in through server/cloud-events.ts. */
+export async function emitTaskEvent(ev: TaskEvent): Promise<void> {
   const file = path.join(getOutputDir(), EVENTS_FILE);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, `${JSON.stringify(ev)}\n`);
@@ -1164,7 +1164,22 @@ export async function tasksReferencing(token: string): Promise<LinkingTask[]> {
   return out;
 }
 
+/**
+ * The context block of a cloud-board task (`@board/3`): the server provides it
+ * (server/cloud-events.ts), core cannot reach the cloud. Unset, such a task
+ * says where to look.
+ */
+let cloudTaskContext: ((reference: string) => Promise<string>) | null = null;
+export function setCloudTaskContext(fn: (reference: string) => Promise<string>): void {
+  cloudTaskContext = fn;
+}
+
 export async function taskContext(reference: string): Promise<string> {
+  if (reference.startsWith("@")) {
+    return cloudTaskContext
+      ? cloudTaskContext(reference)
+      : `You were opened for task ${reference} on a cloud board. Read it with \`npx kraftwerk tasks show ${reference.split("/")[1]} --board ${reference.split("/")[0]}\`.`;
+  }
   const t = await findTask(reference);
   if (!t) return `You were opened for task ${reference}, but it does not exist any more (removed, or its board is gone). Tell the user.`;
   const ref: BoardRef = { ...(t.project ? { project: t.project } : {}), board: t.board };

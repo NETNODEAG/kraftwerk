@@ -784,6 +784,8 @@ export function TaskPage({ project, board, task, embedded = false }: BoardAt & {
   /** Who wrote a log line, as a person reads it: the agent's name, the assistant, or you. */
   const actorOf = (actor?: string): { emoji: string; name: string } => {
     if (!actor) return { emoji: "•", name: "" };
+    // Someone else on a cloud board is named; you (or the single player's plain "human") are you.
+    if (actor.startsWith("human:") && actor !== me?.actor) return { emoji: "👤", name: actor.slice("human:".length) };
     if (actor.startsWith("human")) return { emoji: "🙂", name: "You" };
     const slug = actor.split("/")[0];
     if (slug === "kraftwerk-chat") return project ? { emoji: "🧭", name: "Assistant" } : { emoji: "🎩", name: "Ralv" };

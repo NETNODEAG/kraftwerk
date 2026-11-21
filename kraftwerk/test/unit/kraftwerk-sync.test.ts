@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { remoteAuthEnv, setRemoteAuth, withoutCredentials } from "../../src/core/git.js";
+import { conflictPath, parseConflictCopy, remoteAuthEnv, setRemoteAuth, withoutCredentials } from "../../src/core/git.js";
 import { parseJoinLink } from "../../src/server/join.js";
 
 describe("kraftwerk sync helpers", () => {
@@ -33,5 +33,19 @@ describe("kraftwerk sync helpers", () => {
     assert.deepEqual(parseJoinLink(" http://127.0.0.1:19911/join/XKQ7-2MPD-HH3A?x=1 "), { origin: "http://127.0.0.1:19911", code: "XKQ7-2MPD-HH3A" });
     assert.deepEqual(parseJoinLink("xkq72mpdhh3a"), { origin: null, code: "xkq72mpdhh3a" });
     assert.throws(() => parseJoinLink("https://example.com/somewhere"), /not a join link/);
+  });
+
+  it("a conflict copy is named after whose version it is, and read back from its name", () => {
+    const none = () => false;
+    assert.equal(conflictPath("knowledge/preise.md", "Anna", none), "knowledge/preise.konflikt-anna.md");
+    assert.equal(conflictPath("Makefile", "ben.k", none), "Makefile.konflikt-ben-k");
+    assert.equal(conflictPath("a.tar.gz", "", none), "a.tar.konflikt-lokal.gz");
+    assert.deepEqual(parseConflictCopy("a.tar.konflikt-lokal.gz"), { path: "a.tar.gz", by: "lokal" });
+    const taken = new Set(["k/a.konflikt-anna.md"]);
+    assert.equal(conflictPath("k/a.md", "anna", (p) => taken.has(p)), "k/a.konflikt-anna-2.md");
+    assert.deepEqual(parseConflictCopy("knowledge/preise.konflikt-anna.md"), { path: "knowledge/preise.md", by: "anna" });
+    assert.deepEqual(parseConflictCopy("k/a.konflikt-anna-2.md"), { path: "k/a.md", by: "anna" });
+    assert.deepEqual(parseConflictCopy("Makefile.konflikt-ben-k"), { path: "Makefile", by: "ben-k" });
+    assert.equal(parseConflictCopy("knowledge/konflikt.md"), null);
   });
 });

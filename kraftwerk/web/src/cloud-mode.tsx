@@ -376,7 +376,7 @@ export function ModeChip() {
   const isCloud = cloud.mode === "cloud";
   const offline = isCloud && cloud.state !== "connected";
   // In cloud mode the workspace's page in the cloud is one click away, beside the chip.
-  const cloudLink = isCloud && cloud.workspaceUrl ? cloud.workspaceUrl : null;
+  const cloudLink = isCloud && cloud.workspaceUrl && !cloud.deleted ? cloud.workspaceUrl : null;
   return (
     <span className="inline-flex flex-none items-center gap-1">
       <Popover
@@ -388,15 +388,19 @@ export function ModeChip() {
             // mode-chip: the tests find it by this name.
             className={cn(
               "mode-chip inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 font-[inherit] text-xs font-semibold transition-colors",
-              isCloud
-                ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/18"
-                : "border-line bg-transparent text-fg-2 hover:text-fg",
+              isCloud && cloud.deleted
+                ? "border-bad/40 bg-bad/10 text-bad hover:bg-bad/18"
+                : isCloud
+                  ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/18"
+                  : "border-line bg-transparent text-fg-2 hover:text-fg",
               open && "ring-2 ring-accent/30",
             )}
             aria-label={`workspace mode: ${cloud.mode}`}
             title={
               isCloud
-                ? offline
+                ? cloud.deleted
+                  ? "Deleted in kraftwerk cloud — switch to local to keep working"
+                  : offline
                   ? "Cloud mode — the cloud does not answer right now"
                   : "Cloud mode — multiplayer"
                 : "Local mode — switch to cloud for multiplayer"
@@ -408,7 +412,7 @@ export function ModeChip() {
               className="ms-sm"
             />
             <span className="max-[640px]:hidden">
-              {isCloud ? "cloud" : "local"}
+              {isCloud ? (cloud.deleted ? "cloud · deleted" : "cloud") : "local"}
             </span>
             {!isCloud && (
               <span className="rounded-full bg-accent/12 px-1.5 text-2xs text-accent max-[900px]:hidden">
@@ -504,8 +508,7 @@ export function CloudModePanel() {
         {cloud.mode === "cloud" && !sw.waiting && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-fg-2">
             <Icon name="cloud_sync" className="ms-sm" />
-            The workspace's files: kraftwerk sync keeps their history in kraftwerk cloud, for everyone on it.
-            <a href="#/git">set it up or see it on the Git page →</a>
+            The workspace's files: kraftwerk sync keeps them in step through kraftwerk cloud, for everyone on it — set up and set under <a href="#/settings">git sync</a>.
           </div>
         )}
         <Problem cloud={cloud} error={sw.error} />

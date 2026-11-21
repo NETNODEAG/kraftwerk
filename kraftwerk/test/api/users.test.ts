@@ -141,6 +141,39 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     assert.ok(!stored.includes(decodeURIComponent(session.split("=")[1])));
   });
 
+  it("kraftwerk join's one-time link signs the browser in as the account, once", async () => {
+    const accountId = cloudMod.cloudStatus().accountId!;
+    assert.ok(accountId);
+    const token = await users.issueHandoff(WS, accountId);
+    assert.ok(token, "the cloud confirmed the account");
+    const r = await browser(`/w/team/auth/handoff?t=${token}`);
+    assert.equal(r.status, 302, await r.clone().text());
+    assert.equal(r.headers.get("location"), "/w/team/");
+    const me = (await (await browser("/w/team/api/me", { cookie: cookieFrom(r, "kw_user") })).json()) as Record<string, unknown>;
+    assert.deepEqual([me.email, me.role, me.signedIn], ["lukas@example.com", "owner", true]);
+    assert.equal((await browser(`/w/team/auth/handoff?t=${token}`)).status, 400, "used up");
+    assert.equal((await browser("/w/team/auth/handoff?t=made-up")).status, 400);
+    assert.equal(await users.issueHandoff(WS, "00000000-0000-0000-0000-000000000000"), null, "an account the cloud does not confirm gets none");
+  });
+
+  it("a cloud-board task handed to this machine's person: fetched on the heartbeat's count, in the bell, acknowledged; an agent not here is not claimed", async () => {
+    cloud.events.push(
+      { id: 41, workspaceId: WS, kind: "task_assigned", person: "lukas", board: "launch", boardTitle: "Launch", number: 3, title: "Ersatzteile bestellen", status: "todo", by: "human:mia", reason: "assigned", message: "bis Freitag", at: Date.now() },
+      { id: 42, workspaceId: WS, kind: "agent_task", agent: "nobody-here", board: "launch", boardTitle: "Launch", number: 4, title: "Fotos", status: "todo", by: "human:mia", reason: "assigned", at: Date.now() },
+    );
+    await cloudMod.syncMachineCloud();
+    const end = Date.now() + 5000;
+    while (cloud.events.length && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(cloud.events.length, 0, "both acknowledged");
+    assert.deepEqual(cloud.acks.at(-1), { ack: [41, 42], claim: [] }, "an agent this workspace does not have is not claimed");
+    const bell = (await (await script("/w/team/api/notifications")).json()) as { items: { kind: string; title: string; body?: string; href: string }[] };
+    const n = bell.items.find((i) => i.kind === "task_assigned");
+    assert.ok(n, JSON.stringify(bell.items));
+    assert.equal(n.title, "📋 mia gave you “Ersatzteile bestellen”");
+    assert.equal(n.body, "Launch · todo — bis Freitag");
+    assert.equal(n.href, "/boards/@launch/3");
+  });
+
   it("a callback that did not start in this browser, or comes twice, is refused", async () => {
     const start = await browser("/w/team/auth/signin");
     const q = Object.fromEntries(new URL(start.headers.get("location")!).searchParams) as { workspace: string; machine: string; redirect: string; state: string };
@@ -316,6 +349,25 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
       await cloudMod.syncMachineCloud();
       await script("/w/solo/api/workspace/cloud", { mode: "local" });
     }
+  });
+
+  it("deleted in the cloud: the workspace says so, and switching to cloud again gives it a fresh id", async () => {
+    const { readFile: rf } = await import("node:fs/promises");
+    const idOf = async () => (await rf(path.join(a.root, "kraftwerk.yml"), "utf8")).match(/^id: (\S+)/m)?.[1];
+    const old = await idOf();
+    assert.ok(old);
+    cloud.deleted.add(old!);
+    await cloudMod.syncMachineCloud();
+    const st = (await (await script("/w/team/api/workspace/cloud")).json()) as { deleted?: boolean; problem?: string };
+    assert.equal(st.deleted, true);
+    assert.match(st.problem ?? "", /deleted in kraftwerk cloud/);
+    await script("/w/team/api/workspace/cloud", { mode: "local" });
+    await script("/w/team/api/workspace/cloud", { mode: "cloud" });
+    const fresh = await idOf();
+    assert.ok(fresh && fresh !== old, "a new id, the old one is gone for good");
+    const after = (await (await script("/w/team/api/workspace/cloud")).json()) as { deleted?: boolean };
+    assert.equal(after.deleted, undefined);
+    cloud.deleted.clear();
   });
 
   it("two switches at once run one after the other: the workspace gets one id", async () => {

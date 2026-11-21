@@ -5,7 +5,7 @@ import { addWorkspaceId, resolveWorkspace, usersMode, type UsersMode } from "../
 import { envCloudOff, writeCloudFile } from "../core/cloud.js";
 import { workspaceRoot } from "../core/context.js";
 import { ApiError } from "./api/router.js";
-import { applyMachineCloud, cloudStatus, syncMachineCloud, type CloudStatus } from "./cloud.js";
+import { applyMachineCloud, cloudStatus, deletedInCloud, syncMachineCloud, type CloudStatus } from "./cloud.js";
 import { currentHub } from "./hub-context.js";
 
 /**
@@ -56,8 +56,10 @@ export interface WorkspaceCloud {
   account: string | null;
   claimCode: string | null;
   claimUrl: string | null;
-  /** Why the machine is not connected, when it is not. */
+  /** Why the machine is not connected, when it is not — or that the workspace was deleted in the cloud. */
   problem?: string;
+  /** Deleted in kraftwerk cloud: its files here stay; cloud mode is over for it (switch to local). */
+  deleted?: boolean;
 }
 
 async function configDoc() {
@@ -79,7 +81,10 @@ export async function workspaceCloud(): Promise<WorkspaceCloud> {
   const mode = usersMode(ws.config);
   const steps = { machine: connected, claim: claimed, workspace: id, signin: mode === "cloud" };
   const next = mode === "cloud" && claimed ? null : !daemon ? "daemon" : !connected ? (st.state === "connecting" ? "connect" : "machine") : !claimed ? "claim" : null;
-  const problem = !daemon
+  const deleted = deletedInCloud(ws.config.id);
+  const problem = deleted
+    ? "this workspace was deleted in kraftwerk cloud — its files here are yours; switch it to local to keep working (a new id comes with the next switch to cloud)"
+    : !daemon
     ? "only the kraftwerk daemon connects to the cloud — run `kraftwerk daemon` and open the workspace there"
     : st.state === "error"
       ? `kraftwerk cloud does not answer: ${st.error ?? "unknown error"}`
@@ -97,6 +102,7 @@ export async function workspaceCloud(): Promise<WorkspaceCloud> {
     claimCode: st.claimCode ?? null,
     claimUrl: st.claimUrl ?? null,
     ...(problem ? { problem } : {}),
+    ...(deleted ? { deleted: true } : {}),
   };
 }
 
@@ -130,6 +136,12 @@ async function toLocal(): Promise<WorkspaceCloud> {
 
 async function toCloud(): Promise<WorkspaceCloud> {
   if (currentHub().daemon !== true || envCloudOff()) return workspaceCloud();
+  // Deleted in the cloud: the old id is gone for good — a fresh one, as for a new workspace.
+  if (deletedInCloud((await resolveWorkspace(workspaceRoot())).config.id)) {
+    const { configPath, doc } = await configDoc();
+    doc.delete("id");
+    await fs.writeFile(configPath, doc.toString());
+  }
   // 1. The machine's cloud on.
   if (cloudStatus().state === "off") {
     await writeCloudFile({ enabled: true });

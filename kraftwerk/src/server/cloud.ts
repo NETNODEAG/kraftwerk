@@ -23,7 +23,8 @@ import {
 import { identityString, readIdentity } from "../core/identity.js";
 import { routineReport } from "../core/routines.js";
 import { machineCredentials } from "./relay.js";
-import { setRemoteAuth } from "../core/git.js";
+import { setRemoteAuth, setSyncAuthor } from "../core/git.js";
+import { installCloudEvents } from "./cloud-events.js";
 
 /**
  * The machine client: the daemon registers THIS MACHINE with the kraftwerk
@@ -96,6 +97,8 @@ const STANDALONE: CloudStatus = { url: "", state: "off", reason: "only the daemo
 const m = {
   status: { ...STANDALONE } as CloudStatus,
   creds: null as Credentials | null,
+  /** Workspaces (ws_ ids) this machine reports that were deleted in the cloud. */
+  deleted: new Set<string>(),
   registered: false,
   timer: null as NodeJS.Timeout | null,
   started: false,
@@ -206,6 +209,8 @@ async function register(): Promise<boolean> {
     // An unclaimed register carries no roots: the list counts as reported only when that is all the cloud should know.
     m.reported = r.account ? "" : JSON.stringify(list);
     await noteAccount(r);
+    m.deleted = new Set(r.deletedWorkspaces ?? []);
+    queueMicrotask(() => cloudChanged());
     m.status = {
       ...base, state: "connected", account: r.account ?? null, accountId: r.accountId ?? null, accountHandle: r.accountHandle ?? null, interval: r.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
       claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(cloud.url, r.claimCode), workspaces: list.length,
@@ -237,6 +242,10 @@ async function heartbeat(): Promise<void> {
     m.reported = now;
     m.routines = ran;
     await noteAccount(r);
+    m.deleted = new Set(r.deletedWorkspaces ?? []);
+    queueMicrotask(() => cloudChanged());
+    // Events a poke did not bring (the relay was down): fetch them now (cloud-events.ts).
+    if (r.events) void Promise.resolve().then(() => eventsWaiting()).catch(() => {});
     m.status = {
       ...m.status, state: "connected", error: undefined, interval: r.interval || m.status.interval || DEFAULT_INTERVAL, lastSeen: new Date().toISOString(),
       ...(r.account !== undefined ? { account: r.account, accountId: r.accountId ?? null, accountHandle: r.accountHandle ?? null } : {}),
@@ -290,11 +299,15 @@ export async function startMachineCloud(opts: { version: string; workspaces: Wor
   await fs.rm(retiredCloudDir(), { recursive: true, force: true }).catch(() => {});
   // The machine's id exists from the daemon's first start on, with the relay still off.
   m.creds = await machineCredentials().catch(() => null);
+  // Cloud-board events: notifications and agent wakes (cloud-events.ts).
+  installCloudEvents();
   // kraftwerk sync: git reaches the workspaces' cloud repos with this machine's key (core/git.ts).
   setRemoteAuth(() => {
     const link = machineLink();
     return link ? { [`${link.url}/git/`]: syncAuthHeader(link.creds) } : {};
   });
+  // What kraftwerk sync commits by itself is by the account this machine is linked to.
+  setSyncAuthor(() => (m.status.state === "connected" && m.status.account ? { name: m.status.accountHandle || m.status.account, email: m.status.account } : null));
   await serial(register);
   schedule();
   return m.status;
@@ -319,6 +332,7 @@ export async function applyMachineCloud(): Promise<CloudStatus> {
     if (m.timer) clearTimeout(m.timer);
     m.timer = null;
     m.status = { url: cloud.url, state: "off", source: cloud.source, ...(cloud.reason ? { reason: cloud.reason } : {}) };
+    cloudChanged();
     return m.status;
   }
   if (!m.registered) await serial(register);
@@ -347,6 +361,7 @@ export async function unlinkMachineCloud(): Promise<CloudStatus> {
     m.routines = "";
     await writeAccountFile(null);
     m.status = { ...m.status, account: null, accountId: null, accountHandle: null, claimCode: r.claimCode ?? null, claimUrl: claimUrlFor(m.status.url, r.claimCode) };
+    cloudChanged();
     return m.status;
   });
 }
@@ -366,6 +381,7 @@ export async function stopMachineCloud(owner?: unknown): Promise<void> {
   m.registered = false;
   m.reported = "";
   m.status = { ...STANDALONE };
+  cloudChanged();
   if (registered && creds && url) await machineGoodbye(url, creds, m.version).catch(() => {});
 }
 
@@ -379,6 +395,21 @@ export function machineLink(): { url: string; creds: Credentials; version: strin
   return { url: m.status.url, creds: m.creds, version: m.version };
 }
 
+/** What runs when the machine's link changes — connected, claimed, stopped (cloud-events.ts keeps its stream to match). */
+let cloudChanged: () => void = () => {};
+export function onCloudChanged(fn: () => void): void {
+  cloudChanged = fn;
+}
+
+/** What runs when the cloud says events wait for this machine (cloud-events.ts sets it). */
+let eventsWaiting: () => Promise<void> = async () => {};
+export function onEventsWaiting(fn: () => Promise<void>): void {
+  eventsWaiting = fn;
+}
+
+/** Whether workspace `id` was deleted in kraftwerk cloud (its copies here stay, in local mode). */
+export const deletedInCloud = (id: string | undefined): boolean => !!id && m.deleted.has(id);
+
 /** HTTP Basic with the machine's id and secret — what kraftwerk sync's git server takes from a machine. */
 export const syncAuthHeader = (creds: Credentials): string => `Authorization: Basic ${Buffer.from(`${creds.id}:${creds.secret}`).toString("base64")}`;
 
@@ -386,6 +417,17 @@ export const syncAuthHeader = (creds: Credentials): string => `Authorization: Ba
 export function syncUrl(id: string): string | null {
   const url = cloudStatus().url;
   return url ? `${url}/git/${encodeURIComponent(id)}.git` : null;
+}
+
+/** Run `fn` inside the served workspace whose `id` is `id` (its own context: notifications, chats); null when none here serves it. */
+export async function inServedWorkspace<T>(id: string, fn: () => Promise<T>): Promise<{ value: T } | null> {
+  for (const o of m.source()) {
+    const ws = await resolveWorkspace(o.root).catch(() => null);
+    if (ws?.config.id !== id || !cloudIncluded(ws.config) || !o.ws) continue;
+    const run = o.ws.run.bind(o.ws);
+    return { value: await run(fn) };
+  }
+  return null;
 }
 
 /** The served workspace whose kraftwerk.yml `id` is `id` (vetoed ones not), or null. */

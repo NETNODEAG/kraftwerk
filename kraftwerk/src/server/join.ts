@@ -7,6 +7,7 @@ import { git, NET_TIMEOUT, remoteAuthEnv } from "../core/git.js";
 import { ApiError } from "./api/router.js";
 import { applyMachineCloud, cloudStatus, machineLink, syncMachineCloud } from "./cloud.js";
 import { currentHub } from "./hub-context.js";
+import { issueHandoff } from "./users.js";
 
 /**
  * `kraftwerk join <link>` on the daemon's side — start on the platform: a
@@ -19,14 +20,18 @@ import { currentHub } from "./hub-context.js";
  *      the cloud claims it for the code's account and names the workspace
  *   3. the workspace cloned from kraftwerk sync into the folder — the machine's
  *      key goes along through core/git.ts setRemoteAuth, nothing is stored;
- *      a cloud repository with no history yet gets a kraftwerk.yml of its own
- *   4. the folder opened in the daemon
+ *      a cloud repository with no history yet is refused with what to do (its
+ *      owner sets up kraftwerk sync first), nothing is made locally
+ *   4. the folder opened in the daemon, and a one-time sign-in link for the
+ *      browser the CLI opens (no second round through the cloud)
  *
  * Again on a folder that already holds the workspace: no clone, just open.
  */
 
 export interface JoinResult {
   workspace: { id: string; name: string; slug: string; url: string };
+  /** Opens the workspace signed in as the account (one use, five minutes); absent when the cloud did not confirm. */
+  signin?: string;
   root: string;
   role: string;
   account: string;
@@ -106,23 +111,30 @@ export async function joinWorkspace(link: string, dirIn: string | undefined, cwd
   } else if (existsSync(root) && (await fs.readdir(root)).length > 0) {
     throw new ApiError(409, `${root} exists and is not empty — pass another folder: kraftwerk join <link> <folder>`);
   } else {
+    // A workspace whose repository has no history yet (begun locally, kraftwerk sync not set up there yet):
+    // nothing to clone — a kraftwerk.yml made here would collide with the owner's first push.
+    const heads = await git(["ls-remote", "--heads", "--", joined.sync.url], cwd, NET_TIMEOUT, remoteAuthEnv());
+    if (!heads.ok) throw new ApiError(502, `kraftwerk sync did not answer: ${heads.stderr || "unknown error"}`);
+    if (!heads.stdout.trim()) {
+      throw new ApiError(
+        409,
+        `${joined.workspaceName} has no files in kraftwerk sync yet — whoever runs it has to set up kraftwerk sync first (kraftwerk → Git → "set up kraftwerk sync"); then run this again. This machine is linked to ${joined.account} already.`,
+      );
+    }
     await fs.mkdir(path.dirname(root), { recursive: true });
     const r = await git(["clone", "-q", "--", joined.sync.url, root], path.dirname(root), NET_TIMEOUT * 5, remoteAuthEnv());
     if (!r.ok) throw new ApiError(502, `cloning from kraftwerk sync failed: ${r.stderr || "unknown error"}`);
     cloned = true;
-    // A workspace whose repository has no history yet (made locally, never pushed): its kraftwerk.yml starts here.
-    if (!existsSync(path.join(root, "kraftwerk.yml"))) {
-      await fs.writeFile(
-        path.join(root, "kraftwerk.yml"),
-        [`id: ${joined.workspaceId}`, `name: ${JSON.stringify(joined.workspaceName)}`, `users:`, `  mode: cloud`, `git:`, `  autosync: push`, ``].join("\n"),
-      );
-    }
   }
   const o = await currentHub().open(root);
   // The cloud learns the workspace is here now (its host list, sign-in).
   await syncMachineCloud().catch(() => {});
+  // Signed in at once: the link proved the account (server/users.ts issueHandoff).
+  const accountId = cloudStatus().accountId;
+  const token = accountId ? await issueHandoff(joined.workspaceId, accountId) : null;
   return {
     workspace: { id: joined.workspaceId, name: joined.workspaceName, slug: o.slug, url: o.url },
+    ...(token ? { signin: `${o.url}/auth/handoff?t=${token}` } : {}),
     root,
     role: joined.role,
     account: joined.account,

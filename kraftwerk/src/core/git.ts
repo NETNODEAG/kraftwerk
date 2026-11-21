@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { boardsRootFor, presentationsRootFor, ENTITY_KINDS, entitiesRootFor, projectsRootFor, reposRootFor, resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
 import { getOutputDir, workspaceRoot } from "./context.js";
 import { perWorkspace, workspaceOpen } from "./workspace.js";
 import { workspaceEnv } from "./env.js";
+import { readIdentity } from "./identity.js";
 
 /**
  * Workspace git sync. Several people run kraftwerk against one git repo, so
@@ -30,7 +31,13 @@ import { workspaceEnv } from "./env.js";
  *   pushes commits that already exist to a branch that already tracks its
  *   upstream. It never creates a commit, never publishes a new branch and
  *   never forces.
- * - A diverged branch is reported, never merged or rebased from here.
+ * - A diverged branch is reported, never merged or rebased from here —
+ *   except with `autosync: sync` (kraftwerk sync's default): there the timer
+ *   also commits what changed under the synced roots, and a diverged branch
+ *   is merged with the rule "the cloud wins": where both sides changed a
+ *   file, the remote's version stays and this machine's lands beside it as
+ *   `name.konflikt-<handle>.ext`, committed too, so nothing is lost and
+ *   nobody has to resolve anything in a terminal (see syncNow).
  *
  * Every git call passes an argument array, so nothing reaches a shell, and
  * every call is async with a timeout: git runs inside the single-threaded
@@ -54,7 +61,7 @@ export const DENY = [
 const DEFAULTS = { remote: "origin", interval: 300, autosync: "pull" as const };
 
 /** off = fetch only. pull = also fast-forward. push = fast-forward, then push what is ahead. */
-export type Autosync = "off" | "pull" | "push";
+export type Autosync = "off" | "pull" | "push" | "sync";
 
 export interface GitFile {
   /** Path relative to the repo root, which is what git speaks. */
@@ -102,6 +109,22 @@ export interface GitStatus {
   /** The last push that worked, by hand or in the background. */
   lastPush?: string;
   lastError?: string;
+  /** The last commit `autosync: sync` made by itself. */
+  lastAutoCommit?: string;
+  /**
+   * Copies `autosync: sync` kept beside the remote's version (on this machine
+   * or any other), read from the files themselves: they stay listed until
+   * someone deletes the copy. Newest first.
+   */
+  conflicts?: SyncConflict[];
+}
+
+/** One file both sides changed: the remote's version is at `path`, the other side's at `copy`, kept for `by`. */
+export interface SyncConflict {
+  path: string;
+  copy: string;
+  by: string;
+  at: string;
 }
 
 export interface GitDiff {
@@ -454,6 +477,7 @@ const gitState = perWorkspace(() => ({
   lastPull: undefined as string | undefined,
   lastPush: undefined as string | undefined,
   lastError: undefined as string | undefined,
+  lastAutoCommit: undefined as string | undefined,
   timer: null as ReturnType<typeof setTimeout> | null,
   ticking: false,
   lastRun: 0,
@@ -540,6 +564,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     lastPull: gitState().lastPull,
     lastPush: gitState().lastPush,
     lastError: gitState().lastError,
+    ...(gitState().lastAutoCommit ? { lastAutoCommit: gitState().lastAutoCommit } : {}),
   };
 
   // A failed status (a stale index.lock, a timeout on a huge untracked tree)
@@ -565,12 +590,14 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     ? "A configured root points at the repository root, which would put the whole repo in scope. Narrow workflows/knowledge/agents/skills/vibeables/projects in kraftwerk.yml."
     : undefined;
 
+  const conflicts = repo.cfg.autosync === "sync" ? await conflictCopies(repoRoot) : [];
   const value: GitStatus = {
     ...base,
     error: head.error ?? scopeError,
     files: [...syncable, ...blocked.slice(0, MAX_BLOCKED)],
     blockedHidden: blockedHidden || undefined,
     scope: scope.include,
+    ...(conflicts.length ? { conflicts } : {}),
   };
   // A commit that finished while this status was running already emptied
   // the cache; caching the pre-commit list on top of that would show the
@@ -628,7 +655,28 @@ export function gitCommit(paths: string[], message: string): Promise<{ ok: boole
   return serial(() => commitNow(paths, message));
 }
 
-async function commitNow(paths: string[], message: string): Promise<{ ok: boolean; error?: string; committed?: number }> {
+/**
+ * Who a commit is by. A commit by hand is git's own user (its config); one
+ * that kraftwerk makes by itself (`autosync: sync`) is by the account this
+ * machine is linked to, when the daemon knows one (setSyncAuthor) — else
+ * git's user. With no git user configured at all, the machine's identity
+ * stands in, so a commit never fails on "Please tell me who you are".
+ */
+let syncAuthor: () => { name: string; email: string } | null = () => null;
+export function setSyncAuthor(fn: () => { name: string; email: string } | null): void {
+  syncAuthor = fn;
+}
+async function authorEnv(repoRoot: string, who: "git" | "sync"): Promise<NodeJS.ProcessEnv> {
+  const pick = who === "sync" ? syncAuthor() : null;
+  if (pick) return { GIT_AUTHOR_NAME: pick.name, GIT_AUTHOR_EMAIL: pick.email, GIT_COMMITTER_NAME: pick.name, GIT_COMMITTER_EMAIL: pick.email };
+  if ((await git(["config", "user.email"], repoRoot)).stdout.trim()) return {};
+  const id = await readIdentity().catch(() => null);
+  const name = id?.handle || "kraftwerk";
+  const email = `${name}@${(id?.machine || "kraftwerk").replace(/[^A-Za-z0-9.-]+/g, "-")}.kraftwerk`;
+  return { GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email };
+}
+
+async function commitNow(paths: string[], message: string, author: "git" | "sync" = "git"): Promise<{ ok: boolean; error?: string; committed?: number }> {
   const { repo, error } = await openRepo();
   if (!repo) return { ok: false, error };
   const { repoRoot } = repo;
@@ -668,7 +716,7 @@ async function commitNow(paths: string[], message: string): Promise<{ ok: boolea
       return { ok: false, error: add.stderr || "git add failed" };
     }
   }
-  const commit = await git(["commit", "-m", text, "--", ...specs], repoRoot);
+  const commit = await git(["commit", "-m", text, "--", ...specs], repoRoot, LOCAL_TIMEOUT, await authorEnv(repoRoot, author));
   if (!commit.ok) {
     let error = commit.stderr || commit.stdout.trim() || "git commit failed";
     if (ours.length) {
@@ -683,8 +731,8 @@ async function commitNow(paths: string[], message: string): Promise<{ ok: boolea
     return { ok: false, error };
   }
   touched();
-  // With `autosync: push` a commit should not sit here until the next interval.
-  if (repo.cfg.autosync === "push") syncSoon();
+  // With `autosync: push` or `sync` a commit should not sit here until the next interval.
+  if (author === "git" && (repo.cfg.autosync === "push" || repo.cfg.autosync === "sync")) syncSoon();
   return { ok: true, committed: paths.length };
 }
 
@@ -851,6 +899,10 @@ async function tick(): Promise<void> {
 }
 
 async function sync(repo: Repo): Promise<void> {
+  if (repo.cfg.autosync === "sync") {
+    await syncNow(repo);
+    return;
+  }
   const fetched = await gitFetch();
   if (!fetched.ok || repo.cfg.autosync === "off") return;
   let st = await gitStatus();
@@ -871,4 +923,174 @@ async function sync(repo: Repo): Promise<void> {
   // interval; it is reported on the git screen instead.
   if (st.error || !st.upstream || !st.ahead || st.behind) return;
   await gitPush();
+}
+
+/* ---------- autosync: sync ---------- */
+
+/** How many conflict copies the status lists. */
+const MAX_CONFLICTS = 20;
+
+const COPY_MARK = ".konflikt-";
+
+/** `knowledge/a.konflikt-ben-2.md` → { path: knowledge/a.md, by: ben }, or null when it is not a copy. */
+export function parseConflictCopy(copy: string): { path: string; by: string } | null {
+  const slash = copy.lastIndexOf("/") + 1;
+  const name = copy.slice(slash);
+  const i = name.lastIndexOf(COPY_MARK);
+  if (i <= 0) return null;
+  const rest = name.slice(i + COPY_MARK.length);
+  const dot = rest.indexOf(".");
+  const tag = dot >= 0 ? rest.slice(0, dot) : rest;
+  if (!/^[a-z0-9_-]+$/.test(tag)) return null;
+  return { path: copy.slice(0, slash) + name.slice(0, i) + (dot >= 0 ? rest.slice(dot) : ""), by: tag.replace(/-\d+$/, "") };
+}
+
+/** The conflict copies in the work tree, newest first (their files' times). */
+async function conflictCopies(repoRoot: string): Promise<SyncConflict[]> {
+  const r = await git(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", `*${COPY_MARK}*`], repoRoot);
+  if (!r.ok) return [];
+  const out: SyncConflict[] = [];
+  for (const copy of r.stdout.split("\0").filter(Boolean)) {
+    const parsed = parseConflictCopy(copy);
+    if (!parsed) continue;
+    let at = "";
+    try {
+      at = statSync(path.join(repoRoot, copy)).mtime.toISOString();
+    } catch {
+      continue; // deleted, not committed yet
+    }
+    out.push({ path: parsed.path, copy, by: parsed.by, at });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_CONFLICTS);
+}
+
+/** `notes/preise.md` → `notes/preise.konflikt-anna.md`, numbered while taken. */
+export function conflictPath(file: string, handle: string, taken: (p: string) => boolean): string {
+  const dir = file.includes("/") ? file.slice(0, file.lastIndexOf("/") + 1) : "";
+  const name = file.slice(dir.length);
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  const tag = (handle || "lokal").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "lokal";
+  for (let n = 1; ; n++) {
+    const p = `${dir}${stem}.konflikt-${tag}${n > 1 ? `-${n}` : ""}${ext}`;
+    if (!taken(p)) return p;
+  }
+}
+
+/** A blob of `rev` written to a file in the work tree, bytes as they are. */
+function blobToFile(repoRoot: string, rev: string, file: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn("git", ["cat-file", "blob", rev], { cwd: repoRoot, env: gitEnv() });
+    const out = createWriteStream(path.join(repoRoot, file));
+    child.stdout.pipe(out);
+    child.once("error", () => resolve(false));
+    child.once("close", (code) => out.end(() => resolve(code === 0)));
+  });
+}
+
+const lines = (r: GitResult): string[] => (r.ok ? r.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : []);
+
+/**
+ * One round of kraftwerk sync: commit what changed under the synced roots,
+ * fetch, take the remote's commits (fast-forward, or a merge where the
+ * remote wins and our side of every file both changed is kept beside it),
+ * push. Each step queues with the others (serial), so a click on the git
+ * screen never meets a half-done round.
+ */
+async function syncNow(repo: Repo): Promise<void> {
+  const st0 = await gitStatus(true);
+  if (st0.error || !st0.repoRoot) return;
+  const changed = (st0.files ?? []).filter((f) => f.syncable).map((f) => f.path);
+  if (changed.length) {
+    const id = await readIdentity().catch(() => null);
+    const shown = changed.length <= 3 ? changed.join(", ") : `${changed.slice(0, 3).join(", ")} and ${changed.length - 3} more`;
+    const msg = `kraftwerk sync: ${shown}${id ? ` (${id.handle}@${id.machine})` : ""}`;
+    const c = await serial(() => commitNow(changed, msg, "sync"));
+    if (c.ok) gitState().lastAutoCommit = new Date().toISOString();
+    else gitState().lastError = c.error;
+  }
+  if (!(await gitFetch()).ok) return;
+  const st = await gitStatus(true);
+  if (st.error || !st.repoRoot) return;
+  if (st.upstream && st.behind) {
+    const merged = st.ahead ? await serial(() => mergeTheirs(repo, st.upstream!)) : await gitPull();
+    if (!merged.ok) return;
+  }
+  const after = await gitStatus(true);
+  if (after.error) return;
+  if (!after.upstream || after.ahead) await gitPush();
+}
+
+/**
+ * Merge the remote's branch, the remote winning: `-X theirs` settles the
+ * hunks both sides touched, and what that cannot (one side deleted, the other
+ * changed) takes the remote's side by hand. Then every file both sides
+ * changed whose result is not our version gets our version beside it, as a
+ * second commit. Only the remote's history is taken as it is; ours is kept
+ * in full — in history, and in the copies.
+ */
+async function mergeTheirs(repo: Repo, upstream: string): Promise<{ ok: boolean; error?: string }> {
+  const { repoRoot } = repo;
+  const fail = (error: string) => {
+    gitState().lastError = error;
+    touched();
+    return { ok: false, error };
+  };
+  const ours = (await git(["rev-parse", "HEAD"], repoRoot)).stdout.trim();
+  const base = (await git(["merge-base", "HEAD", upstream], repoRoot)).stdout.trim();
+  if (!ours || !base) return fail("kraftwerk sync: the local and remote histories share nothing — merge them in a terminal once");
+  const mine = new Set(lines(await git(["diff", "--name-only", "--no-renames", base, ours], repoRoot)));
+  const both = lines(await git(["diff", "--name-only", "--no-renames", base, upstream], repoRoot)).filter((p) => mine.has(p));
+  const env = await authorEnv(repoRoot, "sync");
+  const msg = "kraftwerk sync: the remote's changes taken in (where both changed a file, the remote's version wins)";
+  const m = await git(["merge", "--no-edit", "--no-ff", "-X", "theirs", "-m", msg, upstream], repoRoot, NET_TIMEOUT, env);
+  if (!m.ok) {
+    const unmerged = lines(await git(["diff", "--name-only", "--diff-filter=U"], repoRoot));
+    if (unmerged.length === 0) {
+      await git(["merge", "--abort"], repoRoot);
+      return fail(`kraftwerk sync could not merge: ${m.stderr || m.stdout.trim() || "unknown error"}`);
+    }
+    for (const p of unmerged) {
+      const stages = lines(await git(["ls-files", "-u", "--", literal(p)], repoRoot)).map((l) => l.split(/\s+/)[2]);
+      const r = stages.includes("3")
+        ? await git(["checkout", "--theirs", "--", literal(p)], repoRoot).then(() => git(["add", "--", literal(p)], repoRoot))
+        : await git(["rm", "-q", "--", literal(p)], repoRoot);
+      if (!r.ok) {
+        await git(["merge", "--abort"], repoRoot);
+        return fail(`kraftwerk sync could not settle ${p}: ${r.stderr}`);
+      }
+    }
+    const done = await git(["commit", "--no-edit", "-m", msg], repoRoot, LOCAL_TIMEOUT, env);
+    if (!done.ok) {
+      await git(["merge", "--abort"], repoRoot);
+      return fail(`kraftwerk sync could not finish the merge: ${done.stderr || done.stdout.trim()}`);
+    }
+  }
+  // Our side of each file both changed, where the result is not it — named after the account when the daemon knows it.
+  const id = await readIdentity().catch(() => null);
+  const who = syncAuthor()?.name || id?.handle || "";
+  const kept: SyncConflict[] = [];
+  const at = new Date().toISOString();
+  for (const p of both) {
+    const oursBlob = (await git(["rev-parse", "--verify", "-q", `${ours}:${p}`], repoRoot)).stdout.trim();
+    if (!oursBlob) continue; // we deleted it: nothing of ours to keep
+    const now = (await git(["rev-parse", "--verify", "-q", `HEAD:${p}`], repoRoot)).stdout.trim();
+    if (now === oursBlob) continue;
+    const copy = conflictPath(p, who, (c) => existsSync(path.join(repoRoot, c)));
+    if (!(await blobToFile(repoRoot, oursBlob, copy))) continue;
+    if ((await git(["add", "--", literal(copy)], repoRoot)).ok) kept.push({ path: p, copy, by: who, at });
+  }
+  if (kept.length) {
+    const c = await git(
+      ["commit", "-m", `kraftwerk sync: kept ${who || "this machine"}'s version of ${kept.length} file${kept.length === 1 ? "" : "s"} beside the remote's`, "--", ...kept.map((k) => literal(k.copy))],
+      repoRoot,
+      LOCAL_TIMEOUT,
+      env,
+    );
+    if (!c.ok) return fail(`kraftwerk sync kept copies but could not commit them: ${c.stderr || c.stdout.trim()}`);
+  }
+  gitState().lastPull = at;
+  gitState().lastError = undefined;
+  touched();
+  return { ok: true };
 }

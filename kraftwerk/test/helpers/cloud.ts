@@ -111,6 +111,11 @@ export interface StubCloud {
   boardCalls: BoardCall[];
   /** Unreachable: every connection is dropped while true. */
   down: boolean;
+  /** ws_ ids deleted in the cloud: register and heartbeat answer them as deletedWorkspaces. */
+  deleted: Set<string>;
+  /** Events waiting for machines (/api/machines/events); acknowledged ones are dropped, claims recorded. */
+  events: Array<Record<string, unknown> & { id: number }>;
+  acks: Array<{ ack: number[]; claim: number[] }>;
   close(): Promise<void>;
 }
 
@@ -135,6 +140,10 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
     }
     return a;
   };
+  const deleted = new Set<string>();
+  const events: Array<Record<string, unknown> & { id: number }> = [];
+  const acks: Array<{ ack: number[]; claim: number[] }> = [];
+  const deletedFields = () => (deleted.size ? { deletedWorkspaces: [...deleted] } : {});
   const claimFields = (email: string | null) => (email ? { accountId: account(email).id, accountHandle: account(email).handle } : { accountId: null, accountHandle: null });
   let inviteN = 0;
   const reports = (mach: StubMachine, workspaceId: string) => mach.workspaces.some((w) => (w as { id?: string }).id === workspaceId);
@@ -219,7 +228,7 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
         rec.workspaces = (body.workspaces as unknown[]) ?? [];
         rec.online = true;
         machines.set(id, rec);
-        return send(res, 200, { ok: true, interval, claimCode: rec.claimCode, account: rec.account, ...claimFields(rec.account) });
+        return send(res, 200, { ok: true, interval, claimCode: rec.claimCode, account: rec.account, ...claimFields(rec.account), ...deletedFields() });
       }
       if (!m) return send(res, 404, { error: "unknown machine" });
       if (m.secret !== body.secret) return send(res, 403, { error: "wrong machine secret" });
@@ -228,7 +237,18 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
         if (body.workspaces) m.workspaces = body.workspaces as unknown[];
         if (body.routines) m.routines = body.routines as unknown[];
         m.online = true;
-        return send(res, 200, { ok: true, interval, account: m.account, ...claimFields(m.account), claimCode: m.claimCode });
+        return send(res, 200, { ok: true, interval, account: m.account, ...claimFields(m.account), claimCode: m.claimCode, ...deletedFields(), ...(events.length ? { events: events.length } : {}) });
+      }
+      if (p === "/api/machines/events") return send(res, 200, { events });
+      if (p === "/api/machines/events/ack") {
+        const ack = (body.ack as number[]) ?? [];
+        const claim = (body.claim as number[]) ?? [];
+        acks.push({ ack, claim });
+        for (const id of [...ack, ...claim]) {
+          const i = events.findIndex((e) => e.id === id);
+          if (i >= 0) events.splice(i, 1);
+        }
+        return send(res, 200, { claimed: claim });
       }
       if (p === "/api/machines/goodbye") {
         m.online = false;
@@ -311,6 +331,9 @@ export async function startStubCloud(opts: { interval?: number; onHeartbeat?: (i
     verifies: () => hits.filter((h) => h.path === "/api/members/verify"),
     invites: () => hits.filter((h) => /^\/api\/workspaces\/[^/]+\/invites$/.test(h.path)),
     down: false,
+    deleted,
+    events,
+    acks,
     close: () =>
       new Promise<void>((r) => {
         server.close(() => r());

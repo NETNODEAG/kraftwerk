@@ -18,8 +18,9 @@ import { cloudStatus, syncUrl } from "./cloud.js";
  *   2. a git repository at the workspace's root (`git init -b main` when
  *      there is none; a workspace inside a bigger repository is expert mode
  *      and left alone)
- *   3. `git:` on in kraftwerk.yml, `autosync: push` when it was off, so what
- *      is committed goes up by itself
+ *   3. `git:` on in kraftwerk.yml, `autosync: sync` every 60 s when it was
+ *      off: what changes is committed and goes up by itself, the others'
+ *      changes come in (core/git.ts syncNow)
  *   4. the remote: added when there is none; one that already points at the
  *      workspace's cloud repo is fine; one of another provider (expert mode)
  *      is never replaced
@@ -72,9 +73,12 @@ export async function setupSync(): Promise<SyncSetup> {
   const g = ws.config.git;
   if (!g || g.enabled === false) {
     doc.setIn(["git", "enabled"], true);
-    if (!g?.autosync) doc.setIn(["git", "autosync"], "push");
+    if (!g?.autosync) {
+      doc.setIn(["git", "autosync"], "sync");
+      if (g?.interval === undefined) doc.setIn(["git", "interval"], 60);
+    }
     await fs.writeFile(configPath, doc.toString());
-    done.push("turned git sync on (autosync: push)");
+    done.push("turned git sync on (autosync: sync)");
   }
   const remote = g?.remote ?? "origin";
 

@@ -29,6 +29,12 @@ import { machineLink } from "./cloud.js";
  *
  * The state of a sign-in in flight is bound to the browser that started it
  * (the kw_signin cookie) and lives ten minutes.
+ *
+ * `kraftwerk join` skips the round through the cloud: the link it was run
+ * with already proved the account (the cloud claimed this machine for it),
+ * so the daemon asks the cloud once more who that account is on the
+ * workspace (signinVerify) and hands the browser it opens a one-time
+ * /auth/handoff link — single use, five minutes — that becomes the session.
  */
 
 export const USER_COOKIE = "kw_user";
@@ -53,6 +59,28 @@ interface Session {
   createdAt: number;
   /** Per ws_ id: the role, and when the cloud last confirmed it. */
   workspaces: Record<string, { role: "owner" | "member"; checkedAt: number }>;
+}
+
+const HANDOFF_TTL_MS = 5 * 60_000;
+const handoffs = new Map<string, { workspaceId: string; user: CloudUser; role: "owner" | "member"; at: number }>();
+
+/**
+ * A one-time sign-in for `accountId` on `workspaceId`, confirmed by the cloud
+ * now: the token for /auth/handoff?t=…. Null when the cloud does not confirm.
+ */
+export async function issueHandoff(workspaceId: string, accountId: string): Promise<string | null> {
+  const link = machineLink();
+  if (!link) return null;
+  let r: { user: CloudUser; role: "owner" | "member" };
+  try {
+    r = await signinVerify(link.url, link.creds, workspaceId, accountId, link.version);
+  } catch {
+    return null;
+  }
+  for (const [k, h] of handoffs) if (Date.now() - h.at > HANDOFF_TTL_MS) handoffs.delete(k);
+  const token = randomBytes(32).toString("base64url");
+  handoffs.set(hash(token), { workspaceId, user: r.user, role: r.role, at: Date.now() });
+  return token;
 }
 
 interface Pending {
@@ -216,6 +244,19 @@ export async function handleAuth(req: http.IncomingMessage, res: http.ServerResp
     redirect(res, signinUrl(link.url, { workspace: t.workspaceId, machine: link.creds.id, redirect: back, state }), [cookie(STATE_COOKIE, state, STATE_TTL_MS / 1000)]);
     return true;
   }
+  if (route === "/auth/handoff" && req.method === "GET") {
+    const key = hash(url.searchParams.get("t") ?? "");
+    const h = handoffs.get(key);
+    handoffs.delete(key);
+    if (!h || Date.now() - h.at > HANDOFF_TTL_MS || h.workspaceId !== t.workspaceId) {
+      problem(res, 400, "This sign-in link is used up", "It works once, for five minutes, for the workspace it was made for.", signinPath);
+      return true;
+    }
+    const token = await startSession(req, h.workspaceId, h.user, h.role);
+    log("info", "users", `${h.user.handle} (${h.user.email}) signed in to ${h.workspaceId} (kraftwerk join)`);
+    redirect(res, safeNext(url.searchParams.get("next"), t.prefix), [cookie(USER_COOKIE, token, SESSION_TTL_MS / 1000)]);
+    return true;
+  }
   if (route === "/auth/callback" && req.method === "GET") {
     const state = url.searchParams.get("state") ?? "";
     const code = url.searchParams.get("code") ?? "";
@@ -241,21 +282,7 @@ export async function handleAuth(req: http.IncomingMessage, res: http.ServerResp
       problem(res, 400, "Signing in did not work", "The cloud answered for another workspace.", signinPath);
       return true;
     }
-    const all = await load();
-    // The same account signing in to another workspace on this origin keeps one session; anyone else starts afresh.
-    const old = cookieOf(req, USER_COOKIE);
-    let key = old ? hash(old) : "";
-    let token = old ?? "";
-    let s = key ? all.get(key) : undefined;
-    if (!s || s.user.id !== r.user.id) {
-      token = randomBytes(32).toString("base64url");
-      key = hash(token);
-      s = { user: r.user, createdAt: Date.now(), workspaces: {} };
-      all.set(key, s);
-    }
-    s.user = r.user;
-    s.workspaces[r.workspaceId] = { role: r.role, checkedAt: Date.now() };
-    await save();
+    const token = await startSession(req, r.workspaceId, r.user, r.role);
     log("info", "users", `${r.user.handle} (${r.user.email}) signed in to ${r.workspaceId}`);
     redirect(res, p.next, [cookie(USER_COOKIE, token, SESSION_TTL_MS / 1000), cookie(STATE_COOKIE, "", 0)]);
     return true;
@@ -278,6 +305,26 @@ export async function handleAuth(req: http.IncomingMessage, res: http.ServerResp
     return true;
   }
   return false;
+}
+
+/** The browser's session for `user` with `workspaceId` added: its cookie value. */
+async function startSession(req: http.IncomingMessage, workspaceId: string, user: CloudUser, role: "owner" | "member"): Promise<string> {
+  const all = await load();
+  // The same account signing in to another workspace on this origin keeps one session; anyone else starts afresh.
+  const old = cookieOf(req, USER_COOKIE);
+  let key = old ? hash(old) : "";
+  let token = old ?? "";
+  let s = key ? all.get(key) : undefined;
+  if (!s || s.user.id !== user.id) {
+    token = randomBytes(32).toString("base64url");
+    key = hash(token);
+    s = { user, createdAt: Date.now(), workspaces: {} };
+    all.set(key, s);
+  }
+  s.user = user;
+  s.workspaces[workspaceId] = { role, checkedAt: Date.now() };
+  await save();
+  return token;
 }
 
 /** Forget every session in memory (tests: the next read loads the file again). */

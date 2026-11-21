@@ -94,6 +94,8 @@ export interface RegisterResponse {
   /** The claiming account's uuid and handle (clouds before 0.97 send neither). */
   accountId?: string | null;
   accountHandle?: string | null;
+  /** Reported ws_ ids deleted in the cloud (clouds before 0.102 send none). */
+  deletedWorkspaces?: string[];
 }
 
 export interface HeartbeatResponse {
@@ -103,6 +105,9 @@ export interface HeartbeatResponse {
   accountId?: string | null;
   accountHandle?: string | null;
   claimCode: string | null;
+  deletedWorkspaces?: string[];
+  /** Events waiting at /api/machines/events (clouds before 0.102 send none). */
+  events?: number;
 }
 
 /** A person the cloud vouches for: the account's uuid (the same on every machine), email and handle. */

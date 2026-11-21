@@ -555,7 +555,11 @@ It installs kraftwerk for good (the daemon then runs from that install), starts
 the daemon if it does not run, links this machine to your account
 (no claim code), clones the workspace from kraftwerk sync into `./<its name>`
 (or `kraftwerk join <link> <folder>`) and opens it in the browser — already
-in cloud mode. An invite works the same way: the person accepts it in the
+in cloud mode and signed in: the link proved the account, so the daemon hands
+the browser a one-time sign-in (`/auth/handoff`, five minutes, single use)
+instead of a second round through the cloud. A workspace whose repository is
+still empty (begun locally, kraftwerk sync not set up there yet) is refused
+with what to do, and nothing is made locally. An invite works the same way: the person accepts it in the
 browser (signing up on the way), and the page shows the same command. A
 workspace's page in the cloud gives you a fresh command for each further
 machine (*Install on a machine*). Running it again on a folder that holds the
@@ -573,11 +577,32 @@ to a config), so there is no token to paste and no credential helper.
 Workspaces made on the platform start with it. For one you started locally,
 switch it to cloud, then on the **Git** page click *set up kraftwerk sync*
 (`POST /api/git/sync-setup`): a repository if there is none, `git:` on with
-`autosync: push`, the remote, a first commit, a push. A remote of your own
+`autosync: sync` every 60 seconds, the remote, a first commit, a push.
+
+`autosync: sync` is the simple sync: every interval kraftwerk commits what
+changed under the synced paths (as the account the machine is linked to),
+takes the others' commits in and pushes — nobody commits, pulls or merges by
+hand. When two people changed the same file at once, the version that
+reached the cloud first stays, and the other lands beside it as
+`name.konflikt-<handle>.ext`, committed too, so nothing is lost. The Git page
+lists those copies on every machine until someone deletes them:
+
+```yaml
+git:
+  autosync: sync   # off | pull | push | sync
+  interval: 60
+```
+
+A remote of your own
 (GitHub, GitLab, a server in-house) is expert mode: kraftwerk never replaces
 it, and the Git page says which of the two a workspace uses
 (*managed by kraftwerk* or *own git provider · expert mode*) and shows the
 remote's address.
+
+A workspace deleted on kraftwerk cloud (by its owner or an admin) stays on
+your machine with all its files: the mode chip says *cloud · deleted*, and
+switching it to local keeps you working. Switching it to cloud again gives it
+a fresh id — the old one is never used again.
 
 ### This machine in the kraftwerk cloud
 
@@ -1269,6 +1294,17 @@ the model via ACP session options and the thinking budget via
 are created and edited in the UI, or by editing the files, since the
 definition is read fresh for each new session.
 
+
+**Told at once.** A task on a cloud board handed to you by someone else
+lands in the bell of the workspace on your machines — and as a browser
+notification and on a paired phone — within a fraction of a second: the
+cloud pokes the machine over its event stream (`/api/machines/stream`, held
+by every daemon connected to the cloud, remote access or not), the daemon
+fetches what waits and acknowledges it; a poke missed while offline comes
+with the next heartbeat. A task for an agent in a work column wakes that
+agent on the machine that has it, as a local board does — one machine
+claims it, so clones never both start. The agent works it with
+`npx kraftwerk tasks … --board @<board>`.
 ### Repositories
 
 Turn on `repos:` in `kraftwerk.yml` (or the checkbox in settings) and the
