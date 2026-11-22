@@ -78,6 +78,8 @@ export interface MachineWorkspace {
   name: string;
   slug: string;
   root?: string;
+  /** Who hosts its git remote: kraftwerk sync, an own provider ("custom"), or none yet. */
+  git?: "kraftwerk" | "custom" | "none";
 }
 
 export interface Credentials {

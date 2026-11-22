@@ -320,6 +320,14 @@ async function openRepo(): Promise<{ repo?: Repo; cfg?: ResolvedGit; off?: boole
   return { repo: { cfg, project, repoRoot } };
 }
 
+/** The workspace's remote URL (its git block's remote), credentials cut out; undefined without git, a repo or that remote. */
+export async function gitRemoteUrl(): Promise<string | undefined> {
+  const { repo } = await openRepo();
+  if (!repo) return undefined;
+  const r = await git(["remote", "get-url", repo.cfg.remote], repo.repoRoot);
+  return r.ok && r.stdout.trim() ? withoutCredentials(r.stdout.trim()) : undefined;
+}
+
 /**
  * The checked-out branch, or why it cannot be synced: a detached HEAD, or a
  * configured branch that is not the one checked out. Without the second

@@ -2,7 +2,7 @@ import * as z from "zod";
 import { resolveWorkspace } from "../../config.js";
 import { workspaceRoot } from "../../core/context.js";
 import { gitCommit, gitDiff, gitFetch, gitPull, gitPush, gitStatus, type GitStatus } from "../../core/git.js";
-import { cloudStatus } from "../cloud.js";
+import { hostingFor } from "../cloud.js";
 import { setupSync } from "../sync-setup.js";
 import { addRepo, listRepos, openRepos, removeRepo, repoCommitDiff, repoDetail, repoDiff, updateRepo } from "../../core/repos.js";
 import { fail, reply, route, statusByMessage } from "./router.js";
@@ -15,23 +15,9 @@ const Commit = z.object({ paths: z.array(z.string()).default([]), message: z.str
 /** A clone to add; url, name, branch and depth are checked by addRepo. */
 const AddRepo = z.object({ url: z.string().default(""), name: z.string().optional(), branch: z.string().optional(), depth: z.number().optional() });
 
-/**
- * Who hosts the workspace's remote: kraftwerk sync is the workspace's own
- * repo in kraftwerk cloud, `<cloud>/git/<id>.git` (the cloud's host when this
- * machine knows it); anything else is an own git provider.
- */
-export async function hostingOf(remoteUrl: string | undefined): Promise<NonNullable<GitStatus["hosting"]>> {
-  if (!remoteUrl) return "none";
-  const id = (await resolveWorkspace(workspaceRoot()).catch(() => null))?.config.id;
-  let u: URL;
-  try {
-    u = new URL(remoteUrl);
-  } catch {
-    return "custom"; // scp-like ssh (git@host:path) — never kraftwerk sync
-  }
-  const cloud = cloudStatus().url;
-  const sameHost = !cloud || (() => { try { return new URL(cloud).host === u.host; } catch { return false; } })();
-  return id && sameHost && u.pathname.replace(/\/+$/, "") === `/git/${encodeURIComponent(id)}.git` ? "kraftwerk" : "custom";
+/** Who hosts the workspace's remote (server/cloud.ts). */
+async function hostingOf(remoteUrl: string | undefined): Promise<NonNullable<GitStatus["hosting"]>> {
+  return hostingFor((await resolveWorkspace(workspaceRoot()).catch(() => null))?.config.id, remoteUrl);
 }
 
 /** The workspace's own git, and the repositories cloned under its repos root. */

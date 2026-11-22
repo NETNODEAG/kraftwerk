@@ -23,7 +23,7 @@ import {
 import { identityString, readIdentity } from "../core/identity.js";
 import { routineReport } from "../core/routines.js";
 import { machineCredentials } from "./relay.js";
-import { setRemoteAuth, setSyncAuthor } from "../core/git.js";
+import { gitRemoteUrl, setRemoteAuth, setSyncAuthor, type GitStatus } from "../core/git.js";
 import { installCloudEvents } from "./cloud-events.js";
 
 /**
@@ -122,6 +122,34 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 
 export const cloudStatus = (): CloudStatus => m.status;
 
+/**
+ * Who hosts a workspace's remote: kraftwerk sync is the workspace's own repo
+ * in kraftwerk cloud, `<cloud>/git/<id>.git` (the cloud's host when this
+ * machine knows it); anything else is an own git provider.
+ */
+export function hostingFor(id: string | undefined, remoteUrl: string | undefined): NonNullable<GitStatus["hosting"]> {
+  if (!remoteUrl) return "none";
+  let u: URL;
+  try {
+    u = new URL(remoteUrl);
+  } catch {
+    return "custom"; // scp-like ssh (git@host:path) — never kraftwerk sync
+  }
+  const cloud = m.status.url;
+  const sameHost = !cloud || (() => { try { return new URL(cloud).host === u.host; } catch { return false; } })();
+  return id && sameHost && u.pathname.replace(/\/+$/, "") === `/git/${encodeURIComponent(id)}.git` ? "kraftwerk" : "custom";
+}
+
+/** A served workspace's git hosting, told to the cloud so it shows kraftwerk sync only where it is used; undefined when it cannot tell. */
+async function hostingOfServed(id: string | undefined, ws: { run<T>(fn: () => T): T } | undefined): Promise<MachineWorkspace["git"]> {
+  if (!ws) return undefined;
+  const run = ws.run.bind(ws);
+  return Promise.resolve()
+    .then(() => run(() => gitRemoteUrl()))
+    .then((url) => hostingFor(id, url))
+    .catch(() => undefined); // a workspace closing meanwhile: nothing said
+}
+
 /** The open workspaces as the cloud lists them: vetoed ones left out, roots only once claimed. */
 async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; ymlUrls: string[] }> {
   const list: MachineWorkspace[] = [];
@@ -131,7 +159,8 @@ async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; 
     const c = ws?.config.cloud;
     if (ws && !cloudIncluded(ws.config)) continue;
     if (c?.url) ymlUrls.push(c.url.replace(/\/+$/, ""));
-    list.push({ ...(ws?.config.id ? { id: ws.config.id } : {}), name: o.name, slug: o.slug, ...(withRoots ? { root: o.root } : {}) });
+    const git = await hostingOfServed(ws?.config.id, o.ws);
+    list.push({ ...(ws?.config.id ? { id: ws.config.id } : {}), name: o.name, slug: o.slug, ...(withRoots ? { root: o.root } : {}), ...(git ? { git } : {}) });
   }
   return { list, ymlUrls };
 }

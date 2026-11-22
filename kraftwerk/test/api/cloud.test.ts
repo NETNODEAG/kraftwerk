@@ -120,9 +120,10 @@ describe("cloud: the daemon registers the machine", () => {
     assert.equal(reg.version, version);
     assert.ok(typeof reg.hostname === "string" && reg.hostname.length > 0);
     assert.match(String(reg.platform), /^(darwin|linux|win32)-/);
+    // `git`: who hosts each one's remote — none yet here.
     assert.deepEqual(reg.workspaces, [
-      { id: "ws_alpha00001", name: "Alpha", slug: "alpha" },
-      { name: "Beta", slug: "beta" },
+      { id: "ws_alpha00001", name: "Alpha", slug: "alpha", git: "none" },
+      { name: "Beta", slug: "beta", git: "none" },
     ]);
     assert.equal(cloud.hits.some((h) => h.path.startsWith("/api/instances/")), false, "the per-instance API is gone");
     assert.equal(existsSync(path.join(a.home, ".kraftwerk", "cloud")), false, "the retired per-workspace identities are deleted");
@@ -143,6 +144,21 @@ describe("cloud: the daemon registers the machine", () => {
     assert.equal((meta.body.cloud as { id: string }).id, body.id);
     assert.equal((meta.body.cloud as { included: boolean }).included, true);
     assert.equal(((await api("GET", "/w/secret/api/meta?probe=1")).body.cloud as { included: boolean }).included, false);
+  });
+
+  it("tells the cloud who hosts each workspace's git: kraftwerk sync or an own provider", async () => {
+    let since = Date.now();
+    a.git("remote", "add", "origin", `${cloud.url}/git/ws_alpha00001.git`);
+    b.git("remote", "add", "origin", "git@github.com:acme/beta.git");
+    try {
+      const ws = await reported(since, (l) => l.every((w) => (w as { git?: string }).git !== "none"));
+      assert.deepEqual(ws.map((w) => [w.slug, (w as { git?: string }).git]), [["alpha", "kraftwerk"], ["beta", "custom"]]);
+    } finally {
+      a.git("remote", "remove", "origin");
+      b.git("remote", "remove", "origin");
+    }
+    since = Date.now();
+    await reported(since, (l) => l.every((w) => (w as { git?: string }).git === "none"));
   });
 
   it("a claim made in the cloud arrives with a heartbeat; from then on the roots go along", async () => {

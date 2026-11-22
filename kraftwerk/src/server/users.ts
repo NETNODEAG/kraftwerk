@@ -6,6 +6,7 @@ import path from "node:path";
 import { CloudError, signinExchange, signinUrl, signinVerify, type CloudUser } from "../core/cloud.js";
 import { log } from "../core/log.js";
 import { machineLink } from "./cloud.js";
+import { browserCloudUrl, sandboxOrigin, viaPublicOrigin } from "./sandbox.js";
 
 /**
  * People signing in to a workspace's UI — kraftwerk.yml `users: cloud`.
@@ -132,7 +133,8 @@ export function cookieOf(req: http.IncomingMessage, name: string): string | unde
   return c ? decodeURIComponent(c.slice(name.length + 1)) : undefined;
 }
 
-const cookie = (name: string, value: string, maxAgeS: number): string => `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}`;
+const cookie = (name: string, value: string, maxAgeS: number): string =>
+  `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${sandboxOrigin()?.protocol === "https:" ? "; Secure" : ""}`;
 
 /**
  * Whether the request comes from a browser. Browsers say where a fetch came
@@ -238,10 +240,11 @@ export async function handleAuth(req: http.IncomingMessage, res: http.ServerResp
     }
     const host = req.headers.host ?? "localhost";
     const state = randomBytes(24).toString("base64url");
-    const back = `http://${host}${t.prefix}/auth/callback`;
+    // A sandbox (server/sandbox.ts) is reached on its public origin, through the cloud.
+    const back = viaPublicOrigin(req) ? `${sandboxOrigin()!.origin}${t.prefix}/auth/callback` : `http://${host}${t.prefix}/auth/callback`;
     for (const [k, p] of pending) if (Date.now() - p.at > STATE_TTL_MS) pending.delete(k);
     pending.set(state, { workspaceId: t.workspaceId, redirect: back, next: safeNext(url.searchParams.get("next"), t.prefix), at: Date.now() });
-    redirect(res, signinUrl(link.url, { workspace: t.workspaceId, machine: link.creds.id, redirect: back, state }), [cookie(STATE_COOKIE, state, STATE_TTL_MS / 1000)]);
+    redirect(res, signinUrl(browserCloudUrl(link.url), { workspace: t.workspaceId, machine: link.creds.id, redirect: back, state }), [cookie(STATE_COOKIE, state, STATE_TTL_MS / 1000)]);
     return true;
   }
   if (route === "/auth/handoff" && req.method === "GET") {

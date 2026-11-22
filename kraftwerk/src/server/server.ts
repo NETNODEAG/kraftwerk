@@ -23,6 +23,7 @@ import { MIME } from "./api/mime.js";
 import { getPkgVersion, RESTART_EXIT_CODE } from "./version.js";
 import { trustOf, type Trust, type TrustOptions } from "./trust.js";
 import { fromBrowser, handleAuth, signedIn, type SigninTarget } from "./users.js";
+import { fromOutside, sandboxOrigin } from "./sandbox.js";
 import { configAt, usersMode } from "../config.js";
 import type { Duplex } from "node:stream";
 import { targetOf, type Target } from "./target.js";
@@ -321,7 +322,8 @@ function hubPage(req: http.IncomingMessage, res: Res, open: OpenWorkspace[], tru
 async function cloudUsers(open: OpenWorkspace | undefined, prefix: string): Promise<SigninTarget | undefined> {
   if (!open) return undefined;
   const config = await configAt(open.root);
-  if (usersMode(config) !== "cloud") return undefined;
+  // A sandbox's UI is reached from the internet (server/sandbox.ts): people sign in there, whatever `users:` says.
+  if (usersMode(config) !== "cloud" && !sandboxOrigin()) return undefined;
   return { workspaceId: config.id, name: open.name, prefix };
 }
 
@@ -333,7 +335,7 @@ async function cloudUsers(open: OpenWorkspace | undefined, prefix: string): Prom
  * and remote members have their own credentials.
  */
 async function withUser(req: http.IncomingMessage, trust: Trust, cu: SigninTarget | undefined): Promise<{ trust: Trust; signin?: true }> {
-  if (!cu || trust.kind !== "local" || !fromBrowser(req)) return { trust };
+  if (!cu || trust.kind !== "local" || !(fromBrowser(req) || fromOutside(req))) return { trust };
   const user = cu.workspaceId ? await signedIn(req, cu.workspaceId) : null;
   return user ? { trust: { kind: "local", user } } : { trust, signin: true };
 }
@@ -354,7 +356,7 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
 
   /** Which open workspace a request is for: its slug, else the port it came in on, else the default. */
   const pick = (target: Target, portDefault: OpenWorkspace | undefined): OpenWorkspace | undefined =>
-    target.slug !== undefined ? bySlug.get(target.slug) : portDefault;
+    target.slug !== undefined ? bySlug.get(target.slug) : (portDefault ?? (sandboxOrigin() && bySlug.size === 1 ? [...bySlug.values()][0] : undefined));
 
   const handler = (portDefault: () => OpenWorkspace | undefined) => async (req: http.IncomingMessage, res: Res): Promise<void> => {
     try {

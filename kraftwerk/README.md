@@ -566,6 +566,28 @@ machine (*Install on a machine*). Running it again on a folder that holds the
 workspace just opens it. `POST /api/cloud/join {link, cwd, dir?}` on the
 daemon does the work.
 
+#### Run in the cloud: a sandbox on kraftwerk cloud
+
+A workspace can also run on kraftwerk cloud itself: *Run in the cloud →
+Launch* on its page there. The cloud starts a sandbox (a container with
+kraftwerk's daemon), and that daemon does the same `kraftwerk join` as a
+laptop would. Afterwards it is one more machine of the workspace: kraftwerk
+sync, remote boards, and agents working cloud board tasks while no laptop
+is on.
+
+- **Reaching it.** People open its UI on an origin of its own
+  (`https://<id>.run.…`), which the cloud forwards to the daemon.
+- **Sandbox mode.** The cloud sets `KRAFTWERK_PUBLIC_ORIGIN` to that
+  origin, and the daemon then runs in sandbox mode (`server/sandbox.ts`):
+  - Everyone coming in from outside signs in with their cloud account,
+    whatever `users:` says, browser or not. The sign-in returns to the
+    public origin, starting at the cloud as the browser reaches it
+    (`KRAFTWERK_PUBLIC_CLOUD_URL`, set when the sandbox reaches the cloud at
+    another address).
+  - A Host without a workspace in it reaches the sandbox's one workspace.
+  - Only what runs inside the sandbox on loopback (its agents' CLI) is the
+    machine's own shell.
+
 ### kraftwerk sync: the workspace's files in the cloud
 
 In cloud mode a workspace's history can live in its own repository in

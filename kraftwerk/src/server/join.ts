@@ -7,6 +7,7 @@ import { git, NET_TIMEOUT, remoteAuthEnv } from "../core/git.js";
 import { ApiError } from "./api/router.js";
 import { applyMachineCloud, cloudStatus, machineLink, syncMachineCloud } from "./cloud.js";
 import { currentHub } from "./hub-context.js";
+import { sandboxOrigin } from "./sandbox.js";
 import { issueHandoff } from "./users.js";
 
 /**
@@ -129,9 +130,10 @@ export async function joinWorkspace(link: string, dirIn: string | undefined, cwd
   const o = await currentHub().open(root);
   // The cloud learns the workspace is here now (its host list, sign-in).
   await syncMachineCloud().catch(() => {});
-  // Signed in at once: the link proved the account (server/users.ts issueHandoff).
+  // Signed in at once: the link proved the account (server/users.ts issueHandoff). Not in a sandbox the
+  // cloud runs (server/sandbox.ts): nobody opens a browser there, and the link would only sit in its log.
   const accountId = cloudStatus().accountId;
-  const token = accountId ? await issueHandoff(joined.workspaceId, accountId) : null;
+  const token = accountId && !sandboxOrigin() ? await issueHandoff(joined.workspaceId, accountId) : null;
   return {
     workspace: { id: joined.workspaceId, name: joined.workspaceName, slug: o.slug, url: o.url },
     ...(token ? { signin: `${o.url}/auth/handoff?t=${token}` } : {}),
