@@ -22,6 +22,7 @@ interface Ws {
   name: string;
   slug: string;
   root?: string;
+  url?: string;
 }
 
 describe("cloud: the daemon registers the machine", () => {
@@ -166,6 +167,9 @@ describe("cloud: the daemon registers the machine", () => {
     cloud.claim(await machineId(), "alice@example.com");
     const ws = await reported(since, (l) => l.every((w) => typeof w.root === "string"));
     assert.deepEqual(ws.map((w) => [w.slug, w.root]), [["alpha", a.root], ["beta", b.root]]);
+    // …and where the daemon serves each, for the cloud's "open workspace" link.
+    assert.deepEqual(ws.map((w) => w.url), hub.list().filter((o) => o.slug !== "secret").map((o) => o.url));
+    assert.match(ws[0].url ?? "", /^http:\/\/alpha\.localhost:\d+$/);
     const { body } = await api("GET", "/api/cloud");
     assert.equal(body.account, "alice@example.com");
     assert.equal(body.claimCode, null);
@@ -194,7 +198,7 @@ describe("cloud: the daemon registers the machine", () => {
     assert.match(String(body.claimCode), /^CODE-/);
     assert.equal(cloud.calls("unlink").length, 1);
     assert.equal(cloud.calls("unlink")[0].body.secret, (await relay()).secret);
-    const ws = await reported(Date.now() - 1, (l) => l.every((w) => w.root === undefined));
+    const ws = await reported(Date.now() - 1, (l) => l.every((w) => w.root === undefined && w.url === undefined));
     assert.equal(ws.length, 2);
   });
 

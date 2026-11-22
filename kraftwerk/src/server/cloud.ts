@@ -89,7 +89,7 @@ export interface CloudStatus {
 }
 
 /** What the daemon serves right now; `ws` runs code inside that workspace (the routine report reads its state). */
-export type WorkspaceSource = () => Array<{ root: string; slug: string; name: string; ws?: { run<T>(fn: () => T): T } }>;
+export type WorkspaceSource = () => Array<{ root: string; slug: string; name: string; url?: string; ws?: { run<T>(fn: () => T): T } }>;
 
 const DEFAULT_INTERVAL = 60;
 const STANDALONE: CloudStatus = { url: "", state: "off", reason: "only the daemon registers this machine with the cloud (`kraftwerk daemon start`)" };
@@ -150,7 +150,7 @@ async function hostingOfServed(id: string | undefined, ws: { run<T>(fn: () => T)
     .catch(() => undefined); // a workspace closing meanwhile: nothing said
 }
 
-/** The open workspaces as the cloud lists them: vetoed ones left out, roots only once claimed. */
+/** The open workspaces as the cloud lists them: vetoed ones left out; roots and the local address ("open workspace" there) only once claimed. */
 async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; ymlUrls: string[] }> {
   const list: MachineWorkspace[] = [];
   const ymlUrls: string[] = [];
@@ -160,7 +160,7 @@ async function entries(withRoots: boolean): Promise<{ list: MachineWorkspace[]; 
     if (ws && !cloudIncluded(ws.config)) continue;
     if (c?.url) ymlUrls.push(c.url.replace(/\/+$/, ""));
     const git = await hostingOfServed(ws?.config.id, o.ws);
-    list.push({ ...(ws?.config.id ? { id: ws.config.id } : {}), name: o.name, slug: o.slug, ...(withRoots ? { root: o.root } : {}), ...(git ? { git } : {}) });
+    list.push({ ...(ws?.config.id ? { id: ws.config.id } : {}), name: o.name, slug: o.slug, ...(withRoots ? { root: o.root, ...(o.url ? { url: o.url } : {}) } : {}), ...(git ? { git } : {}) });
   }
   return { list, ymlUrls };
 }

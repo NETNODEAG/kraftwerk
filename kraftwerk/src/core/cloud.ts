@@ -78,6 +78,8 @@ export interface MachineWorkspace {
   name: string;
   slug: string;
   root?: string;
+  /** Where the daemon serves it on this machine (claimed only) — the cloud's "open workspace" link for its owner. */
+  url?: string;
   /** Who hosts its git remote: kraftwerk sync, an own provider ("custom"), or none yet. */
   git?: "kraftwerk" | "custom" | "none";
 }
