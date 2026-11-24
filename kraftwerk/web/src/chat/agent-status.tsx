@@ -21,8 +21,8 @@ export function AgentStatus({ id, live }: { id: string; live: ReturnType<typeof 
     <>
       {/* Signed in, the account is named in the composer's tooltip; signed out, it is a problem worth the space. */}
       {live.auth?.kind === "none" && (
-        <span title={[live.auth.detail, live.auth.email, live.auth.organization, live.auth.plan].filter(Boolean).join(" · ")}>
-          <Tag tone={live.auth.kind === "none" ? "bad" : "neutral"}>
+        <span title={[live.auth.detail, live.auth.email, live.auth.organization, live.auth.plan, "set what it signs in with: settings → harnesses"].filter(Boolean).join(" · ")}>
+          <Tag tone={live.auth.kind === "none" ? "bad" : "neutral"} href="/settings/harnesses">
             <Icon name={live.auth.kind === "none" ? "person_off" : "person"} className="ms-sm mr-1" /> {live.auth.email ?? live.auth.label}
           </Tag>
         </span>

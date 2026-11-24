@@ -1646,7 +1646,16 @@ same interface ([src/harness.ts](src/harness.ts)):
 | CLIs | scoped allowlist `Bash(<name>:*)` | sandbox runs them anyway (hint only) | plain `bash` tool (no scoping) |
 | Quirks | none | no system-prompt flag (persona prepended to prompt); governance = workspace-write sandbox, not per-tool | `effort` maps 1:1 to `--thinking`; tool names lowercased |
 
-Prerequisites per harness:
+Which harnesses a machine can use, and what each signs in with, is on one
+page: **settings → harnesses**. Claude and Codex can be given an API key
+there, Claude also a subscription's token (`claude setup-token`) — for a
+machine nobody logs in on, such as a sandbox in kraftwerk cloud. What is
+entered stays on that machine in `~/.kraftwerk/harness-credentials.json`
+(never in the workspace's files, so it is not synced), for one workspace or
+for every workspace there, and is handed to chats and runs as the variable
+the harness reads. The page shows a key by its last four characters only.
+
+Prerequisites per harness, without a key from the settings:
 
 - **claude** needs Claude Code installed and logged in.
 - **codex** needs `brew install --cask codex` and `codex login`.

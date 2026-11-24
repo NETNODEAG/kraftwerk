@@ -27,6 +27,7 @@ function useNavItems(): NavItem[] {
     ...(features.presentations ? [{ id: "presentations", href: "/presentations", label: "presentations", icon: "slideshow" }] : []),
     ...(features.vibeables ? [{ id: "vibeables", href: "/settings/apps", label: "apps", icon: "web" }] : []),
     { id: "skills", main: true, href: "/settings/skills", label: "skills", icon: "extension" },
+    { id: "harnesses", href: "/settings/harnesses", label: "harnesses", icon: "key" },
     ...(features.repos ? [{ id: "repos", href: "/repos", label: "repositories", icon: "source" }] : []),
     ...(features.contacts ? [{ id: "contacts", href: "/contacts", label: "contacts", icon: "person" }] : []),
     ...(features.places ? [{ id: "places", href: "/places", label: "places", icon: "location_on" }] : []),
@@ -39,7 +40,7 @@ function useNavItems(): NavItem[] {
 const SECTION = new Set(["settings", "workflows", "runs", "knowledge", "files", "boards", "presentations", "vibeables", "skills", "repos", "contacts", "places", "events", "workspaces"]);
 
 /** The overviews under #/settings/<id>, named like their entry in the navigation. */
-const OVERVIEWS = new Set(["agents", "routines", "workflows", "knowledge", "boards", "skills"]);
+const OVERVIEWS = new Set(["agents", "routines", "workflows", "knowledge", "boards", "skills", "harnesses"]);
 
 /** Whether `path` is a page of the settings section (and so carries its navigation). */
 export function inSettingsSection(path: string): boolean {

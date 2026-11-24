@@ -38,6 +38,7 @@ import type {
   PlanEntry,
   SessionFailure,
 } from "./types.js";
+import { noteHarnessAuth } from "../harness-status.js";
 
 /**
  * ACP-backed chat: spawn an adapter (claude-agent-acp / codex-acp / agy acp) as a
@@ -446,7 +447,10 @@ export async function startAcpBackend(
     async extNotification(method: string, params: Record<string, unknown>): Promise<void> {
       if (method === EXT_NOTIFICATIONS.authStatus) {
         const auth = authStatusOf(params);
-        if (auth) hooks.emit({ type: "auth", ...auth });
+        if (auth) {
+          hooks.emit({ type: "auth", ...auth });
+          noteHarnessAuth(agent, auth);
+        }
       }
     },
   };

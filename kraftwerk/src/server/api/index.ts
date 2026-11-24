@@ -10,6 +10,7 @@ import { contactRoutes, eventRoutes, placeRoutes, refRoutes } from "./entities.j
 import { hubRoutes } from "./hub.js";
 import { fileRoutes } from "./files.js";
 import { gitRoutes } from "./git.js";
+import { harnessRoutes } from "./harnesses.js";
 import { knowledgeRoutes } from "./knowledge.js";
 import { presentationRoutes } from "./presentations.js";
 import { projectRoutes } from "./projects.js";
@@ -49,6 +50,7 @@ const domainRoutes = [
   ...gitRoutes,
   ...vibeableRoutes,
   ...deviceRoutes,
+  ...harnessRoutes,
   ...cloudRoutes,
   ...hubRoutes,
 ];

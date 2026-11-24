@@ -135,7 +135,7 @@ export interface Router {
  * record, settings, updates, restarts, identity, trash. server.ts already
  * keeps the session inside its workspace; this keeps it out of the machine.
  */
-const MEMBER_DENIED = /^(hub|devices|cloud|settings|server|update|workspaces|identity|trash)\./;
+const MEMBER_DENIED = /^(hub|devices|cloud|settings|harnesses|server|update|workspaces|identity|trash)\./;
 /** …except asking who it is. */
 const MEMBER_ALLOWED = new Set(["devices.self"]);
 

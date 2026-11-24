@@ -35,6 +35,7 @@ import { WorkflowsAdmin } from "./workflows-admin";
 import { KnowledgeAdmin } from "./knowledge-admin";
 import { BoardsAdmin } from "./boards-admin";
 import { AppsAdmin } from "./apps-admin";
+import { HarnessesAdmin } from "./harnesses-admin";
 import { ProjectsAdmin } from "./projects-admin";
 import { SkillsAdmin } from "./skills-admin";
 import { inSettingsSection, SettingsNav, TopbarTools } from "./workspace-tabs";
@@ -246,6 +247,7 @@ export function App() {
       : seg[1] === "knowledge" ? <KnowledgeAdmin />
       : seg[1] === "boards" ? <BoardsAdmin />
       : seg[1] === "apps" ? <AppsAdmin />
+      : seg[1] === "harnesses" ? <HarnessesAdmin />
       : seg[1] === "projects" ? <ProjectsAdmin />
       : seg[1] === "skills" ? <SkillsAdmin />
       : seg[1] === "cloud" ? <CloudScreen />

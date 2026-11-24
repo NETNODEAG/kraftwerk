@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { DOTENV_FILE, DOTENV_MARKER, parseDotenv } from "../dotenv.js";
+import { applyCredentials } from "./harness-credentials.js";
 import { currentWorkspace } from "./workspace.js";
 
 /**
@@ -11,6 +12,10 @@ import { currentWorkspace } from "./workspace.js";
  * servers, git — takes its environment from here, never from process.env
  * directly: one process may serve several workspaces, and one team's
  * `.env` must not reach another's agents.
+ *
+ * On top of that come the credentials the workspace's harnesses were given
+ * in the settings (harness-credentials.ts): kept on this machine, outside
+ * the workspace folder.
  *
  * With one workspace per process the CLI has already applied that
  * workspace's `.env` to process.env, so the result is the same as before.
@@ -28,8 +33,11 @@ export function readWorkspaceDotenv(root: string): Record<string, string> {
 /** The current workspace's environment (outside any workspace: process.env). */
 export function workspaceEnv(): NodeJS.ProcessEnv {
   let dotenv: Record<string, string>;
+  let root: string;
   try {
-    dotenv = currentWorkspace().env;
+    const ws = currentWorkspace();
+    dotenv = ws.env;
+    root = ws.root;
   } catch {
     return { ...process.env };
   }
@@ -38,5 +46,7 @@ export function workspaceEnv(): NodeJS.ProcessEnv {
   // What another workspace's .env put into this process is not this workspace's.
   for (const key of injected) if (!(key in dotenv)) delete env[key];
   for (const [key, value] of Object.entries(dotenv)) if (!process.env[key] || injected.has(key)) env[key] = value;
+  // What a harness was given in the settings (harness-credentials.ts) is the most deliberate choice: it wins.
+  applyCredentials(root, env);
   return env;
 }
