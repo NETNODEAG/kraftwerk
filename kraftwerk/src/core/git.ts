@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
+import { createWriteStream, existsSync, promises as fsp, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { boardsRootFor, presentationsRootFor, ENTITY_KINDS, entitiesRootFor, projectsRootFor, reposRootFor, resolveWorkspace, vibeablesRootFor, type ResolvedWorkspace, isSafeGitName } from "../config.js";
 import { ENV_FILE } from "../runner/docker.js";
@@ -76,6 +76,52 @@ export interface GitFile {
   reason?: string;
 }
 
+/** One commit in a log. */
+export interface GitCommit {
+  hash: string;
+  short: string;
+  subject: string;
+  author: string;
+  committedAt: string;
+  /** On no remote yet: this machine's own work. */
+  local: boolean;
+}
+
+/** The workspace's history: the newest commits that touched its paths, the unpushed ones marked. */
+export interface GitLog {
+  commits: GitCommit[];
+  error?: string;
+}
+
+/** One .gitignore: where it is (repo-relative) and its rules — comments and blank lines left out. */
+export interface GitIgnoreFile {
+  path: string;
+  rules: string[];
+  /** Rules left out because the list was capped. */
+  more?: number;
+}
+
+const MAX_IGNORE_FILES = 30;
+const MAX_IGNORE_RULES = 200;
+
+/** Every .gitignore git itself reads in the repo (tracked or not, none inside an ignored folder), the root's first. */
+async function ignoreFiles(repoRoot: string): Promise<GitIgnoreFile[]> {
+  const ls = await git(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/.gitignore"], repoRoot);
+  if (!ls.ok) return [];
+  const paths = [...new Set(ls.stdout.split("\0").filter(Boolean))].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b)).slice(0, MAX_IGNORE_FILES);
+  const out: GitIgnoreFile[] = [];
+  for (const rel of paths) {
+    const text = await fsp.readFile(path.join(repoRoot, rel), "utf8").catch(() => null);
+    if (text === null) continue;
+    const rules = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    out.push({ path: rel, rules: rules.slice(0, MAX_IGNORE_RULES), ...(rules.length > MAX_IGNORE_RULES ? { more: rules.length - MAX_IGNORE_RULES } : {}) });
+  }
+  return out;
+}
+
 export interface GitStatus {
   enabled: boolean;
   /** Set when the feature is on but the repo cannot be used. */
@@ -117,6 +163,8 @@ export interface GitStatus {
    * someone deletes the copy. Newest first.
    */
   conflicts?: SyncConflict[];
+  /** The repo's .gitignore files with their rules, the root's first: what git leaves out, and so what never syncs. */
+  ignores?: GitIgnoreFile[];
 }
 
 /** One file both sides changed: the remote's version is at `path`, the other side's at `copy`, kept for `by`. */
@@ -599,6 +647,7 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     : undefined;
 
   const conflicts = repo.cfg.autosync === "sync" ? await conflictCopies(repoRoot) : [];
+  const ignores = await ignoreFiles(repoRoot);
   const value: GitStatus = {
     ...base,
     error: head.error ?? scopeError,
@@ -606,12 +655,110 @@ export async function gitStatus(fresh = false): Promise<GitStatus> {
     blockedHidden: blockedHidden || undefined,
     scope: scope.include,
     ...(conflicts.length ? { conflicts } : {}),
+    ...(ignores.length ? { ignores } : {}),
   };
   // A commit that finished while this status was running already emptied
   // the cache; caching the pre-commit list on top of that would show the
   // committed file as dirty for another CACHE_MS.
   if (gen === gitState().generation) gitState().statusCache = { at: Date.now(), value };
   return value;
+}
+
+/** The newest `n` commits of the repo at `dir` (those touching `pathspecs`, when given), the ones on no remote marked. */
+export async function commitLog(dir: string, n: number, pathspecs: string[] = []): Promise<GitCommit[]> {
+  const only = pathspecs.length ? ["--", ...pathspecs] : [];
+  const [log, local] = await Promise.all([
+    git(["log", `-${n}`, "--format=%H%x00%h%x00%s%x00%an%x00%cI", ...only], dir),
+    // Bounded like the log: the local commits among the newest N are a prefix of the first N non-remote ones.
+    git(["rev-list", "-n", String(n), "HEAD", "--not", "--remotes", ...only], dir),
+  ]);
+  if (!log.ok) return [];
+  const localSet = new Set(local.ok ? local.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : []);
+  return log.stdout
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => {
+      const [hash, short, subject, author, committedAt] = l.split("\0") as [string, string, string, string, string];
+      return { hash, short, subject, author, committedAt, local: localSet.has(hash) };
+    });
+}
+
+/**
+ * One commit as a patch: header, stat, then the diff. The commit's own path
+ * list decides what is shown: a path that is not (`hidden` gives the reason
+ * — by default a secret or key: a committed key, a renamed-in .env) is left
+ * out of both the stat and the patch by pathspec, so no header shape git
+ * emits can smuggle it through.
+ */
+export async function commitPatch(
+  dir: string,
+  hash: string,
+  hidden: (file: string) => string | undefined = (f) => (DENY.some((re) => re.test(f)) ? "secret or key" : undefined),
+): Promise<GitDiff> {
+  if (!/^[0-9a-f]{7,40}$/.test(hash)) return { diff: "", error: "invalid commit" };
+  if (!(await git(["rev-parse", "--verify", "-q", `${hash}^{commit}`], dir)).ok) return { diff: "", error: "no such commit" };
+  // Post-image paths of the commit: "M\0path\0", renames and copies as "R100\0old\0new\0".
+  const tree = await git(["diff-tree", "-r", "-M", "-z", "--root", "--name-status", hash], dir);
+  if (!tree.ok) return { diff: "", error: tree.stderr || "git diff-tree failed" };
+  const parts = tree.stdout.split("\0");
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const status = parts[i];
+    if (!status || /^[0-9a-f]{40}$/.test(status)) continue; // the leading hash line of --root
+    const two = /^[RC]/.test(status);
+    const file = two ? parts[i + 2] : parts[i + 1];
+    if (file) paths.push(file);
+    i += two ? 2 : 1;
+  }
+  const kept = paths.filter((f) => !hidden(f));
+  // "(2 files not shown: secret or key)" — one line per reason.
+  const reasons = new Map<string, number>();
+  for (const f of paths) {
+    const why = hidden(f);
+    if (why) reasons.set(why, (reasons.get(why) ?? 0) + 1);
+  }
+  const notes = [...reasons].map(([why, count]) => `\n(${count} file${count === 1 ? "" : "s"} not shown: ${why})\n`).join("");
+  const format = "--format=commit %H%nAuthor: %an <%ae>%nDate:   %cI%n%n    %s%n";
+  if (kept.length === 0 && paths.length > 0) {
+    const head = await git(["show", "--no-patch", format, hash], dir);
+    return { diff: `${head.stdout}${notes}` };
+  }
+  const r = await git(["show", "--stat", "--patch", format, hash, "--", ...kept.map(literal)], dir);
+  if (!r.ok) return { diff: "", error: r.stderr || "git show failed" };
+  const out = capDiff(r.stdout);
+  out.diff += notes;
+  return out;
+}
+
+const LOG_COMMITS = 50;
+
+/** The workspace paths as pathspecs — none when a root is the whole repo. */
+const scopeSpecs = (scope: Scope): string[] => (scope.wholeRepo || scope.include.includes(".") ? [] : scope.include.map(literal));
+
+/** Why a committed path is not shown in the workspace's history, or undefined when it is: the status list's rule, for a path that is history already. */
+const hiddenIn =
+  (scope: Scope) =>
+  (file: string): string | undefined =>
+    DENY.some((re) => re.test(file))
+      ? "secret or key"
+      : scope.exclude.some((e) => within(file, e)) || !(scope.wholeRepo || scope.include.includes(".") || scope.include.some((r) => within(file, r)))
+        ? "outside the workspace paths"
+        : undefined;
+
+/** The workspace's history: the newest commits that touched its paths, whoever made them — by hand here, kraftwerk sync, another machine. */
+export async function gitLog(): Promise<GitLog> {
+  const opened = await openRepo();
+  if (opened.off) return { commits: [], error: "git sync is off" };
+  if (!opened.repo) return { commits: [], error: opened.error ?? "not a git repository" };
+  return { commits: await commitLog(opened.repo.repoRoot, LOG_COMMITS, scopeSpecs(scopeFor(opened.repo))) };
+}
+
+/** One commit of the workspace's history as a patch, the files outside the workspace paths (and secrets) left out. */
+export async function gitCommitDiff(hash: string): Promise<GitDiff> {
+  const opened = await openRepo();
+  if (opened.off) return { diff: "", error: "git sync is off" };
+  if (!opened.repo) return { diff: "", error: opened.error ?? "not a git repository" };
+  return commitPatch(opened.repo.repoRoot, hash, hiddenIn(scopeFor(opened.repo)));
 }
 
 /**

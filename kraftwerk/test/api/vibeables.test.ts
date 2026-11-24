@@ -93,6 +93,9 @@ describe("vibeables API", () => {
     const file = st.files?.find((f) => f.path === "kraftwerk-data/vibeables/hello/index.html");
     assert.ok(file, JSON.stringify(st.files?.map((f) => f.path)));
     assert.equal(file?.syncable, true, file?.reason ?? "not syncable");
+    // What git leaves out is told too: the app's own .gitignore with its rules, comments not among them.
+    const ignore = st.ignores?.find((f) => f.path === "kraftwerk-data/vibeables/hello/.gitignore");
+    assert.deepEqual(ignore?.rules, ["node_modules/", ".env"], JSON.stringify(st.ignores));
   });
 
   it("GET /vibeables/<slug>/ serves the folder sandboxed; dot paths and escapes never", async () => {

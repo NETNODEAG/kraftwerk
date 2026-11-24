@@ -1,7 +1,7 @@
 import * as z from "zod";
 import { resolveWorkspace } from "../../config.js";
 import { workspaceRoot } from "../../core/context.js";
-import { gitCommit, gitDiff, gitFetch, gitPull, gitPush, gitStatus, type GitStatus } from "../../core/git.js";
+import { gitCommit, gitCommitDiff, gitDiff, gitFetch, gitLog, gitPull, gitPush, gitStatus, type GitStatus } from "../../core/git.js";
 import { hostingFor } from "../cloud.js";
 import { setupSync } from "../sync-setup.js";
 import { addRepo, listRepos, openRepos, removeRepo, repoCommitDiff, repoDetail, repoDiff, updateRepo } from "../../core/repos.js";
@@ -31,6 +31,11 @@ export const gitRoutes = [
     const file = c.query.get("path");
     if (!file) fail(400, "path required");
     return gitDiff(file);
+  }),
+  route({ name: "git.log", method: "GET", path: "/api/git/log", summary: "the newest commits that touched the workspace paths, unpushed marked" }, async () => gitLog()),
+  route({ name: "git.commitDiff", method: "GET", path: "/api/git/commits/:hash", summary: "one commit as a patch, the workspace paths only", errors: 400 }, async (c) => {
+    const d = await gitCommitDiff(c.params.hash);
+    return reply(d.error ? (/^no such commit/.test(d.error) ? 404 : 400) : 200, d);
   }),
   // Committing stays manual: the background timer never writes history, and pushes it only with `autosync: push`.
   route({ name: "git.commit", method: "POST", path: "/api/git/commit", summary: "stage and commit {paths, message}", errors: 400, body: Commit }, async (c) => {

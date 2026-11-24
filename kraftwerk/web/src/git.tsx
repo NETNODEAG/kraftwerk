@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect, useState } from "react";
 import { api, failure, type CallInput } from "./api";
 import { fmtAgo, Icon } from "./shared";
 import { Button, cn, EmptyState, Notice, Page, PageHeader, Panel, TextField } from "./ui";
-import type { GitStatus } from "./types";
+import type { GitCommit, GitStatus } from "./types";
 import { useWorkspaceCloud } from "./cloud-mode";
 
 /**
@@ -42,10 +42,17 @@ function Diff({ file }: { file: string }) {
 export type DiffSource =
   | { route: "git.diff"; input: CallInput<"git.diff"> }
   | { route: "repos.diff"; input: CallInput<"repos.diff"> }
-  | { route: "repos.commit"; input: CallInput<"repos.commit"> };
+  | { route: "repos.commit"; input: CallInput<"repos.commit"> }
+  | { route: "git.commitDiff"; input: CallInput<"git.commitDiff"> };
 
 const loadDiff = (s: DiffSource) =>
-  s.route === "git.diff" ? api.request(s.route, s.input) : s.route === "repos.diff" ? api.request(s.route, s.input) : api.request(s.route, s.input);
+  s.route === "git.diff"
+    ? api.request(s.route, s.input)
+    : s.route === "repos.diff"
+      ? api.request(s.route, s.input)
+      : s.route === "git.commitDiff"
+        ? api.request(s.route, s.input)
+        : api.request(s.route, s.input);
 
 /**
  * Unified diff from any route that answers a GitDiff, coloured per line. Small enough not to warrant a library.
@@ -407,6 +414,10 @@ export function GitScreen() {
         )}
       </Panel>
 
+      {!st.error && <History refresh={`${st.branch}/${st.ahead}/${st.behind}/${st.lastPull}/${st.lastPush}/${st.lastAutoCommit}/${st.files?.length}`} />}
+
+      {!st.error && <Ignored st={st} />}
+
       <p className={cn(NOTE, "m-0")}>
         Synced paths: {(st.scope ?? []).map((s, i) => (
           <span key={s}>{i > 0 && ", "}<code>{s}</code></span>
@@ -507,6 +518,77 @@ function Repository({ st }: { st: GitStatus }) {
           {hosting === "none" && <a href="#/settings">set up kraftwerk sync in settings → git sync</a>}
           {hosting === "custom" && <a href="#/settings/cloud">what kraftwerk sync is</a>}
         </div>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * What was committed: the newest commits that touched the workspace paths,
+ * whoever made them (here by hand, kraftwerk sync, another machine), the
+ * ones not pushed yet marked. A commit opens as its patch.
+ */
+function History({ refresh }: { refresh: string }) {
+  const [commits, setCommits] = useState<GitCommit[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .request("git.log", {})
+      .then((r) => alive && r.ok && setCommits(r.data.commits))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [refresh]);
+  if (!commits) return null;
+  const unpushed = commits.filter((c) => c.local).length;
+  return (
+    <Panel title="history · newest first" actions={<span className={NOTE}>{unpushed ? `${unpushed} not pushed` : commits.length ? "all pushed" : ""}</span>}>
+      {commits.length === 0 && <p className={cn(NOTE, "m-0 px-[18px] py-3.5")}>No commits under the workspace paths yet.</p>}
+      {commits.map((c) => (
+        <div key={c.hash} className="git-commit border-line px-[18px] py-2 [&+&]:border-t" data-commit={c.short}>
+          <button
+            type="button"
+            className="group/item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-0.5 text-left font-[inherit] text-fg"
+            onClick={() => setOpen(open === c.hash ? null : c.hash)}
+            title={c.hash}
+          >
+            <Icon name={open === c.hash ? "expand_more" : "chevron_right"} className="ms-sm" />
+            <code className="text-xs">{c.short}</code>
+            <span className="min-w-0 truncate text-sm group-hover/item:underline">{c.subject}</span>
+            {c.local && <span className="flex-none rounded-md border border-accent px-1.5 text-[10.5px] font-semibold tracking-wide text-accent uppercase">not pushed</span>}
+            <span className={cn(NOTE, "ml-auto flex-none")}>
+              {c.author} · {fmtAgo(c.committedAt)}
+            </span>
+          </button>
+          {open === c.hash && <DiffView source={{ route: "git.commitDiff", input: { hash: c.hash } }} />}
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+/** What .gitignore keeps out of git — and so out of sync: each file with its rules, the root's open. */
+function Ignored({ st }: { st: GitStatus }) {
+  const files = st.ignores ?? [];
+  const count = files.reduce((n, f) => n + f.rules.length + (f.more ?? 0), 0);
+  return (
+    <Panel title="ignored" actions={<span className={NOTE}>{files.length ? `${count} rule${count === 1 ? "" : "s"} in ${files.length} file${files.length === 1 ? "" : "s"}` : "no .gitignore"}</span>}>
+      <div className="git-ignored flex flex-col gap-2 px-[18px] py-3.5">
+        <div className={NOTE}>Files matching these rules never reach git: they are not listed above, not committed and not synced. Edit a <code>.gitignore</code> to change that.</div>
+        {files.map((f, i) => (
+          <details key={f.path} open={i === 0} className="git-ignore-file rounded-lg border border-line">
+            <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[12.5px]">
+              <code className="min-w-0 flex-1 truncate font-mono">{f.path}</code>
+              <span className={NOTE}>{f.rules.length + (f.more ?? 0)}</span>
+            </summary>
+            <pre className="m-0 overflow-x-auto border-t border-line bg-surface-2 px-2.5 py-2 font-mono text-[12.5px] leading-relaxed">
+              {f.rules.length ? f.rules.join("\n") : "(no rules)"}
+              {f.more ? `\n… ${f.more} more` : ""}
+            </pre>
+          </details>
+        ))}
       </div>
     </Panel>
   );

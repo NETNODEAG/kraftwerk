@@ -297,6 +297,14 @@ export function CloudPanel() {
 
 export function SettingsScreen() {
   const [data, setData] = useState<SettingsData | null>(null);
+  // Which kraftwerk serves this workspace — and the one on disk, when an update waits for a restart.
+  const [running, setRunning] = useState<{ version: string; diskVersion?: string } | null>(null);
+  useEffect(() => {
+    api
+      .call("meta.get")
+      .then((d) => setRunning({ version: d.version, diskVersion: d.diskVersion }))
+      .catch(() => {});
+  }, []);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
   const [color, setColor] = useState("");
@@ -450,6 +458,14 @@ export function SettingsScreen() {
       <PageHeader
         icon={<Icon name="settings" className="text-[24px] text-fg-2" />}
         title="Settings"
+        sub={
+          running && (
+            <span className="settings-version font-mono text-xs" title="the kraftwerk version serving this workspace">
+              kraftwerk {running.version}
+              {running.diskVersion && running.diskVersion !== running.version ? ` · ${running.diskVersion} installed, runs after a restart` : ""}
+            </span>
+          )
+        }
         actions={
           <>
             {error && <Notice tone="bad">{error}</Notice>}

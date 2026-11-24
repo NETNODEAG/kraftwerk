@@ -4,7 +4,7 @@ import { gitignoreHas, ignoreEntryFor, reposRootFor, resolveWorkspace, type Reso
 import { workspaceRoot } from "./context.js";
 import { moveToTrash } from "./trash.js";
 import { newestMtime } from "./mtime.js";
-import { capDiff, DENY, diffAgainstHead, git, gitNet, label, literal, parseStatus, sshCommandFor, type GitDiff } from "./git.js";
+import { commitLog, commitPatch, DENY, diffAgainstHead, git, gitNet, label, literal, parseStatus, sshCommandFor, type GitCommit, type GitDiff } from "./git.js";
 
 /**
  * Repositories: the git clones an agent works on, kept under one root
@@ -60,15 +60,7 @@ export interface RepoFile {
   status: string;
 }
 
-export interface RepoCommit {
-  hash: string;
-  short: string;
-  subject: string;
-  author: string;
-  committedAt: string;
-  /** On no remote yet: the clone's own work. */
-  local: boolean;
-}
+export type RepoCommit = GitCommit;
 
 /**
  * The detail page's view of a clone: the listing's summary plus what is
@@ -226,25 +218,14 @@ export async function repoDetail(slug: string): Promise<RepoDetail | null> {
   const info = await inspect(root, slug);
   const detail: RepoDetail = { ...info, files: [], commits: [], insertions: 0, deletions: 0 };
   if (info.error) return detail;
-  const [status, log, local, stat, upstream] = await Promise.all([
+  const [status, commits, stat, upstream] = await Promise.all([
     git(["status", "--porcelain=v1", "-z", "--untracked-files=all"], dir),
-    git(["log", `-${COMMITS}`, "--format=%H%x00%h%x00%s%x00%an%x00%cI"], dir),
-    // Bounded like the log: the local commits among the newest N are a prefix of the first N non-remote ones.
-    git(["rev-list", `-n`, String(COMMITS), "HEAD", "--not", "--remotes"], dir),
+    commitLog(dir, COMMITS),
     git(["diff", "HEAD", "--shortstat"], dir),
     git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], dir),
   ]);
   if (status.ok) detail.files = parseStatus(status.stdout).map((f) => ({ path: f.path, code: f.code, status: label(f.code) }));
-  if (log.ok) {
-    const localSet = new Set(local.ok ? local.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : []);
-    detail.commits = log.stdout
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => {
-        const [hash, short, subject, author, committedAt] = l.split("\0");
-        return { hash, short, subject, author, committedAt, local: localSet.has(hash) };
-      });
-  }
+  detail.commits = commits;
   if (stat.ok) {
     const ins = /(\d+) insertion/.exec(stat.stdout);
     const del = /(\d+) deletion/.exec(stat.stdout);
@@ -280,32 +261,7 @@ export async function repoDiff(slug: string, file: string): Promise<GitDiff> {
 export async function repoCommitDiff(slug: string, hash: string): Promise<GitDiff> {
   if (!/^[0-9a-f]{7,40}$/.test(hash)) return { diff: "", error: "invalid commit" };
   const { dir } = await cloneDir(slug);
-  if (!(await git(["rev-parse", "--verify", "-q", `${hash}^{commit}`], dir)).ok) return { diff: "", error: "no such commit" };
-  // Post-image paths of the commit: "M\0path\0", renames and copies as "R100\0old\0new\0".
-  const tree = await git(["diff-tree", "-r", "-M", "-z", "--root", "--name-status", hash], dir);
-  if (!tree.ok) return { diff: "", error: tree.stderr || "git diff-tree failed" };
-  const parts = tree.stdout.split("\0");
-  const paths: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    const status = parts[i];
-    if (!status || /^[0-9a-f]{40}$/.test(status)) continue; // the leading hash line of --root
-    const two = /^[RC]/.test(status);
-    const file = two ? parts[i + 2] : parts[i + 1];
-    if (file) paths.push(file);
-    i += two ? 2 : 1;
-  }
-  const kept = paths.filter((f) => !DENY.some((re) => re.test(f)));
-  const hidden = paths.length - kept.length;
-  const format = "--format=commit %H%nAuthor: %an <%ae>%nDate:   %cI%n%n    %s%n";
-  if (kept.length === 0 && paths.length > 0) {
-    const head = await git(["show", "--no-patch", format, hash], dir);
-    return { diff: `${head.stdout}\n(${hidden} file${hidden === 1 ? "" : "s"} not shown: secret or key)\n` };
-  }
-  const r = await git(["show", "--stat", "--patch", format, hash, "--", ...kept.map(literal)], dir);
-  if (!r.ok) return { diff: "", error: r.stderr || "git show failed" };
-  const out = capDiff(r.stdout);
-  if (hidden > 0) out.diff += `\n(${hidden} file${hidden === 1 ? "" : "s"} not shown: secret or key)\n`;
-  return out;
+  return commitPatch(dir, hash);
 }
 
 /** Every clone under the root, alphabetically. Folders without .git are skipped. */

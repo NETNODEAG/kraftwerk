@@ -1,5 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { makeProject, startServer, type Fixture, type RunningServer } from "../helpers/project.js";
 import type { GitDiff, GitStatus } from "../../src/core/git.js";
 
@@ -83,6 +85,35 @@ describe("git sync API", () => {
     st = await status();
     assert.equal(byPath(st).get("knowledge/notes.md")?.status, "modified");
     assert.match((await diff("knowledge/notes.md")).diff, /^\+more$/m);
+  });
+
+  it("the history lists what was committed under the workspace paths, unpushed marked, and a commit opens as its patch — nothing outside, no secret", async () => {
+    // A commit beside the workspace paths, and one that carries a key along.
+    await fx.write("outside-log.txt", "outside\n");
+    fx.git("add", "-f", "outside-log.txt");
+    fx.git("commit", "-qm", "outside only");
+    await fx.write("knowledge/extra.md", "# extra\n");
+    await fx.write("knowledge/keys.pem", "KEY=topsecret\n");
+    await fx.write("other.txt", "beside\n");
+    fx.git("add", "-f", "knowledge/extra.md", "knowledge/keys.pem", "other.txt");
+    fx.git("commit", "-qm", "extra and more");
+    try {
+      const log = (await (await fetch(`${srv.url}/api/git/log`)).json()) as { commits: { hash: string; short: string; subject: string; local: boolean }[] };
+      assert.deepEqual(log.commits.map((c) => c.subject), ["extra and more", "add notes"]);
+      assert.ok(log.commits.every((c) => c.local), "no remote: all of it is this machine's");
+      const patch = (await (await fetch(`${srv.url}/api/git/commits/${log.commits[0]!.hash}`)).json()) as { diff: string };
+      assert.match(patch.diff, /extra and more/);
+      assert.match(patch.diff, /^\+# extra$/m);
+      assert.doesNotMatch(patch.diff, /topsecret|beside|other\.txt/);
+      assert.match(patch.diff, /1 file not shown: secret or key/);
+      assert.match(patch.diff, /1 file not shown: outside the workspace paths/);
+      assert.equal((await fetch(`${srv.url}/api/git/commits/deadbeefdeadbeef`)).status, 404);
+      assert.equal((await fetch(`${srv.url}/api/git/commits/not-a-hash`)).status, 400);
+    } finally {
+      // Back to where the history was, the working tree as the next tests expect it.
+      fx.git("reset", "-q", "--mixed", "HEAD~2");
+      for (const f of ["outside-log.txt", "knowledge/extra.md", "knowledge/keys.pem", "other.txt"]) await rm(path.join(fx.root, f), { force: true });
+    }
   });
 
   it("lists a conflicted file as blocked and refuses to commit it", async () => {
