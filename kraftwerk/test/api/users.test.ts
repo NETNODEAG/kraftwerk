@@ -62,13 +62,16 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
   before(async () => {
     cloud = await startStubCloud({ interval: 60 });
     process.env.KRAFTWERK_CLOUD_URL = cloud.url;
-    a = await makeProject(`id: ${WS}\nname: Team\nslug: team\nboards: {}\nprojects: {}\nusers:\n  mode: cloud\ngit:\n  interval: 0\n`);
+    a = await makeProject(`id: ${WS}\nname: Team\nslug: team\nboards: {}\nprojects: {}\nvibeables: {}\nusers:\n  mode: cloud\ngit:\n  interval: 0\n`);
     b = await makeProject("id: ws_solo000001\nname: Solo\nslug: solo\nboards: {}\ngit:\n  interval: 0\n");
     process.env.HOME = a.home;
     const { mkdir, writeFile } = await import("node:fs/promises");
     await mkdir(path.join(a.home, ".kraftwerk"), { recursive: true });
     await writeFile(path.join(a.home, ".kraftwerk", "identity.json"), JSON.stringify({ handle: "studio-owner", machine: "studio", previous: [] }));
     const { startHub } = await import("../../src/server/server.js");
+    await mkdir(path.join(a.root, "kraftwerk-data/vibeables/shop"), { recursive: true });
+    await writeFile(path.join(a.root, "kraftwerk-data/vibeables/shop/index.html"), '<link rel="stylesheet" href="./style.css">');
+    await writeFile(path.join(a.root, "kraftwerk-data/vibeables/shop/style.css"), "body{color:red}");
     hub = await startHub({ port: 0, staticDir: a.root, daemon: true });
     await hub.open(a.root);
     await hub.open(b.root);
@@ -139,6 +142,30 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
     // The cookie is kept only as its hash.
     const stored = await readFile(path.join(a.home, ".kraftwerk", "user-sessions.json"), "utf8");
     assert.ok(!stored.includes(decodeURIComponent(session.split("=")[1])));
+  });
+
+  it("an app's preview goes on under a pass: its sandboxed page loads its own files without the cookie", async () => {
+    // Not signed in: the page waits like everything else.
+    assert.match((await browser("/w/team/vibeables/shop/")).headers.get("location") ?? "", /^\/w\/team\/auth\/signin\?/);
+    const to = await browser("/w/team/vibeables/shop/", { cookie: session });
+    assert.equal(to.status, 302);
+    const under = to.headers.get("location")!;
+    assert.match(under, /^\/w\/team\/vibeables\/shop\/~\d+\.[\w-]{43}\/$/);
+    // What the sandboxed page asks for: cross-site to the browser, so no cookie.
+    const page = await browser(under);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-security-policy") ?? "", /^sandbox /);
+    const css = await browser(`${under}style.css`);
+    assert.equal(css.status, 200);
+    assert.equal(await css.text(), "body{color:red}");
+    assert.equal((await browser(`${under}.env`)).status, 404);
+    // A pass is for its app in its workspace, and cannot be made up.
+    const pass = under.split("/")[5]!;
+    assert.match((await browser(`/w/team/vibeables/other/${pass}/style.css`)).headers.get("location") ?? "", /\/auth\/signin\?/);
+    assert.match((await browser(`/w/team/vibeables/shop/${pass.slice(0, -1)}${pass.endsWith("A") ? "B" : "A"}/style.css`)).headers.get("location") ?? "", /\/auth\/signin\?/);
+    assert.match((await browser(`/w/team/vibeables/shop/~1.${"A".repeat(43)}/style.css`)).headers.get("location") ?? "", /\/auth\/signin\?/);
+    // A script on this machine is its own shell: the files as before, no detour.
+    assert.equal((await script("/w/team/vibeables/shop/style.css")).status, 200);
   });
 
   it("kraftwerk join's one-time link signs the browser in as the account, once", async () => {

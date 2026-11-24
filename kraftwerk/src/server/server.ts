@@ -8,8 +8,8 @@ import { stopMachineCloud } from "./cloud.js";
 import { disposeAllBackends, disposeWorkspaceBackends } from "../core/chat/sessions.js";
 import { markWorkspaceStopped, registerInstance, registerWorkspace, unregisterInstance } from "../core/instances.js";
 import { startGitSync, stopGitSync } from "../core/git.js";
-import { disposeAllDevs, disposeWorkspaceDevs } from "../core/vibeables.js";
-import { proxyUpgrade, serveVibeable } from "./preview.js";
+import { disposeAllDevs, disposeWorkspaceDevs, safeVibeableSlug } from "../core/vibeables.js";
+import { proxyUpgrade, serveVibeable, takeVibeablePass, vibeablePass } from "./preview.js";
 import { startRoutineScheduler, stopRoutineScheduler } from "../core/routines.js";
 import { startBoardWake, stopBoardWake } from "../core/board-wake.js";
 import { readWorkspaceDotenv } from "../core/env.js";
@@ -366,6 +366,13 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       if (target.slug !== undefined && !open) return json(res, { error: `no workspace "${target.slug}" here` }, 404);
       const { url } = target;
       const prefix = prefixOf(req, target);
+      // An app's files under a pass (preview.ts): the pass is what lets the request in — the sandboxed page sends no cookie.
+      const isVibeable = url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/");
+      if (isVibeable) {
+        const pass = takeVibeablePass(open?.slug, url.pathname);
+        url.pathname = pass.pathname;
+        if (pass.valid && open) return await runInHub(hub, () => open.ws.run(() => serveVibeable(req, res, url)));
+      }
       const cu = await cloudUsers(open, prefix);
       const gate = await withUser(req, await trustOf(req, url, trustOpts), cu);
       const { trust } = gate;
@@ -397,9 +404,24 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
         return await run(() => apiRouter.handle(req, res, url, trust));
       }
       // /vibeables/<slug>/… is an app's own files, served for the preview pane — workspace data, so not for unpaired callers.
-      if (url.pathname === "/vibeables" || url.pathname.startsWith("/vibeables/")) {
+      if (isVibeable) {
         if (trust.kind === "none") return json(res, { error: "pair this device first", pair: true }, 401);
         if (!open) return json(res, { error: "name a workspace: <slug>.localhost or /w/<slug>/" }, 404);
+        // Let in by a cookie (a signed-in user, a device, a member): on to the address with a pass, so the page's own files load too.
+        const app = url.pathname.split("/")[2];
+        if (app && (trust.kind !== "local" || trust.user) && (req.method === "GET" || req.method === "HEAD")) {
+          let slug: string | undefined;
+          try {
+            slug = safeVibeableSlug(decodeURIComponent(app));
+          } catch {
+            /* not an app's name: serveVibeable says so */
+          }
+          if (slug) {
+            const rest = url.pathname.split("/").slice(3).join("/");
+            res.writeHead(302, { location: `${prefix}/vibeables/${encodeURIComponent(slug)}/${vibeablePass(open.slug, slug)}/${rest}${url.search}`, "cache-control": "no-store" });
+            return void res.end();
+          }
+        }
         return await run(() => serveVibeable(req, res, url));
       }
       // A daemon's own address lists its workspaces; anywhere else, the web UI's shell (public: an unpaired browser needs it to pair).
@@ -418,6 +440,15 @@ export async function startHub(opts: HubOptions): Promise<Hub> {
       const open = pick(target, portDefault());
       if (target.slug !== undefined && !open) return void socket.end("HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n");
       const { url } = target;
+      // A dev server's HMR socket under a pass (preview.ts), opened by the sandboxed page: no cookie comes with it.
+      if (url.pathname.startsWith("/vibeables/")) {
+        const pass = takeVibeablePass(open?.slug, url.pathname);
+        url.pathname = pass.pathname;
+        if (pass.valid && open) {
+          req.url = url.pathname + url.search;
+          return runInHub(hub, () => open.ws.run(() => proxyUpgrade(req, socket, head)));
+        }
+      }
       const cu = await cloudUsers(open, prefixOf(req, target));
       const gate = await withUser(req, await trustOf(req, url, trustOpts, true), cu);
       const { trust } = gate;

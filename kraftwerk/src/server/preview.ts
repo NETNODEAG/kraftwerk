@@ -1,3 +1,4 @@
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, promises as fs } from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -63,7 +64,60 @@ const PREVIEW_HEADERS = {
   "cache-control": "no-store",
   "content-security-policy": VIBEABLE_CSP,
   "access-control-allow-origin": "*",
+  // A pass (below) is part of the address: it stays out of what the app tells other sites.
+  "referrer-policy": "same-origin",
 };
+
+/* ---------- pass ---------- */
+
+/**
+ * The sandboxed document has an opaque origin, so what it loads — its own
+ * style.css, app.js, images, fetch() — is a cross-site request to the
+ * browser: no SameSite cookie goes with it. Where a cookie is what lets the
+ * caller in (a signed-in user, a paired device, a member), the app's files
+ * would answer with the sign-in page and the app would show unstyled.
+ *
+ * So the first request, which does carry the cookie, is redirected to an
+ * address with a pass in it — /vibeables/<slug>/~<pass>/… — and the page's
+ * relative links stay under it. A pass opens one app's files of one
+ * workspace for PASS_TTL_MS and nothing else; it is signed with a secret
+ * this process made up, so none outlives a restart.
+ */
+const PASS_TTL_MS = 12 * 60 * 60 * 1000;
+const PASS_RE = /^~(\d{1,15})\.([A-Za-z0-9_-]{43})$/;
+const passSecret = randomBytes(32);
+
+const sign = (workspace: string, slug: string, exp: number): string => createHmac("sha256", passSecret).update(`${workspace}\0${slug}\0${exp}`).digest("base64url");
+
+/** A pass for the app `slug` of the workspace `workspace` (its slug here), as the path segment that carries it. */
+export function vibeablePass(workspace: string, slug: string, now = Date.now()): string {
+  const exp = now + PASS_TTL_MS;
+  return `~${exp}.${sign(workspace, slug, exp)}`;
+}
+
+/**
+ * Take the pass out of a preview path. `pathname` is the path without it
+ * either way; `valid` says whether it was there and holds for this app of
+ * this workspace, `slug` the app it names (undefined: not an app's path).
+ */
+export function takeVibeablePass(workspace: string | undefined, pathname: string, now = Date.now()): { pathname: string; slug?: string; valid: boolean } {
+  const seg = pathname.split("/"); // ["", "vibeables", slug, maybe pass, ...rest]
+  let slug: string | undefined;
+  try {
+    slug = seg[2] ? safeVibeableSlug(decodeURIComponent(seg[2])) : undefined;
+  } catch {
+    slug = undefined;
+  }
+  const m = PASS_RE.exec(seg[3] ?? "");
+  if (!m) return { pathname, slug, valid: false };
+  seg.splice(3, 1);
+  const stripped = seg.length === 3 ? `${seg.join("/")}/` : seg.join("/");
+  const exp = Number(m[1]);
+  if (!slug || workspace === undefined || !(exp > now)) return { pathname: stripped, slug, valid: false };
+  const want = Buffer.from(sign(workspace, slug, exp));
+  const got = Buffer.from(m[2]!);
+  return { pathname: stripped, slug, valid: want.length === got.length && timingSafeEqual(want, got) };
+}
 
 /**
  * GET /vibeables/<slug>/<file>. Dot segments (.env, .git) are never served;
