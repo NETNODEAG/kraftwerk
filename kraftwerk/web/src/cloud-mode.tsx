@@ -367,18 +367,116 @@ export function ModeCompare({ mode }: { mode?: "local" | "cloud" }) {
   );
 }
 
-/** The mode in the top bar: always visible, one click from the switch. Nothing for a member or a server without the route. */
+/**
+ * Where a workspace is, as three places — the top bar says which one, the
+ * popover shows all three with this one marked:
+ *
+ *   local      runs on a machine, not connected to kraftwerk cloud
+ *   connected  runs on a machine, connected to kraftwerk cloud (cloud mode)
+ *   hosted     runs in kraftwerk cloud, in a sandbox started for it
+ */
+type Place = "local" | "connected" | "hosted";
+
+const PLACES: Record<Place, { icon: string; title: string; text: string }> = {
+  local: {
+    icon: "laptop_mac",
+    title: "Local only",
+    text: "Runs on this machine. Not connected to kraftwerk cloud — nobody else gets in.",
+  },
+  connected: {
+    icon: "cloud_sync",
+    title: "Local, cloud connected",
+    text: "Runs on this machine: files and agents are here. The cloud signs people in and shares boards — it works while this machine is on.",
+  },
+  hosted: {
+    icon: "cloud_done",
+    title: "Runs in the cloud",
+    text: "Runs on kraftwerk cloud's hardware: files and agents are there, and it keeps running with every machine off.",
+  },
+};
+
+/** The three places as a list, this workspace's one marked. */
+function Places({ place }: { place: Place }) {
+  return (
+    <ol className="places m-0 flex list-none flex-col gap-1 p-0">
+      {(Object.keys(PLACES) as Place[]).map((p) => {
+        const here = p === place;
+        return (
+          <li
+            key={p}
+            aria-current={here ? "true" : undefined}
+            className={cn(
+              "flex items-start gap-2.5 rounded-control border px-2.5 py-2",
+              here
+                ? p === "hosted"
+                  ? "border-accent bg-accent text-on-accent"
+                  : p === "connected"
+                    ? "border-accent/50 bg-accent/10"
+                    : "border-fg/30 bg-surface-2"
+                : "border-transparent opacity-55",
+            )}
+          >
+            <Icon name={PLACES[p].icon} className="mt-px text-[18px]" />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                {PLACES[p].title}
+                {here && (
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-2xs font-semibold",
+                      p === "hosted" ? "bg-on-accent/20" : "bg-fg/10",
+                    )}
+                  >
+                    this workspace
+                  </span>
+                )}
+              </span>
+              {here && <span className={cn("text-xs", p === "hosted" ? "opacity-90" : "text-fg-2")}>{PLACES[p].text}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Where it runs, beside the mode: on a machine (quiet) or in the cloud (loud, filled). */
+function RunsChip({ hosted }: { hosted: boolean }) {
+  return (
+    <span
+      // runs-chip: the tests find it by this name.
+      className={cn(
+        "runs-chip inline-flex flex-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+        hosted ? "border-accent bg-accent text-on-accent" : "border-line bg-transparent text-fg-2",
+      )}
+      data-runs={hosted ? "cloud" : "machine"}
+      title={hosted ? PLACES.hosted.text : "Runs on a machine: its files and agents are there, not in kraftwerk cloud"}
+    >
+      <Icon name={hosted ? "cloud_done" : "laptop_mac"} className="ms-sm" />
+      <span className="max-[640px]:hidden">{hosted ? "runs in the cloud" : "runs on this machine"}</span>
+    </span>
+  );
+}
+
+/**
+ * Where the workspace is, in the top bar: where it runs, then whether it is
+ * connected to the cloud — one click from the switch. A member sees only
+ * where it runs; nothing on a server without the route.
+ */
 export function ModeChip() {
   const me = useApi("me.get", {}, { interval: 60_000 });
   const sw = useWorkspaceCloud();
   const { cloud } = sw;
-  if (!cloud || me?.via === "member") return null;
+  const hosted = me?.runsIn === "cloud";
+  if (!cloud || me?.via === "member") return hosted ? <RunsChip hosted /> : null;
   const isCloud = cloud.mode === "cloud";
+  const place: Place = hosted ? "hosted" : isCloud ? "connected" : "local";
   const offline = isCloud && cloud.state !== "connected";
   // In cloud mode the workspace's page in the cloud is one click away, beside the chip.
   const cloudLink = isCloud && cloud.workspaceUrl && !cloud.deleted ? cloud.workspaceUrl : null;
   return (
     <span className="inline-flex flex-none items-center gap-1">
+      {!hosted && <RunsChip hosted={false} />}
       <Popover
         align="end"
         className="w-[min(380px,calc(100vw-24px))] p-0"
@@ -390,29 +488,42 @@ export function ModeChip() {
               "mode-chip inline-flex flex-none cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 font-[inherit] text-xs font-semibold transition-colors",
               isCloud && cloud.deleted
                 ? "border-bad/40 bg-bad/10 text-bad hover:bg-bad/18"
-                : isCloud
-                  ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/18"
-                  : "border-line bg-transparent text-fg-2 hover:text-fg",
+                : hosted
+                  ? "border-accent bg-accent text-on-accent hover:bg-accent-hover"
+                  : isCloud
+                    ? "border-accent/40 bg-accent/10 text-accent hover:bg-accent/18"
+                    : "border-line bg-transparent text-fg-2 hover:text-fg",
               open && "ring-2 ring-accent/30",
             )}
             aria-label={`workspace mode: ${cloud.mode}`}
+            data-place={place}
             title={
               isCloud
                 ? cloud.deleted
                   ? "Deleted in kraftwerk cloud — switch to local to keep working"
                   : offline
                   ? "Cloud mode — the cloud does not answer right now"
-                  : "Cloud mode — multiplayer"
-                : "Local mode — switch to cloud for multiplayer"
+                  : hosted
+                    ? PLACES.hosted.text
+                    : "Cloud connected — multiplayer; the workspace itself runs on this machine"
+                : "Local only — connect to the cloud for multiplayer"
             }
             onClick={toggle}
           >
             <Icon
-              name={isCloud ? (offline ? "cloud_off" : "cloud") : "laptop_mac"}
+              name={isCloud ? (offline ? "cloud_off" : hosted ? "cloud_done" : "cloud_sync") : "cloud_off"}
               className="ms-sm"
             />
             <span className="max-[640px]:hidden">
-              {isCloud ? (cloud.deleted ? "cloud · deleted" : "cloud") : "local"}
+              {isCloud
+                ? cloud.deleted
+                  ? "cloud · deleted"
+                  : hosted
+                    ? "runs in the cloud"
+                    : offline
+                      ? "cloud not answering"
+                      : "cloud connected"
+                : "local only"}
             </span>
             {!isCloud && (
               <span className="rounded-full bg-accent/12 px-1.5 text-2xs text-accent max-[900px]:hidden">
@@ -424,19 +535,26 @@ export function ModeChip() {
       >
         {(close) => (
           <div className="flex flex-col gap-3 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold">Workspace mode</span>
-              <ModeToggle
-                mode={sw.waiting ? "cloud" : cloud.mode}
-                busy={sw.busy}
-                onPick={(m) => void sw.to(m)}
-              />
-            </div>
-            <Hint>
-              {isCloud
-                ? "Cloud: people sign in with their kraftwerk cloud account, cloud boards are shared, members join without a clone. Your files and agents stay on this machine."
-                : "Local: just you, everything in files on this machine. Switch to cloud to work with others and reach this workspace from anywhere — your files and agents stay here."}
-            </Hint>
+            <span className="text-sm font-semibold">Where this workspace is</span>
+            <Places place={place} />
+            {/* A workspace that runs in the cloud has no local mode to switch to. */}
+            {!hosted && (
+              <>
+                <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+                  <span className="text-sm font-semibold">Cloud connection</span>
+                  <ModeToggle
+                    mode={sw.waiting ? "cloud" : cloud.mode}
+                    busy={sw.busy}
+                    onPick={(m) => void sw.to(m)}
+                  />
+                </div>
+                <Hint>
+                  {isCloud
+                    ? "Connected: people sign in with their kraftwerk cloud account, cloud boards are shared, members join without a clone. Your files and agents stay on this machine."
+                    : "Just you, everything in files on this machine. Connect to the cloud to work with others and reach this workspace from anywhere — your files and agents stay here."}
+                </Hint>
+              </>
+            )}
             {sw.waiting && <Steps cloud={cloud} waiting />}
             <Problem cloud={cloud} error={sw.error} />
             <div className="flex flex-wrap items-center gap-2">

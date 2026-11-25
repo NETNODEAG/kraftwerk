@@ -107,7 +107,10 @@ describe("sandbox — a daemon the cloud runs, reached through it", { timeout: 6
     const session = done.headers.getSetCookie().find((c) => c.startsWith("kw_user="))!.split(";")[0];
     const me = await outside("/api/me", { cookie: session });
     assert.equal(me.status, 200);
-    assert.equal(((await me.json()) as { email?: string }).email, "lukas@example.com");
+    const who = (await me.json()) as { email?: string; runsIn?: string };
+    assert.equal(who.email, "lukas@example.com");
+    // The UI says so in its top bar: this workspace runs in the cloud, not on a machine.
+    assert.equal(who.runsIn, "cloud");
   });
 
   it("inside the sandbox, loopback is its own shell (its agents' CLI)", async () => {

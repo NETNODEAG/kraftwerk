@@ -14,6 +14,7 @@ import { disposeAllDevs } from "../../core/vibeables.js";
 import { identityString, readIdentity } from "../../core/identity.js";
 import { currentPerson, humanActor } from "../../core/person.js";
 import { fail, reply, route } from "./router.js";
+import { sandboxOrigin } from "../sandbox.js";
 
 /** A feature block with a folder (repos, vibeables, projects); saveSettings checks the root. Nested blocks are plain objects: saveSettings reads only these fields. */
 const RootBlock = z.object({ enabled: z.boolean(), root: z.string().optional() });
@@ -150,6 +151,8 @@ export const workspaceRoutes = [
       ...(signedIn && c.trust.kind === "local" ? { role: c.trust.user!.role } : {}),
       /** How the signed-in person got here: through the relay as a member, or on this machine. */
       via: c.trust.kind === "member" ? ("member" as const) : c.trust.kind === "device" ? ("device" as const) : ("local" as const),
+      /** Where this workspace runs: in a sandbox kraftwerk cloud started for it, or on somebody's machine. */
+      runsIn: sandboxOrigin() ? ("cloud" as const) : ("machine" as const),
     };
   }),
 

@@ -4,6 +4,11 @@ name: Publish to npm
 # or manually via the Actions tab (workflow_dispatch). The version comes
 # from kraftwerk/package.json — bump it there before releasing; a re-run
 # with an already-published version fails (npm rejects duplicates).
+#
+# Once the version is on the registry, the cloud's sandbox image is built
+# with it (workflow sandbox-image in NETNODEAG/kraftwerk-cloud). That needs
+# the secret CLOUD_DISPATCH_TOKEN: a fine-grained token for that one
+# repository with "Actions: read and write". Without it the step is skipped.
 
 on:
   release:
@@ -61,3 +66,25 @@ jobs:
           done
           echo "::error::${name}@${version} not visible on the registry 30 minutes after publish"
           exit 1
+
+      - name: Build the cloud's sandbox image
+        env:
+          TOKEN: ${{ secrets.CLOUD_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::CLOUD_DISPATCH_TOKEN is not set: the sandbox image is not built"
+            exit 0
+          fi
+          version="$(node -p "require('./package.json').version")"
+          code=$(curl -sS -o /tmp/dispatch.json -w '%{http_code}' -X POST \
+            -H "authorization: Bearer $TOKEN" \
+            -H 'accept: application/vnd.github+json' \
+            -H 'x-github-api-version: 2022-11-28' \
+            https://api.github.com/repos/NETNODEAG/kraftwerk-cloud/actions/workflows/sandbox-image.yml/dispatches \
+            -d "{\"ref\":\"main\",\"inputs\":{\"kraftwerk_version\":\"${version}\"}}")
+          if [ "${code#2}" = "$code" ]; then
+            echo "::error::starting the sandbox image build failed (HTTP $code)"
+            cat /tmp/dispatch.json
+            exit 1
+          fi
+          echo "sandbox image build started for kraftwerk ${version}"

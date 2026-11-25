@@ -306,7 +306,8 @@ describe("users: cloud — signing in to a workspace's UI", { timeout: 60_000 },
   });
 
   it("a users: local workspace beside it stays open, signed with this machine's handle", async () => {
-    const me = (await (await browser("/w/solo/api/me")).json()) as { mode: string; handle: string; actor: string; signedIn: boolean };
+    const me = (await (await browser("/w/solo/api/me")).json()) as { mode: string; handle: string; actor: string; signedIn: boolean; runsIn: string };
+    assert.equal(me.runsIn, "machine");
     assert.deepEqual([me.mode, me.handle, me.actor, me.signedIn], ["local", "studio-owner", "human:studio-owner", false]);
     assert.notEqual((await browser("/w/solo/auth/signin")).status, 302, "nothing to sign in to here");
     assert.equal((await browser("/w/solo/api/boards", { origin: true, body: { title: "Ops", slug: "ops" } })).status, 201);

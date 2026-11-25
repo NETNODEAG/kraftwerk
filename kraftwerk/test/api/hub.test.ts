@@ -1,6 +1,6 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -68,7 +68,7 @@ describe("hub: one kraftwerk, several workspaces", () => {
     process.env.KRAFTWERK_CLOUD_URL = cloud.url;
 
     aliasPort = await freePort();
-    a = await makeProject("name: Alpha\nslug: alpha\ngit:\n  interval: 0\n");
+    a = await makeProject("name: Alpha\nslug: alpha\nvibeables: {}\ngit:\n  interval: 0\n");
     b = await makeProject("name: Beta\nslug: beta\ngit:\n  interval: 0\n");
     g = await makeProject(`name: Gamma\nslug: gamma\nport: ${aliasPort}\ngit:\n  interval: 0\n`);
     clash = await makeProject("name: Not Alpha\nslug: alpha\ngit:\n  interval: 0\n");
@@ -266,6 +266,27 @@ describe("hub: one kraftwerk, several workspaces", () => {
     if (!v6) return t.skip("no IPv6 loopback here");
     const r = await fetch(`http://[::1]:${hub.port}/w/beta/api/meta?probe=1`);
     assert.equal(((await r.json()) as { workspaceSlug: string }).workspaceSlug, "beta");
+  });
+
+  it("a browser leaving an app's event stream does not take the daemon down", async () => {
+    // The connection's close arrives outside any request: no workspace is current there (0.106.0 crashed).
+    const crashed: unknown[] = [];
+    const onCrash = (e: unknown) => crashed.push(e);
+    process.on("uncaughtException", onCrash);
+    try {
+      mkdirSync(path.join(a.root, "kraftwerk-data", "vibeables", "hello"), { recursive: true });
+      writeFileSync(path.join(a.root, "kraftwerk-data", "vibeables", "hello", "index.html"), "<h1>hi</h1>\n");
+      const ac = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${hub.port}/w/alpha/api/vibeables/hello/events`, { signal: ac.signal });
+      assert.equal(res.status, 200);
+      await res.body!.getReader().read();
+      ac.abort();
+      await new Promise((r) => setTimeout(r, 300));
+      assert.deepEqual(crashed.map(String), []);
+      assert.equal((await fetch(`http://127.0.0.1:${hub.port}/w/alpha/api/meta`)).status, 200);
+    } finally {
+      process.off("uncaughtException", onCrash);
+    }
   });
 
   it("refuses a second workspace with a slug it already serves", async () => {

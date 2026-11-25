@@ -321,10 +321,13 @@ const IGNORED = /(^|[\\/])(\.git|node_modules|\.cache|\.vite|\.next)([\\/]|$)/;
  * where it cannot watch, the pane still has its manual reload.
  */
 export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEvent) => void): () => void {
-  let ch = channels().get(slug);
+  // The workspace's channels, taken now: the watcher's callbacks and the returned unsubscribe run
+  // later, outside the request (a closed connection, a file event), where no workspace is current.
+  const all = channels();
+  let ch = all.get(slug);
   if (!ch) {
     ch = { watcher: null, subs: new Set(), pending: new Set(), timer: null };
-    channels().set(slug, ch);
+    all.set(slug, ch);
     const c = ch;
     try {
       c.watcher = watch(dir, { recursive: true, persistent: false }, (_event, filename) => {
@@ -343,34 +346,34 @@ export function subscribeVibeable(slug: string, dir: string, fn: (ev: VibeableEv
         for (const s of c.subs) s({ type: "error", message: `file watcher stopped: ${err.message}` });
         // Drop the channel: the next subscriber gets a fresh watch() attempt
         // instead of joining a dead one that never reports anything.
-        dropChannel(slug);
+        dropChannel(slug, all);
       });
     } catch (err) {
-      dropChannel(slug);
+      dropChannel(slug, all);
       queueMicrotask(() => fn({ type: "error", message: `cannot watch ${dir}: ${(err as Error).message}` }));
       return () => {};
     }
   }
   ch.subs.add(fn);
   return () => {
-    const c = channels().get(slug);
+    const c = all.get(slug);
     if (!c) return;
     c.subs.delete(fn);
     if (c.subs.size === 0) {
       if (c.timer) clearTimeout(c.timer);
       c.watcher?.close();
-      channels().delete(slug);
+      all.delete(slug);
     }
   };
 }
 
 /** Close a channel's watcher and forget it; subscribers are left to reconnect. */
-function dropChannel(slug: string): void {
-  const c = channels().get(slug);
+function dropChannel(slug: string, all = channels()): void {
+  const c = all.get(slug);
   if (!c) return;
   if (c.timer) clearTimeout(c.timer);
   c.watcher?.close();
-  channels().delete(slug);
+  all.delete(slug);
 }
 
 function broadcast(slug: string, ev: VibeableEvent): void {
